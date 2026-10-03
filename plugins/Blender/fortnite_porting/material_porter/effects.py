@@ -313,6 +313,34 @@ def swing(windows, rig, hits=()):
         replay(root)
 
 
+ANIMATION_ROLES = ("trail", "swing", "event", "impact")     # played by an animation: its own replay
+
+
+def on_character(rig):
+    """The effects on an armature that aren't an animation's (an outfit's idle ones, a held item's)."""
+    return [o for o in rig.children_recursive if o.get(KEY) == "System" and o.get(KEY_ROLE) not in ANIMATION_ROLES]
+
+
+def follow(rig, roots):
+    """An animation put on the armature: its effects that were already there ('roots': an outfit's
+    idle ones) replayed on the moving bones over the scene's frames - they were played on the pose the
+    character had then and stayed there."""
+    from . import effect_replay
+    from .hook import _log
+    done = []
+    for root in roots:
+        if root.name not in bpy.data.objects or root.get(effect_replay.KEY_PROGRAM) is None:
+            continue
+        try:
+            for line in effect_replay.play(root):
+                _log(line)
+            done.append(root.name)
+        except Exception as e:
+            _log("%s: not replayed on the animation (%s: %s)" % (root.name, type(e).__name__, e))
+    if done:
+        _log("%s replayed on %s's animation" % (", ".join(done), rig.name))
+
+
 def settle(context):
     """A character's effects, once FP is done with its skeleton (its parts merged, its bones
     reoriented and reshaped, Tasty's rig made): each put back on its bone - a child hangs from its

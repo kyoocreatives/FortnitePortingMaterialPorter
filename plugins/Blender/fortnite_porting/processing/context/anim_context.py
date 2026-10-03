@@ -25,6 +25,11 @@ class AnimImportContext:
         if target_skeleton.data.get("is_tasty"):
             target_skeleton["use_pole_targets"] = False
             target_skeleton["use_ik_fingers"] = False
+
+        # Material Porter fork: the effects already on the character (an outfit's idle ones), to replay on
+        # the animation's bones once it is on
+        from ...material_porter import effects as mp_effects
+        mp_present = mp_effects.on_character(target_skeleton)
             
 
         # clear old data
@@ -327,6 +332,11 @@ class AnimImportContext:
                 master_skeleton.hide_set(True)
             effects.from_animation(self, data.get("MPEffects"), target_skeleton, data.get("MPSockets"), master_skeleton)
 
+        # Material Porter fork: the character's own effects follow its bones now that they move (a swing's
+        # replay below takes the idle ones)
+        if mp_present:
+            swung = data.get("MPTrails") or data.get("MPHits")
+            mp_effects.follow(target_skeleton, [r for r in mp_present if not (swung and r.get(mp_effects.KEY_ROLE) == "idle")])
         # Material Porter fork: a swing's trail windows and hits, given to the effects of the pickaxe the armature holds
         if data.get("MPTrails") or data.get("MPHits"):
             from ...material_porter import effects
