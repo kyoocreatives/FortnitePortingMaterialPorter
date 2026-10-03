@@ -3,12 +3,8 @@ An unofficial fork of [FortnitePorting](https://github.com/h4lfheart/FortnitePor
 **Install:** download `FortnitePortingMP.exe` below and run it (Windows x64, no installer). Windows may warn about an unsigned app: *More info > Run anyway*. It runs beside an installed FortnitePorting, with its own settings (`%APPDATA%\FortnitePorting MP`) and its own Blender plugin (`fortnite_porting_mp`), installed from the Plugins page as in FortnitePorting. Exact materials need Blender 5.0 or newer; older Blender gets FortnitePorting's shaders.
 
 **This release**
-- Effects render in Cycles as they do in EEVEE: glows no longer fade each other out, overlapping particles no longer turn black, stacked flame layers draw in the game's order (Elite Jules' leg flames), and flame strips that turn to the camera show up (her shoulder flames).
-- Soft particles: effects fade where they meet what's behind them, as in game (sprites crossing the ground, a character's effect meshes against the body). An effect whose fade distance the game leaves at 0 stays fully drawn (Elite Jules' crown).
-- Smoke lit by the game's lighting volume (round puffs) is lit softly, without its sphere's shading.
-- Effects use the values the system hands its stateless emitters while it plays; an outfit's effect starts once the character's skeleton is in place; materials that tint what's behind them under UE 5's name for it (Tempest's eye glow) work.
-- Exact materials: more of Fortnite's sky and cloud expressions translate (sky atmosphere light, aerial perspective, volumetric cloud inputs).
-- Fixed: an import right after an update could fail with an unknown export type when the automatic Blender plugin sync hadn't finished.
+- An emote imported onto a character makes its effects follow it: the outfit's idle effects are replayed on the animated bones (Elite Jules' flames stay on her legs and shoulders while she dances). For an animation of your own, select the effect and press *Replay Effect*.
+- Exact materials: a negative glow is dropped as in game (UE clamps emissive at 0 unless a material allows otherwise). Weapons whose time-of-day glow goes negative by day no longer lose their colour (Marker Bonerattler SMG came out magenta instead of green).
 
 **What it adds**
 - Exact materials, rebuilt from each material's Unreal graph. *Settings > Blender > Prefer FP Shaders for Characters* keeps FortnitePorting's shaders for character materials it has one for.
