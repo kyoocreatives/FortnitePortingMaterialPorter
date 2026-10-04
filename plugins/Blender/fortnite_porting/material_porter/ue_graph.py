@@ -4022,8 +4022,8 @@ def merge_duplicates(tree, memo=None):
     every input both read agrees - a call read through several outputs is one group node -
     unless that would close a loop (UE compiles each output of a call on its own: one
     output's inputs may need another's result). A vector split and put back together in
-    order (UE's swizzles, free in HLSL, are nodes here) is the vector again. Returns how
-    many nodes went."""
+    order (UE's swizzles, free in HLSL, are nodes here) is the vector again, and maths that
+    hands a value on unchanged (x * 1, x + 0) goes. Returns how many nodes went."""
     memo = {} if memo is None else memo
     nodes = {n.as_pointer(): n for n in tree.nodes}
     ins, outs, indeg = {}, {}, dict.fromkeys(nodes, 0)
@@ -4189,6 +4189,47 @@ def merge_duplicates(tree, memo=None):
             return 2
         return 1
 
+    # (operation: (the value that hands the other input on, the inputs that value may sit on))
+    no_op = {"ShaderNodeMath": {"MULTIPLY": (1.0, (0, 1)), "ADD": (0.0, (0, 1)), "SUBTRACT": (0.0, (1,)),
+                                "DIVIDE": (1.0, (1,)), "POWER": (1.0, (1,))},
+             "ShaderNodeVectorMath": {"MULTIPLY": ((1.0, 1.0, 1.0), (0, 1)), "ADD": ((0.0, 0.0, 0.0), (0, 1)),
+                                      "SUBTRACT": ((0.0, 0.0, 0.0), (1,)), "DIVIDE": ((1.0, 1.0, 1.0), (1,))}}
+
+    def passthrough(p, n):
+        """x * 1, x + 0, x - 0, x / 1, x ^ 1 (and a vector scaled by 1): its readers read x, the
+        node goes - where x is of the node's own type (Blender converts a vector to a float by
+        its average, a colour by its luminance: a reader of another type would read it else)."""
+        rules = no_op.get(n.bl_idname)
+        if rules is None or getattr(n, "use_clamp", False):
+            return False
+        if n.bl_idname == "ShaderNodeVectorMath" and n.operation == 'SCALE':
+            keep = 0 if not n.inputs["Scale"].is_linked and _plain(n.inputs["Scale"].default_value) == 1.0 else None
+        else:
+            rule = rules.get(n.operation)
+            keep = None
+            for i in (rule[1] if rule else ()):
+                if n.inputs[i].identifier not in ins.get(p, {}) and _plain(n.inputs[i].default_value) == rule[0]:
+                    keep = 1 - i
+                    break
+        if keep is None:
+            return False
+        feed = ins.get(p, {}).get(n.inputs[keep].identifier)
+        out = n.outputs[0]
+        if feed is None or any(f != out.identifier for f, _b, _t in outs.get(p, ())):
+            return False
+        a, ia = root(feed[0]), feed[1]
+        if a not in nodes or socket(nodes[a], ia, True).type != out.type:
+            return False
+        src = socket(nodes[a], ia, True)
+        for _f, b, t in outs.pop(p, []):
+            if b in nodes:
+                tree.links.new(src, socket(nodes[b], t, False))
+                outs.setdefault(a, []).append((ia, b, t))
+                ins.setdefault(b, {})[t] = (a, ia)
+        ins.pop(p, None)
+        tree.nodes.remove(nodes.pop(p))
+        return True
+
     seen, sig_of, groups, gone = {}, {}, {}, 0
     for p in order:
         n = nodes.get(p)
@@ -4199,6 +4240,9 @@ def merge_duplicates(tree, memo=None):
             if cut:
                 gone += cut
                 continue
+        if passthrough(p, n):
+            gone += 1
+            continue
         props = _merge_props(n)
         if props is None:
             continue

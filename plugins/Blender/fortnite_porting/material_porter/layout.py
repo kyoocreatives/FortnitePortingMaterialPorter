@@ -107,7 +107,7 @@ LANE_LIMIT = 1500        # reroutes a tree's lanes may make; past it, plain wire
 # Wires between frames as reroute buses (UE's wiring). Off: a material's dozens of
 # parallel wires became ladders of reroute dots, harder to follow than the wires
 ROUTE_BUSES = False
-GAP_NODE_X = 60.0
+GAP_NODE_X = 45.0
 GAP_BOX_X = 100.0
 
 # Frame colours by top-level section. Anything not listed gets a stable hue
@@ -640,6 +640,22 @@ def _ports(tree, tags, wires):
     return pins
 
 
+# Nodes whose whole content is their wiring, when every input is wired: drawn collapsed
+# (a row each), they stop taking the height of their socket list. A Separate/Combine Color in
+# another mode than RGB keeps its mode on show, a node with a value typed in keeps it.
+COLLAPSIBLE = {"ShaderNodeSeparateXYZ", "ShaderNodeCombineXYZ", "ShaderNodeSeparateColor",
+               "ShaderNodeCombineColor", "NodeEvaluateClosure"}
+
+
+def _collapse_trivial(tree, wires):
+    fed = {(w.b.name, w.ib) for w in wires}
+    for n in tree.nodes:
+        if n.bl_idname not in COLLAPSIBLE or getattr(n, "mode", 'RGB') != 'RGB':
+            continue
+        if all((n.name, s.identifier) in fed for s in n.inputs if s.enabled and s.identifier != "__extend__"):
+            n.hide = True
+
+
 def _hide_unused_outputs(tree, wires):
     used = {(w.a.name, w.ia) for w in wires}
     for n in tree.nodes:
@@ -1083,7 +1099,7 @@ def _sugiyama(items, edges):
         if l + 1 < len(layers):
             n_wires = sum(len(outs[id(it)]) for it in col)
             boxes = any(it.kind == "box" for it in col + layers[l + 1])
-            gap = (GAP_BOX_X if boxes else GAP_NODE_X) + min(80.0, 3.0 * n_wires)
+            gap = (GAP_BOX_X if boxes else GAP_NODE_X) + min(60.0, 2.0 * n_wires)
             if buses.get(l):
                 gap = max(gap, 2 * BUS_PAD + BUS_STEP * (len(buses[l]) - 1))
             gap_at[l] = x + width
@@ -1091,11 +1107,42 @@ def _sugiyama(items, edges):
         else:
             x += width
 
+    _pull_right(layers, dag)
+
     placed = []
     for (src, ident), points, links, feeds in routes:
         xy = [(gap_at[bus[0]] + BUS_PAD + BUS_STEP * bus[2], y) for bus, y in points]
         placed.append((src, ident, xy, links, feeds))
     return x, max(it.y + it.h for it in real), placed
+
+
+def _pull_right(layers, dag):
+    """Move each item right, to just before the nearest thing that reads it, as far as nothing
+    in its rows is in the way. A column is as wide as its widest item: a short chain beside a
+    long frame otherwise waits at the left end of a wire as long as the frame. Readers first,
+    so a chain follows its last node; frame ports keep their edge columns."""
+    real = [it for col in layers for it in col if it.kind != "dummy"]
+    readers = defaultdict(list)
+    for u, v, *_ in dag:
+        if v.layer > u.layer:
+            readers[id(u)].append(v)
+
+    def gap(a, b):
+        return GAP_BOX_X if a.kind == "box" or b.kind == "box" else GAP_NODE_X
+
+    for it in sorted(real, key=lambda it: -it.layer):
+        if it.pin or not readers[id(it)]:
+            continue
+        want = min(v.x - gap(it, v) for v in readers[id(it)]) - it.w
+        if want <= it.x:
+            continue
+        top, bottom = it.y - GAP_DUMMY_Y, it.y + it.h + GAP_DUMMY_Y
+        for o in real:
+            # what's further right in the rows it spans stops it short
+            if o is not it and o.x >= it.x + it.w and o.y < bottom and o.y + o.h > top:
+                want = min(want, o.x - gap(it, o) - it.w)
+        if want > it.x:
+            it.x = want
 
 
 # ------------------------------------------------------------------ layout
@@ -1242,7 +1289,9 @@ def arrange(tree):
     parked = _park_dead(tree, tags, wires)
     ports = _ports(tree, tags, wires)
     copies, stand_ins = _localize_sources(tree, tags, _scan(tree))
-    _hide_unused_outputs(tree, _scan(tree))
+    wires = _scan(tree)
+    _hide_unused_outputs(tree, wires)
+    _collapse_trivial(tree, wires)
     root, index = _build_boxes(tree, tags)
     _layout(root, index, ports)
     lanes = _apply(tree, root, stand_ins)
