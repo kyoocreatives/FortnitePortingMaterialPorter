@@ -48,8 +48,37 @@ def prepare(context, mesh_object, shells, meta):
             bpy.data.materials.remove(placeholder)
         if shell is None or shell == base:
             continue
+        if not shells.get("CastShadows"):
+            no_shadow(shell)
         pairs.append({"base": base, "shell": shell, "depth": float(shells.get("Depth", 1.0)) * context.scale,
                       "count": int(shells.get("Count", 16))})
+
+
+def no_shadow(mat):
+    """The material casts no shadow (the game's shells don't: bCastShadows): seen through by
+    shadow rays (Eevee's shadow maps too), drawn as it was for every other ray."""
+    if mat.get("mp_no_shadow"):
+        return
+    tree = mat.node_tree
+    for out in [n for n in tree.nodes if n.bl_idname == "ShaderNodeOutputMaterial"]:
+        sock = out.inputs["Surface"]
+        if not sock.is_linked:
+            continue
+        src = sock.links[0].from_socket
+        path = tree.nodes.new("ShaderNodeLightPath")
+        clear = tree.nodes.new("ShaderNodeBsdfTransparent")
+        mix = tree.nodes.new("ShaderNodeMixShader")
+        mix.label, clear.label = "no shadow (the game's shells cast none)", "shadow rays pass"
+        x, y = out.location
+        path.location, clear.location, mix.location = (x - 200, y + 300), (x - 200, y - 220), (x, y + 60)
+        out.location = (x + 200, y)
+        tree.links.new(path.outputs["Is Shadow Ray"], mix.inputs[0])
+        tree.links.new(src, mix.inputs[1])
+        tree.links.new(clear.outputs[0], mix.inputs[2])
+        tree.links.new(mix.outputs[0], sock)
+    if hasattr(mat, "use_transparent_shadow"):
+        mat.use_transparent_shadow = True      # (Eevee reads the shadow ray's transparency only so)
+    mat["mp_no_shadow"] = 1
 
 
 def apply(context, objects):
@@ -74,6 +103,13 @@ def apply(context, objects):
         from ..processing.utils import set_geo_nodes_param
         set_geo_nodes_param(mod, "Shells", count, getattr(context, "version_profile", None))
         _log("%s: shell fur, %d shells over %s" % (o.name, count, ", ".join(p["base"].name for p in mine)))
+        # Cycles counts each shell a ray crosses (in and out, camera and shadow rays alike) as a
+        # transparent bounce; past its limit (8 by default) the fur, and what it shadows, goes black
+        scene = bpy.context.scene
+        need = min(4 * count, 256)
+        if scene is not None and hasattr(scene, "cycles") and scene.cycles.transparent_max_bounces < need:
+            scene.cycles.transparent_max_bounces = need
+            _log("Cycles' transparent bounces raised to %d (shell fur)" % need)
 
 
 def shell_group(name, pairs):
