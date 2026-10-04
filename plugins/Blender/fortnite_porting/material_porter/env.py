@@ -23,7 +23,7 @@ import re
 import bpy
 
 from . import world
-from .ue_graph import BOUNDS_MAX, BOUNDS_MIN, PART_CENTRE, PART_HALF, PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
+from .ue_graph import BOUNDS_MAX, BOUNDS_MIN, PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
 
 # a vector parameter that names a colour gets a colour socket (a picker); any other - an offset, a
 # direction, a channel, a size - a vector socket: a colour socket clamps negatives to 0 (a sprite
@@ -314,9 +314,8 @@ class MaterialEnv:
     def local_bounds(self):
         """The object's bounding box, in UE cm: read from the object (mp_bounds_min / max, which
         the import sets on each object its material lands on), so a shared function's group holds
-        no object's numbers (baked, every object made its own copy of every group above them) -
-        or, on a mesh an outfit's parts were joined into, each part's own (its vertices'
-        PART_CENTRE and PART_HALF), as UE's component's are. Without either: +-1 m."""
+        no object's numbers (baked, every object made its own copy of every group above them).
+        Unmarked: +-1 m."""
         tr = self.tr
 
         def make():
@@ -326,11 +325,6 @@ class MaterialEnv:
             unmarked = tr.binop('LESS_THAN', tr.vmath('DISTANCE', lo, hi), tr.const(1e-9))
             lo = tr.lerp(lo, tr.const((-1.0, -1.0, -1.0), 3), unmarked)
             hi = tr.lerp(hi, tr.const((1.0, 1.0, 1.0), 3), unmarked)
-            c = Val(tr.node("ShaderNodeAttribute", "part centre", attribute_type='GEOMETRY', attribute_name=PART_CENTRE).outputs["Vector"], 3)
-            h = Val(tr.node("ShaderNodeAttribute", "part half size", attribute_type='GEOMETRY', attribute_name=PART_HALF).outputs["Vector"], 3)
-            part = tr.binop('GREATER_THAN', tr.vmath('LENGTH', h), tr.const(1e-9))
-            lo = tr.lerp(lo, tr.vmath('SUBTRACT', c, h, out_w=3), part, label="object or part bounds min")
-            hi = tr.lerp(hi, tr.vmath('ADD', c, h, out_w=3), part, label="object or part bounds max")
             # UE space (Y mirrored: Blender's top Y is UE's bottom), cm
             lx, ly, lz = tr.comps(lo)
             hx, hy, hz = tr.comps(hi)
@@ -637,6 +631,24 @@ class MaterialEnv:
             return tr.math('ADD', v, tr.math('MULTIPLY', tr.math('SUBTRACT', data, v), has))
         data = tr.combine([attr("mp_pic%d" % (index + i)) for i in range(w)])
         return tr.vmath('ADD', v, tr.vmath('SCALE', tr.vmath('SUBTRACT', data, v, out_w=w), has, out_w=w), out_w=w)
+
+    def view_size(self):
+        """The render's size, followed (world.view_group: its drivers)."""
+        return self.once("view size", lambda: world.view(self.tr, "View Size"))
+
+    def view_property(self, name):
+        """The camera's field of view, followed (world.view_group); None: the translator's own."""
+        if name == "TanHalfFieldOfView":
+            return self.once("tan half fov", lambda: world.view(self.tr, "Tan Half FOV"))
+        if name == "FieldOfView":
+            def make():
+                tx, ty = self.tr.comps(self.view_property("TanHalfFieldOfView"))[:2]
+                return self.tr.combine([self.tr.binop('MULTIPLY', self.tr.math('ARCTANGENT', tx), self.tr.const(2.0)),
+                                        self.tr.binop('MULTIPLY', self.tr.math('ARCTANGENT', ty), self.tr.const(2.0))])
+            return self.once("fov", make)
+        if name in ("ViewSize", "BufferSize"):
+            return self.view_size()
+        return None
 
     def normal_mode(self):
         """(whether the Normal is lit, whether it's in tangent space): UE compiles an unlit

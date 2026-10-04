@@ -64,12 +64,12 @@ class MeshImportContext:
             
         # Material Porter fork: a LEGO figure's or creature's parts too (the body's armature takes them)
         if self.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT, EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE] and self.options.get("MergeArmatures"):
-            # (Material Porter fork: each part's bounds kept on its vertices through the join)
-            from ...material_porter.placement import mark_part_bounds, settle_part_bounds
-            mark_part_bounds(self.imported_meshes)
             master_skeleton = merge_parts(self.imported_meshes)
             master_mesh = get_armature_mesh(master_skeleton)
-            settle_part_bounds(master_mesh, self.imported_meshes)
+            # (Material Porter fork: the joined mesh's bounds and head, which its materials read -
+            # they were built as each part came in, on the part's own skeleton and size)
+            from ...material_porter.build import mark_bounds
+            mark_bounds([master_mesh])
             # Update attribute to account for joined mesh
             self.update_preskinned_bounds(master_mesh)
             

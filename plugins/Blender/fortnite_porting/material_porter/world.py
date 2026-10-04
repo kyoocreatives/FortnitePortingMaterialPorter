@@ -137,6 +137,61 @@ def sun(tr, output="Direction"):
     return Val(n.outputs[output], 3)
 
 
+# ------------------------------------------------------------------ the view
+VIEW = "MP World View"
+# tan of half the field of view across and up the render (the sensor fits the frame's larger side
+# when Auto, its width or its height when told; the other side follows the frame's aspect), and
+# the render's size in pixels - plain arithmetic, which drivers evaluate without Python
+_RX = "(rx * ax)"
+_RY = "(ry * ay)"
+_TX = ("(f == 0) * sw / (2 * l) * %(x)s / max(%(x)s, %(y)s) + (f == 1) * sw / (2 * l)"
+       " + (f == 2) * sh / (2 * l) * %(x)s / %(y)s") % {"x": _RX, "y": _RY}
+_TY = ("(f == 0) * sw / (2 * l) * %(y)s / max(%(x)s, %(y)s) + (f == 1) * sw / (2 * l) * %(y)s / %(x)s"
+       " + (f == 2) * sh / (2 * l)") % {"x": _RX, "y": _RY}
+_VIEW_VARS = (("rx", "render.resolution_x"), ("ry", "render.resolution_y"), ("ax", "render.pixel_aspect_x"),
+              ("ay", "render.pixel_aspect_y"), ("pc", "render.resolution_percentage"), ("l", "camera.data.lens"),
+              ("sw", "camera.data.sensor_width"), ("sh", "camera.data.sensor_height"), ("f", "camera.data.sensor_fit"))
+
+
+def view_group():
+    """The view group, made on first use: the scene camera's field of view and the render's size,
+    driven - what UE's ViewProperty and ViewSize read, followed when the camera's lens or the
+    render's size change after the import (frozen, a screen-space glow drifted off its head)."""
+    t = bpy.data.node_groups.get(VIEW)
+    if t is not None:
+        return t
+    t = _new_group(VIEW, outputs=(("Tan Half FOV", 'NodeSocketVector'), ("View Size", 'NodeSocketVector')))
+    go = t.nodes.new("NodeGroupOutput"); go.location = (300, 0)
+    tan = t.nodes.new("ShaderNodeCombineXYZ"); tan.label = "tan of half the field of view (across, up)"; tan.location = (0, 100)
+    size = t.nodes.new("ShaderNodeCombineXYZ"); size.label = "render size (pixels)"; size.location = (0, -100)
+    scene = bpy.context.scene
+    if scene is not None and scene.camera is not None:
+        for sock, expression in ((tan.inputs[0], _TX), (tan.inputs[1], _TY),
+                                 (size.inputs[0], "rx * pc / 100"), (size.inputs[1], "ry * pc / 100")):
+            drv = sock.driver_add("default_value").driver
+            drv.type = 'SCRIPTED'
+            drv.expression = expression
+            for name, path in _VIEW_VARS:
+                var = drv.variables.new()
+                var.name, var.type = name, 'SINGLE_PROP'
+                var.targets[0].id_type = 'SCENE'
+                var.targets[0].id = scene
+                var.targets[0].data_path = path
+    else:
+        tan.inputs[0].default_value, tan.inputs[1].default_value = 0.7, 0.39
+        size.inputs[0].default_value, size.inputs[1].default_value = 1920.0, 1080.0
+    t.links.new(tan.outputs[0], go.inputs["Tan Half FOV"])
+    t.links.new(size.outputs[0], go.inputs["View Size"])
+    return t
+
+
+def view(tr, output):
+    """A view group output in the translator's tree (x, y in a float2 Val)."""
+    n = tr.node("ShaderNodeGroup", "World View")
+    n.node_tree = view_group()
+    return Val(n.outputs[output], 2)
+
+
 # ------------------------------------------------------------------ the sky
 def sky_group():
     t = bpy.data.node_groups.get(SKY)

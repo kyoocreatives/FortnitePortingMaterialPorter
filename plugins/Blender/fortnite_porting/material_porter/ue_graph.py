@@ -189,13 +189,9 @@ COMPILE_SWITCHES = {
 
 # Transform / TransformPosition spaces, by enum suffix
 BOUNDS_CENTRE = "mp_bounds_centre"     # an object's bounds centre (local, Blender metres): UE's Object Position
-# a part joined into another mesh: its own bounds' centre and half size per vertex (local, Blender
-# metres), where they differ from the object's (an outfit's parts merged into one mesh)
-PART_CENTRE = "mp_part_centre"
 BOUNDS_MIN = "mp_bounds_min"       # an object's bounding box (local, Blender metres): UE's local bounds,
 BOUNDS_MAX = "mp_bounds_max"       # read per object (a shared function's group holds no object's numbers)
 HEAD_SOCKET = "mp_head_socket"     # an object's armature's head (local, Blender metres): what a game blueprint sets HeadSocketLocation to
-PART_HALF = "mp_part_half"
 VECTOR_SPACES = {"Tangent": "tangent", "Local": "local", "World": "world", "View": "view", "Camera": "view",
                  "ParticleWorld": "world", "Instance": "local"}
 POSITION_SPACES = {"Local": "local", "World": "world", "TranslatedWorld": "translated", "View": "view",
@@ -513,6 +509,20 @@ WATER_OUTPUTS = (("ScatteringCoefficients", "WaterScattering", (0.0, 0.0, 0.0)),
                  ("ColorScaleBehindWater", "WaterColorScaleBehindWater", (1.0, 1.0, 1.0)))
 # how deep the water is (cm) where the env knows no ground under it
 WATER_DEPTH_DEFAULT = 300.0
+
+
+def render_tan_half_fov(cam, render):
+    """tan of half the field of view across and up a render: the sensor fits the frame's larger
+    side (Auto), its width or its height; the other follows the frame's aspect. (Blender's
+    angle_y is the sensor height's, whatever the frame: 1.5x too narrow on a square render.)"""
+    rx = render.resolution_x * render.pixel_aspect_x
+    ry = render.resolution_y * render.pixel_aspect_y
+    fit = cam.sensor_fit
+    if fit == 'VERTICAL' or fit == 'AUTO' and ry > rx:
+        ty = cam.sensor_height / 2.0 / cam.lens if fit == 'VERTICAL' else cam.sensor_width / 2.0 / cam.lens
+        return ty * rx / ry, ty
+    tx = cam.sensor_width / 2.0 / cam.lens
+    return tx, tx * ry / rx
 
 
 def custom_code(p):
@@ -2401,18 +2411,16 @@ class Translator:
         """UE's Object Position: the centre of the object's bounds, not its pivot (that's Actor
         Position): a sprite's pivot is at its feet, its screen-space glow centred on its body.
         The centre (local, Blender metres) is a property the import sets on each object
-        (mp_bounds_centre: the material stays shared), or a part's own where parts were joined
-        into one mesh (PART_CENTRE); an object without either: its pivot. UE world, cm."""
+        (mp_bounds_centre: the material stays shared); an object without it: its pivot. An
+        outfit's parts take the body's bounds in Fortnite (a head's ObjectRadius is the whole
+        character's: Cyclo's sprite scales by it over an ActorRadius of 97 cm), which the joined
+        mesh's are. UE world, cm."""
         env = self.env
 
         def centre():
             n = self.node("ShaderNodeAttribute", "bounds centre", attribute_type='OBJECT',
                           attribute_name=BOUNDS_CENTRE)
             local = Val(n.outputs["Vector"], 3)
-            pc = self.node("ShaderNodeAttribute", "part centre", attribute_type='GEOMETRY', attribute_name=PART_CENTRE)
-            ph = self.node("ShaderNodeAttribute", "part half size", attribute_type='GEOMETRY', attribute_name=PART_HALF)
-            has = self.binop('GREATER_THAN', self.vmath('LENGTH', Val(ph.outputs["Vector"], 3)), self.const(1e-9))
-            local = self.lerp(local, Val(pc.outputs["Vector"], 3), has, label="object or part centre")
             world = self.from_blender(self.blender_transform(local, 'OBJECT', 'WORLD', True), True)
             return self.vmath('SUBTRACT', world, env.camera_position(), out_w=3) if rel else world
         return self._hook("object_position", centre, rel)
@@ -2478,8 +2486,9 @@ class Translator:
         if name in ("FieldOfView", "TanHalfFieldOfView"):
             try:
                 import bpy
-                cam = bpy.context.scene.camera.data
-                ax, ay = cam.angle_x, cam.angle_y
+                scene = bpy.context.scene
+                tx, ty = render_tan_half_fov(scene.camera.data, scene.render)
+                ax, ay = 2 * math.atan(tx), 2 * math.atan(ty)
             except Exception:
                 ax, ay = math.radians(90.0), 2 * math.atan(math.tan(math.radians(45.0)) * 9 / 16)
             if name == "FieldOfView":
