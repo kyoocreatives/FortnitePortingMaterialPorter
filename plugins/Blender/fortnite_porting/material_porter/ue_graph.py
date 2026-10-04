@@ -192,6 +192,9 @@ BOUNDS_CENTRE = "mp_bounds_centre"     # an object's bounds centre (local, Blend
 BOUNDS_MIN = "mp_bounds_min"       # an object's bounding box (local, Blender metres): UE's local bounds,
 BOUNDS_MAX = "mp_bounds_max"       # read per object (a shared function's group holds no object's numbers)
 HEAD_SOCKET = "mp_head_socket"     # an object's armature's head (local, Blender metres): what a game blueprint sets HeadSocketLocation to
+SHELL_LAYER = "mp_shell_layer"     # shell fur (UE's ShellMesh; Material Porter's shells.py): a copy's layer, 1 to its count (0: the mesh itself),
+SHELL_LAYER_N = "mp_shell_layer_n" # that over the count (root 0 to tip 1),
+SHELL_COUNT = "mp_shell_count"     # and the count, on each copy's points
 VECTOR_SPACES = {"Tangent": "tangent", "Local": "local", "World": "world", "View": "view", "Camera": "view",
                  "ParticleWorld": "world", "Instance": "local"}
 POSITION_SPACES = {"Local": "local", "World": "world", "TranslatedWorld": "translated", "View": "view",
@@ -2731,9 +2734,14 @@ class Translator:
             return self._hook("particle_time", lambda: self.stand_in("ParticleRelativeTime as 0", self.const(0.0)))
         if t == "ParticleSpeed":
             return self._hook("particle_speed", lambda: self.stand_in("ParticleSpeed as 0", self.const(0.0)))
-        if t in ("PerInstanceFadeAmount", "ShellMeshNormalizedShellLayer", "ShellMeshShellLayerIndex"):
+        if t == "PerInstanceFadeAmount":
             return self.stand_in("%s as 0" % t, self.const(0.0))
-        if t in ("ParticleMotionBlurFade", "SphericalParticleOpacity", "ShellMeshShellCount"):
+        if t in _SHELL_ATTRIBUTES:
+            # the shell copy's layer (0 off the copies: the mesh itself, the base layer)
+            name = _SHELL_ATTRIBUTES[t]
+            return self.shared(name, lambda: Val(self.node("ShaderNodeAttribute", name, attribute_type='GEOMETRY',
+                                                           attribute_name=name).outputs["Fac"], 1))
+        if t in ("ParticleMotionBlurFade", "SphericalParticleOpacity"):
             return self.stand_in("%s as 1" % t, self.const(1.0))
         if t == "ParticleSize":
             return self._hook("particle_size", lambda: self.stand_in("ParticleSize as 1 m", self.const((100.0, 100.0), 2)))
@@ -4470,6 +4478,10 @@ def merge_duplicates(tree, memo=None):
                 del nodes[p]
                 gone += 1
     return gone
+
+
+_SHELL_ATTRIBUTES = {"ShellMeshShellLayerIndex": SHELL_LAYER, "ShellMeshNormalizedShellLayer": SHELL_LAYER_N,
+                     "ShellMeshShellCount": SHELL_COUNT}
 
 
 # constant folding (merge_duplicates): Blender's maths, as its nodes do it

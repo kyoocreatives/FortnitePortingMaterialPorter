@@ -128,6 +128,10 @@ class MeshImportContext:
                     if key := best(shape_keys.key_blocks, lambda block: block.name.lower(), morph_target.get("Name").lower()):
                         key.value = morph_target.get("Value")
                         
+        # Material Porter fork: shell fur on the meshes it's for (the joined one, else each part)
+        from ...material_porter import shells as mp_shells
+        mp_shells.apply(self, [m.get("Mesh") for m in self.imported_meshes])
+
         # Material Porter fork: a character's effects not played yet (no merge of its parts): now
         if getattr(self, "mp_deferred_effects", None) is not None:
             from ...material_porter import effects as mp_effects
@@ -359,6 +363,11 @@ class MeshImportContext:
             for slot in slots:
                 self.import_material(slot, td_override_material, meta)
                 
+        # Material Porter fork: shell fur (material_porter.shells): the base layer's materials, the shells' built
+        if mesh.get("MPShells") and imported_mesh is not None:
+            from ...material_porter import shells as mp_shells
+            mp_shells.prepare(self, imported_mesh, mesh.get("MPShells"), meta)
+
         self.import_light_data(mesh.get("Lights"), imported_object)
 
         for child in mesh.get("Children"):
