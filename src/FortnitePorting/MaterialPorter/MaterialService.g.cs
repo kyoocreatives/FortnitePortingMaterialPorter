@@ -245,6 +245,7 @@ public sealed class MaterialService
                 break;
             }
             Collect(p, info);
+            await EditorMasksAsync(cur, info);
             cur = ObjectPath(p["Parent"]);
         }
         if (profile != null)
@@ -336,10 +337,36 @@ public sealed class MaterialService
         };
     }
 
+    static string ParamName(JToken e) => (string)e["ParameterInfo"]?["Name"] ?? (string)e["ParameterName"];
+
+    /// <summary>
+    /// An instance's static component masks. UE 5 keeps them editor-only (FStaticParameterSetEditorOnlyData),
+    /// in the MaterialInstanceEditorOnlyData of its optional package (&lt;path&gt;.o.uasset), which Fortnite
+    /// ships beside the graphs: without them a mask fell back to its default (Galaxy Scout's head took its
+    /// whole FX mask as glow where the instance picks its blue channel). One the instance doesn't
+    /// override (bOverride false) is left to its parent.
+    /// </summary>
+    async Task EditorMasksAsync(string path, MaterialInfo info)
+    {
+        var key = ResolveKey(path, ".o.uasset");
+        if (key == null) return;
+        try
+        {
+            var pkg = await game.Provider.LoadPackageAsync(key);
+            var ed = pkg.GetExports().FirstOrDefault(e => e.ExportType == "MaterialInstanceEditorOnlyData");
+            if (ed == null) return;
+            var sp = JObject.Parse(JsonConvert.SerializeObject(ed, Ser))["Properties"]?["StaticParameters"];
+            foreach (var e in sp?["StaticComponentMaskParameters"] ?? new JArray())
+                if (ParamName(e) is { } name && (bool?)e["bOverride"] != false)
+                    info.Masks.TryAdd(name, new[] { (bool?)e["R"] ?? false, (bool?)e["G"] ?? false, (bool?)e["B"] ?? false, (bool?)e["A"] ?? false });
+        }
+        catch (Exception e) { Timing.Log($"editor data of {Bridge.ShortName(path)}: {e.Message}", new System.Diagnostics.Stopwatch()); }
+    }
+
     /// <summary>One level of the chain: values the child didn't set already.</summary>
     static void Collect(JObject p, MaterialInfo info)
     {
-        static string Name(JToken e) => (string)e["ParameterInfo"]?["Name"] ?? (string)e["ParameterName"];
+        static string Name(JToken e) => ParamName(e);
         foreach (var e in p["ScalarParameterValues"] ?? new JArray())
             info.Scalars.TryAdd(Name(e), (double)e["ParameterValue"]);
         foreach (var e in p["VectorParameterValues"] ?? new JArray())

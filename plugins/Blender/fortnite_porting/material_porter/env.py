@@ -639,8 +639,8 @@ class MaterialEnv:
         return tuple(m) if m else None
 
     def guess_mask(self, name, default, v):
-        """A channel mask the instance doesn't state - cooked instances keep
-        no mask choice, it's baked into their shader. When its default channel
+        """A channel mask the instance doesn't state (its editor-only data, where UE 5 keeps the
+        choice, missing from the game files). When its default channel
         is empty in the one texture behind it and another channel isn't, the
         artist picked that one (Dark Shield's cube mask: R empty, G painted)."""
         name = name or "(unnamed)"
