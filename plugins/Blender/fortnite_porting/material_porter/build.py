@@ -16,12 +16,12 @@ from .app_client import AppClient
 from . import world
 from .env import MaterialEnv, fit_socket
 from .nodelib import SECTION_KEY
-from .ue_graph import BOUNDS_CENTRE, HEAD_SOCKET, CARRIED, SHADING_MODELS, Translator, Val, merge_duplicates
+from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, HEAD_SOCKET, CARRIED, SHADING_MODELS, Translator, Val, merge_duplicates
 
 PREFIX = "MP "            # built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # the game object a built material translates
 KEY_REV = "mp_rev"        # the build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 34       # 34: textures in the material's own tree (Closure inputs, a Textures panel), PixelNormalWS with the normal map; 33: textures at the root (functions sample them through closures), duplicate nodes merged, UE texture addressing; 32: emissive clamped at 0 as UE; 31: DepthFade by max(FadeDistance, 0.0001) as UE; 30: a baked tangent where Blender gives none; 29: particle camera from the scene under Cycles; 28: effects' soft fade off under Cycles; 2: UE 5 translucent blend modes (glass); 3: custom primitive data; 5: landscape layers; 7: per-instance custom data; 9: images channel-packed (alpha as data); 10: Time runs from 100 s (hit flashes over), unfiltered textures sampled Closest; 11: LocalPosition and PreSkinnedPosition from the rest position (skinned meshes); 12: an additive material's light is Emissive * Opacity; 13: a particle's values from its instance (a replayed effect), a sprite's sub-image; 14: SphereMask and Distance between a float2 and a scalar (Z stays 0); 15: a particle's sprite rotation and direction, the 2D light march of raymarched smoke; 16: the ambient cubemap tint is white; 17: a particle material's World Position Offset (displacement), UE's division by zero; 18: a smoothstep over an empty range is a hard edge, Particle Random from the particle; 19: a Niagara decal's colour and fade (DecalColor, DecalLifetimeOpacity); 20: division by zero per component (a vector divisor); 21: view space is the shader camera space as is (Z forward), Object Position the bounds' centre; 22: Power clamps a negative base to 0 (PositiveClampedPow); 23: vector parameters that aren't colours on vector sockets (a colour socket clamps negatives); 24: BLEND_ColoredTransmittanceOnly is Modulate; 25: DepthFade and SceneDepth by a raycast behind a see-through pixel (Blender's Raycast node); 26: translucency lit from UE's volume: diffuse only, the Normal unused unless per-pixel directional; 27: the sun, the sky and collection values through the file's world groups (a time of day drives them), its height fog
+BUILD_REVISION = 35       # 35: whole function groups shared by structure, a joined part's own bounds, HeadSocketLocation from the head bone; 34: textures in the material's own tree (Closure inputs, a Textures panel), PixelNormalWS with the normal map; 33: textures at the root (functions sample them through closures), duplicate nodes merged, UE texture addressing; 32: emissive clamped at 0 as UE; 31: DepthFade by max(FadeDistance, 0.0001) as UE; 30: a baked tangent where Blender gives none; 29: particle camera from the scene under Cycles; 28: effects' soft fade off under Cycles; 2: UE 5 translucent blend modes (glass); 3: custom primitive data; 5: landscape layers; 7: per-instance custom data; 9: images channel-packed (alpha as data); 10: Time runs from 100 s (hit flashes over), unfiltered textures sampled Closest; 11: LocalPosition and PreSkinnedPosition from the rest position (skinned meshes); 12: an additive material's light is Emissive * Opacity; 13: a particle's values from its instance (a replayed effect), a sprite's sub-image; 14: SphereMask and Distance between a float2 and a scalar (Z stays 0); 15: a particle's sprite rotation and direction, the 2D light march of raymarched smoke; 16: the ambient cubemap tint is white; 17: a particle material's World Position Offset (displacement), UE's division by zero; 18: a smoothstep over an empty range is a hard edge, Particle Random from the particle; 19: a Niagara decal's colour and fade (DecalColor, DecalLifetimeOpacity); 20: division by zero per component (a vector divisor); 21: view space is the shader camera space as is (Z forward), Object Position the bounds' centre; 22: Power clamps a negative base to 0 (PositiveClampedPow); 23: vector parameters that aren't colours on vector sockets (a colour socket clamps negatives); 24: BLEND_ColoredTransmittanceOnly is Modulate; 25: DepthFade and SceneDepth by a raycast behind a see-through pixel (Blender's Raycast node); 26: translucency lit from UE's volume: diffuse only, the Normal unused unless per-pixel directional; 27: the sun, the sky and collection values through the file's world groups (a time of day drives them), its height fog
                           # 4: instance overrides to the default (Opaque, DefaultLit, one-sided) honoured
                           # 6: vector parameters without a stored default are (0, 0, 0, 0), not alpha 1
                           # 8: single layer water (the medium, refraction, water info stand-ins); graph clip()s
@@ -431,40 +431,80 @@ def _comps(s):
 
 # ------------------------------------------------------------------ sharing
 def _fingerprint(tree, memo):
-    """What a group computes (nodes, settings, values, wiring, images) - not
-    where its nodes sit - so two builds of one function compare equal."""
+    """What a group computes (nodes, settings, values, wiring, images) - not where its nodes
+    sit or what Blender named them - so two builds of one function compare equal. Each node is
+    hashed with what feeds it (sources first), the group by what reaches its outputs and its
+    interface: two trees alike but for their node names' numbering (one made its nodes in
+    another order) are twins."""
     if tree.name in memo:
         return memo[tree.name]
-    h = hashlib.sha1()
     skip = {"location", "width", "height", "dimensions", "select", "name", "label", "parent", "color",
             "use_custom_color", "show_options", "show_preview", "hide", "mute", "bl_idname", "location_absolute"}
-    for n in sorted(tree.nodes, key=lambda n: n.name):
-        if n.bl_idname in ("NodeFrame", "NodeReroute"):
-            continue
-        h.update(n.bl_idname.encode())
-        for p in n.bl_rna.properties:
-            if p.identifier in skip or p.is_readonly and p.identifier not in ("node_tree", "image"):
+    feeds = {}
+    for l in tree.links:
+        feeds.setdefault(l.to_node.name, {})[l.to_socket.identifier] = (l.from_node, l.from_socket.identifier)
+    done = {}
+
+    def node_hash(root):
+        # sources first, without recursion (a function's chains run hundreds of nodes deep)
+        stack = [root]
+        while stack:
+            n = stack[-1]
+            if n.name in done:
+                stack.pop()
                 continue
-            v = getattr(n, p.identifier, None)
-            if p.identifier == "node_tree" and v is not None:
-                v = v.get(KEY_FP) or _fingerprint(v, memo)
-            elif p.identifier == "image" and v is not None:
-                v = v.filepath or v.name
-            elif not isinstance(v, (int, float, str, bool)):
+            pending = [src for src, _i in feeds.get(n.name, {}).values() if src.name not in done]
+            if pending:
+                stack.extend(pending)
                 continue
-            h.update(("%s=%r;" % (p.identifier, v)).encode())
-        for s in n.inputs:
-            if not s.is_linked and hasattr(s, "default_value"):
-                v = s.default_value
-                h.update(repr(tuple(round(x, 6) for x in v) if hasattr(v, "__len__") else round(v, 6)).encode())
-    wires = sorted("%s.%s>%s.%s" % (l.from_node.name, l.from_socket.identifier, l.to_node.name, l.to_socket.identifier)
-                   for l in tree.links if l.from_node.bl_idname not in ("NodeReroute",) and l.to_node.bl_idname != "NodeReroute")
-    h.update("|".join(wires).encode())
+            stack.pop()
+            parts = [n.bl_idname]
+            for prop in n.bl_rna.properties:
+                if prop.identifier in skip or prop.is_readonly and prop.identifier not in ("node_tree", "image"):
+                    continue
+                v = getattr(n, prop.identifier, None)
+                if prop.identifier == "node_tree" and v is not None:
+                    # the file's world and collection groups: one each, which grows as materials ask
+                    # it for more (its contents would make every group around it differ)
+                    world = "mp_path" in v or v.name.startswith(("MP World", "MP Collection"))
+                    v = "world:" + v.name if world else v.get(KEY_FP) or _fingerprint(v, memo)
+                elif prop.identifier == "image" and v is not None:
+                    v = v.filepath or v.name
+                elif not isinstance(v, (int, float, str, bool)):
+                    continue
+                parts.append("%s=%r" % (prop.identifier, v))
+            for k in n.keys():
+                # (mp_image: which image a texture read read when built - a twin reads its own)
+                if k not in (SECTION_KEY, "fpv4_group_input", "mp_image"):
+                    parts.append("%s:%r" % (k, n[k]))
+            for sock in n.inputs:
+                src = feeds.get(n.name, {}).get(sock.identifier)
+                if src is not None:
+                    parts.append("%s<%s.%s" % (sock.identifier, done[src[0].name], src[1]))
+                elif hasattr(sock, "default_value"):
+                    v = sock.default_value
+                    parts.append("%s=%r" % (sock.identifier, tuple(round(x, 6) for x in v) if hasattr(v, "__len__") else round(v, 6)))
+            if n.bl_idname == "ShaderNodeValue":
+                parts.append(repr(round(n.outputs[0].default_value, 6)))
+            done[n.name] = hashlib.sha1("|".join(parts).encode()).hexdigest()
+        return done[root.name]
+    h = hashlib.sha1()
+    for out in sorted(node_hash(n) for n in tree.nodes if n.bl_idname == "NodeGroupOutput"):
+        h.update(out.encode())
     for it in tree.interface.items_tree:
         if it.item_type == 'SOCKET':
             h.update(("%s:%s:%s" % (it.in_out, it.name, it.socket_type)).encode())
     memo[tree.name] = h.hexdigest()
     return memo[tree.name]
+
+
+def drop_unread_inputs(tree):
+    """A function group's inputs nothing in it reads (what read them went in merge_duplicates):
+    gone, as the twin it would otherwise differ from never had them."""
+    read = {s.identifier for n in tree.nodes if n.bl_idname == "NodeGroupInput" for s in n.outputs if s.is_linked}
+    for it in [it for it in tree.interface.items_tree
+               if it.item_type == 'SOCKET' and it.in_out == 'INPUT' and it.identifier not in read]:
+        tree.interface.remove(it)
 
 
 # fingerprint -> group, kept between builds: reading every group's fingerprint
@@ -583,6 +623,8 @@ def mark_bounds(objects):
     for o in objects:
         if o is not None and o.type == 'MESH':
             o[BOUNDS_CENTRE] = [sum(c[i] for c in o.bound_box) / 8.0 for i in range(3)]
+            o[BOUNDS_MIN] = [min(c[i] for c in o.bound_box) for i in range(3)]
+            o[BOUNDS_MAX] = [max(c[i] for c in o.bound_box) for i in range(3)]
             # its armature's head (local, Blender metres): what the game sets HeadSocketLocation to
             arm = o.find_armature()
             bone = next((b for b in arm.data.bones if b.name.lower() == "head"), None) if arm is not None else None
@@ -627,6 +669,8 @@ def build_one(entry, app, objects=(), make_env=None):
     memo = {}
     for t in groups + [root]:
         merge_duplicates(t, memo)
+    for t in groups:
+        drop_unread_inputs(t)
     values = env.finish_parameters()
     # twins of earlier materials' groups go first: laying out a group that's
     # about to be thrown away was half of all layout time

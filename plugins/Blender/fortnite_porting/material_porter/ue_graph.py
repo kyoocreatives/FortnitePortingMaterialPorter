@@ -192,6 +192,8 @@ BOUNDS_CENTRE = "mp_bounds_centre"     # an object's bounds centre (local, Blend
 # a part joined into another mesh: its own bounds' centre and half size per vertex (local, Blender
 # metres), where they differ from the object's (an outfit's parts merged into one mesh)
 PART_CENTRE = "mp_part_centre"
+BOUNDS_MIN = "mp_bounds_min"       # an object's bounding box (local, Blender metres): UE's local bounds,
+BOUNDS_MAX = "mp_bounds_max"       # read per object (a shared function's group holds no object's numbers)
 HEAD_SOCKET = "mp_head_socket"     # an object's armature's head (local, Blender metres): what a game blueprint sets HeadSocketLocation to
 PART_HALF = "mp_part_half"
 VECTOR_SPACES = {"Tangent": "tangent", "Local": "local", "World": "world", "View": "view", "Camera": "view",
@@ -3801,6 +3803,16 @@ class Translator:
         ft = self.functions.get(key)
         if ft is None:
             ft = self.functions[key] = FunctionTree(self, fname, fg, statics, self.variant_label(fname, fg, statics))
+            if getattr(self.env, "whole_functions", False):
+                # every output, in the function's own order: two materials calling it build the same
+                # group, which they then share (built as each asked, their groups differed by what
+                # each read - a copy of the function per material). Unread outputs cost nothing at
+                # render: Blender drops what a material's output doesn't reach.
+                for each in fg.outputs.values():
+                    try:
+                        ft.output(each)
+                    except RuntimeError as e:       # (an output UE would compile on its own: a loop here)
+                        self.warnings.append("%s: output %s left out (%s)" % (fname, (each.get("Properties") or {}).get("OutputName"), e))
         name, w = ft.output(fo)
         if w == "attrs" and not any(o[0] == "socket" for o in ft.attr_outs[fo["Properties"].get("Id")].values()):
             node = None

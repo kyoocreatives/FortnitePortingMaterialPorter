@@ -23,7 +23,7 @@ import re
 import bpy
 
 from . import world
-from .ue_graph import PART_CENTRE, PART_HALF, PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
+from .ue_graph import BOUNDS_MAX, BOUNDS_MIN, PART_CENTRE, PART_HALF, PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
 
 # a vector parameter that names a colour gets a colour socket (a picker); any other - an offset, a
 # direction, a channel, a size - a vector socket: a colour socket clamps negatives to 0 (a sprite
@@ -80,6 +80,7 @@ class MaterialEnv:
     replace_groups = False      # other materials' groups stay
     function_prefix = ""
     texture_closures = True     # image nodes at the root, functions' groups sample them through closures
+    whole_functions = True      # a function's group has all its outputs: materials share one group
 
     def __init__(self, app, entry, objects=()):
         self.app, self.entry = app, entry
@@ -311,37 +312,33 @@ class MaterialEnv:
         return self.once("water depth", make)
 
     def local_bounds(self):
-        """The first target object's bounding box, in UE cm (materials are
-        shared, so it's one object's: the one the material was built for) -
-        or, on a mesh an outfit's parts were joined into, each part's own
-        (its vertices' PART_CENTRE and PART_HALF), as UE's component's are."""
-        self.reusable = False
-        obj = next((o for o in self.objects if o.type == 'MESH'), None)
-        if obj is None:
-            return None
-        xs = [c[0] for c in obj.bound_box]
-        ys = [-c[1] for c in obj.bound_box]
-        zs = [c[2] for c in obj.bound_box]
-        mn = self.tr.const((min(xs) * 100, min(ys) * 100, min(zs) * 100), 3)
-        mx = self.tr.const((max(xs) * 100, max(ys) * 100, max(zs) * 100), 3)
-        if PART_HALF not in getattr(obj.data, "attributes", {}):
-            return mn, mx
+        """The object's bounding box, in UE cm: read from the object (mp_bounds_min / max, which
+        the import sets on each object its material lands on), so a shared function's group holds
+        no object's numbers (baked, every object made its own copy of every group above them) -
+        or, on a mesh an outfit's parts were joined into, each part's own (its vertices'
+        PART_CENTRE and PART_HALF), as UE's component's are. Without either: +-1 m."""
         tr = self.tr
 
         def make():
-            c = tr.node("ShaderNodeAttribute", "part centre", attribute_type='GEOMETRY', attribute_name=PART_CENTRE)
-            h = tr.node("ShaderNodeAttribute", "part half size", attribute_type='GEOMETRY', attribute_name=PART_HALF)
-            c, h = Val(c.outputs["Vector"], 3), Val(h.outputs["Vector"], 3)
-            has = tr.binop('GREATER_THAN', tr.vmath('LENGTH', h), tr.const(1e-9))
+            lo = Val(tr.node("ShaderNodeAttribute", "bounds min", attribute_type='OBJECT', attribute_name=BOUNDS_MIN).outputs["Vector"], 3)
+            hi = Val(tr.node("ShaderNodeAttribute", "bounds max", attribute_type='OBJECT', attribute_name=BOUNDS_MAX).outputs["Vector"], 3)
+            # an object the import never marked: UE's default +-1 m
+            unmarked = tr.binop('LESS_THAN', tr.vmath('DISTANCE', lo, hi), tr.const(1e-9))
+            lo = tr.lerp(lo, tr.const((-1.0, -1.0, -1.0), 3), unmarked)
+            hi = tr.lerp(hi, tr.const((1.0, 1.0, 1.0), 3), unmarked)
+            c = Val(tr.node("ShaderNodeAttribute", "part centre", attribute_type='GEOMETRY', attribute_name=PART_CENTRE).outputs["Vector"], 3)
+            h = Val(tr.node("ShaderNodeAttribute", "part half size", attribute_type='GEOMETRY', attribute_name=PART_HALF).outputs["Vector"], 3)
+            part = tr.binop('GREATER_THAN', tr.vmath('LENGTH', h), tr.const(1e-9))
+            lo = tr.lerp(lo, tr.vmath('SUBTRACT', c, h, out_w=3), part, label="object or part bounds min")
+            hi = tr.lerp(hi, tr.vmath('ADD', c, h, out_w=3), part, label="object or part bounds max")
             # UE space (Y mirrored: Blender's top Y is UE's bottom), cm
-            lo = tr.vmath('MULTIPLY', tr.vmath('SUBTRACT', c, h, out_w=3), tr.const((100.0, 0.0, 100.0), 3), out_w=3)
-            hi = tr.vmath('MULTIPLY', tr.vmath('ADD', c, h, out_w=3), tr.const((100.0, 0.0, 100.0), 3), out_w=3)
-            ylo = tr.binop('MULTIPLY', tr.comps(tr.vmath('ADD', c, h, out_w=3))[1], tr.const(-100.0))
-            yhi = tr.binop('MULTIPLY', tr.comps(tr.vmath('SUBTRACT', c, h, out_w=3))[1], tr.const(-100.0))
-            lo = tr.vmath('ADD', lo, tr.combine([tr.const(0.0), ylo, tr.const(0.0)]), out_w=3)
-            hi = tr.vmath('ADD', hi, tr.combine([tr.const(0.0), yhi, tr.const(0.0)]), out_w=3)
-            return tr.lerp(mn, lo, has, label="object or part bounds min"), tr.lerp(mx, hi, has, label="object or part bounds max")
-        return self.once("part bounds", make)
+            lx, ly, lz = tr.comps(lo)
+            hx, hy, hz = tr.comps(hi)
+            k = tr.const(100.0)
+            mn = tr.combine([tr.binop('MULTIPLY', lx, k), tr.binop('MULTIPLY', hy, tr.const(-100.0)), tr.binop('MULTIPLY', lz, k)])
+            mx = tr.combine([tr.binop('MULTIPLY', hx, k), tr.binop('MULTIPLY', ly, tr.const(-100.0)), tr.binop('MULTIPLY', hz, k)])
+            return mn, mx
+        return self.once("local bounds", make)
 
     # ------------------------------------------------------------ parameters
     def _at_root(self):
