@@ -1004,12 +1004,20 @@ def _enabled(system, emitter, renderer):
     return bool(int(np.asarray(value).view(np.int32)[0]) != 0)
 
 
+# user parameters the game sets in its front end (the lobby, the locker): on for an import
+FRONT_END = {"user.bisfrontend", "user.bisfrontendpreview"}
+
+
 def _user(root, system):
     """The system's user parameters, and the parameter collections' values it reads (the time of
     day), as the effect's empty's properties (made from the assets' own values the first time), and
     those told to the system."""
     for name, kind, value in system.users():
         if name not in root:
+            # shown as in the lobby and the locker (what the shop's and the locker's pictures show):
+            # some effects play only there (Eternal Wanderer's hair globs)
+            if name.lower() in FRONT_END:
+                value = True
             root[name] = value
     # UE's names don't mind case (a glider's bisFullyDeployed is the bIsFullyDeployed the game sets)
     spelled = {n.lower(): n for n in list(system.user.offsets) + list(system.shared.offsets)}
@@ -1245,9 +1253,14 @@ def play(root):
                 and not (value if not hasattr(value, "__len__") else any(value))]
         yield "%s: %s drawn see-through all along (their colour's alpha 0: waiting on something the game sets%s)" % (
             root.name, ", ".join(clear_ones[:6]), ": its %s at 0 - set on the effect's empty, then Replay Effect" % ", ".join(zero[:5]) if zero else "")
-    approximate = [name for name in played if name in system.approximate]
+    approximate = [name for name in played if name in system.approximate and name not in system.gpu]
     if approximate:
         yield "%s: %s: stateless emitters, played from their settings (the engine's random draws apart)" % (root.name, ", ".join(approximate))
+    gpu = [name for name in played if name in system.gpu]
+    if gpu:
+        guessed = [e.name for e in system.emitters if e.name in gpu and getattr(e, "guessed", False)]
+        yield "%s: %s: GPU emitters, approximated (their curves and materials the asset's; their particles' motion a stand-in%s)" % (
+            root.name, ", ".join(gpu), "; %s spawned at a stand-in rate: what makes the game spawn it isn't in the replay" % ", ".join(guessed) if guessed else "")
     idle = [e.name for e in system.emitters if e.name not in played and not sum(f[0].shape[1] for f in tracks.get(e.name) or [])]
     if idle:
         # the user parameters the game sets that are still off here (a burst's count, a switch): the likely wait

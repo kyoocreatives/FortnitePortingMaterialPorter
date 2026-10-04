@@ -11,8 +11,9 @@ each script, and their curves from data interfaces.
 The asset comes as the app exports it: the package's exports, each {name, type, outer, props},
 in the package's order (a reference's ObjectPath ends in the export's index).
 
-GPU emitters keep no script to run (a compiled shader only) and are left out. Stateless emitters
-have no script either, only settings: niagara_stateless works their particles out.
+GPU emitters keep no script to run (a compiled shader only): niagara_gpu stands in for them from
+what the asset keeps (spawn counts, curves, renderers). Stateless emitters have no script either,
+only settings: niagara_stateless works their particles out.
 """
 import base64
 import struct
@@ -959,6 +960,7 @@ class System:
         self.handles = props.get("EmitterHandles") or []
         self.emitters, self.skipped = [], []        # skipped: (emitter name, why)
         self.approximate = []                       # the stateless emitters: played from their settings, the engine's random draws apart
+        self.gpu = []                               # the GPU emitters among them: their motion a stand-in (niagara_gpu)
         for index, handle in enumerate(self.handles):
             if not handle.get("bIsEnabled", True):
                 continue
@@ -983,7 +985,16 @@ class System:
             wanted = handle["VersionedInstance"].get("Version")
             version = next((v for v in versions if (v.get("Version") or {}).get("VersionGuid") == wanted), versions[0])
             if "GPU" in str(version.get("SimTarget")):
-                self.skipped.append((handle["Name"], "GPU"))
+                # no script to run (a compiled shader): what the asset keeps of it, the motion a stand-in (niagara_gpu)
+                try:
+                    from . import niagara_gpu
+                    self.emitters.append(niagara_gpu.Emitter(self, index, handle, export, version))
+                    self.approximate.append(handle["Name"])
+                    self.gpu.append(handle["Name"])
+                except Exception as e:
+                    if strict:
+                        raise
+                    self.skipped.append((handle["Name"], "GPU: %s" % e))
                 continue
             try:
                 self.emitters.append(Emitter(self, index, handle, export, version))
