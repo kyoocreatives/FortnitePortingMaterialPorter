@@ -614,13 +614,15 @@ def build_one(entry, app, objects=(), make_env=None):
             and not (emissive.const and min(_comps(emissive.s)[:3]) >= 0.0):
         vals["EmissiveColor"] = tr.vmath('MAXIMUM', tr.as3(emissive), tr.const((0.0, 0.0, 0.0), 3), out_w=3)
     assemble(tr, mat, vals, settings(entry))
-    values = env.finish_parameters()
     groups = [ft.tree for ft in tr.functions.values()]
     # one node where translation made several alike (a texture per pin read, a group node per
-    # output of one call); before sharing, so the folded groups are what twins compare
+    # output of one call), none that reaches no output; before sharing, so the folded groups
+    # are what twins compare, and before the parameters are settled (one only a dropped node
+    # read goes with it)
     memo = {}
     for t in groups + [root]:
         merge_duplicates(t, memo)
+    values = env.finish_parameters()
     # twins of earlier materials' groups go first: laying out a group that's
     # about to be thrown away was half of all layout time
     shared, kept = share_groups(groups, owners=[root])

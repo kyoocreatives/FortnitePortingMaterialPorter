@@ -107,6 +107,9 @@ LANE_LIMIT = 1500        # reroutes a tree's lanes may make; past it, plain wire
 # Wires between frames as reroute buses (UE's wiring). Off: a material's dozens of
 # parallel wires became ladders of reroute dots, harder to follow than the wires
 ROUTE_BUSES = False
+PULL_UP = True           # rows rise into the free space above them (_pull_up)
+GAP_PART_Y = 110.0       # between packed rows that don't wire to each other: parts read apart
+GAP_PART_X = 100.0       # the same, sideways
 GAP_NODE_X = 45.0
 GAP_BOX_X = 100.0
 
@@ -1108,12 +1111,57 @@ def _sugiyama(items, edges):
             x += width
 
     _pull_right(layers, dag)
+    if PULL_UP:
+        _pull_up(layers, dag)
 
     placed = []
     for (src, ident), points, links, feeds in routes:
         xy = [(gap_at[bus[0]] + BUS_PAD + BUS_STEP * bus[2], y) for bus, y in points]
         placed.append((src, ident, xy, links, feeds))
     return x, max(it.y + it.h for it in real), placed
+
+
+def _pull_up(layers, dag):
+    """Move rows up into the free space above them. A row is the items its level wires join
+    (top edges equal: Sugiyama lined them up), moved as one so its wires stay straight; it
+    rises until something overlapping it horizontally is in the way. Columns are stacked
+    whole, so a short column under a long frame's end sat as low as the tallest one."""
+    real = [it for col in layers for it in col if it.kind != "dummy"]
+    up = {id(it): id(it) for it in real}
+
+    def find(a):
+        while up[a] != a:
+            up[a] = up[up[a]]
+            a = up[a]
+        return a
+    for u, v, *_ in dag:
+        if id(u) in up and id(v) in up and abs(u.y - v.y) < 0.5:
+            up[find(id(u))] = find(id(v))
+    rows = defaultdict(list)
+    for it in real:
+        rows[find(id(it))].append(it)
+    # a row packs close under what it's wired to, further from the rest: separate parts of
+    # the shader stay apart instead of setting into one block
+    wired = defaultdict(set)
+    for u, v, *_ in dag:
+        wired[id(u)].add(find(id(v)))
+        wired[id(v)].add(find(id(u)))
+    placed = []
+    for row in sorted(rows.values(), key=lambda r: min(it.y for it in r)):
+        shift = None
+        mine = find(id(row[0]))
+        for it in row:
+            floor = 0.0
+            for o in placed:
+                if o.x < it.x + it.w + 10.0 and it.x < o.x + o.w + 10.0:
+                    gap = _vgap(o, it) if mine in wired[id(o)] else max(_vgap(o, it), GAP_PART_Y)
+                    floor = max(floor, o.y + o.h + gap)
+            room = it.y - floor
+            shift = room if shift is None else min(shift, room)
+        if shift and shift > 0.5:
+            for it in row:
+                it.y -= shift
+        placed += row
 
 
 def _pull_right(layers, dag):
@@ -1137,10 +1185,12 @@ def _pull_right(layers, dag):
         if want <= it.x:
             continue
         top, bottom = it.y - GAP_DUMMY_Y, it.y + it.h + GAP_DUMMY_Y
+        mine = {id(v) for v in readers[id(it)]}
         for o in real:
-            # what's further right in the rows it spans stops it short
+            # what's further right in the rows it spans stops it short (further off when it
+            # doesn't read this: another part)
             if o is not it and o.x >= it.x + it.w and o.y < bottom and o.y + o.h > top:
-                want = min(want, o.x - gap(it, o) - it.w)
+                want = min(want, o.x - (gap(it, o) if id(o) in mine else max(gap(it, o), GAP_PART_X)) - it.w)
         if want > it.x:
             it.x = want
 

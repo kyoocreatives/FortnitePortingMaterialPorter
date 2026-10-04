@@ -4022,8 +4022,9 @@ def merge_duplicates(tree, memo=None):
     every input both read agrees - a call read through several outputs is one group node -
     unless that would close a loop (UE compiles each output of a call on its own: one
     output's inputs may need another's result). A vector split and put back together in
-    order (UE's swizzles, free in HLSL, are nodes here) is the vector again, and maths that
-    hands a value on unchanged (x * 1, x + 0) goes. Returns how many nodes went."""
+    order (UE's swizzles, free in HLSL, are nodes here) is the vector again, maths that
+    hands a value on unchanged (x * 1, x + 0) goes, and so does what reaches no output.
+    Returns how many nodes went."""
     memo = {} if memo is None else memo
     nodes = {n.as_pointer(): n for n in tree.nodes}
     ins, outs, indeg = {}, {}, dict.fromkeys(nodes, 0)
@@ -4266,6 +4267,20 @@ def merge_duplicates(tree, memo=None):
             kept.append(p)
         seen[sig] = p
         sig_of[p] = sig
+    # what reaches no output goes (a branch translation made that no attribute kept)
+    outputs = ("NodeGroupOutput", "ShaderNodeOutputMaterial", "ShaderNodeOutputAOV", "ShaderNodeOutputWorld")
+    live, todo = set(), [p for p, n in nodes.items() if n.bl_idname in outputs]
+    if todo:
+        while todo:
+            p = todo.pop()
+            if p not in live:
+                live.add(p)
+                todo += [root(a) for a, _i in ins.get(p, {}).values()]
+        for p, n in list(nodes.items()):
+            if p not in live and n.bl_idname not in ("NodeFrame", "NodeGroupInput"):
+                tree.nodes.remove(n)
+                del nodes[p]
+                gone += 1
     return gone
 
 
