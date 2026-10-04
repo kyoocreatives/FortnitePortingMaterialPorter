@@ -310,7 +310,7 @@ def _park_dead(tree, tags, wires):
     """Tag whatever no longer reaches the output into the Unused frame."""
     ins, _ = _adjacency(wires)
     live = set()
-    stack = [n.name for n in tree.nodes if n.type == 'GROUP_OUTPUT']
+    stack = [n.name for n in tree.nodes if n.type in ('GROUP_OUTPUT', 'OUTPUT_MATERIAL')]
     while stack:
         name = stack.pop()
         if name in live:

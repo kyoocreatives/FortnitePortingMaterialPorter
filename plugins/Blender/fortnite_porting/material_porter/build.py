@@ -15,6 +15,7 @@ from . import layout
 from .app_client import AppClient
 from . import world
 from .env import MaterialEnv, fit_socket
+from .nodelib import SECTION_KEY
 from .ue_graph import BOUNDS_CENTRE, CARRIED, SHADING_MODELS, Translator, Val, merge_duplicates
 
 PREFIX = "MP "            # built materials: "MP MI_Foo"
@@ -113,17 +114,9 @@ def assemble(tr, mat, a, s):
         n = a["Normal"]
         bsdf_n = None
         if not flat and not (n.const and _comps(n.s)[:3] == (0.0, 0.0, 1.0)):
-            if s["tangent_normal"]:
-                # UE's tangent space is DirectX (green down): flip Y, then
-                # encode as the colour Blender's Normal Map node reads
-                nm = tr.node("ShaderNodeNormalMap", "UE normal", space='TANGENT', uv_map="UV0")
-                col = tr.vmath('ADD', tr.vmath('MULTIPLY', n, tr.const((0.5, -0.5, 0.5), 3), out_w=3),
-                               tr.const((0.5, 0.5, 0.5), 3), out_w=3)
-                tr.link(col, nm.inputs["Color"])
-                bsdf_n = Val(nm.outputs["Normal"], 3)
-            else:
-                # a world-space normal, in UE space: back to Blender's
-                bsdf_n = tr.vmath('NORMALIZE', tr.vmath('MULTIPLY', n, tr.const((1.0, -1.0, 1.0), 3), out_w=3), out_w=3)
+            # UE's tangent space is DirectX (green down); a world-space normal is in UE space
+            # (the node PixelNormalWS reads, when the material reads it)
+            bsdf_n = tr.material_normal(n, s["tangent_normal"])
             tr.link(bsdf_n, bsdf.inputs["Normal"])
 
         if per_pixel is not None:
@@ -407,6 +400,28 @@ def _material_node(mat, root, label, values, width):
     node.location = (-width - 60.0, 0.0)
     out.location = (0.0, 0.0)
     tree.nodes.active = node
+    # the layout's sections: these two at the top level (the textures make a frame of their own)
+    node[SECTION_KEY] = out[SECTION_KEY] = ""
+    return node
+
+
+def _texture_zones(mat, node, env):
+    """The textures the material's group samples, outside it: each a closure zone around its
+    image node in the material's own tree (a Textures frame), into the group's Closure input."""
+    if not env._textures:
+        return False
+    tr = Translator(mat.node_tree, env)
+    prev = tr.activate()
+    try:
+        by_id = {s.identifier: s for s in node.inputs}
+        # in the order of the group's Textures panel: the wires run straight across
+        for item, _sock, (tname, img, own, address) in sorted(env._textures.values(), key=lambda t: t[0].name.lower()):
+            target = by_id.get(item.identifier)
+            if target is not None:
+                mat.node_tree.links.new(tr._texture_zone(tname, img, own, address), target)
+    finally:
+        prev.activate()
+    return True
 
 
 def _comps(s):
@@ -619,7 +634,15 @@ def build_one(entry, app, objects=(), make_env=None):
                 layout.arrange(t)
             except Exception as e:     # layout is cosmetic: never lose a build to it
                 env.note("layout of %s: %s" % (t.name, e))
-    _material_node(mat, root, entry["name"], values, env.node_width())
+    node = _material_node(mat, root, entry["name"], values, env.node_width())
+    if _texture_zones(mat, node, env):
+        if LAZY_LAYOUT:
+            mat.node_tree[KEY_LAYOUT] = 1
+        else:
+            try:
+                layout.arrange(mat.node_tree)
+            except Exception as e:     # cosmetic
+                env.note("layout of %s: %s" % (mat.name, e))
     mat[KEY_PATH] = entry["path"]
     mat[KEY_REV] = BUILD_REVISION
     if entry.get("variant"):
@@ -662,7 +685,7 @@ def _record_shape(mat, root, env, entry):
     with the texture parameters it came from, each input with its parameter
     and graph default."""
     key_of = {img.name: key for key, img in env._images.items() if img is not None}
-    for t in _reachable(root):
+    for t in [mat.node_tree] + _reachable(root):
         for n in t.nodes:
             if n.bl_idname != "ShaderNodeTexImage" or n.image is None:
                 continue
@@ -741,6 +764,10 @@ def build_like(src, entry, app):
         changes(root1)
     except LookupError:
         return None
+    # the material's own tree: its textures (the group holds none)
+    if any(new_key(list(n["mp_tex"])) is ambiguous for n in src.node_tree.nodes
+           if n.bl_idname == "ShaderNodeTexImage" and "mp_tex" in n):
+        return None
     env = MaterialEnv(app, entry, [])
     copies = {}
 
@@ -765,6 +792,14 @@ def build_like(src, entry, app):
 
     mat = src.copy()
     mat.name = PREFIX + entry["name"]
+    swapped = 0
+    for n in mat.node_tree.nodes:
+        if n.bl_idname == "ShaderNodeTexImage" and "mp_tex" in n:
+            k = new_key(list(n["mp_tex"]))
+            if k != n["mp_key"]:
+                n.image = env.texture(k, "Normal" if n.get("mp_normal") else "")
+                n["mp_key"] = k
+                swapped += 1
     root2 = clone(root1)
     if root2 is not root1:
         root2.name = mat.name
@@ -793,7 +828,8 @@ def build_like(src, entry, app):
     elif KEY_VARIANT in mat:
         del mat[KEY_VARIANT]
     world.apply_fog(mat)
-    return mat, list(env.notes) + ["same shape as %s: copied, %d group(s) with other images" % (src.name, len(copies))]
+    return mat, list(env.notes) + ["same shape as %s: copied, %d texture(s) and %d group(s) with other images"
+                                   % (src.name, swapped, len(copies))]
 
 
 # ------------------------------------------------------------------ bundles

@@ -612,6 +612,13 @@ def load_graph(path):
     return g
 
 
+PIXEL_NORMAL = "PixelNormalWS"     # a function group's PixelNormalWS input (env.group_input fills it)
+
+
+def _comps3(s):
+    return tuple(s)[:3] if isinstance(s, (tuple, list)) else (s, s, s)
+
+
 class TexKey(str):
     """A texture key that remembers the texture parameter it came from."""
     param = None
@@ -1188,11 +1195,20 @@ class Translator:
         if linked(pins.get("MaterialAttributes")):
             v = self.input(g, pins["MaterialAttributes"], {}, None)
             attrs = v.s if v is not None and isinstance(v.s, Attrs) else Attrs()
+            # what PixelNormalWS reads (pixel_normal): the Normal, made apart (its own scope: a
+            # function's group node would carry both the Normal and what reads it - a loop UE,
+            # compiling each property on its own, never has); merge_duplicates folds what it can
+            def normal():
+                nv = self.input(g, pins["MaterialAttributes"], {"_id": PIXEL_NORMAL}, None)
+                return (nv.s if nv is not None and isinstance(nv.s, Attrs) else Attrs()).get("Normal")
+            self._normal_src = normal
             out = {n: attrs.get(n) for n in names}
             out.update(self.water_outputs(g))
             self.prune_unused()
             return out
         out = {}
+        npin = next((k for k, a in PIN_ATTRIBUTE.items() if a == "Normal" and linked(pins.get(k))), None)
+        self._normal_src = lambda: self.input(g, pins[npin], {"_id": PIXEL_NORMAL}, None) if npin else None
         for n in names:
             pin = next((k for k, a in PIN_ATTRIBUTE.items() if a == n and linked(pins.get(k))), None)
             out[n] = self.input(g, pins[pin], {}, None) if pin else attribute_default(n)
@@ -2322,7 +2338,57 @@ class Translator:
             "vertex normal", lambda: self.from_blender(self._geometry("Normal"))))
 
     def pixel_normal(self):
-        return self._hook("pixel_normal", self.vertex_normal)
+        """UE's PixelNormalWS: the material's own Normal as lit, its normal map applied (the vertex
+        normal is VertexNormalWS). Where the env says how the Normal is read (env.normal_mode:
+        (lit, tangent space)); else, and in an unlit material (UE compiles its Normal out), the
+        vertex normal. In a function's group a socket the caller fills."""
+        hooked = getattr(self.env, "pixel_normal", None)
+        v = hooked() if hooked is not None else None
+        if v is not None:
+            return v
+        mode = self._hook("normal_mode", lambda: None)
+        if not mode or not mode[0]:
+            return self.vertex_normal()
+        if self.function is not None:
+            return self.function.env_input(PIXEL_NORMAL, 'NodeSocketVector', (0.0, 0.0, 1.0),
+                                           "UE PixelNormalWS: the material's normal, its normal map applied")
+        src = getattr(self, "_normal_src", None)
+        if src is None or getattr(self, "_normal_busy", False):
+            # (asked while the Normal itself is made: UE won't compile that)
+            return self.vertex_normal()
+
+        def make():
+            self._normal_busy = True
+            try:
+                n = src()
+            except RuntimeError:
+                n = None
+            finally:
+                self._normal_busy = False
+            if n is None or n.const and tuple(_comps3(n.s)) == (0.0, 0.0, 1.0):
+                return None
+            return self.from_blender(self.material_normal(n, mode[1]))
+        got = self.shared("pixel normal", make)
+        return got if got is not None else self.vertex_normal()
+
+    def material_normal(self, n, tangent=True):
+        """A material's Normal as Blender's world normal, one per tree (the BSDF and PixelNormalWS
+        read the same node): UE's tangent space is DirectX (green down) - a Normal Map node set so
+        (Blender 5.2; before, green flipped here) - or a world-space normal in UE space."""
+        def make():
+            if not tangent:
+                return self.vmath('NORMALIZE', self.vmath('MULTIPLY', n, self.const((1.0, -1.0, 1.0), 3), out_w=3), out_w=3)
+            nm = self.node("ShaderNodeNormalMap", "UE normal", space='TANGENT', uv_map="UV0")
+            green = 0.5
+            if hasattr(nm, "convention"):
+                nm.convention = 'DIRECTX'
+            else:
+                green = -0.5
+            col = self.vmath('ADD', self.vmath('MULTIPLY', n, self.const((0.5, green, 0.5), 3), out_w=3),
+                             self.const((0.5, 0.5, 0.5), 3), out_w=3)
+            self.link(col, nm.inputs["Color"])
+            return Val(nm.outputs["Normal"], 3)
+        return self.shared("material normal", make)
 
     def local_position(self):
         def fallback():
@@ -3527,9 +3593,16 @@ class Translator:
                 bool(own), tuple(address) if address else None)
         if self.function is not None:
             return self.function.texture_input(spec, tname, sampler, img, own, address)
+        # the env may take it outside this tree (a material's group: a Closure input, the image
+        # node in the material's own tree - env.root_texture)
+        outside = getattr(self.env, "root_texture", None)
+        got = outside(spec, tname, sampler, img, own, address) if outside is not None else None
+        if got is not None:
+            return got
         return self.shared(("texture", spec), lambda: self._texture_zone(tname, img, own, address))
 
     def _texture_zone(self, tname, img, own, address):
+        """A closure zone around a texture's image node (in the Textures section); its Closure socket."""
         nearest = own and self._hook("texture_nearest", lambda: False, tname)
         ext, fixes = self.address_mode(tname, own, address, img)
         label = getattr(tname, "param", None) or short_name(str(tname))
@@ -3547,6 +3620,9 @@ class Translator:
             n = self.node("ShaderNodeTexImage", short_name(str(tname)), interpolation='Closest' if nearest else 'Linear',
                           extension=ext)
             n.image = img
+            # collapsed and narrow: a column of textures, one row each (its label names the image)
+            n.hide = True
+            n.width = 160
             if getattr(tname, "param", None):
                 n["mp_tex_param"] = tname.param     # which parameter's texture this is (another instance swaps it)
             self.link(self.addressed(Val(cin.outputs[0], 3), fixes), n.inputs[0])

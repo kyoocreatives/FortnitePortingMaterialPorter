@@ -23,7 +23,7 @@ import re
 import bpy
 
 from . import world
-from .ue_graph import WATER_DEPTH_DEFAULT, Val
+from .ue_graph import PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
 
 # a vector parameter that names a colour gets a colour socket (a picker); any other - an offset, a
 # direction, a channel, a size - a vector socket: a colour socket clamps negatives to 0 (a sprite
@@ -94,6 +94,7 @@ class MaterialEnv:
         self._params = {}       # key -> (interface item, Val, value, panel name)
         self._claimed = {}      # (image, channel) -> the channel mask guessed onto it
         self._panels = {}
+        self._textures = {}         # texture spec -> (interface item, its Group Input socket, (key, image, own sampler, address))
         # what another instance of the same shape needs to reuse this build (build.build_like):
         # which parameters each texture came from, each parameter's graph default, normal maps;
         # False when the trees hold more than parameter values (a guessed mask, the object's
@@ -339,10 +340,33 @@ class MaterialEnv:
         self._params[key] = (item, v, value, self.caller or "Material")
         return v
 
+    def root_texture(self, spec, tname, sampler, img, own, address):
+        """A texture the material's group samples, as a Closure input of the group (Translator.
+        texture_closure): its image node goes in the material's own tree, outside the group
+        (build._texture_zones), the input in the group's Textures panel. Named for the texture
+        parameter, else the texture."""
+        if not self._at_root():
+            return None
+        if spec in self._textures:
+            return self._textures[spec][1]
+        taken = {it.name for it in self.root.interface.items_tree if it.item_type == 'SOCKET' and it.in_out == 'INPUT'}
+        base = getattr(tname, "param", None) or str(tname).rsplit("/", 1)[-1].split(".")[0] or "Texture"
+        name, i = base, 2
+        while name in taken:
+            name = "%s %d" % (base, i)
+            i += 1
+        item = self.root.interface.new_socket(name, description="UE texture " + base, in_out='INPUT',
+                                              socket_type='NodeSocketClosure')
+        gi = self.once("parameters", lambda: self.tr.node("NodeGroupInput", "parameters"))
+        sock = next(s for s in gi.outputs if s.identifier == item.identifier)
+        self._textures[spec] = (item, sock, (tname, img, own, address))
+        return sock
+
     def finish_parameters(self):
-        """Unused inputs go; the rest in panels by function ("Material" first),
-        alphabetical within - or one alphabetical list when there's one
-        function. Returns [(identifier, value)] for the group node's sockets."""
+        """Unused inputs go; the textures first, in their panel; the parameters in panels by
+        function ("Material" first), alphabetical within - or one alphabetical list when
+        there's one function and no texture (Blender keeps loose inputs above panels).
+        Returns [(identifier, value)] for the group node's sockets."""
         if self.root is None:
             return []
         iface = self.root.interface
@@ -352,19 +376,29 @@ class MaterialEnv:
             if item.identifier not in linked:
                 iface.remove(item)
                 del self._params[key]
+        for spec, (item, _sock, _tex) in list(self._textures.items()):
+            if item.identifier not in linked:
+                iface.remove(item)
+                del self._textures[spec]
         by_panel = {}
         for item, _v, _value, panel in self._params.values():
             by_panel.setdefault(panel, []).append(item)
         order = sorted(by_panel, key=lambda n: (n != "Material", n.lower()))
-        if len(order) == 1:
+        if len(order) == 1 and not self._textures:
             for i, item in enumerate(sorted(by_panel[order[0]], key=lambda it: it.name.lower())):
                 iface.move(item, i)
         else:
             for name in order:
-                panel = iface.new_panel(name, default_closed=True)
+                # a lone parameter panel opens: its inputs were loose before the textures came
+                panel = iface.new_panel(name, default_closed=len(order) > 1)
                 self._panels[name] = panel
                 for i, item in enumerate(sorted(by_panel[name], key=lambda it: it.name.lower())):
                     iface.move_to_parent(item, panel, i)
+        if self._textures:
+            panel = iface.new_panel("Textures", default_closed=False)
+            for i, (item, _sock, _tex) in enumerate(sorted(self._textures.values(), key=lambda t: t[0].name.lower())):
+                iface.move_to_parent(item, panel, i)
+            iface.move(panel, 0)
         return [(item.identifier, value) for item, _v, value, _panel in self._params.values()]
 
     def node_width(self):
@@ -579,8 +613,17 @@ class MaterialEnv:
         data = tr.combine([attr("mp_pic%d" % (index + i)) for i in range(w)])
         return tr.vmath('ADD', v, tr.vmath('SCALE', tr.vmath('SUBTRACT', data, v, out_w=w), has, out_w=w), out_w=w)
 
+    def normal_mode(self):
+        """(whether the Normal is lit, whether it's in tangent space): UE compiles an unlit
+        material's Normal out (its PixelNormalWS is the vertex normal)."""
+        asset, over = self.entry.get("asset") or {}, self.entry.get("overrides") or {}
+        shading = str(over.get("ShadingModel", asset.get("ShadingModel")) or "").split("::")[-1]
+        return shading != "MSM_Unlit", bool(asset.get("bTangentSpaceNormal", True))
+
     def group_input(self, key):
         """A function group's parameter socket, fed from where it's called."""
+        if key == PIXEL_NORMAL:
+            return self.tr.pixel_normal()
         if key.startswith("P: "):
             return self.scalar(key[3:], self._defaults.get(key, 0.0))
         if key.startswith("V: "):
