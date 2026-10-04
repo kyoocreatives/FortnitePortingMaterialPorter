@@ -79,6 +79,7 @@ class MaterialEnv:
     asset_paths = True          # textures and collections by object path
     replace_groups = False      # other materials' groups stay
     function_prefix = ""
+    texture_closures = True     # image nodes at the root, functions' groups sample them through closures
 
     def __init__(self, app, entry, objects=()):
         self.app, self.entry = app, entry
@@ -638,6 +639,12 @@ class MaterialEnv:
                 if n.image not in found:
                     found.append(n.image)
                 continue
+            img = bpy.data.images.get(n.get("mp_image", "")) if n.bl_idname == "NodeEvaluateClosure" else None
+            if img is not None:
+                # a texture read through its closure (Translator.sample_node)
+                if img not in found:
+                    found.append(img)
+                continue
             for i in n.inputs:
                 for l in i.links:
                     todo.append(l.from_node)
@@ -752,6 +759,13 @@ class MaterialEnv:
 
     def preskinned_position(self):
         return self.local_position()
+
+    def texture_address(self, key):
+        """UE's addressing of a texture per axis (the app's record: AddressX, AddressY)."""
+        rec = self._record(key)
+        if not rec:
+            return ("Wrap", "Wrap")
+        return (rec.get("AddressX") or "Wrap", rec.get("AddressY") or "Wrap")
 
     def texture_nearest(self, key):
         """Whether UE samples the texture unfiltered (the app's record: its Filter TF_Nearest)."""

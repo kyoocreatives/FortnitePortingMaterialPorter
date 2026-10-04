@@ -77,6 +77,11 @@ public sealed class TextureFile
     public bool Hdr { get; set; }
     /// <summary>Sampled unfiltered (its Filter TF_Nearest, or the Pixels2D group): a LUT, a pixel grid.</summary>
     public bool Nearest { get; set; }
+    /// <summary>How UE addresses it past 0..1, per axis (AddressX, AddressY): "Wrap", "Clamp" or "Mirror".</summary>
+    public string AddressX { get; set; } = "Wrap";
+    public string AddressY { get; set; } = "Wrap";
+    /// <summary>The cooked pixel format (PF_DXT1, PF_BC5, ...).</summary>
+    public string Format { get; set; }
 }
 
 public sealed class MaterialService
@@ -510,8 +515,7 @@ public sealed class MaterialService
                 if (rec?.Version == TextureCacheVersion && rec.Texture != null && File.Exists(rec.Texture.File) && rec.Texture.Width >= full)
                 {
                     Timing.Log($"texture {Bridge.ShortName(path)} (cached)", sw);
-                    rec.Texture.Nearest = Nearest(tex);
-                    return rec.Texture;
+                    return Sampling(rec.Texture, tex);
                 }
             }
         }
@@ -527,7 +531,7 @@ public sealed class MaterialService
                 {
                     var file = stem + ".dds";
                     WriteDds(file, mip.SizeX, mip.SizeY, dxgi, bytes);
-                    var rec = new TextureFile { File = file, Srgb = tex.SRGB, Width = mip.SizeX, Height = mip.SizeY, Nearest = Nearest(tex) };
+                    var rec = Sampling(new TextureFile { File = file, Srgb = tex.SRGB, Width = mip.SizeX, Height = mip.SizeY }, tex);
                     await File.WriteAllTextAsync(meta, JsonConvert.SerializeObject(new CachedTexture { Version = TextureCacheVersion, Texture = rec }));
                     Timing.Log($"texture {Bridge.ShortName(path)} {mip.SizeX}x{mip.SizeY} {pd.PixelFormat} as DDS", sw);
                     return rec;
@@ -555,11 +559,11 @@ public sealed class MaterialService
                 _ => "2d",
             };
             var depth = kind is "volume" or "array" && ct.Width > 0 ? Math.Max(1, ct.Height / ct.Width) : 1;
-            var result = new TextureFile
+            var result = Sampling(new TextureFile
             {
                 File = file, Srgb = tex.SRGB, Width = ct.Width, Height = ct.Height, Kind = kind, Depth = depth,
-                Hdr = ext == "hdr", Nearest = Nearest(tex),
-            };
+                Hdr = ext == "hdr",
+            }, tex);
             await File.WriteAllTextAsync(meta, JsonConvert.SerializeObject(new CachedTexture { Version = TextureCacheVersion, Texture = result }));
             Timing.Log($"texture {Bridge.ShortName(path)} {ct.Width}x{ct.Height} {ct.PixelFormat}: load {tLoad:0} decode {tDecode - tLoad:0} encode {tEncode - tDecode:0} ({data.Length / 1024} KB)", sw);
             return result;
@@ -572,6 +576,33 @@ public sealed class MaterialService
     /// UTexture.Filter says TF_Nearest when the property isn't stored, where UE's default is
     /// TF_Default, so only the stored property counts), or TEXTUREGROUP_Pixels2D.
     /// </summary>
+    /// <summary>A record's sampler state, read from the texture each time (cached records predate some of it).</summary>
+    static TextureFile Sampling(TextureFile rec, UTexture tex)
+    {
+        if (tex.Format != EPixelFormat.PF_Unknown)
+        {
+            rec.Format = tex.Format.ToString();
+            // UE decodes sRGB in the sampler, and only a format with an sRGB variant has one (BC1-3, BC7,
+            // 8-bit RGBA): a BC4/BC5/BC6H/G8/float texture reads as stored whatever its SRGB flag says
+            rec.Srgb = tex.SRGB && SrgbFormat(tex.Format);
+        }
+        rec.Nearest = Nearest(tex);
+        rec.AddressX = Address(tex.GetTextureAddressX());
+        rec.AddressY = Address(tex.GetTextureAddressY());
+        return rec;
+    }
+
+    static bool SrgbFormat(EPixelFormat f) => f is EPixelFormat.PF_DXT1 or EPixelFormat.PF_DXT3 or EPixelFormat.PF_DXT5
+        or EPixelFormat.PF_BC7 or EPixelFormat.PF_B8G8R8A8 or EPixelFormat.PF_R8G8B8A8 or EPixelFormat.PF_A8R8G8B8
+        || f.ToString().StartsWith("PF_ASTC", StringComparison.Ordinal) || f.ToString().StartsWith("PF_ETC2", StringComparison.Ordinal);
+
+    static string Address(TextureAddress a) => a switch
+    {
+        TextureAddress.TA_Clamp => "Clamp",
+        TextureAddress.TA_Mirror => "Mirror",
+        _ => "Wrap",
+    };
+
     static bool Nearest(UTexture tex) =>
         tex.Properties.FirstOrDefault(p => p.Name.Text == "Filter")?.Tag?.GenericValue?.ToString()?.EndsWith("TF_Nearest", StringComparison.Ordinal) == true
         || tex.LODGroup == global::CUE4Parse.UE4.Assets.Exports.Texture.TextureGroup.TEXTUREGROUP_Pixels2D;

@@ -731,6 +731,7 @@ class FunctionTree:
         self.outs = {}          # output id -> (socket name, width); width "attrs" for Material Attributes
         self.attr_outs = {}     # output id -> {attribute: ("socket", name, width) | ("const", Val)}
         self.needs = {}
+        self.textures = {}      # closure input socket name -> (texture key, sampler, image, own sampler, address)
 
     def _new_input(self, name, width, kind):
         base, i = name, 2
@@ -792,6 +793,27 @@ class FunctionTree:
             item.description = description
             self.kind[name] = ("env", key)
         return Val(self.gi.outputs[name], WIDTH_OF_SOCKET.get(socket_type, 3))
+
+    def texture_input(self, spec, tname, sampler, img, own, address):
+        """The Closure input a texture the body samples arrives on (Vector -> Color, Alpha): the
+        image node stays at the material's root, so the group holds no image and every material
+        calling the function shares it. Named for the texture parameter (an instance's texture
+        doesn't rename it), else the texture."""
+        key = ("tex", spec)
+        for name, k in self.kind.items():
+            if k == key:
+                return self.gi.outputs[name]
+        taken = {it.name for it in self.tree.interface.items_tree if it.item_type == 'SOCKET' and it.in_out == 'INPUT'}
+        base = getattr(tname, "param", None) or short_name(str(tname)) or "Texture"
+        name, i = socket_name(base), 2
+        while name in taken:
+            name = socket_name("%s %d" % (base, i))
+            i += 1
+        item = self.tree.interface.new_socket(name, in_out='INPUT', socket_type='NodeSocketClosure')
+        item.description = "UE texture %s: its image node is in the material's Textures frame" % base
+        self.kind[name] = key
+        self.textures[name] = (tname, sampler, img, own, address)
+        return self.gi.outputs[name]
 
     def output(self, fo):
         """Build a FunctionOutput once; returns (socket name, width)."""
@@ -1492,10 +1514,12 @@ class Translator:
                 return self.sample_cube(tname, coords if coords is not None else self.reflection(), out)
             if coords is None:
                 coords = env.uv(0)
-            # its own sampler (the default source) filters as the texture says; a shared
-            # sampler (world group settings) as its group does
-            own = str(p.get("SamplerSource", "")).split("::")[-1] in ("", "SSM_FromTextureAsset")
-            return self.sample(tname, coords, out, p.get("SamplerType", ""), own)
+            # its own sampler (the default source) filters and addresses as the texture says; a
+            # shared sampler (world group settings) wraps or clamps as its group does
+            src = str(p.get("SamplerSource", "")).split("::")[-1]
+            own = src in ("", "SSM_FromTextureAsset")
+            address = None if own else ("Clamp", "Clamp") if "Clamp" in src or "Terrain" in src else ("Wrap", "Wrap")
+            return self.sample(tname, coords, out, p.get("SamplerType", ""), own, address)
         if t == "Convert":
             # UE 5's component shuffle: typed outputs, filled from input
             # components by explicit mappings, defaults elsewhere
@@ -2539,8 +2563,8 @@ class Translator:
             h = float(img.size[1]) if img is not None and img.size[1] > 1 else 256.0
             time = self.mask(self.input(g, p.get("InputTime"), scope, self.const(0.0)), [0])
             v = self.binop('DIVIDE', self.binop('ADD', row, self.const(0.5)), self.const(h))
-            n = self.sample_node(atlas, self.combine([time, v]), "SAMPLERTYPE_LinearColor", img=img)
-            n.extension = 'EXTEND'
+            n = self.sample_node(atlas, self.combine([time, v]), "SAMPLERTYPE_LinearColor", img=img,
+                                 address=("Clamp", "Clamp"))
             rgb = Val(n.outputs["Color"], 3)
             if out == 4:
                 return Val(n.outputs["Alpha"], 1)
@@ -3459,20 +3483,103 @@ class Translator:
             return alpha
         return self.mask(rgb, [out - 1])
 
-    def sample_node(self, tname, coords, sampler, img=None, own=True):
-        """An image node reading a 2D texture at UE UVs (unfiltered when the texture
-        is, read through its own sampler: a LUT sampled at a texel's centre stays exact)."""
+    # UE's TextureAddress -> the image node's extension (TA_Clamp clamps to the edge texel: EXTEND)
+    EXTENSION = {"Wrap": 'REPEAT', "Clamp": 'EXTEND', "Mirror": 'MIRROR'}
+
+    def address_mode(self, tname, own, address, img):
+        """(extension, per-axis fixes) for a texture's addressing: its own (env.texture_address,
+        AddressX/AddressY) through its own sampler, else the shared sampler's. One extension
+        serves both axes; an axis addressed otherwise is fixed on the coordinate: a clamped one
+        held between the edge texels' centres (bilinear filtering then never reaches across),
+        a mirrored one folded (ping-pong)."""
+        if address is None:
+            address = self._hook("texture_address", lambda: ("Wrap", "Wrap"), tname) if own else ("Wrap", "Wrap")
+        ax, ay = (tuple(address) + ("Wrap", "Wrap"))[:2]
+        if ax == ay:
+            return self.EXTENSION.get(ax, 'REPEAT'), ()
+        ext = 'REPEAT' if "Wrap" in (ax, ay) else 'MIRROR'
+        size = tuple(img.size) if img is not None else (0, 0)
+        fixes = []
+        for i, a in enumerate((ax, ay)):
+            if a == "Clamp":
+                fixes.append((i, "clamp", 0.5 / size[i] if size[i] else 0.0))
+            elif a == "Mirror" and ext == 'REPEAT':
+                fixes.append((i, "mirror", 0.0))
+        return ext, tuple(fixes)
+
+    def addressed(self, vec, fixes):
+        if not fixes:
+            return vec
+        c = list(self.comps(vec))
+        for i, kind, half in fixes:
+            if kind == "clamp":
+                c[i] = self.math('MAXIMUM', self.math('MINIMUM', c[i], self.const(1.0 - half)), self.const(half),
+                                 label="clamp (TA_Clamp)")
+            else:
+                c[i] = self.math('PINGPONG', c[i], self.const(1.0), label="mirror (TA_Mirror)")
+        return self.combine(c)
+
+    def texture_closure(self, tname, sampler, img, own, address):
+        """The closure sampling a 2D texture (Vector -> Color, Alpha), one per texture and sampler:
+        at the material's root a closure zone around the texture's image node, in the Textures
+        frame; in a function's group a Closure input its caller fills (env.texture_closures)."""
+        spec = (str(tname), getattr(tname, "param", None), sampler or "", img.name if img is not None else "",
+                bool(own), tuple(address) if address else None)
+        if self.function is not None:
+            return self.function.texture_input(spec, tname, sampler, img, own, address)
+        return self.shared(("texture", spec), lambda: self._texture_zone(tname, img, own, address))
+
+    def _texture_zone(self, tname, img, own, address):
+        nearest = own and self._hook("texture_nearest", lambda: False, tname)
+        ext, fixes = self.address_mode(tname, own, address, img)
+        label = getattr(tname, "param", None) or short_name(str(tname))
+        with self.at("Textures"):
+            cin = self.node("NodeClosureInput", label)
+            cout = self.node("NodeClosureOutput", label)
+            cout.input_items.new('VECTOR', "Vector")
+            cout.output_items.new('RGBA', "Color")
+            cout.output_items.new('FLOAT', "Alpha")
+            cin.pair_with_output(cout)
+            for z in (cin, cout):
+                # the zone's ends collapsed (as FortnitePorting draws its texture closures)
+                z.hide = True
+                z.width = 100
+            n = self.node("ShaderNodeTexImage", short_name(str(tname)), interpolation='Closest' if nearest else 'Linear',
+                          extension=ext)
+            n.image = img
+            if getattr(tname, "param", None):
+                n["mp_tex_param"] = tname.param     # which parameter's texture this is (another instance swaps it)
+            self.link(self.addressed(Val(cin.outputs[0], 3), fixes), n.inputs[0])
+            self.L.new(n.outputs["Color"], cout.inputs["Color"])
+            self.L.new(n.outputs["Alpha"], cout.inputs["Alpha"])
+        return cout.outputs[0]
+
+    def sample_node(self, tname, coords, sampler, img=None, own=True, address=None):
+        """A node reading a 2D texture at UE UVs, with outputs Color and Alpha (unfiltered when the
+        texture is, read through its own sampler: a LUT sampled at a texel's centre stays exact):
+        its image node, or with env.texture_closures an Evaluate Closure of the texture's closure."""
         if img is None:
             img = self.env.texture(tname, sampler)
-        nearest = own and self._hook("texture_nearest", lambda: False, tname)
-        n = self.node("ShaderNodeTexImage", short_name(tname), interpolation='Closest' if nearest else 'Linear', extension='REPEAT')
-        n.image = img
-        if getattr(tname, "param", None):
-            n["mp_tex_param"] = tname.param     # which parameter's texture this is (another instance swaps it)
         u, v = self.comps(coords)[:2]
         # UE UVs run top-left; Blender samples bottom-left
         vec = self.combine([u, self.binop('SUBTRACT', self.const(1.0), v), self.const(0.0)])
-        self.link(vec, n.inputs[0])
+        if getattr(self.env, "texture_closures", False):
+            n = self.node("NodeEvaluateClosure", getattr(tname, "param", None) or short_name(str(tname)))
+            n.input_items.new('VECTOR', "Vector")
+            n.output_items.new('RGBA', "Color")
+            n.output_items.new('FLOAT', "Alpha")
+            self.L.new(self.texture_closure(tname, sampler, img, own, address), n.inputs[0])
+            self.link(vec, n.inputs["Vector"])
+            if img is not None:
+                n["mp_image"] = img.name        # the image it reads (env._images_upstream)
+            return n
+        nearest = own and self._hook("texture_nearest", lambda: False, tname)
+        ext, fixes = self.address_mode(tname, own, address, img)
+        n = self.node("ShaderNodeTexImage", short_name(tname), interpolation='Closest' if nearest else 'Linear', extension=ext)
+        n.image = img
+        if getattr(tname, "param", None):
+            n["mp_tex_param"] = tname.param     # which parameter's texture this is (another instance swaps it)
+        self.link(self.addressed(vec, fixes), n.inputs[0])
         return n
 
     def unpack_normal(self, rgb):
@@ -3485,8 +3592,8 @@ class Translator:
         z = self.math('SQRT', self.saturate(self.binop('SUBTRACT', self.const(1.0), d)))
         return self.combine([x, y, z]), self.const(1.0)
 
-    def sample(self, tname, coords, out, sampler, own=True):
-        n = self.sample_node(tname, coords, sampler, own=own)
+    def sample(self, tname, coords, out, sampler, own=True, address=None):
+        n = self.sample_node(tname, coords, sampler, own=own, address=address)
         if "Normal" in (sampler or ""):
             return self.rgba_out(*self.unpack_normal(Val(n.outputs["Color"], 3)), out)
         rgb = Val(n.outputs["Color"], 3)
@@ -3610,6 +3717,10 @@ class Translator:
             for sock in sorted(needs - linked):
                 linked.add(sock)
                 kind, key = ft.kind[sock]
+                if kind == "tex":
+                    # the texture's closure: the root's zone, or this function's own Closure input
+                    self.L.new(self.texture_closure(*ft.textures[sock]), node.inputs[sock])
+                    continue
                 if kind == "ue_attr":
                     fid, attr = key
                     lazy = ins.get(fid)
@@ -3690,6 +3801,8 @@ class Translator:
             kind, k = ft.kind[sock]
             if kind == "env":
                 self.link(self.env.group_input(k), node.inputs[sock])
+            elif kind == "tex":
+                self.L.new(self.texture_closure(*ft.textures[sock]), node.inputs[sock])
         return Val(node.outputs["Emissive Color"], 3)
 
 
@@ -3735,6 +3848,259 @@ class _SpecialInputs(list):
 
     def __iter__(self):
         return (x.get(self.tr) for x in list.__iter__(self))
+
+
+# ------------------------------------------------------------------ duplicates
+# Translation makes a node per expression pin and per call output: a texture read
+# through R, G and A became three image nodes, a function called once and read
+# through five outputs five group nodes. merge_duplicates() folds a finished tree.
+_MERGE_SKIP = {"NodeFrame", "NodeReroute", "NodeGroupInput", "NodeGroupOutput", "ShaderNodeOutputMaterial",
+               "ShaderNodeOutputAOV", "NodeClosureInput", "NodeClosureOutput"}
+_MERGE_IGNORED = {"TexMapping", "ColorMapping", "ImageUser"}     # left at their defaults by the build
+_MERGE_PROPS = {}
+
+
+def _merge_props(n):
+    """What besides its inputs decides a node's result: [(property, kind)], None when
+    something can't be compared (a colour ramp's points, a curve)."""
+    k = n.bl_idname
+    if k not in _MERGE_PROPS:
+        import bpy
+        base = {p.identifier for t in (bpy.types.Node, bpy.types.ShaderNode) for p in t.bl_rna.properties}
+        props = []
+        for p in n.bl_rna.properties:
+            ident = p.identifier
+            if ident in base or ident.startswith("active_"):
+                continue
+            if p.type == 'POINTER':
+                if ident in ("image", "node_tree", "object"):
+                    props.append((ident, "id"))
+                elif p.fixed_type.identifier not in _MERGE_IGNORED:
+                    props = None
+                    break
+            else:
+                props.append((ident, "items" if p.type == 'COLLECTION' else "value"))
+        _MERGE_PROPS[k] = props
+    return _MERGE_PROPS[k]
+
+
+def _plain(v):
+    if isinstance(v, float):
+        return round(v, 6)
+    if v is None or isinstance(v, (int, str, bool)):
+        return v
+    try:
+        return tuple(_plain(x) for x in v)
+    except TypeError:
+        return repr(v)
+
+
+def _group_deps(tree, memo):
+    """{output socket identifier: {input socket identifiers it reads}} of a node group."""
+    if tree.name in memo:
+        return memo[tree.name]
+    memo[tree.name] = {}        # a group inside itself can't be; guard anyway
+    feeds, order, indeg = {}, [], {}
+    nodes = {n.name: n for n in tree.nodes}
+    for n in tree.nodes:
+        indeg[n.name] = 0
+    for l in tree.links:
+        feeds.setdefault(l.to_node.name, []).append((l.to_socket.identifier, l.from_node.name, l.from_socket.identifier))
+        indeg[l.to_node.name] += 1
+    todo = [name for name, d in indeg.items() if d == 0]
+    outs = {}
+    for l in tree.links:
+        outs.setdefault(l.from_node.name, []).append(l.to_node.name)
+    while todo:
+        name = todo.pop()
+        order.append(name)
+        for to in outs.get(name, ()):
+            indeg[to] -= 1
+            if indeg[to] == 0:
+                todo.append(to)
+    reads = {}      # node name -> {input identifier: {group inputs}}
+
+    def out_set(name, ident):
+        n = nodes[name]
+        ins = reads.get(name, {})
+        if n.bl_idname == "NodeGroupInput":
+            return {ident}
+        if n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None:
+            inner = _group_deps(n.node_tree, memo).get(ident)
+            if inner is not None:
+                return set().union(*(ins.get(i, set()) for i in inner))
+        return set().union(*ins.values())
+    for name in order:
+        r = reads.setdefault(name, {})
+        for to_ident, frm, from_ident in feeds.get(name, ()):
+            r.setdefault(to_ident, set()).update(out_set(frm, from_ident))
+    go = next((n for n in tree.nodes if n.bl_idname == "NodeGroupOutput" and n.is_active_output), None) \
+        or next((n for n in tree.nodes if n.bl_idname == "NodeGroupOutput"), None)
+    memo[tree.name] = dict(reads.get(go.name, {})) if go is not None else {}
+    return memo[tree.name]
+
+
+def merge_duplicates(tree, memo=None):
+    """Fold nodes that compute the same thing into one: same type and settings, same inputs
+    (the same upstream sockets, the same values). Group nodes of one group also merge when
+    every input both read agrees - a call read through several outputs is one group node -
+    unless that would close a loop (UE compiles each output of a call on its own: one
+    output's inputs may need another's result). Returns how many nodes went."""
+    memo = {} if memo is None else memo
+    nodes = {n.as_pointer(): n for n in tree.nodes}
+    ins, outs, indeg = {}, {}, dict.fromkeys(nodes, 0)
+    for l in tree.links:
+        a, b = l.from_node.as_pointer(), l.to_node.as_pointer()
+        ins.setdefault(b, {})[l.to_socket.identifier] = (a, l.from_socket.identifier)
+        outs.setdefault(a, []).append((l.from_socket.identifier, b, l.to_socket.identifier))
+        indeg[b] += 1
+    order, todo = [], [p for p, d in indeg.items() if d == 0]
+    while todo:
+        p = todo.pop()
+        order.append(p)
+        for _f, b, _t in outs.get(p, ()):
+            indeg[b] -= 1
+            if indeg[b] == 0:
+                todo.append(b)
+    canon = {}
+
+    def root(p):
+        while p in canon:
+            p = canon[p]
+        return p
+
+    def socket(node, ident, output):
+        return next(s for s in (node.outputs if output else node.inputs) if s.identifier == ident)
+
+    def value(p, s):
+        got = ins.get(p, {}).get(s.identifier)
+        if got is not None:
+            return ("link", root(got[0]), got[1])
+        return _plain(getattr(s, "default_value", None))
+
+    def signature(p, n, props):
+        vals = []
+        for ident, kind in props:
+            v = getattr(n, ident)
+            if kind == "id":
+                v = v.name if v is not None else None
+            elif kind == "items":
+                v = tuple((it.name, getattr(it, "socket_type", getattr(it, "data_type", ""))) for it in v)
+            vals.append(_plain(v))
+        sig = [n.bl_idname, tuple(vals), tuple((s.identifier, value(p, s)) for s in n.inputs if s.enabled),
+               tuple(sorted((k, _plain(n[k])) for k in n.keys() if k != SECTION_KEY))]
+        if n.bl_idname in ("ShaderNodeValue", "ShaderNodeRGB"):
+            sig.append(_plain(n.outputs[0].default_value))
+        return tuple(sig)
+
+    def upstream(target, starts):
+        """Whether `target` feeds any of `starts`."""
+        seen, todo = set(), list(starts)
+        while todo:
+            p = root(todo.pop())
+            if p == target:
+                return True
+            if p in seen:
+                continue
+            seen.add(p)
+            todo += [a for a, _i in ins.get(p, {}).values()]
+        return False
+
+    def needs(p, n):
+        deps = _group_deps(n.node_tree, memo)
+        every = {s.identifier for s in n.inputs}
+        got = set()
+        for f, _b, _t in outs.get(p, ()):
+            got |= deps.get(f, every)
+        return got
+
+    def section(a, b):
+        pa, pb = str(a.get(SECTION_KEY, "")).split("/"), str(b.get(SECTION_KEY, "")).split("/")
+        common = []
+        for x, y in zip(pa, pb):
+            if x != y:
+                break
+            common.append(x)
+        return "/".join(common)
+
+    def fold(dup, keep):
+        d, k = nodes[dup], nodes[keep]
+        for f, b, t in outs.pop(dup, []):
+            if b not in nodes:
+                continue
+            tree.links.new(socket(k, f, True), socket(nodes[b], t, False))
+            outs.setdefault(keep, []).append((f, b, t))
+            ins.setdefault(b, {})[t] = (keep, f)
+        if SECTION_KEY in k:
+            k[SECTION_KEY] = section(k, d)
+        ins.pop(dup, None)
+        del nodes[dup]
+        tree.nodes.remove(d)
+        canon[dup] = keep
+
+    def try_group(p, n, kept):
+        """Fold group node p into an earlier one of its group that agrees where both read."""
+        need = needs(p, n)
+        mine = {s.identifier: value(p, s) for s in n.inputs}
+        my_srcs = [v[1] for i, v in mine.items() if i in need and isinstance(v, tuple) and v[:1] == ("link",)]
+        for q in kept:
+            if q not in nodes:
+                continue
+            m = nodes[q]
+            need_q = needs(q, m)
+            theirs = {s.identifier: value(q, s) for s in m.inputs}
+            if any(mine[i] != theirs.get(i) for i in need & need_q):
+                continue
+            q_srcs = [v[1] for i, v in theirs.items() if i in need_q and isinstance(v, tuple) and v[:1] == ("link",)]
+            if upstream(q, my_srcs) or upstream(p, q_srcs):
+                continue
+            for i in need - need_q:
+                s = socket(m, i, False)
+                v = mine[i]
+                if isinstance(v, tuple) and v[:1] == ("link",):
+                    tree.links.new(socket(nodes[v[1]], v[2], True), s)
+                    ins.setdefault(q, {})[i] = (v[1], v[2])
+                    outs.setdefault(v[1], []).append((v[2], q, i))
+                else:
+                    if i in ins.get(q, {}):
+                        for l in s.links:
+                            tree.links.remove(l)
+                        del ins[q][i]
+                    if hasattr(s, "default_value") and v is not None:
+                        s.default_value = v
+            fold(p, q)
+            return q
+        return None
+
+    seen, sig_of, groups, gone = {}, {}, {}, 0
+    for p in order:
+        n = nodes.get(p)
+        if n is None or n.bl_idname in _MERGE_SKIP:
+            continue
+        props = _merge_props(n)
+        if props is None:
+            continue
+        sig = signature(p, n, props)
+        twin = seen.get(sig)
+        if twin is not None and twin in nodes:
+            fold(p, twin)
+            gone += 1
+            continue
+        if n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None:
+            kept = groups.setdefault(n.node_tree.name, [])
+            q = try_group(p, n, kept)
+            if q is not None:
+                # its inputs changed: what it now matches
+                if seen.get(sig_of.get(q)) == q:
+                    del seen[sig_of[q]]
+                sig_of[q] = signature(q, nodes[q], props)
+                seen[sig_of[q]] = q
+                gone += 1
+                continue
+            kept.append(p)
+        seen[sig] = p
+        sig_of[p] = sig
+    return gone
 
 
 _PY = {

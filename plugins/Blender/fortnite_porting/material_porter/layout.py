@@ -104,6 +104,9 @@ BUS_SNAP = 24.0          # bus taps closer than this merge
 BUS_PAD = 40.0           # first bus this far into the gap
 BUS_STEP = 24.0          # buses side by side in one gap
 LANE_LIMIT = 1500        # reroutes a tree's lanes may make; past it, plain wires (each new node costs Blender a pass over the tree)
+# Wires between frames as reroute buses (UE's wiring). Off: a material's dozens of
+# parallel wires became ladders of reroute dots, harder to follow than the wires
+ROUTE_BUSES = False
 GAP_NODE_X = 60.0
 GAP_BOX_X = 100.0
 
@@ -165,9 +168,14 @@ def _base(n):
     return BASE_H.get(n.bl_idname, BASE_DEFAULT)
 
 
+HIDDEN_H = 26.0     # a collapsed node: its header only
+
+
 def node_height(n):
     if n.bl_idname == "NodeReroute":
         return 16.0
+    if n.hide:
+        return HIDDEN_H
     rows = sum(ROW for s in n.outputs if _vis(s))
     rows += sum(VEC if _tall(s) else ROW for s in n.inputs if _vis(s))
     return _base(n) + rows
@@ -181,6 +189,8 @@ def socket_offset(n, sock):
     """Distance from the node's top edge down to a socket's centre."""
     if n.bl_idname == "NodeReroute":
         return 8.0
+    if n.hide:
+        return HIDDEN_H * 0.5
     if sock.is_output:
         i = 0
         for s in n.outputs:
@@ -415,36 +425,52 @@ def _stand_in(tree, gi, idents):
 
 
 def _localize_sources(tree, tags, wires):
-    """Copy every pure input node into each frame that reads it.
+    """Copy every pure input node into each frame that reads it - and a Group
+    Input to each node that reads it, showing only what that node reads: a
+    parameter sits beside its reader, where one Group Input feeding a whole
+    frame sent dozens of wires across it.
 
     Returns (copies made, {stand-in name: Group Input output ids}).
     """
     ins, outs = _adjacency(wires)
     order = sorted((n for n in tree.nodes if n.name in tags and _is_source(n, ins)),
                    key=lambda n: 0 if n.bl_idname == "NodeSeparateBundle" else 1)
-    # what each frame will read from each source, so a stand-in can be made
-    # with exactly those outputs
+    sources = {n.name for n in order}
+    # what each frame (or reader) will read from each source, so a stand-in can
+    # be made with exactly those outputs; key (source, path, reader or None)
     stays, moves = set(), defaultdict(list)
     for src in order:
         own = tags[src.name]
         for w in outs[src.name]:
-            if tags[w.b.name] == own:
+            if src.type == 'GROUP_INPUT' and w.b.name not in sources:
+                moves[(src.name, tags[w.b.name], w.b.name)].append(w)
+            elif tags[w.b.name] == own:
                 stays.add(src.name)
             else:
-                moves[(src.name, tags[w.b.name])].append(w)
+                moves[(src.name, tags[w.b.name], None)].append(w)
+    # the reader taking most of a Group Input's wires keeps the original
+    best = {}
+    for k, group in moves.items():
+        if k[2] is not None and len(group) > len(moves.get(best.get(k[0]), ())):
+            best[k[0]] = k
+    for name, k in best.items():
+        if name not in stays:
+            stays.add(name)
+            tags[name] = k[1]
+            del moves[k]
     needs = defaultdict(set)
-    for (name, path), group in moves.items():
+    for (name, path, reader), group in moves.items():
         src = tree.nodes[name]
         if src.type == 'GROUP_INPUT':
-            needs[(_key(src), path)].update(w.ia for w in group)
+            needs[(_key(src), path, reader)].update(w.ia for w in group)
         elif src.bl_idname == "NodeSeparateBundle":
             feed = ins[name][0]
-            needs[(_key(feed.a), path)].add(feed.ia)
+            needs[(_key(feed.a), path, None)].add(feed.ia)
 
     local, stand_ins = {}, {}
 
-    def copy_in(src, path):
-        k = (_key(src), path)
+    def copy_in(src, path, reader=None):
+        k = (_key(src), path, reader)
         if k not in local:
             if src.type == 'GROUP_INPUT':
                 c, stand_ins_ids = _stand_in(tree, src, needs[k])
@@ -459,8 +485,8 @@ def _localize_sources(tree, tags, wires):
                 tree.links.new(_out_of(gi, feed.ia, stand_ins), c.inputs[0])
         return local[k]
 
-    for (name, path), group in moves.items():
-        c = copy_in(tree.nodes[name], path)
+    for (name, path, reader), group in moves.items():
+        c = copy_in(tree.nodes[name], path, reader)
         for w in group:
             sb = _in(w.b, w.ib)
             tree.links.new(_out_of(c, w.ia, stand_ins), sb)
@@ -993,7 +1019,7 @@ def _sugiyama(items, edges):
     # is already a straight line through the gap it reserved. Inside a plain
     # node frame none of this is worth its reroutes.
     routes, buses = [], defaultdict(list)
-    if any(it.kind == "box" for it in items):
+    if ROUTE_BUSES and any(it.kind == "box" for it in items):
         nets = {}
         for u, v, pu, pv, w, wire in dag:
             if v.layer <= u.layer:
