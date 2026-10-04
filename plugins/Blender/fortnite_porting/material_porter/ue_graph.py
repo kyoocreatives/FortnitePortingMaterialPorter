@@ -4277,10 +4277,141 @@ def merge_duplicates(tree, memo=None):
         tree.nodes.remove(nodes.pop(p))
         return True
 
+    def const_in(p, s):
+        """What an input holds when nothing feeds it (plain numbers), else None."""
+        if s.identifier in ins.get(p, {}) or not hasattr(s, "default_value"):
+            return None
+        return _plain(s.default_value)
+
+    def hand_on(p, feed, out):
+        """p's readers read what feeds it (feed: (node, output)) instead; p goes - where that is
+        of p's output's own type (Blender converts between types its own way)."""
+        if any(f != out.identifier for f, b, _t in outs.get(p, ()) if b in nodes):
+            return False
+        a, ia = root(feed[0]), feed[1]
+        if a not in nodes:
+            return False
+        src = socket(nodes[a], ia, True)
+        if src.type != out.type:
+            return False
+        for _f, b, t in outs.pop(p, []):
+            if b in nodes:
+                tree.links.new(src, socket(nodes[b], t, False))
+                outs.setdefault(a, []).append((ia, b, t))
+                ins.setdefault(b, {})[t] = (a, ia)
+        ins.pop(p, None)
+        tree.nodes.remove(nodes.pop(p))
+        return True
+
+    def constant(p, values):
+        """p's readers hold constants ({output identifier: float or 3-tuple}) where they read
+        it; p goes. Not where a reader can't hold one."""
+        plan = []
+        for f, b, t in outs.get(p, ()):
+            if b not in nodes:
+                continue
+            if f not in values:
+                return False
+            s = socket(nodes[b], t, False)
+            v = _socket_value(values[f], s)
+            if v is None:
+                return False
+            plan.append((b, t, s, v))
+        for b, t, s, v in plan:
+            for l in list(s.links):
+                tree.links.remove(l)
+            s.default_value = v
+            ins.get(b, {}).pop(t, None)
+        outs.pop(p, None)
+        ins.pop(p, None)
+        tree.nodes.remove(nodes.pop(p))
+        return True
+
+    def settle(p, n):
+        """A node whose result is known as the tree is built - every input a constant, a
+        product with 0, a mix whose factor is 0 or 1 - is that result: its readers take it (a
+        game-only effect left off, its parameter built in at 0, folds away with what fed it)."""
+        if n.mute:
+            return False
+        kind = n.bl_idname
+        if kind == "ShaderNodeMix":
+            dt = n.data_type
+            key = {"FLOAT": "_Float", "VECTOR": "_Vector", "RGBA": "_Color"}.get(dt)
+            if key is None or dt == 'RGBA' and n.clamp_result:
+                return False
+            fac = socket(n, "Factor_Vector" if dt == 'VECTOR' and n.factor_mode == 'NON_UNIFORM' else "Factor_Float", False)
+            f = const_in(p, fac)
+            if isinstance(f, tuple):
+                f = f[0] if len(set(f)) == 1 else None
+            out = socket(n, "Result" + key, True)
+            if f in (0.0, 1.0) and not (f == 1.0 and dt == 'RGBA' and n.blend_type != 'MIX'):
+                pick = socket(n, ("B" if f == 1.0 else "A") + key, False)
+                feed = ins.get(p, {}).get(pick.identifier)
+                if feed is not None:
+                    return hand_on(p, feed, out)
+                return dt != 'RGBA' and constant(p, {out.identifier: const_in(p, pick)})
+            if f is None or dt == 'RGBA':
+                return False
+            a, b = const_in(p, socket(n, "A" + key, False)), const_in(p, socket(n, "B" + key, False))
+            if a is None or b is None:
+                return False
+            if n.clamp_factor:
+                f = min(max(f, 0.0), 1.0)
+            if dt == 'FLOAT':
+                return constant(p, {out.identifier: a + (b - a) * f})
+            return constant(p, {out.identifier: tuple(x + (y - x) * f for x, y in zip(a, b))})
+        if kind == "ShaderNodeMath":
+            k = _MATH_ARITY.get(n.operation)
+            if k is None:
+                return False
+            vals = [const_in(p, n.inputs[i]) for i in range(k)]
+            if n.operation == 'MULTIPLY' and 0.0 in vals:
+                return constant(p, {n.outputs[0].identifier: 0.0})
+            if any(v is None for v in vals):
+                return False
+            r = _blender_math(n.operation, *vals)
+            if r is None:
+                return False
+            if n.use_clamp:
+                r = min(max(r, 0.0), 1.0)
+            return constant(p, {n.outputs[0].identifier: r})
+        if kind == "ShaderNodeVectorMath":
+            op = n.operation
+            if op == 'SCALE':
+                vals = [const_in(p, n.inputs[0]), const_in(p, n.inputs["Scale"])]
+            else:
+                k = _VMATH_ARITY.get(op)
+                if k is None:
+                    return False
+                vals = [const_in(p, n.inputs[i]) for i in range(k)]
+            if op in ('MULTIPLY', 'SCALE') and any(v == 0.0 or v == (0.0, 0.0, 0.0) for v in vals):
+                return constant(p, {n.outputs["Vector"].identifier: (0.0, 0.0, 0.0)})
+            if any(v is None for v in vals):
+                return False
+            r = _blender_vmath(op, *vals)
+            if r is None:
+                return False
+            out = n.outputs["Value"] if isinstance(r, float) else n.outputs["Vector"]
+            return constant(p, {out.identifier: r})
+        if kind == "ShaderNodeCombineXYZ":
+            vals = [const_in(p, s) for s in n.inputs]
+            if any(v is None for v in vals):
+                return False
+            return constant(p, {n.outputs[0].identifier: tuple(vals)})
+        if kind == "ShaderNodeSeparateXYZ":
+            v = const_in(p, n.inputs[0])
+            if v is None:
+                return False
+            return constant(p, {s.identifier: v[i] for i, s in enumerate(n.outputs)})
+        return False
+
     seen, sig_of, groups, gone = {}, {}, {}, 0
     for p in order:
         n = nodes.get(p)
         if n is None or n.bl_idname in _MERGE_SKIP:
+            continue
+        if settle(p, n):
+            gone += 1
             continue
         if n.bl_idname == "ShaderNodeCombineXYZ":
             cut = round_trip(p, n)
@@ -4328,6 +4459,88 @@ def merge_duplicates(tree, memo=None):
                 del nodes[p]
                 gone += 1
     return gone
+
+
+# constant folding (merge_duplicates): Blender's maths, as its nodes do it
+import math as _math
+
+_MATH_ARITY = {"ADD": 2, "SUBTRACT": 2, "MULTIPLY": 2, "DIVIDE": 2, "MAXIMUM": 2, "MINIMUM": 2, "POWER": 2,
+               "LESS_THAN": 2, "GREATER_THAN": 2, "MODULO": 2, "MULTIPLY_ADD": 3, "COMPARE": 3,
+               "ABSOLUTE": 1, "SIGN": 1, "FLOOR": 1, "CEIL": 1, "FRACT": 1, "SQRT": 1, "SINE": 1, "COSINE": 1,
+               "ROUND": 1, "TRUNC": 1}
+_VMATH_ARITY = {"ADD": 2, "SUBTRACT": 2, "MULTIPLY": 2, "DIVIDE": 2, "MINIMUM": 2, "MAXIMUM": 2,
+                "DOT_PRODUCT": 2, "DISTANCE": 2, "CROSS_PRODUCT": 2, "ABSOLUTE": 1, "LENGTH": 1, "NORMALIZE": 1}
+
+
+def _blender_math(op, a, b=None, c=None):
+    if op == "ADD": return a + b
+    if op == "SUBTRACT": return a - b
+    if op == "MULTIPLY": return a * b
+    if op == "DIVIDE": return a / b if b != 0.0 else 0.0
+    if op == "MAXIMUM": return max(a, b)
+    if op == "MINIMUM": return min(a, b)
+    if op == "POWER":
+        if a >= 0.0 or b == _math.floor(b):
+            try:
+                return float(a ** b) if (a != 0.0 or b >= 0.0) else 0.0
+            except (OverflowError, ZeroDivisionError):
+                return None
+        return 0.0
+    if op == "LESS_THAN": return 1.0 if a < b else 0.0
+    if op == "GREATER_THAN": return 1.0 if a > b else 0.0
+    if op == "MODULO": return _math.fmod(a, b) if b != 0.0 else 0.0
+    if op == "MULTIPLY_ADD": return a * b + c
+    if op == "COMPARE": return 1.0 if abs(a - b) <= max(c, 1e-5) else 0.0
+    if op == "ABSOLUTE": return abs(a)
+    if op == "SIGN": return float((a > 0) - (a < 0))
+    if op == "FLOOR": return float(_math.floor(a))
+    if op == "CEIL": return float(_math.ceil(a))
+    if op == "FRACT": return a - _math.floor(a)
+    if op == "SQRT": return _math.sqrt(a) if a > 0.0 else 0.0
+    if op == "SINE": return _math.sin(a)
+    if op == "COSINE": return _math.cos(a)
+    if op == "ROUND": return float(_math.floor(a + 0.5))
+    if op == "TRUNC": return float(_math.trunc(a))
+    return None
+
+
+def _blender_vmath(op, a, b=None):
+    if op == "ADD": return tuple(x + y for x, y in zip(a, b))
+    if op == "SUBTRACT": return tuple(x - y for x, y in zip(a, b))
+    if op == "MULTIPLY": return tuple(x * y for x, y in zip(a, b))
+    if op == "DIVIDE": return tuple(x / y if y != 0.0 else 0.0 for x, y in zip(a, b))
+    if op == "SCALE": return tuple(x * b for x in a)
+    if op == "MINIMUM": return tuple(min(x, y) for x, y in zip(a, b))
+    if op == "MAXIMUM": return tuple(max(x, y) for x, y in zip(a, b))
+    if op == "ABSOLUTE": return tuple(abs(x) for x in a)
+    if op == "DOT_PRODUCT": return float(sum(x * y for x, y in zip(a, b)))
+    if op == "LENGTH": return _math.sqrt(sum(x * x for x in a))
+    if op == "DISTANCE": return _math.sqrt(sum((x - y) ** 2 for x, y in zip(a, b)))
+    if op == "CROSS_PRODUCT":
+        return (a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0])
+    if op == "NORMALIZE":
+        n = _math.sqrt(sum(x * x for x in a))
+        return tuple(x / n for x in a) if n > 0.0 else (0.0, 0.0, 0.0)
+    return None
+
+
+def _socket_value(v, s):
+    """A constant (float or tuple) as an input socket holds it - Blender reads a vector as a
+    float by its average, a float as a vector in every component, a vector as an opaque
+    colour - or None where the socket holds no such value."""
+    if not hasattr(s, "default_value") or s.type not in ('VALUE', 'VECTOR', 'RGBA'):
+        return None
+    vec = isinstance(v, tuple)
+    if vec:
+        v = tuple(v[:3])
+    if s.type == 'VALUE':
+        return sum(v) / len(v) if vec else float(v)
+    if s.type == 'RGBA':
+        return (v if vec else (float(v),) * 3) + (1.0,)
+    k = len(s.default_value)
+    if not vec:
+        return (float(v),) * k
+    return (v + (0.0,) * k)[:k]
 
 
 _PY = {

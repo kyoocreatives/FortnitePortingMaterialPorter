@@ -418,10 +418,17 @@ class MaterialEnv:
         longest = max((len(n) for n in names), default=10)
         return max(240, min(700, int(7.4 * longest + 110)))
 
+    # parameters the game drives as it plays (a hit's flash, an elimination's dissolve), which
+    # nothing in Blender plays: built in at the instance's value, so what they'd switch on folds
+    # away (merge_duplicates: a product with 0, a mix at 0)
+    GAME_DRIVEN = {"HitGlow", "HitGlowOuter", "NewDissolveGradient"}
+
     def scalar(self, name, default):
         if not name:
             # an unnamed parameter ("None" in UE): nothing can set it, its default stands
             return self.tr.const(float(default or 0.0))
+        if name in self.GAME_DRIVEN:
+            return self.tr.const(float(self.entry.get("scalars", {}).get(name, default or 0.0)))
         v = float(self.entry.get("scalars", {}).get(name, default))
         self.graph_defaults.setdefault("P: " + name, float(default or 0.0))
         self._defaults["P: " + name] = v
@@ -448,7 +455,9 @@ class MaterialEnv:
         if name in self.RUNTIME_VECTORS and name not in self.entry.get("vectors", {}):
             self.note("%s is set by the game at run time: the armature's head stands in" % name)
             return self.tr.head_socket(), self.tr.const(1.0)
-        if not name:
+        if name in self.GAME_DRIVEN:
+            rgba = tuple(self.entry.get("vectors", {}).get(name, rgba))
+        if not name or name in self.GAME_DRIVEN:
             rgba = tuple(rgba) + (1.0,) * (4 - len(rgba))
             return self.tr.const(tuple(float(x) for x in rgba[:3]), 3), self.tr.const(float(rgba[3]))
         self.graph_defaults.setdefault("V: " + name, tuple(float(x) for x in rgba) + (1.0,) * (4 - len(rgba)))

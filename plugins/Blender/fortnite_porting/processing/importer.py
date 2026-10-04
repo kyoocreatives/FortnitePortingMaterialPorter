@@ -32,10 +32,13 @@ class Importer:
         t0 = time.perf_counter()
         objects0 = set(o.name for o in bpy.data.objects)
         failed = None
+        # Material Porter fork: the function groups the import made lose what no material reads
+        from ..material_porter.build import pruning
         try:
-            for export in exports:
-                context = context_type(meta)
-                context.run(export)
+            with pruning():
+                for export in exports:
+                    context = context_type(meta)
+                    context.run(export)
         except Exception as e:
             failed = e
             raise

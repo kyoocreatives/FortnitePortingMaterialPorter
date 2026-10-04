@@ -21,7 +21,7 @@ from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, HEAD_SOCKET, CARRIE
 PREFIX = "MP "            # built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # the game object a built material translates
 KEY_REV = "mp_rev"        # the build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 36       # 36: the camera's field of view and the render's size followed (MP World View), the joined mesh's bounds and head (HeadFX) after Merge Armatures; 35: whole function groups shared by structure, a joined part's own bounds, HeadSocketLocation from the head bone; 34: textures in the material's own tree (Closure inputs, a Textures panel), PixelNormalWS with the normal map; 33: textures at the root (functions sample them through closures), duplicate nodes merged, UE texture addressing; 32: emissive clamped at 0 as UE; 31: DepthFade by max(FadeDistance, 0.0001) as UE; 30: a baked tangent where Blender gives none; 29: particle camera from the scene under Cycles; 28: effects' soft fade off under Cycles; 2: UE 5 translucent blend modes (glass); 3: custom primitive data; 5: landscape layers; 7: per-instance custom data; 9: images channel-packed (alpha as data); 10: Time runs from 100 s (hit flashes over), unfiltered textures sampled Closest; 11: LocalPosition and PreSkinnedPosition from the rest position (skinned meshes); 12: an additive material's light is Emissive * Opacity; 13: a particle's values from its instance (a replayed effect), a sprite's sub-image; 14: SphereMask and Distance between a float2 and a scalar (Z stays 0); 15: a particle's sprite rotation and direction, the 2D light march of raymarched smoke; 16: the ambient cubemap tint is white; 17: a particle material's World Position Offset (displacement), UE's division by zero; 18: a smoothstep over an empty range is a hard edge, Particle Random from the particle; 19: a Niagara decal's colour and fade (DecalColor, DecalLifetimeOpacity); 20: division by zero per component (a vector divisor); 21: view space is the shader camera space as is (Z forward), Object Position the bounds' centre; 22: Power clamps a negative base to 0 (PositiveClampedPow); 23: vector parameters that aren't colours on vector sockets (a colour socket clamps negatives); 24: BLEND_ColoredTransmittanceOnly is Modulate; 25: DepthFade and SceneDepth by a raycast behind a see-through pixel (Blender's Raycast node); 26: translucency lit from UE's volume: diffuse only, the Normal unused unless per-pixel directional; 27: the sun, the sky and collection values through the file's world groups (a time of day drives them), its height fog
+BUILD_REVISION = 37       # 36: the camera's field of view and the render's size followed (MP World View), the joined mesh's bounds and head (HeadFX) after Merge Armatures; 35: whole function groups shared by structure, a joined part's own bounds, HeadSocketLocation from the head bone; 34: textures in the material's own tree (Closure inputs, a Textures panel), PixelNormalWS with the normal map; 33: textures at the root (functions sample them through closures), duplicate nodes merged, UE texture addressing; 32: emissive clamped at 0 as UE; 31: DepthFade by max(FadeDistance, 0.0001) as UE; 30: a baked tangent where Blender gives none; 29: particle camera from the scene under Cycles; 28: effects' soft fade off under Cycles; 2: UE 5 translucent blend modes (glass); 3: custom primitive data; 5: landscape layers; 7: per-instance custom data; 9: images channel-packed (alpha as data); 10: Time runs from 100 s (hit flashes over), unfiltered textures sampled Closest; 11: LocalPosition and PreSkinnedPosition from the rest position (skinned meshes); 12: an additive material's light is Emissive * Opacity; 13: a particle's values from its instance (a replayed effect), a sprite's sub-image; 14: SphereMask and Distance between a float2 and a scalar (Z stays 0); 15: a particle's sprite rotation and direction, the 2D light march of raymarched smoke; 16: the ambient cubemap tint is white; 17: a particle material's World Position Offset (displacement), UE's division by zero; 18: a smoothstep over an empty range is a hard edge, Particle Random from the particle; 19: a Niagara decal's colour and fade (DecalColor, DecalLifetimeOpacity); 20: division by zero per component (a vector divisor); 21: view space is the shader camera space as is (Z forward), Object Position the bounds' centre; 22: Power clamps a negative base to 0 (PositiveClampedPow); 23: vector parameters that aren't colours on vector sockets (a colour socket clamps negatives); 24: BLEND_ColoredTransmittanceOnly is Modulate; 25: DepthFade and SceneDepth by a raycast behind a see-through pixel (Blender's Raycast node); 26: translucency lit from UE's volume: diffuse only, the Normal unused unless per-pixel directional; 27: the sun, the sky and collection values through the file's world groups (a time of day drives them), its height fog
                           # 4: instance overrides to the default (Opaque, DefaultLit, one-sided) honoured
                           # 6: vector parameters without a stored default are (0, 0, 0, 0), not alpha 1
                           # 8: single layer water (the medium, refraction, water info stand-ins); graph clip()s
@@ -565,6 +565,9 @@ def share_groups(trees, owners=()):
         if twin is not None and not _alive(twin, fp):
             del known[fp]
             twin = None
+        if twin is not None and twin != t and not _outputs_cover(twin, t, users):
+            # pruned of an output this build reads (prune_groups): this one is kept, whole
+            twin = None
         if twin is not None and twin != t:
             for n in users:
                 if n.node_tree == t:
@@ -578,6 +581,159 @@ def share_groups(trees, owners=()):
     if gone:
         bpy.data.batch_remove(gone)
     return shared, kept
+
+
+def _outputs(tree, kind='OUTPUT'):
+    return [it for it in tree.interface.items_tree if it.item_type == 'SOCKET' and it.in_out == kind]
+
+
+def _outputs_cover(twin, t, users):
+    """Whether twin still has every output of t that t's group nodes read."""
+    have = {it.identifier for it in _outputs(twin)}
+    return all(s.identifier in have for n in users if n.node_tree == t for s in n.outputs if s.is_linked)
+
+
+# ------------------------------------------------------------------ pruning after an import
+_OUTPUT_NODES = ("ShaderNodeOutputMaterial", "ShaderNodeOutputWorld", "ShaderNodeOutputLight", "ShaderNodeOutputAOV")
+
+
+def _live_outputs():
+    """{group: output identifiers a live node reads}, over the file: from every material's,
+    world's and light's outputs through the group nodes they reach (a group node read at all
+    reads all its inputs)."""
+    used, live = {}, {}
+
+    def walk(tree, starts):
+        feeds = {}
+        for l in tree.links:
+            if l.is_valid:
+                feeds.setdefault(l.to_node.as_pointer(), []).append(l)
+        seen = live.setdefault(tree.as_pointer(), set())
+        stack, grew = list(starts), False
+        while stack:
+            node, sock = stack.pop()
+            p = node.as_pointer()
+            if node.bl_idname == "NodeGroupOutput":
+                links = [l for l in feeds.get(p, ()) if l.to_socket.identifier == sock]
+            else:
+                if node.bl_idname == "ShaderNodeGroup" and node.node_tree is not None and sock is not None:
+                    got = used.setdefault(node.node_tree, set())
+                    if sock not in got:
+                        got.add(sock)
+                        grew = True
+                if p in seen:
+                    continue
+                seen.add(p)
+                links = feeds.get(p, ())
+            for l in links:
+                stack.append((l.from_node, l.from_socket.identifier))
+        return grew
+    for owner in list(bpy.data.materials) + list(bpy.data.worlds) + list(bpy.data.lights):
+        tree = getattr(owner, "node_tree", None)
+        if tree is not None:
+            walk(tree, [(n, None) for n in tree.nodes if n.bl_idname in _OUTPUT_NODES])
+    for _ in range(64):
+        grew = False
+        for g, socks in list(used.items()):
+            outs = [n for n in g.nodes if n.bl_idname == "NodeGroupOutput"]
+            for sock in list(socks):
+                grew = walk(g, [(n, sock) for n in outs]) or grew
+        if not grew:
+            break
+    return used
+
+
+def _drop_dead(tree):
+    """Nodes that reach none of the tree's outputs go (and Group Input nodes left unread)."""
+    outs = ("NodeGroupOutput",) + _OUTPUT_NODES
+    feeds = {}
+    for l in tree.links:
+        feeds.setdefault(l.to_node.as_pointer(), []).append(l.from_node)
+    live, todo = set(), [n for n in tree.nodes if n.bl_idname in outs]
+    while todo:
+        n = todo.pop()
+        if n.as_pointer() not in live:
+            live.add(n.as_pointer())
+            todo += feeds.get(n.as_pointer(), [])
+    dead = [n for n in tree.nodes if n.as_pointer() not in live and n.bl_idname != "NodeFrame"]
+    inputs = [n for n in tree.nodes if n.bl_idname == "NodeGroupInput"]
+    if inputs and all(n in dead for n in inputs):
+        dead.remove(inputs[0])          # one Group Input stays, for the interface to show on
+    for n in dead:
+        tree.nodes.remove(n)
+    for f in [n for n in tree.nodes if n.bl_idname == "NodeFrame"]:
+        if not any(n.parent == f for n in tree.nodes):
+            tree.nodes.remove(f)
+    return len(dead)
+
+
+def prune_groups(names):
+    """After an import: the function groups it made (by name) lose the outputs no material
+    in the file reads - each was built whole, so a later material's call shares it, unless
+    that call reads an output gone (share_groups keeps that call's own copy) - with the
+    nodes only those fed, the inputs nothing reads any more, and the groups no one uses; the
+    materials' own groups lose what fed those inputs. Returns how many nodes went."""
+    made = [g for g in (bpy.data.node_groups.get(n) for n in names) if g is not None]
+    groups = [g for g in made if KEY_FP in g]
+    roots = [g for g in made if KEY_FP not in g and bpy.data.materials.get(g.name) is not None]
+    gone, touched = 0, set()
+    for _ in range(16):
+        used = _live_outputs()
+        changed = False
+        for g in groups:
+            if g.users == 0:
+                continue
+            drop = [it for it in _outputs(g) if it.identifier not in used.get(g, set())]
+            if not drop or len(drop) == len(_outputs(g)):
+                # (read by nothing at all: only by dead nodes, which go below - then it does)
+                continue
+            for it in drop:
+                g.interface.remove(it)
+            gone += _drop_dead(g)
+            drop_unread_inputs(g)
+            touched.add(g.name)
+            changed = True
+        for t in roots + groups:
+            if t.users:
+                k = _drop_dead(t)
+                if k:
+                    gone += k
+                    touched.add(t.name)
+                    changed = True
+                    if t in groups:
+                        drop_unread_inputs(t)
+        if not changed:
+            break
+    unused = [g for g in groups if g.users == 0]
+    gone += sum(len(g.nodes) for g in unused)
+    if unused:
+        bpy.data.batch_remove(unused)
+    for name in touched:
+        t = bpy.data.node_groups.get(name)
+        if t is None:
+            continue
+        if LAZY_LAYOUT:
+            t[KEY_LAYOUT] = 1
+            continue
+        try:
+            layout.arrange(t)
+        except Exception:       # cosmetic
+            pass
+    return gone
+
+
+class pruning:
+    """An import's with-block: the function groups made in it pruned after (prune_groups)."""
+
+    def __enter__(self):
+        self.before = {g.name for g in bpy.data.node_groups}
+        self.gone = 0
+        return self
+
+    def __exit__(self, kind, _value, _tb):
+        if kind is None:
+            self.gone = prune_groups([g.name for g in bpy.data.node_groups if g.name not in self.before])
+        return False
 
 
 # ------------------------------------------------------------------ layout when seen
@@ -892,6 +1048,12 @@ def build_bundle(payload):
     app = AppClient(payload["app"])
     begin_session()
     built = []
+    with pruning():
+        _build_into(payload, app, built)
+    return {"built": built}
+
+
+def _build_into(payload, app, built):
     for entry in payload.get("materials", []):
         target = entry.get("target") or {}
         try:
@@ -919,7 +1081,6 @@ def build_bundle(payload):
             import traceback
             traceback.print_exc()
             built.append({"name": entry.get("name"), "error": "%s: %s" % (type(e).__name__, e)})
-    return {"built": built}
 
 
 def scene_materials():
