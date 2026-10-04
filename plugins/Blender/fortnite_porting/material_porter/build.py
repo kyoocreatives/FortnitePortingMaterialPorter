@@ -16,7 +16,7 @@ from .app_client import AppClient
 from . import world
 from .env import MaterialEnv, fit_socket
 from .nodelib import SECTION_KEY
-from .ue_graph import BOUNDS_CENTRE, CARRIED, SHADING_MODELS, Translator, Val, merge_duplicates
+from .ue_graph import BOUNDS_CENTRE, HEAD_SOCKET, CARRIED, SHADING_MODELS, Translator, Val, merge_duplicates
 
 PREFIX = "MP "            # built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # the game object a built material translates
@@ -583,6 +583,11 @@ def mark_bounds(objects):
     for o in objects:
         if o is not None and o.type == 'MESH':
             o[BOUNDS_CENTRE] = [sum(c[i] for c in o.bound_box) / 8.0 for i in range(3)]
+            # its armature's head (local, Blender metres): what the game sets HeadSocketLocation to
+            arm = o.find_armature()
+            bone = next((b for b in arm.data.bones if b.name.lower() == "head"), None) if arm is not None else None
+            if bone is not None:
+                o[HEAD_SOCKET] = list(o.matrix_world.inverted() @ (arm.matrix_world @ bone.head_local))
 
 
 def build_one(entry, app, objects=(), make_env=None):

@@ -38,6 +38,66 @@ def after_import(mesh, obj, mesh_obj, scale):
             target["mp_pic%d" % j] = float(x)
 
 
+def mark_part_bounds(parts):
+    """Each part's own bounds (its centre and half size, world space) on its vertices, before
+    "Merge Armatures" joins the parts into one mesh: UE's Object Position, bounds and radius
+    are a part's own component's (Cyclo's storm core is centred on the head's), and the joined
+    object's would be the whole outfit's. settle_part_bounds brings them into the joined mesh."""
+    import numpy as np
+    from mathutils import Vector
+    from .ue_graph import PART_CENTRE, PART_HALF
+    for part in parts:
+        obj = part.get("Mesh")
+        if obj is None or obj.type != 'MESH' or not len(obj.data.vertices):
+            continue
+        me = obj.data
+        co = np.empty(len(me.vertices) * 3, dtype=np.float32)
+        me.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        lo, hi = co.min(0), co.max(0)
+        m = obj.matrix_world
+        centre = m @ Vector(((lo + hi) * 0.5).tolist())
+        scale = m.to_scale()
+        half = [float(h) * abs(k) for h, k in zip((hi - lo) * 0.5, scale)]
+        for name, v in ((PART_CENTRE, tuple(centre)), (PART_HALF, tuple(half))):
+            a = me.attributes.get(name) or me.attributes.new(name, 'FLOAT_VECTOR', 'POINT')
+            a.data.foreach_set("vector", np.tile(np.array(v, dtype=np.float32), len(me.vertices)))
+
+
+def settle_part_bounds(master, parts):
+    """The joined mesh's part bounds in its own space (mark_part_bounds wrote them in world
+    space); a part that stayed apart (attached to a socket) keeps its object's own bounds."""
+    import numpy as np
+    from .ue_graph import PART_CENTRE, PART_HALF
+    for part in parts:
+        obj = part.get("Mesh")
+        try:
+            if obj is None or obj == master or obj.type != 'MESH':
+                continue
+        except ReferenceError:
+            continue        # joined into the master
+        for name in (PART_CENTRE, PART_HALF):
+            if (a := obj.data.attributes.get(name)) is not None:
+                obj.data.attributes.remove(a)
+    if master is None or master.type != 'MESH':
+        return
+    me = master.data
+    centre, half = me.attributes.get(PART_CENTRE), me.attributes.get(PART_HALF)
+    if centre is None or half is None:
+        return
+    n = len(me.vertices)
+    c = np.empty(n * 3, dtype=np.float32)
+    centre.data.foreach_get("vector", c)
+    c = c.reshape(-1, 3)
+    inv = np.array(master.matrix_world.inverted(), dtype=np.float32)
+    c = c @ inv[:3, :3].T + inv[:3, 3]
+    centre.data.foreach_set("vector", c.ravel())
+    h = np.empty(n * 3, dtype=np.float32)
+    half.data.foreach_get("vector", h)
+    scale = np.array([abs(k) or 1.0 for k in master.matrix_world.to_scale()], dtype=np.float32)
+    half.data.foreach_set("vector", (h.reshape(-1, 3) / scale).ravel())
+
+
 def follow_bone(obj, bone):
     """A weapon's mod follows its attach bone: the object FP parented to the weapon's armature
     (placed in the armature's space) is parented to the bone instead, where it is."""

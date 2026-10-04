@@ -23,7 +23,7 @@ import re
 import bpy
 
 from . import world
-from .ue_graph import PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
+from .ue_graph import PART_CENTRE, PART_HALF, PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
 
 # a vector parameter that names a colour gets a colour socket (a picker); any other - an offset, a
 # direction, a channel, a size - a vector socket: a colour socket clamps negatives to 0 (a sprite
@@ -312,7 +312,9 @@ class MaterialEnv:
 
     def local_bounds(self):
         """The first target object's bounding box, in UE cm (materials are
-        shared, so it's one object's: the one the material was built for)."""
+        shared, so it's one object's: the one the material was built for) -
+        or, on a mesh an outfit's parts were joined into, each part's own
+        (its vertices' PART_CENTRE and PART_HALF), as UE's component's are."""
         self.reusable = False
         obj = next((o for o in self.objects if o.type == 'MESH'), None)
         if obj is None:
@@ -320,8 +322,26 @@ class MaterialEnv:
         xs = [c[0] for c in obj.bound_box]
         ys = [-c[1] for c in obj.bound_box]
         zs = [c[2] for c in obj.bound_box]
-        return (self.tr.const((min(xs) * 100, min(ys) * 100, min(zs) * 100), 3),
-                self.tr.const((max(xs) * 100, max(ys) * 100, max(zs) * 100), 3))
+        mn = self.tr.const((min(xs) * 100, min(ys) * 100, min(zs) * 100), 3)
+        mx = self.tr.const((max(xs) * 100, max(ys) * 100, max(zs) * 100), 3)
+        if PART_HALF not in getattr(obj.data, "attributes", {}):
+            return mn, mx
+        tr = self.tr
+
+        def make():
+            c = tr.node("ShaderNodeAttribute", "part centre", attribute_type='GEOMETRY', attribute_name=PART_CENTRE)
+            h = tr.node("ShaderNodeAttribute", "part half size", attribute_type='GEOMETRY', attribute_name=PART_HALF)
+            c, h = Val(c.outputs["Vector"], 3), Val(h.outputs["Vector"], 3)
+            has = tr.binop('GREATER_THAN', tr.vmath('LENGTH', h), tr.const(1e-9))
+            # UE space (Y mirrored: Blender's top Y is UE's bottom), cm
+            lo = tr.vmath('MULTIPLY', tr.vmath('SUBTRACT', c, h, out_w=3), tr.const((100.0, 0.0, 100.0), 3), out_w=3)
+            hi = tr.vmath('MULTIPLY', tr.vmath('ADD', c, h, out_w=3), tr.const((100.0, 0.0, 100.0), 3), out_w=3)
+            ylo = tr.binop('MULTIPLY', tr.comps(tr.vmath('ADD', c, h, out_w=3))[1], tr.const(-100.0))
+            yhi = tr.binop('MULTIPLY', tr.comps(tr.vmath('SUBTRACT', c, h, out_w=3))[1], tr.const(-100.0))
+            lo = tr.vmath('ADD', lo, tr.combine([tr.const(0.0), ylo, tr.const(0.0)]), out_w=3)
+            hi = tr.vmath('ADD', hi, tr.combine([tr.const(0.0), yhi, tr.const(0.0)]), out_w=3)
+            return tr.lerp(mn, lo, has, label="object or part bounds min"), tr.lerp(mx, hi, has, label="object or part bounds max")
+        return self.once("part bounds", make)
 
     # ------------------------------------------------------------ parameters
     def _at_root(self):
@@ -428,7 +448,15 @@ class MaterialEnv:
             return Val(n.outputs[0], 1)
         return self.once("P: " + name, make)
 
+    # vector parameters the game sets while it runs (a blueprint, each frame): no instance
+    # holds the value they get. Cyclo's storm core is centred on HeadSocketLocation, the head
+    # socket's world position (left at its default: the world origin, the feet)
+    RUNTIME_VECTORS = {"HeadSocketLocation"}
+
     def vector(self, name, rgba):
+        if name in self.RUNTIME_VECTORS and name not in self.entry.get("vectors", {}):
+            self.note("%s is set by the game at run time: the armature's head stands in" % name)
+            return self.tr.head_socket(), self.tr.const(1.0)
         if not name:
             rgba = tuple(rgba) + (1.0,) * (4 - len(rgba))
             return self.tr.const(tuple(float(x) for x in rgba[:3]), 3), self.tr.const(float(rgba[3]))

@@ -189,6 +189,11 @@ COMPILE_SWITCHES = {
 
 # Transform / TransformPosition spaces, by enum suffix
 BOUNDS_CENTRE = "mp_bounds_centre"     # an object's bounds centre (local, Blender metres): UE's Object Position
+# a part joined into another mesh: its own bounds' centre and half size per vertex (local, Blender
+# metres), where they differ from the object's (an outfit's parts merged into one mesh)
+PART_CENTRE = "mp_part_centre"
+HEAD_SOCKET = "mp_head_socket"     # an object's armature's head (local, Blender metres): what a game blueprint sets HeadSocketLocation to
+PART_HALF = "mp_part_half"
 VECTOR_SPACES = {"Tangent": "tangent", "Local": "local", "World": "world", "View": "view", "Camera": "view",
                  "ParticleWorld": "world", "Instance": "local"}
 POSITION_SPACES = {"Local": "local", "World": "world", "TranslatedWorld": "translated", "View": "view",
@@ -2390,6 +2395,37 @@ class Translator:
             return Val(nm.outputs["Normal"], 3)
         return self.shared("material normal", make)
 
+    def object_position(self, rel=False):
+        """UE's Object Position: the centre of the object's bounds, not its pivot (that's Actor
+        Position): a sprite's pivot is at its feet, its screen-space glow centred on its body.
+        The centre (local, Blender metres) is a property the import sets on each object
+        (mp_bounds_centre: the material stays shared), or a part's own where parts were joined
+        into one mesh (PART_CENTRE); an object without either: its pivot. UE world, cm."""
+        env = self.env
+
+        def centre():
+            n = self.node("ShaderNodeAttribute", "bounds centre", attribute_type='OBJECT',
+                          attribute_name=BOUNDS_CENTRE)
+            local = Val(n.outputs["Vector"], 3)
+            pc = self.node("ShaderNodeAttribute", "part centre", attribute_type='GEOMETRY', attribute_name=PART_CENTRE)
+            ph = self.node("ShaderNodeAttribute", "part half size", attribute_type='GEOMETRY', attribute_name=PART_HALF)
+            has = self.binop('GREATER_THAN', self.vmath('LENGTH', Val(ph.outputs["Vector"], 3)), self.const(1e-9))
+            local = self.lerp(local, Val(pc.outputs["Vector"], 3), has, label="object or part centre")
+            world = self.from_blender(self.blender_transform(local, 'OBJECT', 'WORLD', True), True)
+            return self.vmath('SUBTRACT', world, env.camera_position(), out_w=3) if rel else world
+        return self._hook("object_position", centre, rel)
+
+    def head_socket(self):
+        """The character's head in UE world cm (HEAD_SOCKET, the import's: its armature's head
+        bone), else Object Position: a stand-in for a head socket position the game sets at run time."""
+        def make():
+            n = self.node("ShaderNodeAttribute", "head socket", attribute_type='OBJECT', attribute_name=HEAD_SOCKET)
+            local = Val(n.outputs["Vector"], 3)
+            has = self.binop('GREATER_THAN', self.vmath('LENGTH', local), self.const(1e-9))
+            head = self.from_blender(self.blender_transform(local, 'OBJECT', 'WORLD', True), True)
+            return self.lerp(self.object_position(), head, has, label="head socket")
+        return self.shared("head socket", make)
+
     def local_position(self):
         def fallback():
             n = self.shared("texcoord", lambda: self.node("ShaderNodeTexCoord", "texture coordinate"))
@@ -2806,18 +2842,7 @@ class Translator:
         if t == "PixelDepth":
             return self.pixel_depth()
         if t == "ObjectPositionWS":
-            # UE's Object Position is the centre of the object's bounds, not its pivot (that's Actor
-            # Position): a sprite's pivot is at its feet, its screen-space glow centred on its body.
-            # The centre (local, Blender metres) is a property the import sets on each object
-            # (mp_bounds_centre: the material stays shared); an object without it: its pivot
-            rel = "CameraRelative" in str(p.get("OriginType", ""))
-
-            def centre():
-                n = self.node("ShaderNodeAttribute", "bounds centre", attribute_type='OBJECT',
-                              attribute_name=BOUNDS_CENTRE)
-                world = self.from_blender(self.blender_transform(Val(n.outputs["Vector"], 3), 'OBJECT', 'WORLD', True), True)
-                return self.vmath('SUBTRACT', world, env.camera_position(), out_w=3) if rel else world
-            return self._hook("object_position", centre, rel)
+            return self.object_position("CameraRelative" in str(p.get("OriginType", "")))
         if t == "LocalPosition":
             return self.local_position()
         if t == "PreSkinnedPosition":
