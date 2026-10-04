@@ -1259,7 +1259,7 @@ def play(root):
     gpu = [name for name in played if name in system.gpu]
     if gpu:
         guessed = [e.name for e in system.emitters if e.name in gpu and getattr(e, "guessed", False)]
-        yield "%s: %s: GPU emitters, approximated (their curves and materials the asset's; their particles' motion a stand-in%s)" % (
+        yield "%s: %s: GPU emitters, approximated (their counts, curves and materials the asset's; their particles held still around them, as where they go isn't kept%s)" % (
             root.name, ", ".join(gpu), "; %s spawned at a stand-in rate: what makes the game spawn it isn't in the replay" % ", ".join(guessed) if guessed else "")
     idle = [e.name for e in system.emitters if e.name not in played and not sum(f[0].shape[1] for f in tracks.get(e.name) or [])]
     if idle:

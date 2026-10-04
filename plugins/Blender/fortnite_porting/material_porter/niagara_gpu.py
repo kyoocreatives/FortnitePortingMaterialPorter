@@ -2,11 +2,11 @@
 
 A GPU emitter's particles are simulated by a compute shader the cook keeps only compiled: no
 script to run, no module settings. What the asset does keep is used: how many particles it spawns
-when (its spawn info, which the system's own scripts work out on the CPU), its renderers and
-materials, and the curves its modules sample (by name: a sprite scale curve, float curves feeding
-the dynamic material parameter, a colour curve). The rest - how long a particle lives, where it
-starts, how it moves - is a stand-in: particles rising and spreading from the emitter within its
-fixed bounds. It shows what the effect is made of, not its exact motion.
+(its spawn info, which the system's own scripts work out on the CPU), its renderers and materials,
+and the curves its modules sample (by name: a sprite scale curve, float curves feeding the dynamic
+material parameter, a colour curve). Where its particles go is not kept, so they don't move: a
+still crowd around the emitter, each at its own point of its life (the curves' values there), as
+many as would be alive at once - the effect's look, without motion that would be made up.
 
 An emitter made here looks like a scripted one to what plays it (niagara.Emitter's name, layout,
 data and tick), as niagara_stateless's do.
@@ -17,10 +17,11 @@ from .niagara_vm import F
 from .niagara_stateless import ATTRIBUTES
 
 RANDOMS = 16
-LIFETIME = (0.9, 1.6)       # s: a particle's life, a stand-in
-SPEED = (25.0, 55.0)        # cm/s, away from the emitter (mostly up)
-SIZE = (8.0, 16.0)          # cm: a sprite's width (its length along its velocity half again)
-RATE = 30.0                 # /s: what it spawns when the system's scripts never ask it to (its trigger
+LIFETIME = 1.25             # s: a particle's life, a stand-in (how many are alive at once: spawned per second x it)
+SIZE = (4.0, 9.0)           # cm: a sprite's width (its length along its velocity half again)
+SPREAD = (0.1, 0.22)        # of its fixed bounds' reach: how far from the emitter its particles stand
+AGES = (0.2, 0.8)           # the points of their lives they stand at (not newborn, not fading)
+RATE = 12.0                 # /s: what it spawns when the system's scripts never ask it to (its trigger
                             # something the replay doesn't feed: Eternal Wanderer's hair globs)
 
 
@@ -86,51 +87,47 @@ class Emitter:
         system = self.system
         state = system.read(self.name + ".ExecutionState")
         self.state = int(state[0]) if state is not None else niagara.ACTIVE
-        born = []
+        born = 0
         if self.state == niagara.ACTIVE and system.asked == niagara.ACTIVE:
             for name in self.infos:
                 _, f0, i0, _, _ = system.layout.vars[name]
                 count = int(system.data.ints[i0, 0])
                 if count > 0:
                     self.asked = True
-                    start, interval = float(system.data.floats[f0, 0]), float(system.data.floats[f0 + 1, 0])
-                    born += [self.age + min(dt, start + k * interval) for k in range(count)]
+                    born += count
             if not self.asked:
                 n = dt * RATE + self.left
-                whole = int(n)
-                self.left = n - whole
-                born += list(self.age + dt * (np.arange(whole) + 1) / max(whole, 1))
-                self.guessed = self.guessed or whole > 0
+                born = int(n)
+                self.left = n - born
+                self.guessed = self.guessed or born > 0
         self.age += dt
-        self.born = len(born)
+        self.born = born
         if born:
-            self.birth = np.concatenate([self.birth, born])
-            self.random = np.concatenate([self.random, system.rng.random((len(born), RANDOMS))])
-            self.spawned += len(born)
-        self._state()
-
-    def _state(self):
+            self.birth = np.concatenate([self.birth, np.full(born, self.age)])
+            self.spawned += born
+        # as many as would be alive: those born within a life's length
+        self.birth = self.birth[self.age - self.birth < LIFETIME]
         n = len(self.birth)
+        if n > len(self.random):
+            self.random = np.concatenate([self.random, system.rng.random((n - len(self.random), RANDOMS))])
+        self._state(n)
+
+    def _state(self, n):
         if not n:
             self.data.count = 0
             return
-        r = self.random
-        lifetime = LIFETIME[0] + (LIFETIME[1] - LIFETIME[0]) * r[:, 0]
-        age = self.age - self.birth
-        alive = age < lifetime
-        if not alive.all():
-            self.birth, self.random = self.birth[alive], self.random[alive]
-            return self._state()
-        life = age / lifetime
-        # a start near the emitter, then away from it: up, spreading out
-        angle = r[:, 1] * 2 * np.pi
-        spread = 0.35 + 0.5 * r[:, 2]
-        direction = np.stack([np.cos(angle) * spread, np.sin(angle) * spread, np.ones(n)], axis=1)
-        direction /= np.linalg.norm(direction, axis=1, keepdims=True)
-        speed = (SPEED[0] + (SPEED[1] - SPEED[0]) * r[:, 3]) * self.reach / 100.0
-        velocity = direction * speed[:, None] * (1.0 - 0.5 * life)[:, None]       # slowing as it goes
-        start = (r[:, 4:7] - 0.5) * 0.1 * self.reach
-        position = start + direction * (speed * (age - 0.25 * age * life))[:, None]
+        r = self.random[:n]         # each one's own, kept: the same particle stands still from frame to frame
+        life = AGES[0] + (AGES[1] - AGES[0]) * r[:, 0]
+        # a point of a shell's upper half around the emitter (most effects rise: smoke, sparks, a
+        # head's hair from its neck's socket), facing away from it (what a velocity-aligned sprite
+        # lines up with)
+        z = r[:, 1]
+        angle = r[:, 2] * 2 * np.pi
+        ring = np.sqrt(np.maximum(0.0, 1.0 - z * z))
+        direction = np.stack([np.cos(angle) * ring, np.sin(angle) * ring, z], axis=1)
+        distance = (SPREAD[0] + (SPREAD[1] - SPREAD[0]) * r[:, 3]) * self.reach
+        position = direction * distance[:, None]
+        velocity = direction * 10.0
         width = SIZE[0] + (SIZE[1] - SIZE[0]) * r[:, 7]
         size = np.stack([width, width * 1.5], axis=1)
         scale = self._curve("ScaleSpriteSize", life, 1)
@@ -140,7 +137,6 @@ class Emitter:
         rgb = self._curve("VectorFromCurve", life, 3)
         if rgb is not None:
             color[:, :3] = rgb
-        color[:, 3] = np.clip((1.0 - life) / 0.25, 0.0, 1.0)     # fading out over its last quarter, a stand-in
         dynamic = np.ones((n, 4))
         for i, name in enumerate(("FloatFromCurve.", "FloatFromCurve001", "FloatFromCurve002", "FloatFromCurve003")):
             v = self._curve(name, life, 1)
