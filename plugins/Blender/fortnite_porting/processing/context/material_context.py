@@ -21,6 +21,12 @@ def has_fp_shader(material_data):
     diffuse = {s.name.casefold() for s in DefaultMappings.textures if s.slot == "Diffuse"}
     return any(material_data.get("Textures") or [], lambda t: (t.get("Name") or "").casefold() in diffuse)
 
+def is_toon(material_data):
+    """Material Porter fork: whether FP's toon shader is the base it picks for a material (the last
+    base mapping its parameters call for) - a cel-shaded one, which gets FP's outline whoever builds it."""
+    mappings = find_all_matching_mappings(material_data)
+    return bool(mappings) and mappings[-1].node_name == "FPv4 Base Toon"
+
 def create_texture_node(nodes, name, image, srgb):
     node = nodes.new(type="ShaderNodeTexImage")
     node.image = image
@@ -170,6 +176,9 @@ class MaterialImportContext:
                                   and bool(existing_material.get("MPRimLight", rim_light)) == rim_light):
             if not as_material_data:
                 material_slot.material = existing_material
+                # Material Porter fork: a reused cel-shaded material still gets this mesh its outline
+                if is_toon(material_data):
+                    self.add_toon_outline = True
                 return
 
         # same name but different hash
@@ -195,10 +204,15 @@ class MaterialImportContext:
         if prefer_fp:
             material["MPPreferFP"] = True
         crunch_names = [n for n in vertex_crunch_names if n != "Transparent"] if use_exact else vertex_crunch_names
+        outline_shell = any(toon_outline_names, lambda x: x in material_name) and not any(toon_outline_disable_names, lambda x: x in material_name)
         if (any(crunch_names, lambda x: x in material_name) 
                 or get_param(scalars, "HT_CrunchVerts") == 1 
-                or (any(toon_outline_names, lambda x: x in material_name) and not any(toon_outline_disable_names, lambda x: x in material_name))):
+                or outline_shell):
             self.full_vertex_crunch_materials.append(material)
+            # Material Porter fork: the game's outline shell (an anime skin's: drawn from the scene's
+            # depth) is hidden; FP's outline draws one instead, as on a cel-shaded material
+            if outline_shell:
+                self.add_toon_outline = True
             return
 
         nodes = material.node_tree.nodes
@@ -232,6 +246,9 @@ class MaterialImportContext:
         from ...material_porter.hook import build_exact
         if use_exact and (exact := build_exact(self, material_data, meta.get("TextureData"), override_parameters,
                                                None if as_material_data else material_slot.id_data)):
+            # a cel-shaded material's outline: FP's (mesh_context: a Solidify shell drawn with M_FP_Outline)
+            if is_toon(material_data):
+                self.add_toon_outline = True
             exact["Hash"] = hash_code(material_hash)
             exact["MPRimLight"] = rim_light
             exact["OriginalName"] = material_data.get("Name")
