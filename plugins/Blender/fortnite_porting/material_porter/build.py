@@ -21,7 +21,7 @@ from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, HEAD_SOCKET, CARRIE
 PREFIX = "MP "            # built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # the game object a built material translates
 KEY_REV = "mp_rev"        # the build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 37       # 36: the camera's field of view and the render's size followed (MP World View), the joined mesh's bounds and head (HeadFX) after Merge Armatures; 35: whole function groups shared by structure, a joined part's own bounds, HeadSocketLocation from the head bone; 34: textures in the material's own tree (Closure inputs, a Textures panel), PixelNormalWS with the normal map; 33: textures at the root (functions sample them through closures), duplicate nodes merged, UE texture addressing; 32: emissive clamped at 0 as UE; 31: DepthFade by max(FadeDistance, 0.0001) as UE; 30: a baked tangent where Blender gives none; 29: particle camera from the scene under Cycles; 28: effects' soft fade off under Cycles; 2: UE 5 translucent blend modes (glass); 3: custom primitive data; 5: landscape layers; 7: per-instance custom data; 9: images channel-packed (alpha as data); 10: Time runs from 100 s (hit flashes over), unfiltered textures sampled Closest; 11: LocalPosition and PreSkinnedPosition from the rest position (skinned meshes); 12: an additive material's light is Emissive * Opacity; 13: a particle's values from its instance (a replayed effect), a sprite's sub-image; 14: SphereMask and Distance between a float2 and a scalar (Z stays 0); 15: a particle's sprite rotation and direction, the 2D light march of raymarched smoke; 16: the ambient cubemap tint is white; 17: a particle material's World Position Offset (displacement), UE's division by zero; 18: a smoothstep over an empty range is a hard edge, Particle Random from the particle; 19: a Niagara decal's colour and fade (DecalColor, DecalLifetimeOpacity); 20: division by zero per component (a vector divisor); 21: view space is the shader camera space as is (Z forward), Object Position the bounds' centre; 22: Power clamps a negative base to 0 (PositiveClampedPow); 23: vector parameters that aren't colours on vector sockets (a colour socket clamps negatives); 24: BLEND_ColoredTransmittanceOnly is Modulate; 25: DepthFade and SceneDepth by a raycast behind a see-through pixel (Blender's Raycast node); 26: translucency lit from UE's volume: diffuse only, the Normal unused unless per-pixel directional; 27: the sun, the sky and collection values through the file's world groups (a time of day drives them), its height fog
+BUILD_REVISION = 38       # 36: the camera's field of view and the render's size followed (MP World View), the joined mesh's bounds and head (HeadFX) after Merge Armatures; 35: whole function groups shared by structure, a joined part's own bounds, HeadSocketLocation from the head bone; 34: textures in the material's own tree (Closure inputs, a Textures panel), PixelNormalWS with the normal map; 33: textures at the root (functions sample them through closures), duplicate nodes merged, UE texture addressing; 32: emissive clamped at 0 as UE; 31: DepthFade by max(FadeDistance, 0.0001) as UE; 30: a baked tangent where Blender gives none; 29: particle camera from the scene under Cycles; 28: effects' soft fade off under Cycles; 2: UE 5 translucent blend modes (glass); 3: custom primitive data; 5: landscape layers; 7: per-instance custom data; 9: images channel-packed (alpha as data); 10: Time runs from 100 s (hit flashes over), unfiltered textures sampled Closest; 11: LocalPosition and PreSkinnedPosition from the rest position (skinned meshes); 12: an additive material's light is Emissive * Opacity; 13: a particle's values from its instance (a replayed effect), a sprite's sub-image; 14: SphereMask and Distance between a float2 and a scalar (Z stays 0); 15: a particle's sprite rotation and direction, the 2D light march of raymarched smoke; 16: the ambient cubemap tint is white; 17: a particle material's World Position Offset (displacement), UE's division by zero; 18: a smoothstep over an empty range is a hard edge, Particle Random from the particle; 19: a Niagara decal's colour and fade (DecalColor, DecalLifetimeOpacity); 20: division by zero per component (a vector divisor); 21: view space is the shader camera space as is (Z forward), Object Position the bounds' centre; 22: Power clamps a negative base to 0 (PositiveClampedPow); 23: vector parameters that aren't colours on vector sockets (a colour socket clamps negatives); 24: BLEND_ColoredTransmittanceOnly is Modulate; 25: DepthFade and SceneDepth by a raycast behind a see-through pixel (Blender's Raycast node); 26: translucency lit from UE's volume: diffuse only, the Normal unused unless per-pixel directional; 27: the sun, the sky and collection values through the file's world groups (a time of day drives them), its height fog
                           # 4: instance overrides to the default (Opaque, DefaultLit, one-sided) honoured
                           # 6: vector parameters without a stored default are (0, 0, 0, 0), not alpha 1
                           # 8: single layer water (the medium, refraction, water info stand-ins); graph clip()s
@@ -643,8 +643,9 @@ def _live_outputs():
     return used
 
 
-def _drop_dead(tree):
-    """Nodes that reach none of the tree's outputs go (and Group Input nodes left unread)."""
+def _drop_dead(tree, kinds=None):
+    """Nodes that reach none of the tree's outputs go (and Group Input nodes left unread) - of
+    those kinds only, when given (a material's own tree: a texture's zone nothing reads)."""
     outs = ("NodeGroupOutput",) + _OUTPUT_NODES
     feeds = {}
     for l in tree.links:
@@ -655,7 +656,8 @@ def _drop_dead(tree):
         if n.as_pointer() not in live:
             live.add(n.as_pointer())
             todo += feeds.get(n.as_pointer(), [])
-    dead = [n for n in tree.nodes if n.as_pointer() not in live and n.bl_idname != "NodeFrame"]
+    dead = [n for n in tree.nodes if n.as_pointer() not in live and n.bl_idname != "NodeFrame"
+            and (kinds is None or n.bl_idname in kinds)]
     inputs = [n for n in tree.nodes if n.bl_idname == "NodeGroupInput"]
     if inputs and all(n in dead for n in inputs):
         dead.remove(inputs[0])          # one Group Input stays, for the interface to show on
@@ -704,6 +706,24 @@ def prune_groups(names):
                         drop_unread_inputs(t)
         if not changed:
             break
+    # groups that hand their inputs on, or wrap one node: that node (or the wire) in their stead
+    for _ in range(8):
+        k = _inline_trivial([g for g in groups if g.users], touched)
+        if not k:
+            break
+        gone += k
+    # the materials' parameters and textures nothing reads any more (an effect folded away)
+    for t in roots:
+        read = {s.identifier for n in t.nodes if n.bl_idname == "NodeGroupInput" for s in n.outputs if s.is_linked}
+        drop = [it for it in _outputs(t, 'INPUT') if it.identifier not in read]
+        for it in drop:
+            t.interface.remove(it)
+        if drop:
+            _drop_empty_panels(t)
+            for m in bpy.data.materials:
+                if m.node_tree is not None and any(n.bl_idname == "ShaderNodeGroup" and n.node_tree == t for n in m.node_tree.nodes):
+                    gone += _drop_dead(m.node_tree, kinds=_ZONE_NODES)
+            touched.add(t.name)
     unused = [g for g in groups if g.users == 0]
     gone += sum(len(g.nodes) for g in unused)
     if unused:
@@ -720,6 +740,156 @@ def prune_groups(names):
         except Exception:       # cosmetic
             pass
     return gone
+
+
+_ZONE_NODES = {"NodeClosureInput", "NodeClosureOutput", "ShaderNodeTexImage", "NodeReroute"}
+
+
+def _drop_empty_panels(tree):
+    for it in [it for it in tree.interface.items_tree if it.item_type == 'PANEL']:
+        if not any(getattr(c, "parent", None) == it for c in tree.interface.items_tree if c != it):
+            tree.interface.remove(it)
+
+
+_COPY_SKIP = {"name", "location", "location_absolute", "width", "height", "dimensions", "select", "parent",
+              "color", "use_custom_color", "show_options", "show_preview", "hide", "mute", "bl_idname", "label",
+              "show_texture", "bl_label", "bl_description", "bl_icon", "bl_static_type", "bl_width_default",
+              "bl_width_min", "bl_width_max", "bl_height_default", "bl_height_min", "bl_height_max", "type",
+              "internal_links", "inputs", "outputs", "rna_type", "is_active_output", "warning_propagation"}
+_INLINE = {"ShaderNodeGroup", "ShaderNodeMath", "ShaderNodeVectorMath", "ShaderNodeMix", "ShaderNodeSeparateXYZ",
+           "ShaderNodeCombineXYZ", "ShaderNodeVectorRotate", "ShaderNodeClamp", "ShaderNodeMapRange"}
+
+
+def _through(sock):
+    """The output a link into sock comes from, past reroutes (None: unlinked)."""
+    while sock.is_linked:
+        frm = sock.links[0].from_socket
+        if frm.node.bl_idname != "NodeReroute":
+            return frm
+        sock = frm.node.inputs[0]
+    return None
+
+
+def _inline_trivial(groups, touched):
+    """Instances of a group that only hands inputs on (a function whose work folded away) or
+    holds one plain node (UE's Break Out Float3 Components: one Separate XYZ; a wrapper of
+    one call) replaced by the wire, or by a copy of that node in the caller - where every
+    value it hands on keeps its type. Returns how many group nodes went."""
+    from .ue_graph import _socket_value
+    gone = 0
+    users = {}
+    for t in list(bpy.data.node_groups) + [m.node_tree for m in bpy.data.materials if m.node_tree is not None]:
+        for n in t.nodes:
+            if n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None:
+                users.setdefault(n.node_tree.name, []).append((t, n))
+    for g in groups:
+        work = [n for n in g.nodes if n.bl_idname not in ("NodeFrame", "NodeGroupInput", "NodeGroupOutput", "NodeReroute")]
+        if len(work) > 1 or work and work[0].bl_idname not in _INLINE:
+            continue
+        inner = work[0] if work else None
+        go = next((n for n in g.nodes if n.bl_idname == "NodeGroupOutput" and n.is_active_output), None) \
+            or next((n for n in g.nodes if n.bl_idname == "NodeGroupOutput"), None)
+        if go is None or inner is not None and any(
+                l.to_node not in (go,) and l.to_node.bl_idname != "NodeReroute" for o in inner.outputs for l in o.links):
+            continue
+        for t, node in users.get(g.name, []):
+            if _inline_one(t, node, g, go, inner, _socket_value):
+                gone += 1
+                touched.add(t.name)
+    return gone
+
+
+def _inline_one(t, node, g, go, inner, socket_value):
+    def outer_source(gi_out):
+        """What feeds the group node's input gi_out names: (output socket, None) or (None, value)."""
+        sock = next(s for s in node.inputs if s.identifier == gi_out.identifier)
+        src = _through(sock)
+        return (src, None) if src is not None else (None, getattr(sock, "default_value", None)), sock
+    plan_links, plan_values = [], []
+    copy = None
+    if inner is not None:
+        # the node's inputs: what the caller feeds the group's, or the node's own values
+        feeds = []
+        for s in inner.inputs:
+            src = _through(s)
+            if src is None:
+                feeds.append((s, None, None))
+                continue
+            if src.node.bl_idname != "NodeGroupInput":
+                return False
+            (osrc, value), outer = outer_source(src)
+            if outer.type != s.type:
+                return False
+            feeds.append((s, osrc, value))
+    # the group node's outputs: what the wire or the node gives
+    readers = []
+    for j, out in enumerate(node.outputs):
+        if not out.is_linked:
+            continue
+        gin = next((s for s in go.inputs if s.identifier == out.identifier), None)
+        src = _through(gin) if gin is not None else None
+        if src is None:
+            v = getattr(gin, "default_value", None) if gin is not None else None
+            if v is None:
+                return False
+            v = tuple(v)[:3] if hasattr(v, "__len__") else float(v)
+            for l in out.links:
+                if socket_value(v, l.to_socket) is None:
+                    return False
+                plan_values.append((l.to_socket, socket_value(v, l.to_socket)))
+            continue
+        if src.type != out.type:
+            return False
+        if src.node.bl_idname == "NodeGroupInput":
+            (osrc, value), outer = outer_source(src)
+            if outer.type != out.type:
+                return False
+            for l in out.links:
+                if osrc is not None:
+                    plan_links.append((osrc, l.to_socket))
+                else:
+                    v = tuple(value)[:3] if hasattr(value, "__len__") else value
+                    if socket_value(v, l.to_socket) is None:
+                        return False
+                    plan_values.append((l.to_socket, socket_value(v, l.to_socket)))
+        elif src.node == inner:
+            readers.append((src.identifier, [l.to_socket for l in out.links]))
+        else:
+            return False
+    if inner is not None:
+        copy = t.nodes.new(inner.bl_idname)
+        for prop in inner.bl_rna.properties:
+            k = prop.identifier
+            if k in _COPY_SKIP or prop.is_readonly and k != "node_tree":
+                continue
+            try:
+                setattr(copy, k, getattr(inner, k))
+            except (AttributeError, TypeError, ValueError):
+                pass
+        copy.location, copy.parent = node.location, node.parent
+        copy.label = inner.label if inner.bl_idname == "ShaderNodeGroup" else g.name
+        for k in node.keys():
+            copy[k] = node[k]
+        for s, osrc, value in feeds:
+            c = next(x for x in copy.inputs if x.identifier == s.identifier)
+            if osrc is not None:
+                t.links.new(osrc, c)
+            elif value is not None and hasattr(c, "default_value"):
+                c.default_value = value
+            elif hasattr(s, "default_value") and hasattr(c, "default_value"):
+                c.default_value = s.default_value
+        for ident, socks in readers:
+            o = next(x for x in copy.outputs if x.identifier == ident)
+            for to in socks:
+                t.links.new(o, to)
+    for frm, to in plan_links:
+        t.links.new(frm, to)
+    for to, v in plan_values:
+        for l in list(to.links):
+            t.links.remove(l)
+        to.default_value = v
+    t.nodes.remove(node)
+    return True
 
 
 class pruning:

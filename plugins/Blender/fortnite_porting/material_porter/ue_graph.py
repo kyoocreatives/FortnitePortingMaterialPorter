@@ -4344,6 +4344,11 @@ def merge_duplicates(tree, memo=None):
             if isinstance(f, tuple):
                 f = f[0] if len(set(f)) == 1 else None
             out = socket(n, "Result" + key, True)
+            a_in, b_in = socket(n, "A" + key, False), socket(n, "B" + key, False)
+            fa, fb = ins.get(p, {}).get(a_in.identifier), ins.get(p, {}).get(b_in.identifier)
+            if fa is not None and fb is not None and (root(fa[0]), fa[1]) == (root(fb[0]), fb[1]) \
+                    and (dt != 'RGBA' or n.blend_type == 'MIX'):
+                return hand_on(p, fa, out)       # a mix of a value with itself
             if f in (0.0, 1.0) and not (f == 1.0 and dt == 'RGBA' and n.blend_type != 'MIX'):
                 pick = socket(n, ("B" if f == 1.0 else "A") + key, False)
                 feed = ins.get(p, {}).get(pick.identifier)
@@ -4365,6 +4370,12 @@ def merge_duplicates(tree, memo=None):
             if k is None:
                 return False
             vals = [const_in(p, n.inputs[i]) for i in range(k)]
+            if n.use_clamp and n.operation == 'MULTIPLY' and 1.0 in vals:
+                # a saturate of a value a clamped node made: that value
+                feed = ins.get(p, {}).get(n.inputs[vals.index(1.0) ^ 1].identifier)
+                src = nodes.get(root(feed[0])) if feed is not None else None
+                if src is not None and src.bl_idname == "ShaderNodeMath" and src.use_clamp:
+                    return hand_on(p, feed, n.outputs[0])
             if n.operation == 'MULTIPLY' and 0.0 in vals:
                 return constant(p, {n.outputs[0].identifier: 0.0})
             if any(v is None for v in vals):
@@ -4528,7 +4539,8 @@ def _socket_value(v, s):
     """A constant (float or tuple) as an input socket holds it - Blender reads a vector as a
     float by its average, a float as a vector in every component, a vector as an opaque
     colour - or None where the socket holds no such value."""
-    if not hasattr(s, "default_value") or s.type not in ('VALUE', 'VECTOR', 'RGBA'):
+    # (a reroute's socket has a type but nowhere to keep a value: writing one crashes Blender)
+    if not hasattr(s, "default_value") or s.type not in ('VALUE', 'VECTOR', 'RGBA') or s.node.bl_idname == "NodeReroute":
         return None
     vec = isinstance(v, tuple)
     if vec:
