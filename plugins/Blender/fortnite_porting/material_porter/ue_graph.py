@@ -3945,7 +3945,9 @@ def merge_duplicates(tree, memo=None):
     (the same upstream sockets, the same values). Group nodes of one group also merge when
     every input both read agrees - a call read through several outputs is one group node -
     unless that would close a loop (UE compiles each output of a call on its own: one
-    output's inputs may need another's result). Returns how many nodes went."""
+    output's inputs may need another's result). A vector split and put back together in
+    order (UE's swizzles, free in HLSL, are nodes here) is the vector again. Returns how
+    many nodes went."""
     memo = {} if memo is None else memo
     nodes = {n.as_pointer(): n for n in tree.nodes}
     ins, outs, indeg = {}, {}, dict.fromkeys(nodes, 0)
@@ -4072,11 +4074,55 @@ def merge_duplicates(tree, memo=None):
             return q
         return None
 
+    def round_trip(p, n):
+        """A Combine XYZ of one Separate XYZ's X, Y and Z in order is its vector: its readers
+        take that vector (the source itself), and the pair goes where nothing else reads it."""
+        got = ins.get(p, {})
+        src = [got.get(i) for i in ("X", "Y", "Z")]
+        if any(v is None for v in src):
+            return False
+        sep = root(src[0][0])
+        if any(root(v[0]) != sep or v[1] != i for v, i in zip(src, ("X", "Y", "Z"))) \
+                or sep not in nodes or nodes[sep].bl_idname != "ShaderNodeSeparateXYZ":
+            return False
+        feed = ins.get(sep, {}).get("Vector")
+        if feed is None:
+            return False
+        a, ia = root(feed[0]), feed[1]
+        if a not in nodes:
+            return False
+        out = socket(nodes[a], ia, True)
+        readers = [(b, t) for _f, b, t in outs.get(p, ()) if b in nodes]
+        # a colour carries alpha and turns to a float by luminance, where the vector averages:
+        # it stands in only where it's read as a vector
+        if out.type not in ('VECTOR', 'VALUE') and not (
+                out.type == 'RGBA' and all(socket(nodes[b], t, False).type == 'VECTOR' for b, t in readers)):
+            return False
+        for b, t in readers:
+            tree.links.new(out, socket(nodes[b], t, False))
+            outs.setdefault(a, []).append((ia, b, t))
+            ins.setdefault(b, {})[t] = (a, ia)
+        outs.pop(p, None)
+        ins.pop(p, None)
+        tree.nodes.remove(nodes.pop(p))
+        rest = [e for e in outs.get(sep, ()) if e[1] != p and e[1] in nodes]
+        outs[sep] = rest
+        if not rest:
+            ins.pop(sep, None)
+            tree.nodes.remove(nodes.pop(sep))
+            return 2
+        return 1
+
     seen, sig_of, groups, gone = {}, {}, {}, 0
     for p in order:
         n = nodes.get(p)
         if n is None or n.bl_idname in _MERGE_SKIP:
             continue
+        if n.bl_idname == "ShaderNodeCombineXYZ":
+            cut = round_trip(p, n)
+            if cut:
+                gone += cut
+                continue
         props = _merge_props(n)
         if props is None:
             continue
