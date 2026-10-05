@@ -33,6 +33,15 @@ KEY_FOG = "mp_fog"              # on a fogged material's root tree, and on the n
 FLAT_SKY = (0.4, 0.5, 0.7)
 
 
+# the collection parameters the game keeps updated from the sun: they follow the scene's sun lamp
+LIVE = ("SunAndMoonModelDirectionalVector", "SunAndMoonModelWorldPosition", "SunlightYTransformVector")
+
+
+def has_day():
+    """Whether the file has a time of day (its collections then follow its hour)."""
+    return bpy.data.texts.get(DAY_TEXT) is not None
+
+
 def day():
     """The time of day in the file (tod.parse's data), or None."""
     t = bpy.data.texts.get(DAY_TEXT)
@@ -255,7 +264,7 @@ SUN_DISTANCE = 12000000.0       # cm: a time of day manager's DistanceToSunOrMoo
 
 def _live(t, name, x_holder):
     """The live value of a collection parameter the game keeps updated, or None."""
-    if name in ("SunAndMoonModelDirectionalVector", "SunAndMoonModelWorldPosition", "SunlightYTransformVector"):
+    if name in LIVE:
         g = t.nodes.new("ShaderNodeGroup"); g.node_tree = sun_group(); g.label = "World Sun"
         if name == "SunAndMoonModelDirectionalVector":
             return [g.outputs["Direction"]]

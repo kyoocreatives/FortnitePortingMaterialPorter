@@ -768,6 +768,7 @@ class FunctionTree:
         self.outs = {}          # output id -> (socket name, width); width "attrs" for Material Attributes
         self.attr_outs = {}     # output id -> {attribute: ("socket", name, width) | ("const", Val)}
         self.needs = {}
+        self.const_outs = {}    # socket name -> Val: an output known when built goes to callers as data
         self.textures = {}      # closure input socket name -> (texture key, sampler, image, own sampler, address)
 
     def _new_input(self, name, width, kind):
@@ -872,6 +873,8 @@ class FunctionTree:
             w = min(max(v.w, 1), 3)
             self.tree.interface.new_socket(name, in_out='OUTPUT', socket_type=SOCKET_OF_WIDTH[w])
             a = v.a if v.w == 4 else None
+            if v.const and (a is None or a.const):
+                self.const_outs[name] = v
             if v.const:
                 v = self.tr.solid(v)
             self.tr.L.new(v.s, self.go.inputs[name])
@@ -1019,6 +1022,20 @@ class Translator:
     def math(self, op, a, b=None, c=None, clamp=False, label=""):
         if a.const and (b is None or b.const) and (c is None or c.const) and not clamp and op in _PY:
             return Val(_PY[op](a.s, None if b is None else b.s), 1)
+        if b is not None and c is None and not clamp:
+            # x * 0, x * 1, x + 0, x - 0: known without a node (a weight of 0 drops its term)
+            ka = a.s if a.const else None
+            kb = b.s if b.const else None
+            if op == 'MULTIPLY' and (ka == 0.0 or kb == 0.0):
+                return Val(0.0, 1)
+            if op == 'MULTIPLY' and kb == 1.0:
+                return a
+            if op == 'MULTIPLY' and ka == 1.0:
+                return b
+            if op in ('ADD', 'SUBTRACT') and kb == 0.0:
+                return a
+            if op == 'ADD' and ka == 0.0:
+                return b
         n = self.node("ShaderNodeMath", label or op, operation=op, use_clamp=clamp)
         for i, v in enumerate((a, b, c)):
             if v is not None:
@@ -3890,6 +3907,31 @@ class Translator:
                     todo.append(b)
         return False
 
+    def fold_call(self, ft, fg, fo, name, w, ins, site):
+        """A call whose output reads only inputs known when built (constants all the way):
+        the function worked out inline instead - a value, not a group node (a time of day's
+        weights broken out of a float4 the file holds no day for). None where it isn't."""
+        needs = ft.reached(name) | (ft.reached(socket_name(name + " (A)")) if w == 4 else set())
+        if not needs:
+            return None
+        for sock in needs:
+            kind, key = ft.kind[sock]
+            if kind not in ("ue", "ue_alpha"):
+                return None
+            lazy = ins.get(key)
+            v = lazy.get(self) if lazy is not None else None
+            if v is None and sock in ft.previews:
+                v = self.input(fg, ft.previews[sock], {"_id": ("preview", ft.fname, sock)}, None)
+            if v is None or not v.const or (kind == "ue_alpha" and not self.alpha(v).const):
+                return None
+        sub = dict(ins)
+        sub["_id"] = ("fold", site)
+        v = self.input(fg, fo["Properties"].get("A"), sub, self.const(0.0))
+        if v.const and (v.w != 4 or v.a is None or v.a.const):
+            return v
+        # (not a constant after all: what that made reaches nothing, and goes when duplicates merge)
+        return None
+
     def call_group(self, fname, fg, outs, out, ins, site=None):
         fo = self.function_output(fg, outs, out)
         if fo is None:
@@ -3911,6 +3953,12 @@ class Translator:
                     except RuntimeError as e:       # (an output UE would compile on its own: a loop here)
                         self.warnings.append("%s: output %s left out (%s)" % (fname, (each.get("Properties") or {}).get("OutputName"), e))
         name, w = ft.output(fo)
+        if w != "attrs":
+            if name in ft.const_outs:
+                return ft.const_outs[name]
+            folded = self.fold_call(ft, fg, fo, name, w, ins, site)
+            if folded is not None:
+                return folded
 
         def fresh():
             n = self.node("ShaderNodeGroup", section_name(fname))

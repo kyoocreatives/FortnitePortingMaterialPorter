@@ -767,10 +767,15 @@ class MaterialEnv:
             self.note("collection parameter %s without its collection: 0" % name)
             return self.tr.const(0.0)
         c = self.app.collection(path)
-        if name in c.get("scalars", {}):
-            return world.collection(self.tr, path, name, float(c["scalars"][name]))
-        if name in c.get("vectors", {}):
-            return world.collection(self.tr, path, name, tuple(c["vectors"][name]))
+        for kind in ("scalars", "vectors"):
+            if name in c.get(kind, {}):
+                default = float(c[kind][name]) if kind == "scalars" else tuple(c[kind][name])
+                # without a time of day in the file a collection only holds its defaults (the
+                # sun's direction aside: it follows the scene's lamp) - folded in as values, what
+                # reads them folds away too (a character's TODColor Adjustment, Scalar Time of Day)
+                if name not in world.LIVE and not world.has_day():
+                    return self.tr.const(default)
+                return world.collection(self.tr, path, name, default)
         self.note("collection %s has no %s: 0" % (path.split("/")[-1], name))
         return self.tr.const(0.0)
 
