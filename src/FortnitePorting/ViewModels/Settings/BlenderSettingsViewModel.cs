@@ -42,7 +42,8 @@ public partial class BlenderSettingsViewModel : BaseExportSettings
     // under it), × the game's
     [ObservableProperty] private float _subsurfaceIntensity = 1.0f;
     [ObservableProperty] private float _subsurfaceScale = 1.0f;
-    [ObservableProperty] private float _furSubsurfaceIntensity = 1.0f;
+    // (fur: the least it scatters, 0: the game's - most of its fur scatters none)
+    [ObservableProperty] private float _furSubsurface = 0.0f;
     [ObservableProperty] private float _furSubsurfaceScale = 1.0f;
     
     // Texture

@@ -172,7 +172,7 @@ class MaterialImportContext:
         prefer_fp = bool(self.options.get("PreferFPShaders") and self.type in FP_SHADER_TYPES and has_fp_shader(material_data))
         rim_light = bool(self.options.get("RimLight"))
         from ...material_porter.hook import subsurface as subsurface_of
-        subsurface = "%g %g" % subsurface_of(self, material_data)
+        subsurface = "%g %g %g" % subsurface_of(self, material_data)
         existing_material = material_hash_cache.get(hash_key)
         if existing_material and (bool(existing_material.get("MPPreferFP")) == prefer_fp
                                   and bool(existing_material.get("MPRimLight", rim_light)) == rim_light

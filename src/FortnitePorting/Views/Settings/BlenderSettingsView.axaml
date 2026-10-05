@@ -292,21 +292,21 @@
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
                             <controls:SettingsItem Title="Fur Subsurface Intensity"
-                                                   Description="The same for shell fur and the skin under it."
+                                                   Description="How strongly shell fur and the skin under it scatter light, at least (0: as the game has it; most fur has none). Higher: softer fur that blends into the body."
                                                    IsEnabled="{Binding ExportMaterials}">
                                 <controls:SettingsItem.Footer>
                                     <StackPanel Orientation="Horizontal">
-                                        <Slider Value="{Binding FurSubsurfaceIntensity}" MinWidth="200"
-                                                Minimum="0" Maximum="2"
+                                        <Slider Value="{Binding FurSubsurface}" MinWidth="200"
+                                                Minimum="0" Maximum="1"
                                                 TickFrequency="0.05" TickPlacement="BottomRight"
                                                 IsSnapToTickEnabled="True"/>
-                                        <TextBlock Text="{Binding FurSubsurfaceIntensity, StringFormat=N2}"
+                                        <TextBlock Text="{Binding FurSubsurface, StringFormat=N2}"
                                                    VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
                                     </StackPanel>
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
                             <controls:SettingsItem Title="Fur Subsurface Scale"
-                                                   Description="The same for shell fur and the skin under it. Higher: softer fur that blends into the body."
+                                                   Description="How far light scatters under shell fur and the skin under it, times the game's distance (1: the game's)."
                                                    IsEnabled="{Binding ExportMaterials}">
                                 <controls:SettingsItem.Footer>
                                     <StackPanel Orientation="Horizontal">
