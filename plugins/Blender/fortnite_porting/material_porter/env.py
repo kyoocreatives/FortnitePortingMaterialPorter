@@ -423,12 +423,21 @@ class MaterialEnv:
     # away (merge_duplicates: a product with 0, a mix at 0)
     GAME_DRIVEN = {"HitGlow", "HitGlowOuter", "NewDissolveGradient"}
 
+    def function_key(self):
+        """What a function's group is built per beyond its static switches: the parameters the
+        import fixes (folded into every function that reads them)."""
+        return tuple(sorted((self.entry.get("fixed") or {}).items()))
+
     def scalar(self, name, default):
         if not name:
             # an unnamed parameter ("None" in UE): nothing can set it, its default stands
             return self.tr.const(float(default or 0.0))
         if name in self.GAME_DRIVEN:
             return self.tr.const(float(self.entry.get("scalars", {}).get(name, default or 0.0)))
+        fixed = self.entry.get("fixed") or {}
+        if name in fixed:
+            # one the import settles (its Rim Light off: baseBrightness 0): a value, not a control
+            return self.tr.const(float(fixed[name]))
         v = float(self.entry.get("scalars", {}).get(name, default))
         self.graph_defaults.setdefault("P: " + name, float(default or 0.0))
         self._defaults["P: " + name] = v

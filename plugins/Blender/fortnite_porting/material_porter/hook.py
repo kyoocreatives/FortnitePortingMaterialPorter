@@ -169,6 +169,8 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     # "Rim Light" off (the default): the character materials' rim light (MF_RimV3's baseBrightness) at 0
     if not (getattr(context, "options", None) or {}).get("RimLight"):
         overlay.setdefault("scalars", {})["baseBrightness"] = 0.0
+        # (fixed, not a control: Rim V3 folds away, and Post FX with it when nothing else is on)
+        entry["fixed"] = {"baseBrightness": 0.0}
     if overlay:
         for kind, values in overlay.items():
             entry[kind] = dict(entry.get(kind) or {}, **values)

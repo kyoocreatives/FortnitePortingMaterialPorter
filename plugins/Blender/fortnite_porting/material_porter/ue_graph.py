@@ -1073,6 +1073,19 @@ class Translator:
         w = max(a.w, b.w)
         if w == 1:
             return self.math(op, a, b, label=label)
+        if w in (2, 3):
+            def known(v, x):
+                return v.const and all(float(c) == x for c in (v.s if isinstance(v.s, (tuple, list)) else (v.s,)))
+            if op == 'MULTIPLY' and (known(a, 0.0) or known(b, 0.0)):
+                return self.const((0.0,) * w, w)
+            if op == 'MULTIPLY' and known(b, 1.0) and a.w == w:
+                return a
+            if op == 'MULTIPLY' and known(a, 1.0) and b.w == w:
+                return b
+            if op in ('ADD', 'SUBTRACT') and known(b, 0.0) and a.w == w:
+                return a
+            if op == 'ADD' and known(a, 0.0) and b.w == w:
+                return b
         vop = {"FLOOR_DIVIDE": "DIVIDE"}.get(op, op)
         v = self.vmath(vop, a, b, label=label, out_w=w)
         if w == 4:
@@ -1131,6 +1144,11 @@ class Translator:
                 return b if t.s else a
             return self._attrs_op(lambda x, y: self.lerp(x, y, t, label=label), a, b)
         w = max(a.w, b.w, t.w)
+        if t.const and t.w == 1 and t.s in (0.0, 1.0) and (b if t.s else a).w == w:
+            return b if t.s else a
+        if a.const and b.const and a.w == b.w == w and a.s == b.s and (w != 4 or (a.a is not None and b.a is not None
+                                                                                and a.a.const and b.a.const and a.a.s == b.a.s)):
+            return a        # (between a value and itself: Hit Glow's colours, 0 and 0 at rest)
         if w == 1:
             n = self.node("ShaderNodeMix", label, data_type='FLOAT', clamp_factor=False)
             self.link(t, n.inputs[0]); self.link(a, n.inputs[2]); self.link(b, n.inputs[3])
@@ -3937,8 +3955,10 @@ class Translator:
         if fo is None:
             return self.const(0.0)
         statics = self.function_statics(fg, ins)
-        # by graph: two functions can share a name in different folders
-        key = (fg.path, tuple(sorted(statics.items()))) if statics else fg.path
+        # by graph: two functions can share a name in different folders; and by the parameters
+        # the import fixes (folded into the function's body: env.function_key)
+        fixed = self._hook("function_key", lambda: ())
+        key = (fg.path, tuple(sorted(statics.items())), fixed) if statics or fixed else fg.path
         ft = self.functions.get(key)
         if ft is None:
             ft = self.functions[key] = FunctionTree(self, fname, fg, statics, self.variant_label(fname, fg, statics))
