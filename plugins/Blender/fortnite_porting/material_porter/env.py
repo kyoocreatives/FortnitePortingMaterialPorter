@@ -23,7 +23,7 @@ import re
 import bpy
 
 from . import world
-from .ue_graph import BOUNDS_MAX, BOUNDS_MIN, PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
+from .ue_graph import BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PART_BOUNDS_MIN, PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
 
 # a vector parameter that names a colour gets a colour socket (a picker); any other - an offset, a
 # direction, a channel, a size - a vector socket: a colour socket clamps negatives to 0 (a sprite
@@ -316,23 +316,44 @@ class MaterialEnv:
         the import sets on each object its material lands on), so a shared function's group holds
         no object's numbers (baked, every object made its own copy of every group above them).
         Unmarked: +-1 m."""
+        return self.once("local bounds", lambda: self._ue_bounds(*self._object_bounds()))
+
+    def preskinned_bounds(self):
+        """UE's PreSkinnedLocalBounds: the mesh's own bounds, which for a character's part is the
+        part's - not the joined character's (Merge Armatures): Gummi Team Leader's head divides its
+        height by its own to blend pink into purple. A point attribute the import writes on each
+        part (PART_BOUNDS_*), which joining keeps; a mesh without it: the object's bounds."""
+        tr = self.tr
+
+        def make():
+            olo, ohi = self._object_bounds()
+            lo = Val(tr.node("ShaderNodeAttribute", "part bounds min", attribute_type='GEOMETRY', attribute_name=PART_BOUNDS_MIN).outputs["Vector"], 3)
+            hi = Val(tr.node("ShaderNodeAttribute", "part bounds max", attribute_type='GEOMETRY', attribute_name=PART_BOUNDS_MAX).outputs["Vector"], 3)
+            unmarked = tr.binop('LESS_THAN', tr.vmath('DISTANCE', lo, hi), tr.const(1e-9))
+            return self._ue_bounds(tr.lerp(lo, olo, unmarked), tr.lerp(hi, ohi, unmarked))
+        return self.once("preskinned bounds", make)
+
+    def _object_bounds(self):
+        """The object's box as marked (local, Blender metres); unmarked: UE's default +-1 m."""
         tr = self.tr
 
         def make():
             lo = Val(tr.node("ShaderNodeAttribute", "bounds min", attribute_type='OBJECT', attribute_name=BOUNDS_MIN).outputs["Vector"], 3)
             hi = Val(tr.node("ShaderNodeAttribute", "bounds max", attribute_type='OBJECT', attribute_name=BOUNDS_MAX).outputs["Vector"], 3)
-            # an object the import never marked: UE's default +-1 m
             unmarked = tr.binop('LESS_THAN', tr.vmath('DISTANCE', lo, hi), tr.const(1e-9))
-            lo = tr.lerp(lo, tr.const((-1.0, -1.0, -1.0), 3), unmarked)
-            hi = tr.lerp(hi, tr.const((1.0, 1.0, 1.0), 3), unmarked)
-            # UE space (Y mirrored: Blender's top Y is UE's bottom), cm
-            lx, ly, lz = tr.comps(lo)
-            hx, hy, hz = tr.comps(hi)
-            k = tr.const(100.0)
-            mn = tr.combine([tr.binop('MULTIPLY', lx, k), tr.binop('MULTIPLY', hy, tr.const(-100.0)), tr.binop('MULTIPLY', lz, k)])
-            mx = tr.combine([tr.binop('MULTIPLY', hx, k), tr.binop('MULTIPLY', ly, tr.const(-100.0)), tr.binop('MULTIPLY', hz, k)])
-            return mn, mx
-        return self.once("local bounds", make)
+            return (tr.lerp(lo, tr.const((-1.0, -1.0, -1.0), 3), unmarked),
+                    tr.lerp(hi, tr.const((1.0, 1.0, 1.0), 3), unmarked))
+        return self.once("object bounds", make)
+
+    def _ue_bounds(self, lo, hi):
+        """A Blender box (local metres) in UE space (Y mirrored: Blender's top Y is UE's bottom), cm."""
+        tr = self.tr
+        lx, ly, lz = tr.comps(lo)
+        hx, hy, hz = tr.comps(hi)
+        k = tr.const(100.0)
+        mn = tr.combine([tr.binop('MULTIPLY', lx, k), tr.binop('MULTIPLY', hy, tr.const(-100.0)), tr.binop('MULTIPLY', lz, k)])
+        mx = tr.combine([tr.binop('MULTIPLY', hx, k), tr.binop('MULTIPLY', ly, tr.const(-100.0)), tr.binop('MULTIPLY', hz, k)])
+        return mn, mx
 
     # ------------------------------------------------------------ parameters
     def _at_root(self):

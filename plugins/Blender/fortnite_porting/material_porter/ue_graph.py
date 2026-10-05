@@ -192,6 +192,8 @@ COMPILE_SWITCHES = {
 BOUNDS_CENTRE = "mp_bounds_centre"     # an object's bounds centre (local, Blender metres): UE's Object Position
 BOUNDS_MIN = "mp_bounds_min"       # an object's bounding box (local, Blender metres): UE's local bounds,
 BOUNDS_MAX = "mp_bounds_max"       # read per object (a shared function's group holds no object's numbers)
+PART_BOUNDS_MIN = "mp_part_bounds_min"   # a mesh part's own bounding box (local, Blender metres), a point
+PART_BOUNDS_MAX = "mp_part_bounds_max"   # attribute that stays with the part when parts are joined
 HEAD_SOCKET = "mp_head_socket"     # an object's armature's head (local, Blender metres): what a game blueprint sets HeadSocketLocation to
 SHELL_LAYER = "mp_shell_layer"     # shell fur (UE's ShellMesh; Material Porter's shells.py): a copy's layer, 1 to count - 1 (0: the mesh itself),
 SHELL_LAYER_N = "mp_shell_layer_n" # that over count - 1 (the tip 1),
@@ -2937,7 +2939,10 @@ class Translator:
         if t == "PreSkinnedNormal":
             return self.vmath('NORMALIZE', self.from_world(self.vertex_normal(), "local", False), out_w=3)
         if t in ("PreSkinnedLocalBounds", "ObjectLocalBounds", "Bounds", "ObjectBounds"):
-            mn, mx = self.local_bounds()
+            # (the pre-skinned ones are the mesh's own - a part's, joined into a character -
+            # the object's are the whole object's: env.preskinned_bounds)
+            mn, mx = self._hook("preskinned_bounds", self.local_bounds) if t == "PreSkinnedLocalBounds" \
+                else self.local_bounds()
             full = self.vmath('SUBTRACT', mx, mn, out_w=3)
             if t == "ObjectBounds":
                 return full

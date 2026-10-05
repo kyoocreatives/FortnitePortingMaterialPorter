@@ -64,6 +64,12 @@ class MeshImportContext:
                 self.parent_deform_bones(imported_mesh["Skeleton"], ["dfrm_", "deform_"])
                 self.parent_bones(imported_mesh["Skeleton"], extra_deform_mappings)
             
+        # Material Porter fork: an outfit's parts left apart share the whole character's bounds, as in
+        # the game (their materials read them: a gradient from the feet to the top of the head)
+        if self.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT, EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE] and not self.options.get("MergeArmatures"):
+            from ...material_porter.build import mark_shared_bounds
+            mark_shared_bounds([imported_mesh.get("Mesh") for imported_mesh in self.imported_meshes])
+
         # Material Porter fork: a LEGO figure's or creature's parts too (the body's armature takes them)
         if self.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT, EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE] and self.options.get("MergeArmatures"):
             master_skeleton = merge_parts(self.imported_meshes)
