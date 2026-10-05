@@ -126,16 +126,23 @@ public class MaterialPorterService : IService
     private static IEnumerable<Exporting.Styles.ExportStyleBase> PickedStyles(UObject asset, string? names)
     {
         if (string.IsNullOrWhiteSpace(names)) yield break;
-        var options = new List<FStructFallback>();
+        // (each option with its channel's name: "jacket:On" picks one where several channels have an On)
+        var options = new List<(string Channel, FStructFallback Option)>();
         foreach (var variant in asset.GetOrDefault("ItemVariants", Array.Empty<UObject>()))
-            foreach (var key in new[] { "PartOptions", "MaterialOptions", "ParticleOptions", "MeshOptions", "GenericTagOptions", "MorphTargetOptions", "Variants" })
-                if (variant.TryGetValue(out FStructFallback[] list, key)) options.AddRange(list);
-        string Name(FStructFallback o) => o.GetOrDefault<FText?>("VariantName")?.Text ?? "";
-        foreach (var wanted in names.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var option = options.FirstOrDefault(o => Name(o).Equals(wanted, StringComparison.OrdinalIgnoreCase))
-                         ?? options.FirstOrDefault(o => Name(o).Contains(wanted, StringComparison.OrdinalIgnoreCase))
-                         ?? throw new ArgumentException($"no style named {wanted} (styles: {string.Join(", ", options.Select(Name))})");
+            var channel = variant.GetOrDefault<FText?>("VariantChannelName")?.Text ?? "";
+            foreach (var key in new[] { "PartOptions", "MaterialOptions", "ParticleOptions", "MeshOptions", "GenericTagOptions", "MorphTargetOptions", "Variants" })
+                if (variant.TryGetValue(out FStructFallback[] list, key)) options.AddRange(list.Select(o => (channel, o)));
+        }
+        string Name(FStructFallback o) => o.GetOrDefault<FText?>("VariantName")?.Text ?? "";
+        foreach (var pick in names.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            var parts = pick.Split(':', 2);
+            var (channel, wanted) = parts.Length == 2 ? (parts[0], parts[1]) : ("", pick);
+            var mine = options.Where(c => channel.Length == 0 || c.Channel.Equals(channel, StringComparison.OrdinalIgnoreCase)).Select(c => c.Option).ToList();
+            var option = mine.FirstOrDefault(o => Name(o).Equals(wanted, StringComparison.OrdinalIgnoreCase))
+                         ?? mine.FirstOrDefault(o => Name(o).Contains(wanted, StringComparison.OrdinalIgnoreCase))
+                         ?? throw new ArgumentException($"no style named {pick} (styles: {string.Join(", ", options.Select(c => c.Channel + ":" + Name(c.Option)))})");
             yield return new Exporting.Styles.ExportStructStyle { StyleData = option };
         }
     }
