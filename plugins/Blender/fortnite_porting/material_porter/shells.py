@@ -33,6 +33,9 @@ def prepare(context, mesh_object, shells, meta):
     if not shells or mesh_object is None:
         return
     slots = mesh_object.material_slots
+    # each slot's own material (the game's name), before a base-layer material takes its place
+    own = {i: (s.material.get("OriginalName") or s.material.name.removeprefix("MP ")).split(".")[0]
+           for i, s in enumerate(slots) if s.material is not None}
     for data in shells.get("BaseMaterials") or []:
         slot = data.get("Slot", 0)
         if slot < len(slots) and slots[slot].material is not None:
@@ -42,6 +45,10 @@ def prepare(context, mesh_object, shells, meta):
     for data in shells.get("Materials") or []:
         slot = data.get("Slot", 0)
         if slot >= len(slots) or slots[slot].material is None:
+            continue
+        # a slot whose "shell material" is its own (Crash's eyes and nose on his furry head's
+        # mesh): a plain material the game draws no fur with
+        if data.get("Name") in (own.get(slot), slots[slot].material.get("OriginalName")):
             continue
         base = slots[slot].material
         # FP builds a material into a slot: a slot of its own for the time it takes
@@ -56,13 +63,13 @@ def prepare(context, mesh_object, shells, meta):
             bpy.data.materials.remove(placeholder)
         if shell is None or shell == base:
             continue
-        if not shells.get("CastShadows"):
-            no_shadow(shell)
         # a material that doesn't move its layers (FP's own, or no offset translated): pushed out here
         moves = any(out.inputs["Displacement"].is_linked for out in shell.node_tree.nodes
                     if out.bl_idname == "ShaderNodeOutputMaterial") and shell.displacement_method != 'BUMP'
+        if not shells.get("CastShadows"):
+            no_shadow(shell)
         pairs.append({"base": base, "shell": shell, "depth": float(shells.get("Depth", 1.0)) * context.scale,
-                      "count": int(shells.get("Count", 16)), "moves": moves})
+                      "count": int(shells.get("Count", 16)), "moves": moves, "tuck": 0.02 * context.scale})
 
 
 def no_shadow(mat):
@@ -203,6 +210,16 @@ def shell_group(name, pairs):
         if not p.get("moves"):
             move = node("GeometryNodeSetPosition", 700, -200)
             L.new(geo, move.inputs["Geometry"]); L.new(offset.outputs[0], move.inputs["Offset"])
+            geo = move.outputs[0]
+        else:
+            # a hair inside the mesh: a layer its material doesn't move (no fur there: Crash's eyes)
+            # lies just behind the mesh, not on it - at the very same depth Eevee drew the layer
+            # over the mesh (black where it's see-through)
+            tuck = node("ShaderNodeVectorMath", 620, -560, operation='SCALE')
+            tuck.inputs["Scale"].default_value = -p.get("tuck", 0.0002)
+            L.new(normal.outputs[0], tuck.inputs[0])
+            move = node("GeometryNodeSetPosition", 700, -200)
+            L.new(geo, move.inputs["Geometry"]); L.new(tuck.outputs[0], move.inputs["Offset"])
             geo = move.outputs[0]
         mat = node("GeometryNodeSetMaterial", 780)
         mat.inputs["Material"].default_value = p["shell"]
