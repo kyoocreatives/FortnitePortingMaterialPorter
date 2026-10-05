@@ -413,6 +413,7 @@ CUSTOM_SNIPPETS = {
 # ... and by the first 8 hex digits of the collapsed code's SHA-1 (the
 # census's "HLSL:<hash>" names), for the long or generic ones
 CUSTOM_HASHES = {
+    "1be3a427": "custom_ggx_d",             # GGXSpecular (engine): GGX's distribution term for a light
     "58c98080": "custom_dither5",           # Mod((uint)p.x + 2 * (uint)p.y, 5)  DitherTemporalAA
     "accf1f15": "custom_primitive_index",   # GetPrimitiveData(Parameters).PersistentPrimitiveIndex
     "b4a2625d": "custom_triplanar_normals",  # SelectAndTransformNormals (MF_Triplanar_TransformNormals)
@@ -3297,6 +3298,17 @@ class Translator:
 
     def custom_nan(self, ins, p):
         return self.const(0.0)
+
+    def custom_ggx_d(self, ins, p):
+        # NoH = dot(normalize(N + L), N); a2 = R^4; d = (NoH * a2 - NoH) * NoH + 1; a2 / (PI d d)
+        n, l = self.as3(self._in(ins, "Normal")), self.as3(self._in(ins, "LightVector"))
+        r = self.mask(self._in(ins, "Roughness"), [0])
+        noh = self.vmath('DOT_PRODUCT', self.vmath('NORMALIZE', self.vmath('ADD', n, l, out_w=3), out_w=3), n)
+        r2 = self.binop('MULTIPLY', r, r)
+        a2 = self.binop('MULTIPLY', r2, r2)
+        d = self.binop('ADD', self.binop('MULTIPLY', self.binop('SUBTRACT', self.binop('MULTIPLY', noh, a2), noh), noh),
+                       self.const(1.0))
+        return self.divide(a2, self.binop('MULTIPLY', self.const(3.14159265), self.binop('MULTIPLY', d, d)))
 
     def custom_fp_select(self, ins, p):
         fp = self.mask(self._in(ins, "FP"), [0])
