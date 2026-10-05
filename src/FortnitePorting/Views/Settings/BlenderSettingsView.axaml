@@ -264,12 +264,12 @@
                             </controls:SettingsItem>
                             <!-- Material Porter fork: how much and how far light scatters under exact materials, × the game's -->
                             <controls:SettingsItem Title="Subsurface Intensity"
-                                                   Description="How strongly light scatters under skin on exact materials, times the game's amount (1: the game's; at most full). Each material keeps it as its Subsurface Intensity input."
+                                                   Description="How much light scatters under skin on exact materials, wherever the game's material scatters any. Each material keeps it as its Subsurface Intensity input."
                                                    IsEnabled="{Binding ExportMaterials}">
                                 <controls:SettingsItem.Footer>
                                     <StackPanel Orientation="Horizontal">
                                         <Slider Value="{Binding SubsurfaceIntensity}" MinWidth="200"
-                                                Minimum="0" Maximum="2"
+                                                Minimum="0" Maximum="1"
                                                 TickFrequency="0.05" TickPlacement="BottomRight"
                                                 IsSnapToTickEnabled="True"/>
                                         <TextBlock Text="{Binding SubsurfaceIntensity, StringFormat=N2}"
@@ -292,15 +292,15 @@
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
                             <controls:SettingsItem Title="Fur Subsurface Intensity"
-                                                   Description="How strongly shell fur and the skin under it scatter light, at least (0: as the game has it; most fur has none). Higher: softer fur that blends into the body."
+                                                   Description="How much light scatters under shell fur (all of it) and the skin under it (where the game's scatters any). Higher: softer fur that blends into the body."
                                                    IsEnabled="{Binding ExportMaterials}">
                                 <controls:SettingsItem.Footer>
                                     <StackPanel Orientation="Horizontal">
-                                        <Slider Value="{Binding FurSubsurface}" MinWidth="200"
+                                        <Slider Value="{Binding FurSubsurfaceIntensity}" MinWidth="200"
                                                 Minimum="0" Maximum="1"
                                                 TickFrequency="0.05" TickPlacement="BottomRight"
                                                 IsSnapToTickEnabled="True"/>
-                                        <TextBlock Text="{Binding FurSubsurface, StringFormat=N2}"
+                                        <TextBlock Text="{Binding FurSubsurfaceIntensity, StringFormat=N2}"
                                                    VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
                                     </StackPanel>
                                 </controls:SettingsItem.Footer>

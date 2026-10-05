@@ -38,12 +38,11 @@ public partial class BlenderSettingsViewModel : BaseExportSettings
     [ObservableProperty] private bool _preferFPShaders = false;
     // Material Porter fork: the character materials' rim light (baseBrightness), off by default
     [ObservableProperty] private bool _rimLight = false;
-    // Material Porter fork: how much and how far light scatters under exact materials (skin; shell fur and the skin
-    // under it), × the game's
+    // Material Porter fork: how much light scatters under exact materials where they scatter any (flat), and how far
+    // (× the game's distance): skin; shell fur and the skin under it
     [ObservableProperty] private float _subsurfaceIntensity = 1.0f;
     [ObservableProperty] private float _subsurfaceScale = 1.0f;
-    // (fur: the least it scatters, 0: the game's - most of its fur scatters none)
-    [ObservableProperty] private float _furSubsurface = 0.0f;
+    [ObservableProperty] private float _furSubsurfaceIntensity = 1.0f;
     [ObservableProperty] private float _furSubsurfaceScale = 1.0f;
     
     // Texture

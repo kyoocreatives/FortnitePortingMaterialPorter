@@ -21,7 +21,7 @@ from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, HEAD_SOCKET, CARRIE
 PREFIX = "MP "            # built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # the game object a built material translates
 KEY_REV = "mp_rev"        # the build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 43       # 43: the subsurface inputs in the game's subsurface parameter's panel; 42: shell fur's Subsurface Minimum; 41: a scattering surface's Subsurface Intensity beside its Scale; 40: its Subsurface Scale on its group node; 39: Material Attributes functions carry a moving material's World Position Offset (shell fur), FP mesh camera offset and NaN culling Customs; 38: one-node and pass-through function groups inlined, parameters nothing reads dropped (after an import); 37: values known at build folded, game-driven parameters (hit flash, elimination dissolve) built in, group outputs no material reads pruned (after an import); 36: the camera's field of view and the render's size followed (MP World View), the joined mesh's bounds and head (HeadFX) after Merge Armatures; 35: whole function groups shared by structure, a joined part's own bounds, HeadSocketLocation from the head bone; 34: textures in the material's own tree (Closure inputs, a Textures panel), PixelNormalWS with the normal map; 33: textures at the root (functions sample them through closures), duplicate nodes merged, UE texture addressing; 32: emissive clamped at 0 as UE; 31: DepthFade by max(FadeDistance, 0.0001) as UE; 30: a baked tangent where Blender gives none; 29: particle camera from the scene under Cycles; 28: effects' soft fade off under Cycles; 2: UE 5 translucent blend modes (glass); 3: custom primitive data; 5: landscape layers; 7: per-instance custom data; 9: images channel-packed (alpha as data); 10: Time runs from 100 s (hit flashes over), unfiltered textures sampled Closest; 11: LocalPosition and PreSkinnedPosition from the rest position (skinned meshes); 12: an additive material's light is Emissive * Opacity; 13: a particle's values from its instance (a replayed effect), a sprite's sub-image; 14: SphereMask and Distance between a float2 and a scalar (Z stays 0); 15: a particle's sprite rotation and direction, the 2D light march of raymarched smoke; 16: the ambient cubemap tint is white; 17: a particle material's World Position Offset (displacement), UE's division by zero; 18: a smoothstep over an empty range is a hard edge, Particle Random from the particle; 19: a Niagara decal's colour and fade (DecalColor, DecalLifetimeOpacity); 20: division by zero per component (a vector divisor); 21: view space is the shader camera space as is (Z forward), Object Position the bounds' centre; 22: Power clamps a negative base to 0 (PositiveClampedPow); 23: vector parameters that aren't colours on vector sockets (a colour socket clamps negatives); 24: BLEND_ColoredTransmittanceOnly is Modulate; 25: DepthFade and SceneDepth by a raycast behind a see-through pixel (Blender's Raycast node); 26: translucency lit from UE's volume: diffuse only, the Normal unused unless per-pixel directional; 27: the sun, the sky and collection values through the file's world groups (a time of day drives them), its height fog
+BUILD_REVISION = 44       # 44: Subsurface Intensity a flat amount where the game's scatters (all over shell fur), no minimum; 43: the subsurface inputs in the game's subsurface parameter's panel; 42: shell fur's Subsurface Minimum; 41: a scattering surface's Subsurface Intensity beside its Scale; 40: its Subsurface Scale on its group node; 39: Material Attributes functions carry a moving material's World Position Offset (shell fur), FP mesh camera offset and NaN culling Customs; 38: one-node and pass-through function groups inlined, parameters nothing reads dropped (after an import); 37: values known at build folded, game-driven parameters (hit flash, elimination dissolve) built in, group outputs no material reads pruned (after an import); 36: the camera's field of view and the render's size followed (MP World View), the joined mesh's bounds and head (HeadFX) after Merge Armatures; 35: whole function groups shared by structure, a joined part's own bounds, HeadSocketLocation from the head bone; 34: textures in the material's own tree (Closure inputs, a Textures panel), PixelNormalWS with the normal map; 33: textures at the root (functions sample them through closures), duplicate nodes merged, UE texture addressing; 32: emissive clamped at 0 as UE; 31: DepthFade by max(FadeDistance, 0.0001) as UE; 30: a baked tangent where Blender gives none; 29: particle camera from the scene under Cycles; 28: effects' soft fade off under Cycles; 2: UE 5 translucent blend modes (glass); 3: custom primitive data; 5: landscape layers; 7: per-instance custom data; 9: images channel-packed (alpha as data); 10: Time runs from 100 s (hit flashes over), unfiltered textures sampled Closest; 11: LocalPosition and PreSkinnedPosition from the rest position (skinned meshes); 12: an additive material's light is Emissive * Opacity; 13: a particle's values from its instance (a replayed effect), a sprite's sub-image; 14: SphereMask and Distance between a float2 and a scalar (Z stays 0); 15: a particle's sprite rotation and direction, the 2D light march of raymarched smoke; 16: the ambient cubemap tint is white; 17: a particle material's World Position Offset (displacement), UE's division by zero; 18: a smoothstep over an empty range is a hard edge, Particle Random from the particle; 19: a Niagara decal's colour and fade (DecalColor, DecalLifetimeOpacity); 20: division by zero per component (a vector divisor); 21: view space is the shader camera space as is (Z forward), Object Position the bounds' centre; 22: Power clamps a negative base to 0 (PositiveClampedPow); 23: vector parameters that aren't colours on vector sockets (a colour socket clamps negatives); 24: BLEND_ColoredTransmittanceOnly is Modulate; 25: DepthFade and SceneDepth by a raycast behind a see-through pixel (Blender's Raycast node); 26: translucency lit from UE's volume: diffuse only, the Normal unused unless per-pixel directional; 27: the sun, the sky and collection values through the file's world groups (a time of day drives them), its height fog
                           # 4: instance overrides to the default (Opaque, DefaultLit, one-sided) honoured
                           # 6: vector parameters without a stored default are (0, 0, 0, 0), not alpha 1
                           # 8: single layer water (the medium, refraction, water info stand-ins); graph clip()s
@@ -38,8 +38,7 @@ LAZY_LAYOUT = False
 KEY_WATER = "mp_water"    # a water material (MSM_SingleLayerWater): its objects get the depth under them
 KEY_SUBSURFACE = "mp_subsurface_scale"  # the game's scattering distance (metres), its group node's input's at build
 SUBSURFACE_SCALE = "Subsurface Scale"   # that input
-SUBSURFACE_INTENSITY = "Subsurface Intensity"   # and the game's scattering amount's multiplier
-SUBSURFACE_MINIMUM = "Subsurface Minimum"       # and, on shell fur, the least it scatters
+SUBSURFACE_INTENSITY = "Subsurface Intensity"   # and how much (where the game's scatters any)
 
 
 def _enum(v, default):
@@ -61,8 +60,8 @@ def settings(entry):
         "lighting": _enum(asset["TranslucencyLightingMode"], "") if "TranslucencyLightingMode" in asset else None,
         # the Subsurface Profile skin scatters by: {"radius": [r, g, b], "scale": metres}
         "profile": entry.get("subsurface"),
-        # a shell fur layer's or its base's (the FP fork's shells): a Subsurface Minimum besides
-        "fur": bool(entry.get("moves")),
+        # a shell fur layer's (the FP fork's shells): it all scatters, as fur
+        "shell": bool(entry.get("shell")),
     }
 
 
@@ -211,46 +210,30 @@ def assemble(tr, mat, a, s):
                 mat.max_vertex_displacement = 50.0
             moved = True
     # how much and how far light scatters under a scattering surface (skin, fur): on the material's
-    # own group node, where an artist tunes it (and the FP fork's import settings set it)
+    # own group node, where an artist tunes it (and the FP fork's import settings set it). The amount
+    # is flat - Subsurface Intensity wherever the game's scatters at all (its shading model's mask),
+    # all over a shell fur layer (it is the fur) - the distance the game's
     weight = bsdf.inputs["Subsurface Weight"]
-    if tr.tree != mat.node_tree and (weight.is_linked or weight.default_value > 0.0 or s.get("fur")):
+    if tr.tree != mat.node_tree and (weight.is_linked or weight.default_value > 0.0 or s.get("shell")):
         scale = bsdf.inputs["Subsurface Scale"].default_value
 
         def new_input(name, default, description):
             sock = tr.tree.interface.new_socket(name, in_out='INPUT', socket_type='NodeSocketFloat')
-            sock.default_value, sock.min_value, sock.description = default, 0.0, description
+            sock.default_value, sock.min_value, sock.max_value, sock.description = default, 0.0,                 (1.0 if name == SUBSURFACE_INTENSITY else 1e4), description
             gi = tr.node("NodeGroupInput", name.lower())
             return next(o for o in gi.outputs if o.identifier == sock.identifier)
-        intensity = new_input(SUBSURFACE_INTENSITY, 1.0, "The game's scattering amount times this (at most full)")
+        intensity = new_input(SUBSURFACE_INTENSITY, 1.0, "How much light scatters where the surface scatters any")
         game = weight.links[0].from_socket if weight.is_linked else None
-        times = tr.node("ShaderNodeMath", "subsurface intensity", operation='MULTIPLY', use_clamp=True)
-        if game is not None:
-            tr.L.new(game, times.inputs[0])
+        if s.get("shell") or game is None:
+            tr.L.new(intensity, weight)
         else:
-            times.inputs[0].default_value = weight.default_value
-        tr.L.new(intensity, times.inputs[1])
-        amount = times.outputs[0]
-        if s.get("fur"):
-            # fur scatters at least the Subsurface Minimum (most of the game's fur scatters none): evenly
-            # where the game's is less (no colour of its own: the fur's own blurred together)
-            least = new_input(SUBSURFACE_MINIMUM, 0.0, "At least this much scattering (where the game's is less, an even one)")
-            more = tr.node("ShaderNodeMath", "subsurface minimum", operation='MAXIMUM')
-            tr.L.new(amount, more.inputs[0])
-            tr.L.new(least, more.inputs[1])
-            below = tr.node("ShaderNodeMath", "game's scattering below the minimum", operation='LESS_THAN')
-            tr.L.new(amount, below.inputs[0])
-            tr.L.new(least, below.inputs[1])
-            radius = bsdf.inputs["Subsurface Radius"]
-            even = tr.node("ShaderNodeMix", "subsurface radius (even below the minimum)", data_type='VECTOR')
-            if radius.is_linked:
-                tr.L.new(radius.links[0].from_socket, even.inputs[4])
-            else:
-                even.inputs[4].default_value = tuple(radius.default_value)
-            even.inputs[5].default_value = (1.0, 1.0, 1.0)
-            tr.L.new(below.outputs[0], even.inputs[0])
-            tr.L.new(even.outputs[1], radius)
-            amount = more.outputs[0]
-        tr.L.new(amount, weight)
+            where = tr.node("ShaderNodeMath", "scatters (the game's)", operation='GREATER_THAN')
+            tr.L.new(game, where.inputs[0])
+            where.inputs[1].default_value = 1e-4
+            times = tr.node("ShaderNodeMath", "subsurface intensity", operation='MULTIPLY')
+            tr.L.new(where.outputs[0], times.inputs[0])
+            tr.L.new(intensity, times.inputs[1])
+            tr.L.new(times.outputs[0], weight)
         tr.L.new(new_input(SUBSURFACE_SCALE, scale, "How far light scatters under the surface (metres)"),
                  bsdf.inputs["Subsurface Scale"])
         mat[KEY_SUBSURFACE] = scale
@@ -1095,7 +1078,7 @@ def _subsurface_panel(root):
     parameter in its panel."""
     iface = root.interface
     items = list(iface.items_tree)
-    names = (SUBSURFACE_INTENSITY, SUBSURFACE_SCALE, SUBSURFACE_MINIMUM)
+    names = (SUBSURFACE_INTENSITY, SUBSURFACE_SCALE)
     mine = sorted((it for it in items if it.item_type == 'SOCKET' and it.in_out == 'INPUT' and it.name in names),
                   key=lambda it: names.index(it.name))
     if not mine:
@@ -1123,7 +1106,7 @@ def shape_key(entry):
     subsurface profile. Instances alike in all of it differ only in their
     parameters' values (the material's group-node inputs) and their
     textures' images."""
-    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves")}
+    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "shell")}
     return hashlib.sha1(json.dumps(k, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
 

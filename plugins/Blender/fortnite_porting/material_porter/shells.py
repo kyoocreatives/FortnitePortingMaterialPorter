@@ -67,6 +67,7 @@ def prepare(context, mesh_object, shells, meta):
         index = len(mesh_object.data.materials) - 1
         placeholder = mesh_object.data.materials[index]
         data["MPMoves"] = True          # (its World Position Offset places the layers)
+        data["MPShell"] = True          # (it all scatters light, as fur: build.assemble)
         context.import_material(mesh_object.material_slots[index], data, meta)
         shell = mesh_object.material_slots[index].material
         mesh_object.data.materials.pop(index=index)

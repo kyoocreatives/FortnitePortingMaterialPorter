@@ -115,18 +115,16 @@ def _material(job, entry, obj):
 
 
 def subsurface(context, material_data):
-    """The FP app's subsurface settings for a material: (times the game's scattering amount, times
-    its distance, the least it scatters). Skin: Subsurface Intensity and Scale; a shell fur layer and
-    its base (material_porter.shells): Fur Subsurface, the least (most of the game's fur scatters
-    none), and Fur Subsurface Scale."""
+    """The FP app's subsurface settings for a material: (how much light scatters where it scatters
+    any, times the game's distance). Skin: Subsurface Intensity and Scale; a shell fur layer and its
+    base (material_porter.shells): Fur Subsurface Intensity and Scale."""
     options = getattr(context, "options", None) or {}
+    prefix = "FurSubsurface" if material_data.get("MPMoves") else "Subsurface"
 
-    def value(key, default):
-        v = options.get(key)
-        return default if v is None else max(0.0, float(v))
-    if material_data.get("MPMoves"):
-        return 1.0, value("FurSubsurfaceScale", 1.0), value("FurSubsurface", 0.0)
-    return value("SubsurfaceIntensity", 1.0), value("SubsurfaceScale", 1.0), 0.0
+    def value(key, default, most):
+        v = options.get(prefix + key)
+        return default if v is None else min(max(0.0, float(v)), most)
+    return value("Intensity", 1.0, 1.0), value("Scale", 1.0, 1e4)
 
 
 def exact_available(context):
@@ -194,8 +192,12 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         entry["variant"] = hashlib.sha1(("%s moves" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
     # the import's subsurface intensity and scale (shell fur's own): times the game's
     sss = subsurface(context, material_data)
-    if sss != (1.0, 1.0, 0.0):
-        entry["variant"] = hashlib.sha1(("%s sss %g %g %g" % ((entry.get("variant", ""),) + sss)).encode("utf-8")).hexdigest()[:8]
+    # a shell fur layer (material_porter.shells): it all scatters, as fur
+    if material_data.get("MPShell"):
+        entry["shell"] = True
+        entry["variant"] = hashlib.sha1(("%s shell" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
+    if sss != (1.0, 1.0):
+        entry["variant"] = hashlib.sha1(("%s sss %g %g" % ((entry.get("variant", ""),) + sss)).encode("utf-8")).hexdigest()[:8]
     # each tree laid out when a node editor first shows it: two fifths of a build, and cosmetic
     build.LAZY_LAYOUT = True
     try:
@@ -216,8 +218,6 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
             if n.bl_idname == "ShaderNodeGroup" and build.SUBSURFACE_SCALE in n.inputs                     and build.SUBSURFACE_INTENSITY in n.inputs:
                 n.inputs[build.SUBSURFACE_INTENSITY].default_value = sss[0]
                 n.inputs[build.SUBSURFACE_SCALE].default_value = mat[build.KEY_SUBSURFACE] * sss[1]
-                if build.SUBSURFACE_MINIMUM in n.inputs:
-                    n.inputs[build.SUBSURFACE_MINIMUM].default_value = sss[2]
     # a LEGO figure's face: where its rig puts the character accents for each mouth pose (face_anim.py)
     if rig := material_data.get("MPFaceRig"):
         mat["mp_face_rig"] = rig
