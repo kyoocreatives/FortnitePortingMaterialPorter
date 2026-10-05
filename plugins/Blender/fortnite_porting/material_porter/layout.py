@@ -1271,6 +1271,7 @@ def _sugiyama(items, edges):
     for col in layers:
         for it in col:
             it.y -= y0
+    _straighten(layers, trunks, reads, trunk_port)
 
     # --- routes, only at a level that holds frames. There a wire between two
     # columns can have thousands of pixels to climb, and drawn straight it
@@ -1360,7 +1361,8 @@ def _sugiyama(items, edges):
 
     _pull_right(layers, dag)
     if PULL_UP:
-        _pull_up(layers, dag, trunks, reads)
+        _pull_up(layers, dag, trunks, reads, trunk_port)
+    _snap_sources(layers, dag)
 
     placed = []
     for (src, ident), points, links, feeds in routes:
@@ -1369,6 +1371,62 @@ def _sugiyama(items, edges):
     if ROUTE_LANES:
         placed += _lane_routes(trunks, reads, trunk_port, real, col_left, col_right)
     return x, max(it.y + it.h for it in real), placed
+
+
+def _straighten(layers, trunks, reads, trunk_port):
+    """Each long wire's lane at one height, where its columns leave room - every step in a
+    lane is a pair of reroutes: its source's socket height if it can be (no bend leaving it),
+    else a reader's (none arriving), else one its stretches already have. A reroute source -
+    a frame's port - moves level with its lane instead, where its own column lets it."""
+    where = {id(it): (l, i) for l, col in enumerate(layers) for i, it in enumerate(col)}
+
+    def room(it, y, h):
+        l, i = where[id(it)]
+        col = layers[l]
+        if i > 0 and col[i - 1].y + col[i - 1].h + _vgap(col[i - 1], it) > y + 0.01:
+            return False
+        if i + 1 < len(col) and y + h + _vgap(it, col[i + 1]) > col[i + 1].y + 0.01:
+            return False
+        return True
+    for key, chain in trunks.items():
+        u, ds = chain[0], chain[1:]
+        if not ds:
+            continue
+        pu = trunk_port[key]
+        cands = [u.y + pu] + [v.y + pv for v, pv, _ in reads[key]] + [d.y for d in ds]
+        best = next((y for y in cands if all(room(d, y, 0.0) for d in ds)), None)
+        if best is None:
+            continue
+        if abs(best - (u.y + pu)) > 0.5 and u.dot and room(u, best - pu, u.h):
+            u.y = best - pu
+        for d in ds:
+            d.y = best
+
+
+def _snap_sources(layers, dag):
+    """An input that feeds one node only - a Group Input copy, a texture coordinate - sits
+    level with it, wherever the columns left it: a short wire across, not one down half the
+    frame from a node that rose into the free space above on its own."""
+    real = [it for col in layers for it in col if it.kind != "dummy"]
+    lanes = [it for col in layers for it in col if it.kind == "dummy"]
+    ins, outs = defaultdict(list), defaultdict(list)
+    for e in dag:
+        outs[id(e[0])].append(e)
+        ins[id(e[1])].append(e)
+    for it in real:
+        if it.kind != "node" or it.pin or ins[id(it)] or not outs[id(it)]:
+            continue
+        if len({id(e[1]) for e in outs[id(it)]}) != 1:
+            continue
+        u, v, pu, pv = outs[id(it)][0][:4]
+        y = v.y + pv - pu if it.dot or v.dot or ALIGN != "top" else v.y
+        if abs(y - it.y) < 1.0:
+            continue
+        top, bottom = y - GAP_NODE_Y * 0.5, y + it.h + GAP_NODE_Y * 0.5
+        left, right = it.x - GAP_NODE_X * 0.5, it.x + it.w + GAP_NODE_X * 0.5
+        if not any(o is not it and o.x < right and o.x + o.w > left and o.y <= bottom and o.y + o.h >= top
+                   for o in real + lanes):
+            it.y = y
 
 
 def _crosses(xa, ya, xb, yb, rects, skip):
@@ -1446,7 +1504,7 @@ def _lane_routes(trunks, reads, trunk_port, real, col_left, col_right):
     return routes
 
 
-def _pull_up(layers, dag, trunks=None, reads=None):
+def _pull_up(layers, dag, trunks=None, reads=None, trunk_port=None):
     """Move rows up into the free space above them. A row is the items its level wires join
     (top edges equal: Sugiyama lined them up), moved as one so its wires stay straight; it
     rises until something overlapping it horizontally is in the way. Columns are stacked
@@ -1466,11 +1524,12 @@ def _pull_up(layers, dag, trunks=None, reads=None):
     for key, chain in (trunks or {}).items():
         for a, b in zip(chain[1:], chain[2:]):
             up[find(id(a))] = find(id(b))
-        if abs(chain[0].y - chain[1].y) < 0.5:
+        pu = trunk_port[key] if trunk_port else 0.0
+        if abs(chain[0].y - chain[1].y) < 0.5 or abs(chain[0].y + pu - chain[1].y) < 0.5:
             up[find(id(chain[0]))] = find(id(chain[1]))
-        for v, *_ in reads[key]:
+        for v, pv, _ in reads[key]:
             last = chain[v.layer - chain[0].layer - 1]
-            if abs(v.y - last.y) < 0.5:
+            if abs(v.y - last.y) < 0.5 or abs(v.y + pv - last.y) < 0.5:
                 up[find(id(v))] = find(id(last))
     rows = defaultdict(list)
     for it in real:
