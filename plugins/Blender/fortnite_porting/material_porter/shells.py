@@ -1,17 +1,23 @@
 """Material Porter fork: shell fur (UE's ShellMesh plugin), as Blender draws it.
 
-The game draws a furry part's mesh again Count times, copy n (1 to Count) pushed out along its
-normals by Depth * n / Count, with its slot's shell material - whose fur pattern, length map and
-root-to-tip colour read the copy's layer (ShellMeshNormalizedShellLayer: n / Count) - and the mesh
-itself with its slot's base-layer material. Here a Geometry Nodes modifier makes the copies from
-the deformed mesh (after its armature: the fur follows the pose), each tagged with its layer
-(SHELL_LAYER, SHELL_LAYER_N, SHELL_COUNT: what the shell material reads), on the faces whose
-material has a shell material. Its Shells input sets how many are drawn (fewer: lighter, coarser
-fur); its Length scales how far they reach.
+The game draws a furry part's mesh as Count layers: layer 0 the mesh itself, with its slot's
+base-layer material, layers 1 to Count - 1 copies of it at the mesh, with its slot's shell
+material. The ShellMesh deformer gives each copy's vertices their layer (normalized, layer /
+(Count - 1): 1 at the tip) and offset (along the normal, the asset's depth times that): the shell material's own
+World Position Offset moves them - by a share of that offset rising from root to tip, a lean along
+its flow map (combed fur), all scaled by its length map (fur ending where the map does) - and its
+fur pattern, thickness and colour read the layer. The base layer's shrinks in under the fur.
+
+Here a Geometry Nodes modifier makes the copies from the deformed mesh (after its armature: the
+fur follows the pose), each point tagged with what the shell material reads (SHELL_LAYER,
+SHELL_LAYER_N, SHELL_COUNT, SHELL_OFFSET, SHELL_VECTOR), on the faces whose material has a shell
+material; the materials' World Position Offset is Blender's displacement (built with "moves").
+Its Shells input sets how many are drawn (fewer: lighter, coarser fur); its Length scales the
+depth.
 """
 import bpy
 
-from .ue_graph import SHELL_COUNT, SHELL_LAYER, SHELL_LAYER_N
+from .ue_graph import SHELL_COUNT, SHELL_LAYER, SHELL_LAYER_N, SHELL_OFFSET, SHELL_VECTOR
 
 KEY = "mp_shells"           # on the context: [{"base", "shell", "depth", "count"}] for apply
 MODIFIER = "Shell Fur"
@@ -30,6 +36,7 @@ def prepare(context, mesh_object, shells, meta):
     for data in shells.get("BaseMaterials") or []:
         slot = data.get("Slot", 0)
         if slot < len(slots) and slots[slot].material is not None:
+            data["MPMoves"] = True      # (its World Position Offset: in under the fur)
             context.import_material(slots[slot], data, meta)
     pairs = context.__dict__.setdefault(KEY, [])
     for data in shells.get("Materials") or []:
@@ -41,6 +48,7 @@ def prepare(context, mesh_object, shells, meta):
         mesh_object.data.materials.append(bpy.data.materials.new("MP shell placeholder"))
         index = len(mesh_object.data.materials) - 1
         placeholder = mesh_object.data.materials[index]
+        data["MPMoves"] = True          # (its World Position Offset places the layers)
         context.import_material(mesh_object.material_slots[index], data, meta)
         shell = mesh_object.material_slots[index].material
         mesh_object.data.materials.pop(index=index)
@@ -50,8 +58,11 @@ def prepare(context, mesh_object, shells, meta):
             continue
         if not shells.get("CastShadows"):
             no_shadow(shell)
+        # a material that doesn't move its layers (FP's own, or no offset translated): pushed out here
+        moves = any(out.inputs["Displacement"].is_linked for out in shell.node_tree.nodes
+                    if out.bl_idname == "ShaderNodeOutputMaterial") and shell.displacement_method != 'BUMP'
         pairs.append({"base": base, "shell": shell, "depth": float(shells.get("Depth", 1.0)) * context.scale,
-                      "count": int(shells.get("Count", 16))})
+                      "count": int(shells.get("Count", 16)), "moves": moves})
 
 
 def no_shadow(mat):
@@ -103,10 +114,11 @@ def apply(context, objects):
         from ..processing.utils import set_geo_nodes_param
         set_geo_nodes_param(mod, "Shells", count, getattr(context, "version_profile", None))
         _log("%s: shell fur, %d shells over %s" % (o.name, count, ", ".join(p["base"].name for p in mine)))
-        # Cycles counts each shell a ray crosses (in and out, camera and shadow rays alike) as a
-        # transparent bounce; past its limit (8 by default) the fur, and what it shadows, goes black
+        # Cycles counts each shell a ray crosses (in and out, camera and shadow rays alike, through
+        # overlapping parts - a wrist under a furry cuff) as a transparent bounce; past its limit
+        # (8 by default) the fur, and what it shadows, goes black
         scene = bpy.context.scene
-        need = min(4 * count, 256)
+        need = min(16 * count, 1024)
         if scene is not None and hasattr(scene, "cycles") and scene.cycles.transparent_max_bounces < need:
             scene.cycles.transparent_max_bounces = need
             _log("Cycles' transparent bounces raised to %d (shell fur)" % need)
@@ -114,79 +126,87 @@ def apply(context, objects):
 
 def shell_group(name, pairs):
     """The modifier's node group: per base material, its faces copied Shells times as instances
-    (cheap to join), each copy's layer stored, realized, pushed out along its normals and given
-    the shell material; the mesh itself as it was."""
+    (cheap to join), each copy's layer stored, realized, its points tagged with their layer and
+    offset (along the normal) and given the shell material - pushed out here only where the
+    material doesn't move them itself; the mesh itself as it was."""
     t = bpy.data.node_groups.new("MP Shell Fur " + name, 'GeometryNodeTree')
     t.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
     shells = t.interface.new_socket("Shells", in_out='INPUT', socket_type='NodeSocketInt')
     shells.default_value, shells.min_value, shells.max_value = 16, 0, 64
-    shells.description = "How many shells are drawn (the game's nearest level of detail draws the asset's count)"
+    shells.description = "How many layers, the mesh itself one (the game's nearest level of detail draws the asset's count)"
     length = t.interface.new_socket("Length", in_out='INPUT', socket_type='NodeSocketFloat')
     length.default_value, length.min_value = 1.0, 0.0
-    length.description = "How far the shells reach, of the asset's depth"
+    length.description = "The shells' depth, of the asset's"
     t.interface.new_socket("Geometry", in_out='OUTPUT', socket_type='NodeSocketGeometry')
     N, L = t.nodes, t.links
     gi = N.new("NodeGroupInput"); gi.location = (-1400, 0)
-    go = N.new("NodeGroupOutput"); go.location = (900, 0)
-    join = N.new("GeometryNodeJoinGeometry"); join.location = (700, 0)
+    go = N.new("NodeGroupOutput"); go.location = (1100, 0)
+    join = N.new("GeometryNodeJoinGeometry"); join.location = (900, 0)
     L.new(gi.outputs["Geometry"], join.inputs[0])
     for k, p in enumerate(pairs):
-        y = -300 * (k + 1)
+        y = -400 * (k + 1)
 
-        def node(kind, x, **props):
+        def node(kind, x, dy=0, **props):
             n = N.new(kind)
-            n.location = (x, y)
+            n.location = (x, y + dy)
             for key, v in props.items():
                 setattr(n, key, v)
             return n
+
+        def store(geometry, x, name, value, kind='FLOAT', domain='POINT'):
+            n = node("GeometryNodeStoreNamedAttribute", x, data_type=kind, domain=domain)
+            n.inputs["Name"].default_value = name
+            L.new(geometry, n.inputs["Geometry"]); L.new(value, n.inputs["Value"])
+            return n.outputs[0]
         sel = node("GeometryNodeMaterialSelection", -1200)
         sel.inputs["Material"].default_value = p["base"]
         sep = node("GeometryNodeSeparateGeometry", -1000, domain='FACE')
         L.new(gi.outputs["Geometry"], sep.inputs["Geometry"]); L.new(sel.outputs[0], sep.inputs["Selection"])
         inst = node("GeometryNodeGeometryToInstance", -820)
         L.new(sep.outputs["Selection"], inst.inputs[0])
+        # layers 1 to Shells - 1 (layer 0: the mesh itself, the base layer)
+        copies = node("ShaderNodeMath", -820, -200, operation='SUBTRACT')
+        copies.inputs[1].default_value = 1.0
+        L.new(gi.outputs["Shells"], copies.inputs[0])
         dup = node("GeometryNodeDuplicateElements", -640, domain='INSTANCE')
-        L.new(inst.outputs[0], dup.inputs["Geometry"]); L.new(gi.outputs["Shells"], dup.inputs["Amount"])
-        # layer n = the copy's index + 1, on its instance: realized, on each of its points
-        one = node("ShaderNodeMath", -460, operation='ADD')
-        one.inputs[1].default_value = 1.0
-        L.new(dup.outputs["Duplicate Index"], one.inputs[0])
-        store = node("GeometryNodeStoreNamedAttribute", -460, data_type='FLOAT', domain='INSTANCE')
-        store.location = (-460, y + 160)
-        store.inputs["Name"].default_value = SHELL_LAYER
-        L.new(dup.outputs["Geometry"], store.inputs["Geometry"]); L.new(one.outputs[0], store.inputs["Value"])
+        L.new(inst.outputs[0], dup.inputs["Geometry"]); L.new(copies.outputs[0], dup.inputs["Amount"])
+        index = node("ShaderNodeMath", -640, -200, operation='ADD')
+        index.inputs[1].default_value = 1.0
+        L.new(dup.outputs["Duplicate Index"], index.inputs[0])
+        # the copy's layer, on its instance: realized, on each of its points
+        geo = store(dup.outputs["Geometry"], -460, SHELL_LAYER, index.outputs[0], domain='INSTANCE')
         real = node("GeometryNodeRealizeInstances", -280)
-        L.new(store.outputs[0], real.inputs[0])
-        layer = node("GeometryNodeInputNamedAttribute", -280, data_type='FLOAT')
-        layer.location = (-280, y - 160)
+        L.new(geo, real.inputs[0])
+        layer = node("GeometryNodeInputNamedAttribute", -280, -200, data_type='FLOAT')
         layer.inputs["Name"].default_value = SHELL_LAYER
-        frac = node("ShaderNodeMath", -100, operation='DIVIDE')
-        frac.location = (-100, y - 160)
-        L.new(layer.outputs["Attribute"], frac.inputs[0]); L.new(gi.outputs["Shells"], frac.inputs[1])
-        store_n = node("GeometryNodeStoreNamedAttribute", -100, data_type='FLOAT', domain='POINT')
-        store_n.inputs["Name"].default_value = SHELL_LAYER_N
-        L.new(real.outputs[0], store_n.inputs["Geometry"]); L.new(frac.outputs[0], store_n.inputs["Value"])
-        store_c = node("GeometryNodeStoreNamedAttribute", 80, data_type='FLOAT', domain='POINT')
-        store_c.inputs["Name"].default_value = SHELL_COUNT
-        L.new(store_n.outputs[0], store_c.inputs["Geometry"]); L.new(gi.outputs["Shells"], store_c.inputs["Value"])
-        # pushed out along its normals: depth * n / count
-        reach = node("ShaderNodeMath", 80, operation='MULTIPLY')
-        reach.location = (80, y - 160)
-        L.new(frac.outputs[0], reach.inputs[0]); L.new(gi.outputs["Length"], reach.inputs[1])
-        depth = node("ShaderNodeMath", 260, operation='MULTIPLY')
-        depth.location = (260, y - 160)
+        last = node("ShaderNodeMath", -280, -360, operation='SUBTRACT')
+        last.inputs[1].default_value = 1.0
+        L.new(gi.outputs["Shells"], last.inputs[0])
+        span = node("ShaderNodeMath", -100, -360, operation='MAXIMUM')
+        span.inputs[1].default_value = 1.0
+        L.new(last.outputs[0], span.inputs[0])
+        frac = node("ShaderNodeMath", 80, -200, operation='DIVIDE')
+        L.new(layer.outputs["Attribute"], frac.inputs[0]); L.new(span.outputs[0], frac.inputs[1])
+        # the whole depth along the normal, and this layer's share of it
+        depth = node("ShaderNodeMath", -100, -520, operation='MULTIPLY')
         depth.inputs[1].default_value = p["depth"]
-        L.new(reach.outputs[0], depth.inputs[0])
-        normal = node("GeometryNodeInputNormal", 260)
-        normal.location = (260, y - 320)
-        scale = node("ShaderNodeVectorMath", 440, operation='SCALE')
-        scale.location = (440, y - 220)
-        L.new(normal.outputs[0], scale.inputs[0]); L.new(depth.outputs[0], scale.inputs["Scale"])
-        move = node("GeometryNodeSetPosition", 440)
-        L.new(store_c.outputs[0], move.inputs["Geometry"]); L.new(scale.outputs[0], move.inputs["Offset"])
-        mat = node("GeometryNodeSetMaterial", 600)
+        L.new(gi.outputs["Length"], depth.inputs[0])
+        normal = node("GeometryNodeInputNormal", -100, -660)
+        whole = node("ShaderNodeVectorMath", 80, -560, operation='SCALE')
+        L.new(normal.outputs[0], whole.inputs[0]); L.new(depth.outputs[0], whole.inputs["Scale"])
+        offset = node("ShaderNodeVectorMath", 260, -400, operation='SCALE')
+        L.new(whole.outputs[0], offset.inputs[0]); L.new(frac.outputs[0], offset.inputs["Scale"])
+        geo = store(real.outputs[0], 80, SHELL_LAYER_N, frac.outputs[0])
+        geo = store(geo, 260, SHELL_COUNT, gi.outputs["Shells"])
+        geo = store(geo, 440, SHELL_VECTOR, whole.outputs[0], kind='FLOAT_VECTOR')
+        geo = store(geo, 620, SHELL_OFFSET, offset.outputs[0], kind='FLOAT_VECTOR')
+        if not p.get("moves"):
+            move = node("GeometryNodeSetPosition", 700, -200)
+            L.new(geo, move.inputs["Geometry"]); L.new(offset.outputs[0], move.inputs["Offset"])
+            geo = move.outputs[0]
+        mat = node("GeometryNodeSetMaterial", 780)
         mat.inputs["Material"].default_value = p["shell"]
-        L.new(move.outputs[0], mat.inputs["Geometry"])
+        L.new(geo, mat.inputs["Geometry"])
         L.new(mat.outputs[0], join.inputs[0])
     L.new(join.outputs[0], go.inputs[0])
     return t

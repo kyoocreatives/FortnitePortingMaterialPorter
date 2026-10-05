@@ -172,6 +172,11 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     if obj is not None and obj.get("mp_effect") in ("Sprite", "Ribbon", "Mesh", "Decal"):
         entry["particle"] = True
         entry["variant"] = hashlib.sha1(("%s particle" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
+    # a shell fur layer's or its base's (material_porter.shells): its World Position Offset puts it
+    # where the game draws it
+    if material_data.get("MPMoves"):
+        entry["moves"] = True
+        entry["variant"] = hashlib.sha1(("%s moves" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
     # a world's hundreds of materials: each tree laid out when a node editor first shows it
     build.LAZY_LAYOUT = getattr(getattr(context, "type", None), "name", "") in ("WORLD", "PREFAB")
     try:

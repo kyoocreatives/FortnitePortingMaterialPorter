@@ -192,9 +192,11 @@ BOUNDS_CENTRE = "mp_bounds_centre"     # an object's bounds centre (local, Blend
 BOUNDS_MIN = "mp_bounds_min"       # an object's bounding box (local, Blender metres): UE's local bounds,
 BOUNDS_MAX = "mp_bounds_max"       # read per object (a shared function's group holds no object's numbers)
 HEAD_SOCKET = "mp_head_socket"     # an object's armature's head (local, Blender metres): what a game blueprint sets HeadSocketLocation to
-SHELL_LAYER = "mp_shell_layer"     # shell fur (UE's ShellMesh; Material Porter's shells.py): a copy's layer, 1 to its count (0: the mesh itself),
-SHELL_LAYER_N = "mp_shell_layer_n" # that over the count (root 0 to tip 1),
-SHELL_COUNT = "mp_shell_count"     # and the count, on each copy's points
+SHELL_LAYER = "mp_shell_layer"     # shell fur (UE's ShellMesh; Material Porter's shells.py): a copy's layer, 1 to count - 1 (0: the mesh itself),
+SHELL_LAYER_N = "mp_shell_layer_n" # that over count - 1 (the tip 1),
+SHELL_COUNT = "mp_shell_count"     # and the count, on each copy's points;
+SHELL_OFFSET = "mp_shell_offset"   # where the copy's point goes (local, Blender units: the vertex normal * depth * layer),
+SHELL_VECTOR = "mp_shell_vector"   # and the whole depth's (normal * depth): what the shell material's WPO moves it by
 VECTOR_SPACES = {"Tangent": "tangent", "Local": "local", "World": "world", "View": "view", "Camera": "view",
                  "ParticleWorld": "world", "Instance": "local"}
 POSITION_SPACES = {"Local": "local", "World": "world", "TranslatedWorld": "translated", "View": "view",
@@ -374,7 +376,7 @@ class OpenAttrs(Attrs):
 
     def get(self, name):
         if name not in self.vals:
-            if name not in CARRIED:
+            if name not in self.ft.tr.carried:
                 v = attribute_default(name)
             else:
                 w = ATTRIBUTE_WIDTH.get(name, 3)
@@ -387,6 +389,11 @@ class OpenAttrs(Attrs):
 # Custom HLSL nodes rebuilt by hand: code with whitespace collapsed -> the
 # Translator method that builds it (anything else is reported)
 CUSTOM_SNIPPETS = {
+    # MF_FPMeshCameraOffset: a first-person mesh's own offset where FP is set, else the one passed
+    "if(FP) { return WPO_FP; } return WPO;": "custom_fp_select",
+    # a NaN: UE drops a vertex given one (a shell layer culled at a distance, MF_Fur_Shells); an
+    # If branch that gives it is never taken here (If) - Blender keeps every layer
+    "const float fNaN = 0.0f / 0.0f; return fNaN;": "custom_nan",
     "float HeightDensity = Density; if(NormAltitude<0.05 || NormAltitude>0.95) "
     "{ HeightDensity = 0.0; } return HeightDensity;": "custom_height_band",
     # the layer samplers of Fortnite's 4-layer bases (MF_ConditionalColor/
@@ -883,7 +890,7 @@ class FunctionTree:
         that leave unchanged from a Material Attributes input (`passes`) don't
         enter the group at all - the caller keeps its own."""
         out = {}
-        for a in CARRIED:
+        for a in self.tr.carried:
             if a in passes:
                 out[a] = ("pass", passes[a])
                 continue
@@ -930,6 +937,9 @@ class Translator:
         self.graphs = parent.graphs if parent else {}
         # material functions become shared node groups (env.nest_functions)
         self.functions = parent.functions if parent else {}
+        # the Material Attributes a function's group passes in and out: CARRIED, and what
+        # this material's build reads besides (a moving one's World Position Offset)
+        self.carried = parent.carried if parent else CARRIED
         self.function = None
         self.x, self.y = x0, y0
         self.warnings = []
@@ -1212,6 +1222,7 @@ class Translator:
         are UE's defaults)."""
         g = self.graph(path)
         pins = (g.editor_data() or {}).get("Properties") or {}
+        self.carried = tuple(CARRIED) + tuple(n for n in names if n not in CARRIED)
         if linked(pins.get("MaterialAttributes")):
             v = self.input(g, pins["MaterialAttributes"], {}, None)
             attrs = v.s if v is not None and isinstance(v.s, Attrs) else Attrs()
@@ -1873,7 +1884,7 @@ class Translator:
         if t in COMPILE_SWITCHES:
             return self.passthrough(g, self.switch_pin(x), scope)
         if t == "FunctionInput" and p.get("InputType") == ATTRIBUTES_INPUT and scope.get("_fn") is not None:
-            return {a: p.get("Id") for a in CARRIED}
+            return {a: p.get("Id") for a in self.carried}
         if t == "GetMaterialAttributes" and not (ref.get("OutputIndex") or 0):
             return self.passthrough(g, p.get("MaterialAttributes"), scope)
         if t == "SetMaterialAttributes":
@@ -1892,7 +1903,7 @@ class Translator:
             pa, pb = self.passthrough(g, p.get("A"), scope), self.passthrough(g, p.get("B"), scope)
             mode = lambda k: str(p.get(k, "EMaterialAttributeBlend::Blend")).split("::")[-1]
             out = {}
-            for a in CARRIED:
+            for a in self.carried:
                 m = mode("VertexAttributeBlendType" if a in VERTEX_ATTRIBUTES else "PixelAttributeBlendType")
                 src = pa.get(a) if m == "UseA" else pb.get(a) if m == "UseB" else \
                     (pa.get(a) if pa.get(a) is not None and pa.get(a) == pb.get(a) else None)
@@ -1927,7 +1938,7 @@ class Translator:
             out = {}
             for pin, r in p.items():
                 a = MAKE_PINS.get(pin)
-                if a in CARRIED and linked(r):
+                if a in self.carried and linked(r):
                     src = self.attribute_source(g, r, scope, a)
                     if src is not None:
                         out[a] = src
@@ -2061,6 +2072,14 @@ class Translator:
             # |A - B| > threshold ? that : Equals
             a = self.mask(P("A"), [0])
             b = self.mask(self.input(g, p.get("B"), scope, self.const(float(p.get("ConstB", 0.0)))), [0])
+            # a branch that culls (a NaN) isn't taken: the others stand in for it
+            pins = {k: p.get(k) for k in ("AGreaterThanB", "ALessThanB", "AEqualsB")}
+            culls = {k for k, r in pins.items() if self._culls(g, r)}
+            if culls and len(culls) < sum(1 for r in pins.values() if linked(r)):
+                keep = next(k for k in ("AEqualsB", "ALessThanB", "AGreaterThanB") if k not in culls and linked(pins[k]))
+                for k in culls:
+                    pins[k] = pins[keep]
+                p = dict(p, **pins)
             gt = self.input(g, p.get("AGreaterThanB"), scope, self.const(0.0))
             lt = self.input(g, p.get("ALessThanB"), scope, self.const(0.0))
             eq = self.input(g, p.get("AEqualsB"), scope, None)
@@ -2750,7 +2769,12 @@ class Translator:
             return self._hook("particle_rotation", lambda: self.stand_in("ParticleSpriteRotation as 0", self.const((0.0, 0.0), 2)))
         if t == "ParticleDirection":
             return self._hook("particle_direction", lambda: self.stand_in("ParticleDirection as 0", self.const((0.0, 0.0, 0.0), 3)))
-        if t in ("SamplePhysicsVectorField", "ShellMeshLocalShellOffset"):
+        if t in _SHELL_VECTORS:
+            # the shell copy's offset from its root (UE local cm): the material moves it there (WPO)
+            name = _SHELL_VECTORS[t]
+            return self.shared(name, lambda: self.from_blender(Val(self.node(
+                "ShaderNodeAttribute", name, attribute_type='GEOMETRY', attribute_name=name).outputs["Vector"], 3), point=True))
+        if t == "SamplePhysicsVectorField":
             return self.stand_in("%s as 0" % t, self.const((0.0, 0.0, 0.0), 3))
         if t == "LandscapeLayerCoords":
             # UE: the landscape's own texture coordinates (quads, landscape-wide:
@@ -3270,6 +3294,24 @@ class Translator:
 
     def custom_zero(self, ins, p):
         return self.const(0.0)
+
+    def custom_nan(self, ins, p):
+        return self.const(0.0)
+
+    def custom_fp_select(self, ins, p):
+        fp = self.mask(self._in(ins, "FP"), [0])
+        wpo, wpo_fp = self._in(ins, "WPO"), self._in(ins, "WPO_FP")
+        if fp.const:
+            return wpo_fp if fp.s else wpo
+        on = self.binop('SUBTRACT', self.const(1.0), self.math('COMPARE', fp, self.const(0.0), self.const(0.0)))
+        return self.select(on, wpo, wpo_fp)
+
+    def _culls(self, g, ref):
+        """Whether an input is a Custom node giving a NaN (a vertex UE drops: custom_nan)."""
+        if not linked(ref):
+            return False
+        x = g.by.get(g.key(ref))
+        return x is not None and x["Type"].endswith("Custom") and custom_handler(x.get("Properties") or {}) == "custom_nan"
 
     def custom_sign(self, ins, p):
         return self.unary('SIGN', self._in(ins, "x"))
@@ -4482,6 +4524,7 @@ def merge_duplicates(tree, memo=None):
 
 _SHELL_ATTRIBUTES = {"ShellMeshShellLayerIndex": SHELL_LAYER, "ShellMeshNormalizedShellLayer": SHELL_LAYER_N,
                      "ShellMeshShellCount": SHELL_COUNT}
+_SHELL_VECTORS = {"ShellMeshLocalShellOffset": SHELL_OFFSET, "ShellMeshLocalShellVector": SHELL_VECTOR}
 
 
 # constant folding (merge_duplicates): Blender's maths, as its nodes do it
