@@ -111,6 +111,7 @@ LANE_DETOUR = 300.0      # a lane that climbs this much more than its wire would
 ROUTE_BUSES = False
 ROUTE_LANES = True
 SPLIT_FANOUTS = True
+HIDE_IDLE_INPUTS = True  # unlinked inputs still at their default hidden, Ctrl+H style (_hide_idle_inputs)
 LANE_BEND = 10.0         # a lane's step smaller than this stays straight: its gap keeps it clear     # a Separate Bundle read across columns: a copy per column (_split_fanouts)       # a long wire that would run behind a node follows its lane, through reroutes
 PULL_UP = True           # rows rise into the free space above them (_pull_up)
 ALIGN = "top"            # what a node lines up with its neighbours by: "top", "socket", "centre"
@@ -724,6 +725,77 @@ def _hide_unused_outputs(tree, wires):
             continue
         for s in outs:
             s.hide = (n.name, s.identifier) not in used
+
+
+# A constant on an operator reads as part of what it does - Multiply by 0.5 is not
+# Multiply - so these show every input, at its default or not
+OPERATORS = {"ShaderNodeMath", "ShaderNodeVectorMath", "ShaderNodeMix", "ShaderNodeMixRGB",
+             "FunctionNodeCompare", "ShaderNodeClamp", "ShaderNodeMapRange", "FunctionNodeBooleanMath",
+             "FunctionNodeIntegerMath", "ShaderNodeMixShader", "ShaderNodeVectorRotate"}
+_DEFAULTS = {}      # (tree type, node type) -> {input id: default}
+
+
+def _same(a, b):
+    try:
+        return all(abs(x - y) < 1e-6 for x, y in zip(a, b)) and len(a) == len(b)
+    except TypeError:
+        pass
+    try:
+        return abs(a - b) < 1e-6
+    except TypeError:
+        return a == b
+
+
+def _defaults(tree, n):
+    """A node's input defaults: a group's from its interface, a built-in's from a fresh one
+    (made once per type, in a scratch tree)."""
+    if n.bl_idname == "ShaderNodeGroup" or n.type == 'GROUP':
+        if n.node_tree is None:
+            return {}
+        return {it.identifier: getattr(it, "default_value", None)
+                for it in n.node_tree.interface.items_tree
+                if it.item_type == 'SOCKET' and it.in_out == 'INPUT'}
+    key = (tree.bl_idname, n.bl_idname)
+    if key not in _DEFAULTS:
+        import bpy
+        scratch = bpy.data.node_groups.new(".layout defaults", tree.bl_idname)
+        try:
+            ref = scratch.nodes.new(n.bl_idname)
+            _DEFAULTS[key] = {i.identifier: (tuple(i.default_value) if hasattr(i.default_value, "__len__")
+                                             and not isinstance(i.default_value, str) else i.default_value)
+                              for i in ref.inputs if hasattr(i, "default_value")}
+        except RuntimeError:
+            _DEFAULTS[key] = {}
+        bpy.data.node_groups.remove(scratch)
+    return _DEFAULTS[key]
+
+
+def _hide_idle_inputs(tree, wires):
+    """Ctrl+H where it loses nothing: an unlinked input still at its default is hidden (one
+    with no value at all too) - except on operators, and in a material's own tree, whose
+    group node's inputs are the material's controls."""
+    if tree.is_embedded_data:
+        return
+    fed = {(w.b.name, w.ib) for w in wires}
+    for n in tree.nodes:
+        if n.bl_idname in OPERATORS or n.type in ('FRAME', 'REROUTE', 'GROUP_INPUT', 'GROUP_OUTPUT') \
+                or n.hide:
+            continue
+        defaults = None
+        for i in n.inputs:
+            if not i.enabled or i.hide or (n.name, i.identifier) in fed or i.identifier == "__extend__":
+                continue
+            if defaults is None:
+                defaults = _defaults(tree, n)
+            if not hasattr(i, "default_value"):
+                i.hide = True
+                continue
+            if i.identifier not in defaults or defaults[i.identifier] is None:
+                continue
+            v = i.default_value
+            v = tuple(v) if hasattr(v, "__len__") and not isinstance(v, str) else v
+            if _same(v, defaults[i.identifier]):
+                i.hide = True
 
 
 # ------------------------------------------------------------------ boxes
@@ -1621,6 +1693,8 @@ def arrange(tree):
     copies += split
     wires = _scan(tree)
     _hide_unused_outputs(tree, wires)
+    if HIDE_IDLE_INPUTS:
+        _hide_idle_inputs(tree, wires)
     _collapse_trivial(tree, wires)
     root, index = _build_boxes(tree, tags)
     _layout(root, index, ports)

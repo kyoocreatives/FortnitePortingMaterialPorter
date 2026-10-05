@@ -107,6 +107,7 @@ Translator.material_attributes() adds WaterScattering, WaterAbsorption
 SingleLayerWaterMaterialOutput, and the view ray's way through the water
 (water_path(), cm) is what SceneDepthWithoutWater - PixelDepth measures.
 """
+import contextlib
 import hashlib
 import json
 import math
@@ -641,6 +642,7 @@ def load_graph(path):
 
 
 PIXEL_NORMAL = "PixelNormalWS"     # a function group's PixelNormalWS input (env.group_input fills it)
+NORMAL_PASS = "Normal pass"        # the frame the Normal's own pass is made in (Translator.normal_pass)
 
 
 def _comps3(s):
@@ -935,6 +937,9 @@ class Translator:
         self.tree, self.env = tree, env
         self.N, self.L = tree.nodes, tree.links
         self.cache = {}
+        # a function call's group node, shared by every output read from it: (node, inputs linked)
+        self.call_sites = {}
+        self.shared_calls = set()       # names of the call nodes more than one output reads
         self.graphs = parent.graphs if parent else {}
         # material functions become shared node groups (env.nest_functions)
         self.functions = parent.functions if parent else {}
@@ -1231,8 +1236,9 @@ class Translator:
             # function's group node would carry both the Normal and what reads it - a loop UE,
             # compiling each property on its own, never has); merge_duplicates folds what it can
             def normal():
-                nv = self.input(g, pins["MaterialAttributes"], {"_id": PIXEL_NORMAL}, None)
-                return (nv.s if nv is not None and isinstance(nv.s, Attrs) else Attrs()).get("Normal")
+                with self.normal_pass():
+                    nv = self.input(g, pins["MaterialAttributes"], {"_id": PIXEL_NORMAL}, None)
+                    return (nv.s if nv is not None and isinstance(nv.s, Attrs) else Attrs()).get("Normal")
             self._normal_src = normal
             out = {n: attrs.get(n) for n in names}
             out.update(self.water_outputs(g))
@@ -1240,12 +1246,27 @@ class Translator:
             return out
         out = {}
         npin = next((k for k, a in PIN_ATTRIBUTE.items() if a == "Normal" and linked(pins.get(k))), None)
-        self._normal_src = lambda: self.input(g, pins[npin], {"_id": PIXEL_NORMAL}, None) if npin else None
+        def normal():
+            with self.normal_pass():
+                return self.input(g, pins[npin], {"_id": PIXEL_NORMAL}, None)
+        self._normal_src = normal if npin else (lambda: None)
         for n in names:
             pin = next((k for k, a in PIN_ATTRIBUTE.items() if a == n and linked(pins.get(k))), None)
             out[n] = self.input(g, pins[pin], {}, None) if pin else attribute_default(n)
         out.update(self.water_outputs(g))
         return out
+
+    @contextlib.contextmanager
+    def normal_pass(self):
+        """The Normal's own pass in a frame of its own: what it doesn't share with the rest
+        (merge_duplicates folds what it does) is a second copy of the functions on the way -
+        a group node can't feed its own PixelNormalWS input."""
+        saved = self.section
+        self.section = [NORMAL_PASS]
+        try:
+            yield
+        finally:
+            self.section = saved
 
     def water_outputs(self, g):
         """A water material's medium (its SingleLayerWaterMaterialOutput, a
@@ -3849,7 +3870,7 @@ class Translator:
         takes_texture = any("Texture" in str((x.get("Properties") or {}).get("InputType", ""))
                             for x in fg.inputs.values())
         if getattr(self.env, "nest_functions", False) and not takes_texture:
-            return self.call_group(fname, fg, outs, out, ins)
+            return self.call_group(fname, fg, outs, out, ins, (id(x), g.path, scope.get("_id", 0)))
         Translator._scope_id[0] += 1
         sub = dict(ins)
         sub["_id"] = (id(x), g.path, scope.get("_id", 0))
@@ -3864,7 +3885,25 @@ class Translator:
             self.section = saved
 
 
-    def call_group(self, fname, fg, outs, out, ins):
+    def _closes_loop(self, node, src):
+        """Whether a link from `src` (an output socket) into `node` would close a loop: `node`
+        already reaches src's node."""
+        target = src.node.name
+        nxt = {}
+        for l in self.L:
+            nxt.setdefault(l.from_node.name, []).append(l.to_node.name)
+        seen, todo = {node.name}, [node.name]
+        while todo:
+            a = todo.pop()
+            if a == target:
+                return True
+            for b in nxt.get(a, ()):
+                if b not in seen:
+                    seen.add(b)
+                    todo.append(b)
+        return False
+
+    def call_group(self, fname, fg, outs, out, ins, site=None):
         fo = self.function_output(fg, outs, out)
         if fo is None:
             return self.const(0.0)
@@ -3885,45 +3924,79 @@ class Translator:
                     except RuntimeError as e:       # (an output UE would compile on its own: a loop here)
                         self.warnings.append("%s: output %s left out (%s)" % (fname, (each.get("Properties") or {}).get("OutputName"), e))
         name, w = ft.output(fo)
-        if w == "attrs" and not any(o[0] == "socket" for o in ft.attr_outs[fo["Properties"].get("Id")].values()):
-            node = None
-        else:
-            node = self.node("ShaderNodeGroup", section_name(fname))
-            node.node_tree = ft.tree
-        linked = set()
 
-        def link_needs(needs):
+        def fresh():
+            n = self.node("ShaderNodeGroup", section_name(fname))
+            n.node_tree = ft.tree
+            return n, set()
+
+        # One node per call, whichever outputs are read: UE compiles each output on its own,
+        # and a node per output read drew the same function three times over (Pre FX's M,
+        # Distance Blend and Pre Skinned Local Position). Each output still links only the
+        # inputs it reaches, as it's read; one whose input would come from the node's own
+        # output (a loop UE never sees) gets a node of its own instead.
+        if w == "attrs" and not any(o[0] == "socket" for o in ft.attr_outs[fo["Properties"].get("Id")].values()):
+            node, linked = None, set()
+        else:
+            had = self.call_sites.get(site) if site is not None else None
+            if had is not None and had[0].node_tree is ft.tree:
+                node, linked = had
+                self.shared_calls.add(node.name)
+            else:
+                node, linked = fresh()
+                if site is not None:
+                    self.call_sites[site] = (node, linked)
+
+        def link_needs(needs, node, linked):
             # the env learns which function a parameter is reached through (a
             # material's parameters can be grouped by it)
             caller = getattr(self.env, "caller", None)
             if self.function is None:
                 self.env.caller = section_name(fname)
-            for sock in sorted(needs - linked):
-                linked.add(sock)
-                kind, key = ft.kind[sock]
-                if kind == "tex":
-                    # the texture's closure: the root's zone, or this function's own Closure input
-                    self.L.new(self.texture_closure(*ft.textures[sock]), node.inputs[sock])
-                    continue
-                if kind == "ue_attr":
-                    fid, attr = key
-                    lazy = ins.get(fid)
-                    v = lazy.get(self) if lazy is not None else None
-                    attrs = v.s if v is not None and isinstance(v.s, Attrs) else Attrs()
-                    self.link(attrs.get(attr), node.inputs[sock])
-                    continue
-                if kind in ("ue", "ue_alpha"):
-                    lazy = ins.get(key)
-                    v = lazy.get(self) if lazy is not None else None
-                    if v is None and sock in ft.previews:
-                        v = self.input(fg, ft.previews[sock], {"_id": ("preview", fname, sock)}, None)
-                    if v is not None and kind == "ue_alpha":
-                        v = self.alpha(v)
-                else:
-                    v = self.env.group_input(key)
-                if v is not None:
-                    self.link(v, node.inputs[sock])
-            self.env.caller = caller
+            try:
+                for sock in sorted(needs - linked):
+                    linked.add(sock)
+                    link_one(sock, node, linked)
+            finally:
+                self.env.caller = caller
+
+        def attach(needs, node, linked):
+            """Link `needs` into the call's node, or into a node of their own where that loops."""
+            try:
+                link_needs(needs, node, linked)
+                return node
+            except _Loop:
+                own, mine = fresh()
+                link_needs(needs, own, mine)
+                return own
+
+        def link_one(sock, node, linked):
+            kind, key = ft.kind[sock]
+            if kind == "tex":
+                # the texture's closure: the root's zone, or this function's own Closure input
+                self.L.new(self.texture_closure(*ft.textures[sock]), node.inputs[sock])
+                return
+            if kind == "ue_attr":
+                fid, attr = key
+                lazy = ins.get(fid)
+                v = lazy.get(self) if lazy is not None else None
+                attrs = v.s if v is not None and isinstance(v.s, Attrs) else Attrs()
+                v = attrs.get(attr)
+            elif kind in ("ue", "ue_alpha"):
+                lazy = ins.get(key)
+                v = lazy.get(self) if lazy is not None else None
+                if v is None and sock in ft.previews:
+                    v = self.input(fg, ft.previews[sock], {"_id": ("preview", fname, sock)}, None)
+                if v is not None and kind == "ue_alpha":
+                    v = self.alpha(v)
+            else:
+                v = self.env.group_input(key)
+            if v is None:
+                return
+            if node.name in self.shared_calls and not v.const and not isinstance(v.s, (Attrs, TexRef))                     and self._closes_loop(node, v.s):
+                linked.discard(sock)
+                raise _Loop()
+            self.link(v, node.inputs[sock])
 
         if w == "attrs":
             # each attribute links only the inputs it reaches, when something
@@ -3948,14 +4021,14 @@ class Translator:
                     got.vals[a] = o[1]
                 else:
                     def made(sock=o[1], width=o[2]):
-                        link_needs(ft.reached(sock))
-                        return Val(node.outputs[sock], width)
+                        return Val(attach(ft.reached(sock), node, linked).outputs[sock], width)
                     got.thunks[a] = self.deferred(made)
             return Val(got, 0)
-        link_needs(ft.reached(name) | ft.reached(socket_name(name + " (A)")) if w == 4 else ft.reached(name))
+        at = attach(ft.reached(name) | ft.reached(socket_name(name + " (A)")) if w == 4 else ft.reached(name),
+                    node, linked)
         if w == 4:
-            return Val(node.outputs[name], 4, Val(node.outputs[socket_name(name + " (A)")], 1))
-        return Val(node.outputs[name], w)
+            return Val(at.outputs[name], 4, Val(at.outputs[socket_name(name + " (A)")], 1))
+        return Val(at.outputs[name], w)
 
     def material_group(self, path, prop, name, finish=None):
         """A whole material's output as a node group (the sky's second slot)."""
@@ -3988,6 +4061,10 @@ class Translator:
             elif kind == "tex":
                 self.L.new(self.texture_closure(*ft.textures[sock]), node.inputs[sock])
         return Val(node.outputs["Emissive Color"], 3)
+
+
+class _Loop(Exception):
+    """A link into a shared call node that would close a loop through it."""
 
 
 class _Lazy:
@@ -4203,6 +4280,9 @@ def merge_duplicates(tree, memo=None):
 
     def section(a, b):
         pa, pb = str(a.get(SECTION_KEY, "")).split("/"), str(b.get(SECTION_KEY, "")).split("/")
+        # what the Normal's own pass shares with the rest stays with the rest
+        if (pa[0] == NORMAL_PASS) != (pb[0] == NORMAL_PASS):
+            return "/".join(pb if pa[0] == NORMAL_PASS else pa)
         common = []
         for x, y in zip(pa, pb):
             if x != y:
