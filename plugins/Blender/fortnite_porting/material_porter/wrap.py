@@ -55,7 +55,7 @@ def lay(job_context, objects, wrap):
                 if new is None:
                     skipped.add(mat.name)
                     continue
-                for key in ("Hash", "OriginalName", "MPRimLight"):
+                for key in ("Hash", "OriginalName", "MPRimLight", "MPSubsurface"):
                     if key in mat and key not in new:
                         new[key] = mat[key]
                 rebuilt[mat.name] = new

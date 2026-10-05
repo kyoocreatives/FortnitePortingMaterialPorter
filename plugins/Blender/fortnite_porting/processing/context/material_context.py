@@ -171,9 +171,12 @@ class MaterialImportContext:
         # changed isn't reused
         prefer_fp = bool(self.options.get("PreferFPShaders") and self.type in FP_SHADER_TYPES and has_fp_shader(material_data))
         rim_light = bool(self.options.get("RimLight"))
+        from ...material_porter.hook import subsurface_amount
+        subsurface = subsurface_amount(self, material_data)
         existing_material = material_hash_cache.get(hash_key)
         if existing_material and (bool(existing_material.get("MPPreferFP")) == prefer_fp
-                                  and bool(existing_material.get("MPRimLight", rim_light)) == rim_light):
+                                  and bool(existing_material.get("MPRimLight", rim_light)) == rim_light
+                                  and existing_material.get("MPSubsurface", subsurface) == subsurface):
             if not as_material_data:
                 material_slot.material = existing_material
                 # Material Porter fork: a reused cel-shaded material still gets this mesh its outline
@@ -251,6 +254,7 @@ class MaterialImportContext:
                 self.add_toon_outline = True
             exact["Hash"] = hash_code(material_hash)
             exact["MPRimLight"] = rim_light
+            exact["MPSubsurface"] = subsurface
             exact["OriginalName"] = material_data.get("Name")
             if not as_material_data:
                 material_slot.material = exact

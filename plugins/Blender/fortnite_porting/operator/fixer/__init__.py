@@ -125,7 +125,7 @@ def rebuild_fallbacks(context, scope, dry):
         if new is None or new is old:
             notes.append(f"{old.name}: not rebuilt (is the FP app open with the island loaded?)")
             continue
-        for key in ('Hash', 'OriginalName', 'MPRimLight'):
+        for key in ('Hash', 'OriginalName', 'MPRimLight', 'MPSubsurface'):
             if key in old:
                 new[key] = old[key]
         for o, i in slots:

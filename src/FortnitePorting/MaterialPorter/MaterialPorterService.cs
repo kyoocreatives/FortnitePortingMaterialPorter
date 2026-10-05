@@ -415,6 +415,39 @@ public class MaterialPorterService : IService
                 return new { file, size.Width, size.Height, AppServices.AssetLoading.ActiveLoader?.Filtered.Count };
             });
         }
+        if (route == "fork-settings-shot")
+        {
+            // tests: the Blender export settings page as it shows a section (section= its sidebar button's text),
+            // rendered to a PNG (path=)
+            var window = AppServices.App.Lifetime.MainWindow!;
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                window.WindowState = Avalonia.Controls.WindowState.Normal;
+                window.Width = 1600;
+                window.Height = 1100;
+                AppServices.Navigation.App.Open<Views.ExportSettingsView>();
+            });
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var view = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<Views.Settings.BlenderSettingsView>().First();
+                var bar = Avalonia.Controls.ControlExtensions.FindControl<Controls.Navigation.Sidebar.Sidebar>(view, "SettingsSidebar")!;
+                var button = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(bar).OfType<Controls.Navigation.Sidebar.SidebarItemButton>()
+                    .First(b => b.Text == (query["section"] ?? "Material"));
+                bar.SelectedItem = button.Tag;
+            });
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var size = new Avalonia.PixelSize((int) window.Bounds.Width, (int) window.Bounds.Height);
+                using var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size);
+                shot.Render(window);
+                var file = query["path"] ?? throw new ArgumentException("path missing");
+                shot.Save(file);
+                var blender = AppSettings.ExportSettings.Blender;
+                return new { file, blender.SubsurfaceAmount, blender.FurSubsurfaceAmount };
+            });
+        }
         if (route == "fork-status")
         {
             // tests: the status line and the newest log lines, as the window shows them

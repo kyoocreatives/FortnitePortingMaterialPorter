@@ -120,6 +120,11 @@ def apply(context, objects):
         mod.node_group = shell_group(o.name, mine)
         from ..processing.utils import set_geo_nodes_param
         set_geo_nodes_param(mod, "Shells", count, getattr(context, "version_profile", None))
+        # the shell materials in the mesh's slots (no face of its own uses them): there to be
+        # picked and edited like the others (Set Material reuses the slot)
+        for p in mine:
+            if p["shell"] not in o.data.materials[:]:
+                o.data.materials.append(p["shell"])
         _log("%s: shell fur, %d shells over %s" % (o.name, count, ", ".join(p["base"].name for p in mine)))
         # Cycles counts each shell a ray crosses (in and out, camera and shadow rays alike, through
         # overlapping parts - a wrist under a furry cuff) as a transparent bounce; past its limit

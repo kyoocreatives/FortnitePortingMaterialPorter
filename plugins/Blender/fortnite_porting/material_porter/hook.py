@@ -114,6 +114,14 @@ def _material(job, entry, obj):
     return mat
 
 
+def subsurface_amount(context, material_data):
+    """The FP app's Subsurface Amount, or Fur Subsurface Amount for a shell fur layer and its base
+    (material_porter.shells): how many times the game's scattering distance (1: the game's)."""
+    options = getattr(context, "options", None) or {}
+    value = options.get("FurSubsurfaceAmount" if material_data.get("MPMoves") else "SubsurfaceAmount")
+    return 1.0 if value is None else max(0.0, float(value))
+
+
 def exact_available(context):
     """Whether this import builds exact materials (Blender 5, and the app's bridge hasn't failed it)."""
     return bpy.app.version >= (5, 0, 0) and not _session(context)["down"]
@@ -177,6 +185,10 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     if material_data.get("MPMoves"):
         entry["moves"] = True
         entry["variant"] = hashlib.sha1(("%s moves" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
+    # the import's Subsurface Amount (shell fur's own): the game's scattering distance times it
+    sss = subsurface_amount(context, material_data)
+    if sss != 1.0:
+        entry["variant"] = hashlib.sha1(("%s sss %g" % (entry.get("variant", ""), sss)).encode("utf-8")).hexdigest()[:8]
     # a world's hundreds of materials: each tree laid out when a node editor first shows it
     build.LAZY_LAYOUT = getattr(getattr(context, "type", None), "name", "") in ("WORLD", "PREFAB")
     try:
@@ -191,6 +203,11 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     for note in job["notes"]:
         _log(note)
     job["notes"].clear()
+    if build.KEY_SUBSURFACE in mat:
+        # (its root group's node: the only one in its own tree with that input)
+        for n in mat.node_tree.nodes:
+            if n.bl_idname == "ShaderNodeGroup" and build.SUBSURFACE_SCALE in n.inputs:
+                n.inputs[build.SUBSURFACE_SCALE].default_value = mat[build.KEY_SUBSURFACE] * sss
     # a LEGO figure's face: where its rig puts the character accents for each mouth pose (face_anim.py)
     if rig := material_data.get("MPFaceRig"):
         mat["mp_face_rig"] = rig
