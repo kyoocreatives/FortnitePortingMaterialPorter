@@ -95,23 +95,29 @@ FOOT = 6.0      # last input row to the node bottom
 # reaches into its neighbour.
 PAD = 34.0
 LABEL = {1: 34, 2: 22}          # label_size by depth; deeper reuses the last
-GAP_NODE_Y = 30.0
-GAP_BOX_Y = 70.0
-GAP_DUMMY_Y = 12.0
-GAP_LANE_BOX = 30.0      # a lane or a loose node beside a frame
+GAP_NODE_Y = 45.0
+GAP_BOX_Y = 90.0
+GAP_DUMMY_Y = 20.0
+GAP_LANE_BOX = 40.0      # a lane or a loose node beside a frame
 BUS_MIN = 60.0           # a wire that climbs less than this stays a plain wire
 BUS_SNAP = 24.0          # bus taps closer than this merge
 BUS_PAD = 40.0           # first bus this far into the gap
 BUS_STEP = 24.0          # buses side by side in one gap
-LANE_LIMIT = 1500        # reroutes a tree's lanes may make; past it, plain wires (each new node costs Blender a pass over the tree)
+LANE_LIMIT = 160         # reroutes a tree's lanes may make, the most useful first; past it, plain wires
+LANE_WORK = 40000        # ...and reroutes times the tree's nodes: each new node and link costs Blender a pass over the tree
+LANE_DETOUR = 300.0      # a lane that climbs this much more than its wire would: the plain wire
 # Wires between frames as reroute buses (UE's wiring). Off: a material's dozens of
 # parallel wires became ladders of reroute dots, harder to follow than the wires
 ROUTE_BUSES = False
+ROUTE_LANES = True
+SPLIT_FANOUTS = True
+LANE_BEND = 10.0         # a lane's step smaller than this stays straight: its gap keeps it clear     # a Separate Bundle read across columns: a copy per column (_split_fanouts)       # a long wire that would run behind a node follows its lane, through reroutes
 PULL_UP = True           # rows rise into the free space above them (_pull_up)
+ALIGN = "top"            # what a node lines up with its neighbours by: "top", "socket", "centre"
 GAP_PART_Y = 110.0       # between packed rows that don't wire to each other: parts read apart
 GAP_PART_X = 100.0       # the same, sideways
-GAP_NODE_X = 45.0
-GAP_BOX_X = 100.0
+GAP_NODE_X = 70.0
+GAP_BOX_X = 130.0
 
 # Frame colours by top-level section. Anything not listed gets a stable hue
 # from its name; sub-frames are a lighter shade of their parent.
@@ -504,6 +510,53 @@ def _localize_sources(tree, tags, wires):
     return len(local), stand_ins
 
 
+def _split_fanouts(tree, tags, wires):
+    """A Separate Bundle read across many columns sends a wire per item the whole way:
+    parallel lines no one can follow. Each column of readers (a frame's nodes as far from
+    the output) gets its own copy instead, right before it, showing only what that column
+    reads, and only the bundle travels - one wire, shared by every copy. Readers through a
+    multi-input socket keep the original (a Join reads its links in order); one a Group
+    Input feeds is a pure input, copied per frame later (_localize_sources).
+
+    Returns the copies made."""
+    ins, outs = _adjacency(wires)
+    rank = {}
+    for n in tree.nodes:
+        stack = [n.name]
+        while stack:
+            a = stack[-1]
+            if a in rank:
+                stack.pop()
+                continue
+            pending = [w.b.name for w in outs[a] if w.b.name not in rank and w.b.name != a]
+            if pending:
+                stack.extend(pending)
+                continue
+            rank[a] = 1 + max((rank.get(w.b.name, 0) for w in outs[a]), default=-1)
+            stack.pop()
+    made = 0
+    for n in [n for n in tree.nodes if n.bl_idname == "NodeSeparateBundle" and STAND_IN not in n]:
+        if len(ins[n.name]) != 1 or n.name not in tags or _is_source(n, ins):
+            continue
+        groups = defaultdict(list)
+        for w in outs[n.name]:
+            if w.b.name in tags and not _in(w.b, w.ib).is_multi_input:
+                groups[(tags[w.b.name], rank[w.b.name])].append(w)
+        if len(groups) < 2:
+            continue
+        feed = ins[n.name][0]
+        idents = [o.identifier for o in n.outputs]
+        # the nearest column keeps the original
+        for k in sorted(groups, key=lambda k: -k[1])[1:]:
+            c = _clone(tree, n)
+            tags[c.name] = k[0]
+            tree.links.new(_out(feed.a, feed.ia), c.inputs[0])
+            for w in groups[k]:
+                tree.links.new(c.outputs[idents.index(w.ia)], _in(w.b, w.ib))
+            made += 1
+    return made
+
+
 def _realize_inputs(tree, stand_ins):
     """Swap every stand-in for the Group Input it stands for."""
     N = tree.nodes
@@ -525,7 +578,7 @@ def _realize_inputs(tree, stand_ins):
 
 
 # ------------------------------------------------------------------ ports
-PORT_TYPES = {'VALUE', 'VECTOR', 'RGBA', 'INT', 'BOOLEAN'}
+PORT_TYPES = {'VALUE', 'VECTOR', 'RGBA', 'INT', 'BOOLEAN', 'BUNDLE'}
 PORT_MARK = "▸ "
 EXIT_MARK = " ▸"
 
@@ -567,7 +620,9 @@ def _ports(tree, tags, wires):
     L = tree.links
     pins = {}
     ins, _ = _adjacency(wires)
-    live = [w for w in wires if not _is_source(w.a, ins)]
+    # (nor a wire into a multi-input socket: a Join reads its links in order, and a relink
+    # there replaces them all)
+    live = [w for w in wires if not _is_source(w.a, ins) and not _in(w.b, w.ib).is_multi_input]
     paths = {p[:k] for p in tags.values() if p for k in range(1, len(p) + 1)}
     paths = [p for p in paths if p[0] != UNUSED]
 
@@ -815,6 +870,116 @@ def _crossings(segs):
     return count
 
 
+def _brandes_koepf(layers, ins, outs):
+    """y for the ordered columns (y down): Brandes and Koepf's placement, by sockets. Each item
+    joins a block with its median neighbour in the column before (or after) - the wire between
+    them straight, socket to socket - unless that would cross a block already made or a long
+    wire's lane (lanes stay straight first); blocks then pack as close as the column gaps let
+    them. Four passes (blocks to the left or right, packed up or down), balanced: each item at
+    the mean of its two middle positions, then settled back into its column's order and gaps.
+
+    ins/outs: id(item) -> [(upper, lower, upper port, lower port, weight)]."""
+    if not layers:
+        return
+    # type 1 conflicts: a wire that would cross a lane (dummy to dummy) gives way
+    pos = {id(it): i for col in layers for i, it in enumerate(col)}
+    conflicts = set()
+    for l in range(1, len(layers)):
+        prev, col = layers[l - 1], layers[l]
+        k0, scan = 0, 0
+        for i, v in enumerate(col):
+            inner = next((s for s in ins[id(v)] if s[0].kind == "dummy" and v.kind == "dummy"), None)
+            if inner is None and i != len(col) - 1:
+                continue
+            k1 = pos[id(inner[0])] if inner is not None else len(prev) - 1
+            for w in col[scan:i + 1]:
+                for s in ins[id(w)]:
+                    k = pos[id(s[0])]
+                    if (k < k0 or k > k1) and not (s[0].kind == "dummy" and w.kind == "dummy"):
+                        conflicts.add((id(s[0]), id(w)))
+            scan, k0 = i + 1, k1
+    items = [it for col in layers for it in col]
+    runs = []
+    for left in (True, False):          # blocks follow the column before, or the one after
+        for down in (True, False):      # columns read top down (packed up), or bottom up
+            cols = layers if left else layers[::-1]
+            cols = [col if down else col[::-1] for col in cols]
+            lpos = {id(it): i for col in cols for i, it in enumerate(col)}
+            root = {id(it): it for it in items}
+            align = {id(it): it for it in items}
+            off = {id(it): 0.0 for it in items}     # y of an item minus its block root's
+            for col in cols[1:]:
+                r = -1
+                for v in col:
+                    if left:
+                        ns = [(s[0], s[2], s[3], (id(s[0]), id(v))) for s in ins[id(v)]]
+                    else:
+                        ns = [(s[1], s[3], s[2], (id(v), id(s[1]))) for s in outs[id(v)]]
+                    if not ns:
+                        continue
+                    ns.sort(key=lambda t: lpos[id(t[0])])
+                    d = len(ns)
+                    for m in sorted({(d - 1) // 2, d // 2}):
+                        u, pu, pv, key = ns[m]
+                        if align[id(v)] is not v:
+                            break
+                        if key in conflicts or r >= lpos[id(u)] or align[id(u)] is not u and \
+                                not (align[id(u)] is root[id(u)]):
+                            continue
+                        # (u's block may only grow at its end: u must be its last item)
+                        if align[id(u)] is not root[id(u)]:
+                            continue
+                        align[id(u)] = v
+                        root[id(v)] = root[id(u)]
+                        align[id(v)] = root[id(v)]
+                        off[id(v)] = off[id(u)] + pu - pv
+                        r = lpos[id(u)]
+            # pack: in real column order a above b needs y(b) >= y(a) + h(a) + gap
+            succ = defaultdict(list)
+            indeg = defaultdict(int)
+            roots = {id(root[id(it)]) for it in items}
+            for col in layers:
+                for a, b in zip(col, col[1:]):
+                    ra, rb = id(root[id(a)]), id(root[id(b)])
+                    if ra == rb:
+                        continue
+                    sep = a.h + _vgap(a, b) + off[id(a)] - off[id(b)]
+                    if down:
+                        succ[ra].append((rb, sep))
+                    else:
+                        succ[rb].append((ra, sep))
+                    indeg[rb if down else ra] += 1
+            ybase = {r: 0.0 for r in roots}
+            queue = [r for r in roots if indeg[r] == 0]
+            seen = 0
+            while queue:
+                r = queue.pop()
+                seen += 1
+                for q, sep in succ[r]:
+                    ybase[q] = max(ybase[q], ybase[r] + sep)
+                    indeg[q] -= 1
+                    if indeg[q] == 0:
+                        queue.append(q)
+            if seen < len(roots):
+                continue        # (a cycle: this pass is left out)
+            sign = 1.0 if down else -1.0
+            runs.append({id(it): sign * ybase[id(root[id(it)])] + off[id(it)] for it in items})
+    if not runs:
+        return
+    # line the runs up on the smallest one's top, then each item at the mean of its middle two
+    spans = [(max(r[id(it)] + it.h for it in items) - min(r.values()), i) for i, r in enumerate(runs)]
+    tops = [min(r.values()) for r in runs]
+    for r, top in zip(runs, tops):
+        for k in r:
+            r[k] -= top
+    for it in items:
+        ys = sorted(r[id(it)] for r in runs)
+        it.y = (ys[(len(ys) - 1) // 2] + ys[len(ys) // 2]) * 0.5
+    # (the mean of two runs can overlap neighbours by a little: each column settled back)
+    for col in layers:
+        _settle(col, [it.y for it in col], [1.0] * len(col))
+
+
 def _sugiyama(items, edges):
     """Place `items`, x and y relative to the block's top-left.
 
@@ -893,7 +1058,8 @@ def _sugiyama(items, edges):
     # shared by every reader of it
     segs = []                                     # (a, b, pa, pb, w)
     trunks = {}                                   # source socket -> chain
-    reads = defaultdict(list)                     # source socket -> [(v, wire)]
+    reads = defaultdict(list)                     # source socket -> [(v, v port, wire)]
+    trunk_port = {}                               # source socket -> its port
     for u, v, pu, pv, w, wire in dag:
         if v.layer <= u.layer:
             continue
@@ -902,10 +1068,11 @@ def _sugiyama(items, edges):
             continue
         key = (wire[0], wire[1])
         chain = trunks.setdefault(key, [u])
-        reads[key].append((v, wire))
+        trunk_port[key] = pu
+        reads[key].append((v, pv, wire))
         while chain[-1].layer < v.layer - 1:
             prev = chain[-1]
-            d = _It(None, "dummy", None, 0.0, 0.0, u.order)
+            d = _It(key, "dummy", u, 0.0, 0.0, u.order)
             d.layer = prev.layer + 1
             layers[d.layer].append(d)
             segs.append((prev, d, pu if prev is u else 0.0, 0.0, 3.0))
@@ -981,8 +1148,10 @@ def _sugiyama(items, edges):
             it.y = y
 
     def target(it, other, p_it, p_other):
-        if it.dot or other.dot:
+        if it.dot or other.dot or ALIGN == "socket":
             return other.y + p_other - p_it
+        if ALIGN == "centre":
+            return other.y + other.h * 0.5 - it.h * 0.5
         return other.y
 
     def pull(col, downward):
@@ -1004,13 +1173,16 @@ def _sugiyama(items, edges):
                 weight.append(0.01)
         _settle(col, desired, weight)
 
-    for _ in range(10):
+    if ALIGN == "bk":
+        _brandes_koepf(layers, ins, outs)
+    else:
+        for _ in range(10):
+            for l in range(1, len(layers)):
+                pull(layers[l], True)
+            for l in range(len(layers) - 2, -1, -1):
+                pull(layers[l], False)
         for l in range(1, len(layers)):
             pull(layers[l], True)
-        for l in range(len(layers) - 2, -1, -1):
-            pull(layers[l], False)
-    for l in range(1, len(layers)):
-        pull(layers[l], True)
 
     # close any band no column uses: two chains that share nothing can end up
     # far apart, and the frame would carry the empty stretch between them
@@ -1094,11 +1266,15 @@ def _sugiyama(items, edges):
     # sit on the column's left edge so the gap before them stays clear; nodes
     # sit on its right edge, so a column's outputs line up and a small node
     # sharing a column with a wide frame stays next to what it feeds.
-    x, gap_at = 0.0, {}
+    x, gap_at, col_left, col_right = 0.0, {}, {}, {}
     for l, col in enumerate(layers):
-        width = max((it.w for it in col), default=0.0)
+        width = max((it.w for it in col if it.kind != "dummy"), default=0.0)
+        col_left[l], col_right[l] = x, x + width
         for it in col:
-            it.x = x if it.kind == "box" else x + width - it.w
+            if it.kind == "dummy":
+                it.x, it.w = x, width
+            else:
+                it.x = x if it.kind == "box" else x + width - it.w
         if l + 1 < len(layers):
             n_wires = sum(len(outs[id(it)]) for it in col)
             boxes = any(it.kind == "box" for it in col + layers[l + 1])
@@ -1112,21 +1288,99 @@ def _sugiyama(items, edges):
 
     _pull_right(layers, dag)
     if PULL_UP:
-        _pull_up(layers, dag)
+        _pull_up(layers, dag, trunks, reads)
 
     placed = []
     for (src, ident), points, links, feeds in routes:
         xy = [(gap_at[bus[0]] + BUS_PAD + BUS_STEP * bus[2], y) for bus, y in points]
         placed.append((src, ident, xy, links, feeds))
+    if ROUTE_LANES:
+        placed += _lane_routes(trunks, reads, trunk_port, real, col_left, col_right)
     return x, max(it.y + it.h for it in real), placed
 
 
-def _pull_up(layers, dag):
+def _crosses(xa, ya, xb, yb, rects, skip):
+    """Whether the wire Blender draws from (xa, ya) to (xb, yb) runs behind one of `rects`."""
+    lo, hi = min(ya, yb), max(ya, yb)
+    near = [it for it in rects if it.x < xb and it.x + it.w > xa and it.y < hi and it.y + it.h > lo
+            and it not in skip]
+    if not near:
+        return False
+    d = 0.4 * abs(xb - xa)
+    for k in range(1, 32):
+        t = k / 32.0
+        s = 1.0 - t
+        x = s * s * s * xa + 3 * s * s * t * (xa + d) + 3 * s * t * t * (xb - d) + t * t * t * xb
+        y = (s * s * s + 3 * s * s * t) * ya + (3 * s * t * t + t * t * t) * yb
+        for it in near:
+            if it.x + 4 < x < it.x + it.w - 4 and it.y + 4 < y < it.y + it.h - 4:
+                return True
+    return False
+
+
+def _lane_routes(trunks, reads, trunk_port, real, col_left, col_right):
+    """Reroutes for the long wires that would run behind a node or frame, and for a bundle
+    read in several columns further on: such a wire keeps to its lane instead - the gap its
+    chain of dummies held free in every column it passes - and bends only between columns,
+    a dot at each end of a bend. A bundle's lane is a bus, tapped once per column (one
+    bundle fanning out to every column reads as a sheaf of lines). A wire that is already
+    clear stays one plain wire; so does one whose lane is a long way round (LANE_DETOUR),
+    and one into a multi-input socket (a Join reads its links in order: relinked, the order
+    would change).
+
+    Returns [(source node, output id, [(x, y)], [(i, j)], [(reader node, input id, i)])]."""
+    routes = []
+    for key, chain in trunks.items():
+        u, pu = chain[0], trunk_port[key]
+        xa, ya = u.x + u.w, u.y + pu
+        stops = defaultdict(list)
+        bus = len({v.layer for v, *_ in reads[key]}) > 1
+        for v, pv, wire in reads[key]:
+            if wire[4]:
+                continue
+            yb = v.y + pv
+            if not (bus and wire[5]) and not _crosses(xa, ya, v.x, yb, real, (u, v)):
+                continue
+            # the climb along the lane, against the wire's own
+            ys = [ya] + [chain[i].y for i in range(1, v.layer - u.layer)] + [yb]
+            climb = sum(abs(b - a) for a, b in zip(ys, ys[1:]) if abs(b - a) > LANE_BEND)
+            if climb - abs(yb - ya) <= LANE_DETOUR:
+                stops[v.layer - u.layer - 1].append(wire)
+        if not stops:
+            continue
+        pts, links, feeds = [], [], []
+        cur, cur_y, cur_x = -1, ya, xa
+
+        def add(x, y):
+            nonlocal cur, cur_y, cur_x
+            pts.append((x, y))
+            links.append((cur, len(pts) - 1))
+            cur, cur_y, cur_x = len(pts) - 1, y, x
+        for i in range(1, max(stops) + 1):
+            d = chain[i]
+            left, right = col_left[d.layer], col_right[d.layer]
+            if right <= xa + 1.0:
+                continue        # (the source was pulled right over this stretch of its lane)
+            if abs(d.y - cur_y) > LANE_BEND:
+                if cur >= 0 and cur_x < col_right[d.layer - 1] - 1.0:
+                    add(col_right[d.layer - 1], cur_y)
+                add(max(left, xa + GAP_NODE_X), d.y)
+            if i in stops:
+                if cur < 0 or cur_x < right - 1.0:
+                    add(right, d.y)
+                feeds += [(wire[2], wire[3], cur) for wire in stops[i]]
+        if feeds:
+            routes.append((key[0], key[1], pts, links, feeds))
+    return routes
+
+
+def _pull_up(layers, dag, trunks=None, reads=None):
     """Move rows up into the free space above them. A row is the items its level wires join
     (top edges equal: Sugiyama lined them up), moved as one so its wires stay straight; it
     rises until something overlapping it horizontally is in the way. Columns are stacked
-    whole, so a short column under a long frame's end sat as low as the tallest one."""
-    real = [it for col in layers for it in col if it.kind != "dummy"]
+    whole, so a short column under a long frame's end sat as low as the tallest one. A
+    long wire's lane moves as one, with what it lines up with at either end."""
+    real = [it for col in layers for it in col]
     up = {id(it): id(it) for it in real}
 
     def find(a):
@@ -1137,6 +1391,15 @@ def _pull_up(layers, dag):
     for u, v, *_ in dag:
         if id(u) in up and id(v) in up and abs(u.y - v.y) < 0.5:
             up[find(id(u))] = find(id(v))
+    for key, chain in (trunks or {}).items():
+        for a, b in zip(chain[1:], chain[2:]):
+            up[find(id(a))] = find(id(b))
+        if abs(chain[0].y - chain[1].y) < 0.5:
+            up[find(id(chain[0]))] = find(id(chain[1]))
+        for v, *_ in reads[key]:
+            last = chain[v.layer - chain[0].layer - 1]
+            if abs(v.y - last.y) < 0.5:
+                up[find(id(v))] = find(id(last))
     rows = defaultdict(list)
     for it in real:
         rows[find(id(it))].append(it)
@@ -1154,7 +1417,8 @@ def _pull_up(layers, dag):
             floor = 0.0
             for o in placed:
                 if o.x < it.x + it.w + 10.0 and it.x < o.x + o.w + 10.0:
-                    gap = _vgap(o, it) if mine in wired[id(o)] else max(_vgap(o, it), GAP_PART_Y)
+                    lane = o.kind == "dummy" or it.kind == "dummy"
+                    gap = _vgap(o, it) if lane or mine in wired[id(o)] else max(_vgap(o, it), GAP_PART_Y)
                     floor = max(floor, o.y + o.h + gap)
             room = it.y - floor
             shift = room if shift is None else min(shift, room)
@@ -1170,6 +1434,7 @@ def _pull_right(layers, dag):
     long frame otherwise waits at the left end of a wire as long as the frame. Readers first,
     so a chain follows its last node; frame ports keep their edge columns."""
     real = [it for col in layers for it in col if it.kind != "dummy"]
+    lanes = [it for col in layers for it in col if it.kind == "dummy"]
     readers = defaultdict(list)
     for u, v, *_ in dag:
         if v.layer > u.layer:
@@ -1186,10 +1451,10 @@ def _pull_right(layers, dag):
             continue
         top, bottom = it.y - GAP_DUMMY_Y, it.y + it.h + GAP_DUMMY_Y
         mine = {id(v) for v in readers[id(it)]}
-        for o in real:
+        for o in real + [d for d in lanes if d.obj is not it]:
             # what's further right in the rows it spans stops it short (further off when it
-            # doesn't read this: another part)
-            if o is not it and o.x >= it.x + it.w and o.y < bottom and o.y + o.h > top:
+            # doesn't read this: another part); so does a lane running through them
+            if o is not it and o.x >= it.x + it.w and o.y < bottom and o.y + o.h >= top:
                 want = min(want, o.x - (gap(it, o) if id(o) in mine else max(gap(it, o), GAP_PART_X)) - it.w)
         if want > it.x:
             it.x = want
@@ -1229,7 +1494,8 @@ def _layout(box, index, ports):
         main = (v.kind == "node"
                 and next((s for s in v.obj.inputs if s.is_linked), None) == link.to_socket)
         wire = (link.from_node.name, link.from_socket.identifier,
-                link.to_node.name, link.to_socket.identifier)
+                link.to_node.name, link.to_socket.identifier, link.to_socket.is_multi_input,
+                link.from_socket.type == 'BUNDLE')
         edges.append((u, v, port(u, link.from_node, link.from_socket),
                       port(v, link.to_node, link.to_socket), 2.0 if main else 1.0, wire))
 
@@ -1268,12 +1534,22 @@ def _apply(tree, root, stand_ins):
     where = {}
     routed = []
 
-    def lane_points(box):
-        return sum(len(lane[2]) for lane in box.lanes) + sum(lane_points(k) for k in box.kids.values())
-
     # a big flat graph can ask for thousands of reroutes (a face material: 9,000 for 875
-    # nodes); made one by one they take Blender minutes, so such a tree keeps plain wires
-    route = lane_points(root) <= LANE_LIMIT
+    # nodes); made one by one they take Blender minutes. The lanes that carry the most
+    # wires per dot go first, until the tree's allowance is spent; the rest stay plain wires
+    def boxes(box):
+        yield box
+        for k in box.kids.values():
+            yield from boxes(k)
+    lanes = sorted(((len(lane[4]) / max(len(lane[2]), 1), id(lane)) for b in boxes(root) for lane in b.lanes),
+                   reverse=True)
+    keep, spent = set(), 0
+    allowance = min(LANE_LIMIT, LANE_WORK / max(len(N), 1))
+    sizes = {id(lane): len(lane[2]) for b in boxes(root) for lane in b.lanes}
+    for _, k in lanes:
+        if spent + sizes[k] <= allowance:
+            keep.add(k)
+            spent += sizes[k]
 
     def place(box, ox, oy, parent_frame):
         frame = None
@@ -1297,7 +1573,7 @@ def _apply(tree, root, stand_ins):
                 # a reroute's location is its dot, not a corner
                 x, y = x + 8.0, y + 8.0
             where[n.name] = (x, -y)
-        for src, ident, points, links, feeds in (box.lanes if route else ()):
+        for src, ident, points, links, feeds in (lane for lane in box.lanes if id(lane) in keep):
             dots = []
             for x, y in points:
                 r = N.new("NodeReroute")
@@ -1337,8 +1613,12 @@ def arrange(tree):
     wires = _scan(tree)
     _resolve_untagged(tree, tags, wires)
     parked = _park_dead(tree, tags, wires)
+    split = _split_fanouts(tree, tags, wires) if SPLIT_FANOUTS else 0
+    if split:
+        wires = _scan(tree)
     ports = _ports(tree, tags, wires)
     copies, stand_ins = _localize_sources(tree, tags, _scan(tree))
+    copies += split
     wires = _scan(tree)
     _hide_unused_outputs(tree, wires)
     _collapse_trivial(tree, wires)

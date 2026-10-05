@@ -210,19 +210,41 @@ def _zero(v):
     return all(abs(float(x)) < 1e-9 for x in vals)
 
 
-def _producer(sep):
-    """{attribute: value, or None where computed} of the module bundle a Separate Bundle reads (its
-    group's inner Combine Bundle), or None when unknown (a bundle the tree is given)."""
-    if not sep.inputs[0].is_linked or sep.get(TAG) != "use_out":
+def _contents(sock, ctx=(), depth=0):
+    """{item: value, or None where computed} a bundle socket carries, traced back through Combine
+    and Join Bundles, group nodes (into their Group Output) and Group Inputs (out to the group
+    node that called, ctx); None when it can't be told (a bundle a group is given, unknown)."""
+    if depth > 64:
         return None
-    bundle = sep.inputs[0].links[0].from_socket
-    g = bundle.node
-    if g.bl_idname != "ShaderNodeGroup" or g.node_tree is None:
-        return None
-    comb = next((n for n in g.node_tree.nodes if n.get(TAG) == "out" and n.label == bundle.name), None)
-    if comb is None:
-        return None
-    return {s.name: (None if s.is_linked else _value(s)) for s in comb.inputs if s.name and s.identifier != "__extend__"}
+    n = sock.node
+    if n.bl_idname == "NodeReroute":
+        return _contents(n.inputs[0].links[0].from_socket, ctx, depth + 1) if n.inputs[0].is_linked else {}
+    if n.bl_idname == "NodeCombineBundle":
+        return {s.name: (None if s.is_linked else _value(s)) for s in n.inputs if s.name and s.identifier != "__extend__"}
+    if n.bl_idname == "NodeJoinBundle":
+        out = {}
+        # (a later link wins: merged in its order)
+        for l in sorted(n.inputs[0].links, key=lambda l: l.multi_input_sort_id):
+            c = _contents(l.from_socket, ctx, depth + 1)
+            if c is None:
+                return None
+            out.update(c)
+        return out
+    if n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None:
+        go = next((x for x in n.node_tree.nodes if x.bl_idname == "NodeGroupOutput" and x.is_active_output), None)
+        inner = next((x for x in go.inputs if x.identifier == sock.identifier), None) if go else None
+        if inner is None or not inner.is_linked:
+            return {}
+        return _contents(inner.links[0].from_socket, ctx + (n,), depth + 1)
+    if n.bl_idname == "NodeGroupInput":
+        if not ctx:
+            return None
+        caller = ctx[-1]
+        given = next((x for x in caller.inputs if x.identifier == sock.identifier), None)
+        if given is None or not given.is_linked:
+            return {}
+        return _contents(given.links[0].from_socket, ctx[:-1], depth + 1)
+    return None
 
 
 def _same(a, b):
@@ -240,8 +262,11 @@ def _collapse(trees):
     that bundle instead, with what differs joined over it (a "set" bundle: what a module between
     changed, a value the bundle doesn't hold); the Separate goes once nothing else reads it."""
     n_done = 0
-    for t in trees:
-        for comb in [n for n in t.nodes if n.get(TAG) == "use_in"]:
+    # a module's own output first - what it passes through unchanged rides its input bundle, only
+    # what it sets is set over it (FP's SetMaterialAttribute) - then where modules are used, so a
+    # caller sees the bundle its module really passes on
+    for kind, t in [(k, t) for k in ("out", "use_in") for t in trees]:
+        for comb in [n for n in t.nodes if n.get(TAG) == kind]:
             items = [s for s in comb.inputs if s.name and s.identifier != "__extend__" and s.enabled]
             counts = {}
             for s in items:
@@ -254,7 +279,9 @@ def _collapse(trees):
             source = max(counts, key=counts.get)
             if counts[source] < 2 or not source.inputs[0].is_linked:
                 continue
-            made = _producer(source) or {}
+            made = _contents(source.inputs[0].links[0].from_socket)
+            strict = made is None       # (a bundle whose items aren't known: every value set over it)
+            made = made or {}
             overrides = []
             for s in items:
                 if s.is_linked:
@@ -265,7 +292,9 @@ def _collapse(trees):
                     continue
                 v = _value(s)
                 pv = made.get(s.name, MISSING)
-                if pv is MISSING:
+                if strict:
+                    pass
+                elif pv is MISSING:
                     if _zero(v):
                         continue        # (missing from the bundle: 0, the same)
                 elif pv is not None and _same(v, pv):
