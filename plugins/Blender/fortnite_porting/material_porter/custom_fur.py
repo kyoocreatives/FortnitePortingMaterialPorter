@@ -18,7 +18,8 @@ STRANDS = "MP Fur Strands"          # the shader group cutting a layer into stra
 TWIN = "mp_fur_twin_of"             # on a fur twin material: the material it is the twin of
 LAYER = "mp_shell_layer_n"          # a layer's height, 0 at the root, 1 at the tip
 ATTRS = {"Density": "mp_fur_density", "Thickness": "mp_fur_thickness", "Root Shadow": "mp_fur_shadow",
-         "Length Variation": "mp_fur_vary"}
+         "Length Variation": "mp_fur_vary", "Clumping": "mp_fur_clump", "Clump Size": "mp_fur_clump_size"}
+STRANDS_REV = 2                     # MP Fur Strands' revision (2: clumping): an older one is rebuilt
 ROOT = "mp_fur_root"                # where a layer's point sits on the surface (meshes without UVs)
 
 INPUTS = (  # name, kind, default, min, max, description
@@ -29,6 +30,10 @@ INPUTS = (  # name, kind, default, min, max, description
     ("Thickness", 'NodeSocketFloat', 0.6, 0.0, 1.0, "How thick a strand is at the root (of its cell)"),
     ("Length Variation", 'NodeSocketFloat', 0.3, 0.0, 1.0, "How much shorter some strands are"),
     ("Root Shadow", 'NodeSocketFloat', 0.5, 0.0, 1.0, "How much darker the fur is at the root"),
+    ("Flow Strength", 'NodeSocketFloat', 0.3, 0.0, 2.0, "How much a noise flow leans the fur (of its length), most at the tips"),
+    ("Flow Scale", 'NodeSocketFloat', 5.0, 0.01, 200.0, "The flow noise's size: higher, smaller swirls"),
+    ("Clumping", 'NodeSocketFloat', 0.3, 0.0, 1.0, "How much strands gather into clumps toward their tips"),
+    ("Clump Size", 'NodeSocketFloat', 8.0, 1.0, 100.0, "How many strands across a clump"),
 )
 
 
@@ -38,53 +43,81 @@ def _log(message):
 
 # ------------------------------------------------------------------ the strands (shader)
 def strands_group():
-    """MP Fur Strands: (Vector: the surface coordinate) -> Alpha (strand or not), Shade (root dark)."""
+    """MP Fur Strands: (Vector: the surface coordinate) -> Alpha (strand or not), Shade (root dark).
+    A Voronoi cell per strand; strands in a clump (a larger cell) lean to its centre toward the tip."""
     t = bpy.data.node_groups.get(STRANDS)
-    if t is not None:
+    if t is not None and t.get("mp_rev", 1) >= STRANDS_REV:
         return t
-    t = bpy.data.node_groups.new(STRANDS, 'ShaderNodeTree')
+    if t is None:
+        t = bpy.data.node_groups.new(STRANDS, 'ShaderNodeTree')
+    else:
+        # (an older one, rebuilt in place: the materials using it keep it)
+        t.nodes.clear()
+        t.interface.clear()
+    t["mp_rev"] = STRANDS_REV
     t.interface.new_socket("Vector", in_out='INPUT', socket_type='NodeSocketVector')
     t.interface.new_socket("Alpha", in_out='OUTPUT', socket_type='NodeSocketFloat')
     t.interface.new_socket("Shade", in_out='OUTPUT', socket_type='NodeSocketFloat')
     N, L = t.nodes, t.links
-    gi = N.new("NodeGroupInput"); gi.location = (-900, 0)
-    go = N.new("NodeGroupOutput"); go.location = (700, 0)
+    gi = N.new("NodeGroupInput"); gi.location = (-1300, 0)
+    go = N.new("NodeGroupOutput"); go.location = (900, 0)
 
     def attr(name, y):
         a = N.new("ShaderNodeAttribute"); a.attribute_type = 'GEOMETRY'; a.attribute_name = name
-        a.location = (-900, y)
+        a.location = (-1300, y)
         return a.outputs["Fac"]
 
     def math(op, a, b, x, y, clamp=False):
         m = N.new("ShaderNodeMath"); m.operation = op; m.use_clamp = clamp; m.location = (x, y)
-        for i, v in enumerate((a, b)):
+        for k, v in enumerate((a, b)):
             if isinstance(v, (int, float)):
-                m.inputs[i].default_value = v
+                m.inputs[k].default_value = v
             else:
-                L.new(v, m.inputs[i])
+                L.new(v, m.inputs[k])
+        return m.outputs[0]
+
+    def vmath(op, a, b, x, y, scale=None):
+        m = N.new("ShaderNodeVectorMath"); m.operation = op; m.location = (x, y)
+        L.new(a, m.inputs[0])
+        if b is not None:
+            L.new(b, m.inputs[1])
+        if scale is not None:
+            L.new(scale, m.inputs["Scale"])
         return m.outputs[0]
     n = attr(LAYER, -200)
     density, thickness = attr(ATTRS["Density"], -350), attr(ATTRS["Thickness"], -500)
     vary, shadow = attr(ATTRS["Length Variation"], -650), attr(ATTRS["Root Shadow"], -800)
-    # one Voronoi cell per strand: the distance to its centre, and a random value of its own
-    scale = N.new("ShaderNodeVectorMath"); scale.operation = 'SCALE'; scale.location = (-600, 0)
-    L.new(gi.outputs["Vector"], scale.inputs[0]); L.new(density, scale.inputs["Scale"])
+    clump, clump_size = attr(ATTRS["Clumping"], -950), attr(ATTRS["Clump Size"], -1100)
+    # the coordinate in strands (one a unit), and its clump's centre (a cell Clump Size strands across)
+    p = vmath('SCALE', gi.outputs["Vector"], None, -1000, 0, scale=density)
+    inv = math('DIVIDE', 1.0, clump_size, -1000, -150)
+    pc = vmath('SCALE', p, None, -850, -100, scale=inv)
+    cl = N.new("ShaderNodeTexVoronoi"); cl.voronoi_dimensions = '3D'; cl.feature = 'F1'; cl.location = (-700, -100)
+    L.new(pc, cl.inputs["Vector"])
+    centre = vmath('SCALE', cl.outputs["Position"], None, -550, -100, scale=clump_size)
+    # toward the tip a strand from root s sits at s + (centre - s) * k: the root under p is
+    # (p - centre * k) / (1 - k) - looked up there, its cross-section shrinks by 1 - k
+    k = math('MINIMUM', math('MULTIPLY', clump, n, -700, -300), 0.9, -550, -300)
+    pull = vmath('SCALE', centre, None, -400, -100, scale=k)
+    q0 = vmath('SUBTRACT', p, pull, -250, 0)
+    widen = math('DIVIDE', 1.0, math('SUBTRACT', 1.0, k, -400, -300), -250, -300)
+    q = vmath('SCALE', q0, None, -100, 0, scale=widen)
     cell = N.new("ShaderNodeTexVoronoi"); cell.voronoi_dimensions = '3D'; cell.feature = 'F1'
-    cell.location = (-400, 0)
-    L.new(scale.outputs[0], cell.inputs["Vector"])
+    cell.location = (50, 0)
+    L.new(q, cell.inputs["Vector"])
     # the strand's radius: Thickness (of half a cell) at the root, a fifth of it at the tip
-    taper = math('MULTIPLY', n, 0.8, -400, -250)
-    keep = math('SUBTRACT', 1.0, taper, -200, -250)
-    radius = math('MULTIPLY', math('MULTIPLY', thickness, 0.5, -200, -400), keep, 0, -300)
-    inside = math('LESS_THAN', cell.outputs["Distance"], radius, 200, -100)
+    taper = math('MULTIPLY', n, 0.8, 50, -250)
+    keep = math('SUBTRACT', 1.0, taper, 200, -250)
+    radius = math('MULTIPLY', math('MULTIPLY', thickness, 0.5, 200, -400), keep, 350, -300)
+    inside = math('LESS_THAN', cell.outputs["Distance"], radius, 500, -100)
     # some strands shorter: those whose random value is under the variation end early
-    rand = N.new("ShaderNodeSeparateColor"); rand.location = (-200, 150)
+    rand = N.new("ShaderNodeSeparateColor"); rand.location = (250, 150)
     L.new(cell.outputs["Color"], rand.inputs[0])
-    reach = math('SUBTRACT', 1.0, math('MULTIPLY', rand.outputs[0], vary, 0, 200), 200, 200)
-    short = math('LESS_THAN', n, reach, 350, 150)
-    alpha = math('MULTIPLY', inside, short, 500, 0)
+    reach = math('SUBTRACT', 1.0, math('MULTIPLY', rand.outputs[0], vary, 400, 200), 550, 200)
+    short = math('LESS_THAN', n, reach, 650, 150)
+    alpha = math('MULTIPLY', inside, short, 750, 0)
     L.new(alpha, go.inputs["Alpha"])
-    dark = math('MULTIPLY', shadow, math('SUBTRACT', 1.0, n, 200, -600), 400, -600, clamp=True)
+    dark = math('MULTIPLY', shadow, math('SUBTRACT', 1.0, n, 500, -600), 700, -600, clamp=True)
     L.new(dark, go.inputs["Shade"])
     return t
 
@@ -208,6 +241,35 @@ def _fur_group(obj, pairs, use_uv):
     L.new(droop.outputs[0], neg.inputs[0]); L.new(neg.outputs[0], down.inputs["Z"])
     offset = node("ShaderNodeVectorMath", -400, operation='ADD')
     L.new(up.outputs[0], offset.inputs[0]); L.new(down.outputs[0], offset.inputs[1])
+    # the flow: a noise field's direction along the surface, leaning the fur most at the tips
+    # (sampled at the rest position where the mesh has one: the pattern stays put as it poses)
+    pos = node("GeometryNodeInputPosition", -850)
+    rest = node("GeometryNodeInputNamedAttribute", -1000, data_type='FLOAT_VECTOR')
+    rest.inputs["Name"].default_value = "rest_position"
+    where = node("GeometryNodeSwitch", -850, input_type='VECTOR')
+    L.new(rest.outputs["Exists"], where.inputs["Switch"])
+    L.new(pos.outputs[0], where.inputs["False"]); L.new(rest.outputs["Attribute"], where.inputs["True"])
+    noise = node("ShaderNodeTexNoise", -850, noise_dimensions='3D')
+    L.new(where.outputs[0], noise.inputs["Vector"]); L.new(gi.outputs["Flow Scale"], noise.inputs["Scale"])
+    noise.inputs["Detail"].default_value = 1.0
+    centred = node("ShaderNodeVectorMath", -850, operation='SUBTRACT')
+    L.new(noise.outputs["Color"], centred.inputs[0]); centred.inputs[1].default_value = (0.5, 0.5, 0.5)
+    along = node("ShaderNodeVectorMath", -1000, operation='DOT_PRODUCT')
+    L.new(centred.outputs[0], along.inputs[0]); L.new(normal.outputs["Attribute"], along.inputs[1])
+    off_normal = node("ShaderNodeVectorMath", -1000, operation='SCALE')
+    L.new(normal.outputs["Attribute"], off_normal.inputs[0]); L.new(along.outputs["Value"], off_normal.inputs["Scale"])
+    flat = node("ShaderNodeVectorMath", -850, operation='SUBTRACT')
+    L.new(centred.outputs[0], flat.inputs[0]); L.new(off_normal.outputs[0], flat.inputs[1])
+    # (Length * n * n: the lean grows toward the tip; the noise's +-0.5 doubled)
+    bend = node("ShaderNodeMath", -1000, operation='MULTIPLY')
+    L.new(sq.outputs[0], bend.inputs[0]); L.new(gi.outputs["Flow Strength"], bend.inputs[1])
+    twice = node("ShaderNodeMath", -1150, operation='MULTIPLY'); twice.inputs[1].default_value = 2.0
+    L.new(bend.outputs[0], twice.inputs[0])
+    lean = node("ShaderNodeVectorMath", -850, operation='SCALE')
+    L.new(flat.outputs[0], lean.inputs[0]); L.new(twice.outputs[0], lean.inputs["Scale"])
+    total = node("ShaderNodeVectorMath", -400, operation='ADD')
+    L.new(offset.outputs[0], total.inputs[0]); L.new(lean.outputs[0], total.inputs[1])
+    offset = total
     setpos = node("GeometryNodeSetPosition")
     L.new(real.outputs[0], setpos.inputs["Geometry"]); L.new(offset.outputs[0], setpos.inputs["Offset"])
     geo = store(setpos.outputs[0], LAYER, n.outputs[0])
