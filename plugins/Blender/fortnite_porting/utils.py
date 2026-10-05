@@ -60,7 +60,39 @@ def ensure_blend_data_for_file(file_name):
         if group is not None and not group.get("addon_version"):
             group["addon_version"] = version_string()
 
+    # Material Porter fork: what came, for drop_unused_blend_data
+    for ids in (data_to.node_groups, data_to.materials, data_to.images, data_to.objects, data_to.fonts):
+        appended_ids.extend(i for i in ids if i is not None)
+
     loaded_versions[file_name] = current
+
+
+# Material Porter fork: the data files' groups, materials, images... this session appended
+appended_ids: list = []
+
+
+def drop_unused_blend_data():
+    """Material Porter fork: what FP's data files brought that the import didn't use goes again: its
+    shader library's groups, their packed textures (a saved file carried ~5 MB of them) and bone shapes.
+    The next import (or rig) appends what it needs again."""
+    removed = 0
+    while True:
+        alive = []
+        for i in appended_ids:
+            try:
+                i.users
+            except ReferenceError:
+                continue
+            alive.append(i)
+        appended_ids[:] = alive
+        unused = [i for i in alive if i.users == 0 and not i.use_fake_user]
+        if not unused:
+            break
+        bpy.data.batch_remove(unused)
+        removed += len(unused)
+    if removed:
+        loaded_versions.clear()
+    return removed
 
 
 # TODO: Make dynamic from mappings_registry.blend_files list?

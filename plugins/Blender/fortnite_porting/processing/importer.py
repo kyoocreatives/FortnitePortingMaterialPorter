@@ -39,6 +39,9 @@ class Importer:
                 for export in exports:
                     context = context_type(meta)
                     context.run(export)
+            # Material Porter fork: FP's shader library, but for what this import used
+            from ..utils import drop_unused_blend_data
+            drop_unused_blend_data()
         except Exception as e:
             failed = e
             raise

@@ -326,28 +326,39 @@ class MeshImportContext:
                             key.value = 1.0
 
         meta["TextureData"] = mesh.get("TextureData")
-        
+
+        # Material Porter fork: each slot's material built once, the one it ends with - not a default a
+        # style swaps out (an exact material costs a second or two to build)
+        # (a style swaps by the name the slot shows: TextureData's override material's on slot 0, import_material)
+        td_override = next((td.get("OverrideMaterial") for td in mesh.get("TextureData") if td.get("OverrideMaterial")), None)
+        final = {}
+        for material in mesh.get("Materials") + mesh.get("OverrideMaterials"):
+            final[material.get("Slot")] = material
+        for variant_override_material in self.override_materials:
+            for index, material in list(final.items()):
+                shown = td_override if td_override and material.get("Slot") == 0 else material
+                if shown.get("Name") == variant_override_material.get("MaterialNameToSwap"):
+                    final[index] = variant_override_material.get("Material")
+
         for material in mesh.get("Materials"):
             index = material.get("Slot")
-            if index >= len(imported_mesh.material_slots):
+            if index >= len(imported_mesh.material_slots) or final.get(index) is not material:
                 continue
 
             self.import_material(imported_mesh.material_slots[index], material, meta)
 
         for override_material in mesh.get("OverrideMaterials"):
             index = override_material.get("Slot")
-            if index >= len(imported_mesh.material_slots):
+            if index >= len(imported_mesh.material_slots) or final.get(index) is not override_material:
                 continue
 
             self.import_material(imported_mesh.material_slots[index], override_material, meta)
 
         for variant_override_material in self.override_materials:
-            material_name_to_swap = variant_override_material.get("MaterialNameToSwap")
-            
-            slots = where(imported_mesh.material_slots,
-                          lambda slot: slot.material.get("OriginalName") == material_name_to_swap)
+            swap_material = variant_override_material.get("Material")
+            slots = [slot for index, slot in enumerate(imported_mesh.material_slots) if final.get(index) is swap_material]
             for slot in slots:
-                self.import_material(slot, variant_override_material.get("Material"), meta)
+                self.import_material(slot, swap_material, meta)
                 
         for texture_data in mesh.get("TextureData"):
             if not (td_override_material := texture_data.get("OverrideMaterial")):
