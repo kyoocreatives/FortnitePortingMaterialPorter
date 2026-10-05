@@ -909,26 +909,13 @@ class FunctionTree:
         return out
 
     def reached(self, out_name):
-        """The input sockets an output depends on."""
+        """The input sockets an output depends on - through a nested group, only the inputs
+        the output it reads depends on (a function passing Material Attributes through another
+        read every attribute for its Normal: the Normal's own pass copied the whole material)."""
         if out_name not in self.needs:
-            feeds = {}
-            for link in self.tree.links:
-                feeds.setdefault(link.to_node.name, []).append(link)
-            seen, todo, used = set(), [self.go.name], set()
             want = self.go.inputs[out_name].identifier
-            first = True
-            while todo:
-                n = todo.pop()
-                for link in feeds.get(n, ()):
-                    if first and link.to_socket.identifier != want:
-                        continue
-                    if link.from_node.type == 'GROUP_INPUT':
-                        used.add(link.from_socket.name)
-                    elif link.from_node.name not in seen:
-                        seen.add(link.from_node.name)
-                        todo.append(link.from_node.name)
-                first = False
-            self.needs[out_name] = used
+            names = {s.identifier: s.name for s in self.gi.outputs}
+            self.needs[out_name] = {names[i] for i in _group_deps(self.tree, {}).get(want, ()) if i in names}
         return self.needs[out_name]
 
 
