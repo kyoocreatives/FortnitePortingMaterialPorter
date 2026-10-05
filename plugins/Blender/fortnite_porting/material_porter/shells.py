@@ -27,6 +27,15 @@ def _log(message):
     print("[FNPORTING] [Material Porter] " + message)
 
 
+def _styled(context, data):
+    """The material a style puts in this one's place (its VariantMaterials swap the fur's materials
+    too: Pastel Punisher Dylan's FurShells for FurShells_Razor), else this one."""
+    for swap in getattr(context, "override_materials", None) or []:
+        if swap.get("MaterialNameToSwap") == data.get("Name") and swap.get("Material"):
+            return dict(swap["Material"], Slot=data.get("Slot", 0))
+    return data
+
+
 def prepare(context, mesh_object, shells, meta):
     """A part's shells as it's imported (ExportContext.ShellFur): its slots take their base-layer
     materials, its shell materials are built, and what apply needs is kept on the context."""
@@ -37,12 +46,14 @@ def prepare(context, mesh_object, shells, meta):
     own = {i: (s.material.get("OriginalName") or s.material.name.removeprefix("MP ")).split(".")[0]
            for i, s in enumerate(slots) if s.material is not None}
     for data in shells.get("BaseMaterials") or []:
+        data = _styled(context, data)
         slot = data.get("Slot", 0)
         if slot < len(slots) and slots[slot].material is not None:
             data["MPMoves"] = True      # (its World Position Offset: in under the fur)
             context.import_material(slots[slot], data, meta)
     pairs = context.__dict__.setdefault(KEY, [])
     for data in shells.get("Materials") or []:
+        data = _styled(context, data)
         slot = data.get("Slot", 0)
         if slot >= len(slots) or slots[slot].material is None:
             continue
