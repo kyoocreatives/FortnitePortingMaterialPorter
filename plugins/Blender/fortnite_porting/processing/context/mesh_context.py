@@ -35,7 +35,9 @@ class MeshImportContext:
         
         self.collection = create_or_get_collection(self.name) if self.options.get("ImportIntoCollection") else bpy.context.scene.collection
 
-        if self.type in [EExportType.OUTFIT, EExportType.BACKPACK, EExportType.PICKAXE, EExportType.FALL_GUYS_OUTFIT]:
+        # (Material Porter fork: a sidekick's styles swap its parts too - a skin's own materials and fur)
+        if self.type in [EExportType.OUTFIT, EExportType.BACKPACK, EExportType.PICKAXE, EExportType.FALL_GUYS_OUTFIT,
+                         EExportType.SIDEKICK]:
             target_meshes = data.get("OverrideMeshes")
             normal_meshes = data.get("Meshes")
             for mesh in normal_meshes:
