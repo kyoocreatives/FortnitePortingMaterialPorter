@@ -303,7 +303,72 @@ class FPMP_PT_Exact(bpy.types.Panel):
         col.operator(FPMP_OT_ReplayEffect.bl_idname, text="Replay Effect")
 
 
-classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_PT_Exact, FPMP_OT_CreatureRig, FPMP_OT_VehicleRig, FPMP_OT_LegoRig, FPMP_PT_CreatureRig)
+class FPMP_OT_AddShellFur(bpy.types.Operator):
+    """Shell fur on the selected faces of the active mesh (select them in Edit Mode)"""
+    bl_idname = "fpmp.add_shell_fur"
+    bl_label = "Add Shell Fur to Selected Faces"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'MESH'
+
+    def execute(self, context):
+        from ..material_porter import custom_fur
+        obj = context.active_object
+        was_edit = obj.mode == 'EDIT'
+        if was_edit:
+            bpy.ops.object.mode_set(mode='OBJECT')      # (the selection reaches the mesh)
+        try:
+            msg = custom_fur.add_fur(obj)
+        except ValueError as e:
+            self.report({'WARNING'}, str(e))
+            return {'CANCELLED'}
+        finally:
+            if was_edit:
+                bpy.ops.object.mode_set(mode='EDIT')
+        self.report({'INFO'}, msg)
+        return {'FINISHED'}
+
+
+class FPMP_OT_RemoveShellFur(bpy.types.Operator):
+    """The active mesh's custom shell fur removed"""
+    bl_idname = "fpmp.remove_shell_fur"
+    bl_label = "Remove Shell Fur"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        obj = context.active_object
+        return obj is not None and obj.type == 'MESH' and obj.mode == 'OBJECT'
+
+    def execute(self, context):
+        from ..material_porter import custom_fur
+        self.report({'INFO'}, custom_fur.remove_fur(context.active_object))
+        return {'FINISHED'}
+
+
+class FPMP_PT_ShellFur(bpy.types.Panel):
+    bl_label = "Shell Fur"
+    bl_idname = "FPMP_PT_shell_fur"
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Fortnite Porting"
+
+    @classmethod
+    def poll(cls, context):
+        return context.active_object is not None and context.active_object.type == 'MESH'
+
+    def draw(self, context):
+        from ..material_porter import custom_fur
+        col = self.layout.column(align=True)
+        col.operator(FPMP_OT_AddShellFur.bl_idname, icon='ADD')
+        if custom_fur.draw_inputs(self.layout, context.active_object):
+            self.layout.operator(FPMP_OT_RemoveShellFur.bl_idname, icon='X')
+
+
+classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_PT_Exact, FPMP_OT_CreatureRig, FPMP_OT_VehicleRig, FPMP_OT_LegoRig, FPMP_PT_CreatureRig,
+           FPMP_OT_AddShellFur, FPMP_OT_RemoveShellFur, FPMP_PT_ShellFur)
 
 
 def _owner_panels():
