@@ -114,12 +114,13 @@ def _material(job, entry, obj):
     return mat
 
 
-def subsurface_amount(context, material_data):
-    """The FP app's Subsurface Amount, or Fur Subsurface Amount for a shell fur layer and its base
-    (material_porter.shells): how many times the game's scattering distance (1: the game's)."""
+def subsurface(context, material_data):
+    """The FP app's Subsurface Intensity and Scale (Fur Subsurface ... for a shell fur layer and its
+    base, material_porter.shells): (times the game's scattering amount, times its distance)."""
     options = getattr(context, "options", None) or {}
-    value = options.get("FurSubsurfaceAmount" if material_data.get("MPMoves") else "SubsurfaceAmount")
-    return 1.0 if value is None else max(0.0, float(value))
+    prefix = "FurSubsurface" if material_data.get("MPMoves") else "Subsurface"
+    values = (options.get(prefix + "Intensity"), options.get(prefix + "Scale"))
+    return tuple(1.0 if v is None else max(0.0, float(v)) for v in values)
 
 
 def exact_available(context):
@@ -185,12 +186,12 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     if material_data.get("MPMoves"):
         entry["moves"] = True
         entry["variant"] = hashlib.sha1(("%s moves" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
-    # the import's Subsurface Amount (shell fur's own): the game's scattering distance times it
-    sss = subsurface_amount(context, material_data)
-    if sss != 1.0:
-        entry["variant"] = hashlib.sha1(("%s sss %g" % (entry.get("variant", ""), sss)).encode("utf-8")).hexdigest()[:8]
-    # a world's hundreds of materials: each tree laid out when a node editor first shows it
-    build.LAZY_LAYOUT = getattr(getattr(context, "type", None), "name", "") in ("WORLD", "PREFAB")
+    # the import's subsurface intensity and scale (shell fur's own): times the game's
+    sss = subsurface(context, material_data)
+    if sss != (1.0, 1.0):
+        entry["variant"] = hashlib.sha1(("%s sss %g %g" % ((entry.get("variant", ""),) + sss)).encode("utf-8")).hexdigest()[:8]
+    # each tree laid out when a node editor first shows it: two fifths of a build, and cosmetic
+    build.LAZY_LAYOUT = True
     try:
         mat = _material(job, entry, obj)
     except Exception as e:
@@ -204,10 +205,11 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         _log(note)
     job["notes"].clear()
     if build.KEY_SUBSURFACE in mat:
-        # (its root group's node: the only one in its own tree with that input)
+        # (its root group's node: the only one in its own tree with those inputs)
         for n in mat.node_tree.nodes:
-            if n.bl_idname == "ShaderNodeGroup" and build.SUBSURFACE_SCALE in n.inputs:
-                n.inputs[build.SUBSURFACE_SCALE].default_value = mat[build.KEY_SUBSURFACE] * sss
+            if n.bl_idname == "ShaderNodeGroup" and build.SUBSURFACE_SCALE in n.inputs                     and build.SUBSURFACE_INTENSITY in n.inputs:
+                n.inputs[build.SUBSURFACE_INTENSITY].default_value = sss[0]
+                n.inputs[build.SUBSURFACE_SCALE].default_value = mat[build.KEY_SUBSURFACE] * sss[1]
     # a LEGO figure's face: where its rig puts the character accents for each mouth pose (face_anim.py)
     if rig := material_data.get("MPFaceRig"):
         mat["mp_face_rig"] = rig

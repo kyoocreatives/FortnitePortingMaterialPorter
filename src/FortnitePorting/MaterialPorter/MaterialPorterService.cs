@@ -445,7 +445,7 @@ public class MaterialPorterService : IService
                 var file = query["path"] ?? throw new ArgumentException("path missing");
                 shot.Save(file);
                 var blender = AppSettings.ExportSettings.Blender;
-                return new { file, blender.SubsurfaceAmount, blender.FurSubsurfaceAmount };
+                return new { file, blender.SubsurfaceIntensity, blender.SubsurfaceScale, blender.FurSubsurfaceIntensity, blender.FurSubsurfaceScale };
             });
         }
         if (route == "fork-status")
