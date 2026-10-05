@@ -26,15 +26,27 @@ PARAMETER_PREFIXES = ("P", "V")     # a parameter's socket ("P: Roughness"): not
 ITEM_TYPE = {'VALUE': 'FLOAT', 'VECTOR': 'VECTOR', 'RGBA': 'RGBA', 'INT': 'INT', 'BOOLEAN': 'BOOLEAN'}
 
 
+PARAMETERS = "Parameters"       # the bundle of a function's parameters ("P: name" / "V: name" inputs)
+
+
 def _attribute_sets(tree, in_out):
-    """{prefix: [interface socket, ...]} of the tree's attribute sockets, two or more a prefix."""
+    """{bundle name: [(interface socket, item name), ...]}, two or more a bundle: a Material
+    Attributes input's or output's sockets ("Material: Base Color" -> item "Base Color"), and a
+    function's parameter inputs ("P: Darkside", the item named so)."""
     sets = {}
     for it in tree.interface.items_tree:
         if it.item_type != 'SOCKET' or it.in_out != in_out or ": " not in it.name:
             continue
         prefix, attribute = it.name.rsplit(": ", 1)
-        if attribute in ATTRIBUTE_NAMES and prefix not in PARAMETER_PREFIXES:
-            sets.setdefault(prefix, []).append(it)
+        if prefix in PARAMETER_PREFIXES:
+            if in_out == 'INPUT' and it.socket_type in ('NodeSocketFloat', 'NodeSocketVector', 'NodeSocketColor'):
+                # (a bundle item's name takes no ":" - the parameter's own name; a vector one sharing
+                # a scalar's name told apart)
+                taken = {n for _i, n in sets.get(PARAMETERS, [])}
+                name = attribute if attribute not in taken else attribute + " (" + prefix + ")"
+                sets.setdefault(PARAMETERS, []).append((it, name))
+        elif attribute in ATTRIBUTE_NAMES:
+            sets.setdefault(prefix, []).append((it, attribute))
     return {p: items for p, items in sets.items() if len(items) >= 2}
 
 
@@ -66,9 +78,12 @@ def _users(group, trees):
 
 
 def _items(node, names, types):
+    """The node's bundle items, one per name; {name: the item's name as Blender keeps it} (it
+    rewrites some characters: "(", ":")."""
     node.bundle_items.clear()
     for name in names:
         node.bundle_items.new(types[name], name)
+    return {name: node.bundle_items[i].name for i, name in enumerate(names)}
 
 
 def _bundle_group(group, trees):
@@ -80,9 +95,10 @@ def _bundle_group(group, trees):
     iface = group.interface
     made = 0
     for in_out, sets in (('INPUT', ins), ('OUTPUT', outs)):
-        for prefix, socks in sets.items():
-            idents = {it.identifier: it.name.rsplit(": ", 1)[1] for it in socks}
-            names = [idents[it.identifier] for it in socks]
+        for prefix, pairs in sets.items():
+            socks = [it for it, _name in pairs]
+            idents = {it.identifier: name for it, name in pairs}
+            names = [name for _it, name in pairs]
             # what the group node's sockets carry, before they go: links and values
             types, recorded = {}, []
             for t, n in users:
@@ -133,10 +149,10 @@ def _bundle_group(group, trees):
                         sep = group.nodes.new("NodeSeparateBundle")
                         sep.label, sep[TAG] = prefix, "in"
                         sep.location = (gi.location.x + 60, gi.location.y)
-                        _items(sep, names, types)
+                        kept = _items(sep, names, types)
                         group.links.new(next(o for o in gi.outputs if o.identifier == ident), sep.inputs[0])
                         by_gi[gi.name] = sep
-                    out = sep.outputs[name]
+                    out = sep.outputs[kept[name]]
                     for target in targets:
                         group.links.new(out, target)
             else:
@@ -147,7 +163,7 @@ def _bundle_group(group, trees):
                         comb = group.nodes.new("NodeCombineBundle")
                         comb.label, comb[TAG] = prefix, "out"
                         comb.location = (go.location.x - 160, go.location.y)
-                        _items(comb, names, types)
+                        kept = _items(comb, names, types)
                         group.links.new(comb.outputs[0], next(i for i in go.inputs if i.identifier == ident))
                         outs_by_node[go.name] = comb
                         for extra, kind, default in COMPLETE:
@@ -155,9 +171,9 @@ def _bundle_group(group, trees):
                                 comb.bundle_items.new(kind, extra)
                                 _set(comb.inputs[extra], default)
                     if src is not None:
-                        group.links.new(src, comb.inputs[name])
+                        group.links.new(src, comb.inputs[kept[name]])
                     else:
-                        _set(comb.inputs[name], value)
+                        _set(comb.inputs[kept[name]], value)
             # where the group is used
             for t, n, rec in recorded:
                 sock = next(s for s in (n.inputs if in_out == 'INPUT' else n.outputs) if s.identifier == ident)
@@ -165,12 +181,12 @@ def _bundle_group(group, trees):
                     comb = t.nodes.new("NodeCombineBundle")
                     comb.label, comb[TAG] = prefix, "use_in"
                     comb.location = (n.location.x - 180, n.location.y)
-                    _items(comb, names, types)
+                    kept = _items(comb, names, types)
                     for name, (src, value) in rec.items():
                         if src is not None:
-                            t.links.new(src, comb.inputs[name])
+                            t.links.new(src, comb.inputs[kept[name]])
                         else:
-                            _set(comb.inputs[name], value)
+                            _set(comb.inputs[kept[name]], value)
                     t.links.new(comb.outputs[0], sock)
                 else:
                     if not any(rec.values()):
@@ -178,11 +194,11 @@ def _bundle_group(group, trees):
                     sep = t.nodes.new("NodeSeparateBundle")
                     sep.label, sep[TAG] = prefix, "use_out"
                     sep.location = (n.location.x + n.width + 40, n.location.y)
-                    _items(sep, [nm for nm in names if rec.get(nm)], types)
+                    kept = _items(sep, [nm for nm in names if rec.get(nm)], types)
                     t.links.new(sock, sep.inputs[0])
                     for name, targets in rec.items():
                         for target in targets:
-                            t.links.new(sep.outputs[name], target)
+                            t.links.new(sep.outputs[kept[name]], target)
             made += 1
     return made
 
@@ -196,8 +212,8 @@ def _zero(v):
 
 def _producer(sep):
     """{attribute: value, or None where computed} of the module bundle a Separate Bundle reads (its
-    group's inner Combine Bundle), or None when unknown."""
-    if not sep.inputs[0].is_linked:
+    group's inner Combine Bundle), or None when unknown (a bundle the tree is given)."""
+    if not sep.inputs[0].is_linked or sep.get(TAG) != "use_out":
         return None
     bundle = sep.inputs[0].links[0].from_socket
     g = bundle.node
@@ -231,7 +247,7 @@ def _collapse(trees):
             for s in items:
                 if s.is_linked:
                     src = s.links[0].from_socket
-                    if src.node.bl_idname == "NodeSeparateBundle" and src.node.get(TAG) == "use_out" and src.name == s.name:
+                    if src.node.bl_idname == "NodeSeparateBundle" and src.node.get(TAG) in ("use_out", "in") and src.name == s.name:
                         counts[src.node] = counts.get(src.node, 0) + 1
             if not counts:
                 continue
@@ -287,6 +303,81 @@ def _collapse(trees):
     return n_done
 
 
+def _share_parameters(trees):
+    """In each tree, the modules' Parameters bundles that only gather the tree's own inputs (a
+    material's parameters, from its Group Input) become one: a Parameters Combine Bundle by the
+    Group Input, one wire to each module (an item a module reads elsewhere is set over it)."""
+    n_done = 0
+    for t in trees:
+        combs = [n for n in t.nodes if n.get(TAG) == "use_in" and n.label == PARAMETERS]
+        if len(combs) < 2:
+            continue
+        sources = {}        # item -> (Group Input socket identifier, type) where all agree
+        clash = set()
+        for c in combs:
+            for s in c.inputs:
+                if not s.name or s.identifier == "__extend__" or not s.is_linked:
+                    continue
+                src = s.links[0].from_socket
+                if src.node.bl_idname != "NodeGroupInput":
+                    continue
+                key = (src.identifier, ITEM_TYPE.get(s.type, 'FLOAT'))
+                if sources.get(s.name, key) != key:
+                    clash.add(s.name)
+                sources.setdefault(s.name, key)
+        for name in clash:
+            sources.pop(name, None)
+        if len(sources) < 2:
+            continue
+        gi = next(n for n in t.nodes if n.bl_idname == "NodeGroupInput")
+        shared = t.nodes.new("NodeCombineBundle")
+        shared.label, shared[TAG] = PARAMETERS, "shared"
+        shared.location = (gi.location.x + 220, gi.location.y)
+        shared.bundle_items.clear()
+        for name in sorted(sources):
+            shared.bundle_items.new(sources[name][1], name)
+        for name, (ident, _kind) in sources.items():
+            out = next((o for o in gi.outputs if o.identifier == ident), None)
+            if out is not None:
+                t.links.new(out, shared.inputs[name])
+        for c in combs:
+            overrides = []
+            for s in c.inputs:
+                if not s.name or s.identifier == "__extend__" or not s.enabled:
+                    continue
+                if s.is_linked:
+                    src = s.links[0].from_socket
+                    if src.node.bl_idname == "NodeGroupInput" and s.name in sources and sources[s.name][0] == src.identifier:
+                        continue
+                    overrides.append((s, src, None))
+                elif s.name in sources or not _zero(_value(s)):
+                    overrides.append((s, None, _value(s)))
+            target = shared.outputs[0]
+            if overrides:
+                put = t.nodes.new("NodeCombineBundle")
+                put.label, put[TAG] = "set", "set"
+                put.location = (c.location.x, c.location.y - 120)
+                put.bundle_items.clear()
+                for s, src, v in overrides:
+                    put.bundle_items.new(ITEM_TYPE.get(s.type, 'FLOAT'), s.name)
+                for s, src, v in overrides:
+                    if src is not None:
+                        t.links.new(src, put.inputs[s.name])
+                    else:
+                        _set(put.inputs[s.name], v)
+                join = t.nodes.new("NodeJoinBundle")
+                join.label, join[TAG] = PARAMETERS, "join"
+                join.location = c.location
+                t.links.new(shared.outputs[0], join.inputs[0])
+                t.links.new(put.outputs[0], join.inputs[0])
+                target = join.outputs[0]
+            for l in list(c.outputs[0].links):
+                t.links.new(target, l.to_socket)
+            t.nodes.remove(c)
+            n_done += 1
+    return n_done
+
+
 def _all_trees():
     return [m.node_tree for m in bpy.data.materials if m.node_tree is not None] + list(bpy.data.node_groups)
 
@@ -310,4 +401,5 @@ def bundle_attributes(groups, key_fp=None, known=None):
                 del known[old]
         made += n
     joined = _collapse(trees) if made else 0
-    return made, joined
+    shared = _share_parameters(trees) if made else 0
+    return made, joined + shared
