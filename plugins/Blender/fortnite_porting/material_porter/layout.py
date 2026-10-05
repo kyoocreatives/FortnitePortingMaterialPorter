@@ -438,7 +438,9 @@ def _localize_sources(tree, tags, wires):
     """Copy every pure input node into each frame that reads it - and a Group
     Input to each node that reads it, showing only what that node reads: a
     parameter sits beside its reader, where one Group Input feeding a whole
-    frame sent dozens of wires across it.
+    frame sent dozens of wires across it. A parameter bundle's Separate Bundle
+    goes to each column of its readers, with a Group Input of its own: one
+    per frame sent its items across the frame.
 
     Returns (copies made, {stand-in name: Group Input output ids}).
     """
@@ -449,11 +451,17 @@ def _localize_sources(tree, tags, wires):
     # what each frame (or reader) will read from each source, so a stand-in can
     # be made with exactly those outputs; key (source, path, reader or None)
     stays, moves = set(), defaultdict(list)
+    rank = _ranks(tree, outs)
     for src in order:
         own = tags[src.name]
+        split = src.bl_idname == "NodeSeparateBundle"
         for w in outs[src.name]:
             if src.type == 'GROUP_INPUT' and w.b.name not in sources:
                 moves[(src.name, tags[w.b.name], w.b.name)].append(w)
+            elif split and _in(w.b, w.ib).is_multi_input:
+                stays.add(src.name)     # (a Join reads its links in order: relinked, it would change)
+            elif split:
+                moves[(src.name, tags[w.b.name], ("column", rank.get(w.b.name, 0), ins[src.name][0].ia))].append(w)
             elif tags[w.b.name] == own:
                 stays.add(src.name)
             else:
@@ -475,7 +483,7 @@ def _localize_sources(tree, tags, wires):
             needs[(_key(src), path, reader)].update(w.ia for w in group)
         elif src.bl_idname == "NodeSeparateBundle":
             feed = ins[name][0]
-            needs[(_key(feed.a), path, None)].add(feed.ia)
+            needs[(_key(feed.a), path, ("split", reader))].add(feed.ia)
 
     local, stand_ins = {}, {}
 
@@ -491,7 +499,7 @@ def _localize_sources(tree, tags, wires):
             local[k] = c
             if src.bl_idname == "NodeSeparateBundle":
                 feed = ins[src.name][0]
-                gi = copy_in(feed.a, path)
+                gi = copy_in(feed.a, path, ("split", reader))
                 tree.links.new(_out_of(gi, feed.ia, stand_ins), c.inputs[0])
         return local[k]
 
@@ -500,6 +508,16 @@ def _localize_sources(tree, tags, wires):
         for w in group:
             sb = _in(w.b, w.ib)
             tree.links.new(_out_of(c, w.ia, stand_ins), sb)
+    # a parameter bundle's Separate Bundle kept where most of its readers are: its own Group
+    # Input beside it too (the first one's could be a frame away)
+    for name in sorted(stays):
+        n = tree.nodes.get(name)
+        if n is None or n.bl_idname != "NodeSeparateBundle" or not ins[name] or ins[name][0].a.type != 'GROUP_INPUT':
+            continue
+        feed = ins[name][0]
+        needs[(_key(feed.a), tags[name], ("split", name))].add(feed.ia)
+        gi = copy_in(feed.a, tags[name], ("split", name))
+        tree.links.new(_out_of(gi, feed.ia, stand_ins), n.inputs[0])
     # an original nothing reads any more is only clutter - but keep the
     # first Group Input, which older code looks the interface up through (a
     # material's own tree has none)
@@ -511,16 +529,9 @@ def _localize_sources(tree, tags, wires):
     return len(local), stand_ins
 
 
-def _split_fanouts(tree, tags, wires):
-    """A Separate Bundle read across many columns sends a wire per item the whole way:
-    parallel lines no one can follow. Each column of readers (a frame's nodes as far from
-    the output) gets its own copy instead, right before it, showing only what that column
-    reads, and only the bundle travels - one wire, shared by every copy. Readers through a
-    multi-input socket keep the original (a Join reads its links in order); one a Group
-    Input feeds is a pure input, copied per frame later (_localize_sources).
-
-    Returns the copies made."""
-    ins, outs = _adjacency(wires)
+def _ranks(tree, outs):
+    """Each node's longest path to an output, in links: nodes alike in it share a column (the
+    layering puts each just before its nearest reader)."""
     rank = {}
     for n in tree.nodes:
         stack = [n.name]
@@ -535,6 +546,20 @@ def _split_fanouts(tree, tags, wires):
                 continue
             rank[a] = 1 + max((rank.get(w.b.name, 0) for w in outs[a]), default=-1)
             stack.pop()
+    return rank
+
+
+def _split_fanouts(tree, tags, wires):
+    """A Separate Bundle read across many columns sends a wire per item the whole way:
+    parallel lines no one can follow. Each column of readers (a frame's nodes as far from
+    the output) gets its own copy instead, right before it, showing only what that column
+    reads, and only the bundle travels - one wire, shared by every copy. Readers through a
+    multi-input socket keep the original (a Join reads its links in order); one a Group
+    Input feeds is a pure input, copied per frame later (_localize_sources).
+
+    Returns the copies made."""
+    ins, outs = _adjacency(wires)
+    rank = _ranks(tree, outs)
     made = 0
     for n in [n for n in tree.nodes if n.bl_idname == "NodeSeparateBundle" and STAND_IN not in n]:
         if len(ins[n.name]) != 1 or n.name not in tags or _is_source(n, ins):

@@ -1179,6 +1179,11 @@ class Translator:
             return [v, v, v]
         if v.const:
             return [Val(c, 1) for c in v.s[:3]]
+        # a vector put together here (UE's swizzles: append, then a mask): its parts as they were,
+        # not a split of it - which drew a wire from where it was made to wherever it's read
+        made = self.__dict__.setdefault("_parts", {}).get(v.s.as_pointer()) if hasattr(v.s, "as_pointer") else None
+        if made is not None:
+            return list(made)
         n = self.node("ShaderNodeSeparateXYZ", "split")
         self.link(v, n.inputs[0])
         return [Val(n.outputs[i], 1) for i in range(3)]
@@ -1195,6 +1200,7 @@ class Translator:
         n = self.node("ShaderNodeCombineXYZ", "append")
         for i, p in enumerate(parts):
             self.link(p, n.inputs[i])
+        self.__dict__.setdefault("_parts", {})[n.outputs[0].as_pointer()] =             [p if p.w == 1 else self.comps(p)[0] for p in parts] + [self.const(0.0)] * (3 - len(parts))
         return Val(n.outputs[0], len(parts))
 
     def mask(self, v, idx):
