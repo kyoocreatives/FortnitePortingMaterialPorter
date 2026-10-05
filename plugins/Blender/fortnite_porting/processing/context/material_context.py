@@ -182,6 +182,10 @@ class MaterialImportContext:
                 # Material Porter fork: a reused cel-shaded material still gets this mesh its outline
                 if is_toon(material_data):
                     self.add_toon_outline = True
+                # Material Porter fork: and a reused exact material its hidden elements (below)
+                if hide := existing_material.get("MPHideElements"):
+                    import json
+                    self.partial_vertex_crunch_materials[existing_material] = json.loads(hide)
                 return
 
         # same name but different hash
@@ -256,6 +260,15 @@ class MaterialImportContext:
             exact["MPRimLight"] = rim_light
             exact["MPSubsurface"] = subsurface
             exact["OriginalName"] = material_data.get("Name")
+            # the elements a style hides (its Hide Element 0X, by vertex colour: Dylan's sunglasses off):
+            # FP's vertex crunch removes their faces, as for its own shaders (post parameter handling)
+            if get_param(switches, "Use Vertex Colors for Mask"):
+                import json
+                hide = {scalar.get("Name"): scalar.get("Value") for scalar in scalars if "Hide Element" in scalar.get("Name")}
+                self.partial_vertex_crunch_materials[exact] = hide
+                exact["MPHideElements"] = json.dumps(hide)
+            elif "MPHideElements" in exact:
+                del exact["MPHideElements"]
             if not as_material_data:
                 material_slot.material = exact
             if material.users == 0:
