@@ -62,8 +62,9 @@ public partial class ExportContext
             if (EffectsPick) MeshSockets(exportPart, mesh); // Material Porter fork
             return exportPart;
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            MaterialPorter.Failures.Note("mesh exports", mesh?.GetPathName() ?? "", e);   // Material Porter fork
             return null;
         }
     }
@@ -94,8 +95,9 @@ public partial class ExportContext
             if (EffectsPick) MeshSockets(exportPart, mesh); // Material Porter fork
             return exportPart;
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            MaterialPorter.Failures.Note("mesh exports", mesh?.GetPathName() ?? "", e);   // Material Porter fork
             return null;
         }
     }
@@ -217,8 +219,9 @@ public partial class ExportContext
             if (EffectsPick) MeshSockets(exportPart, mesh); // Material Porter fork
             return exportPart;
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            MaterialPorter.Failures.Note("mesh exports", mesh?.GetPathName() ?? "", e);   // Material Porter fork
             return null;
         }
     }

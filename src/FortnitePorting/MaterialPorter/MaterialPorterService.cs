@@ -473,7 +473,7 @@ public class MaterialPorterService : IService
         }
         if (route == "fork-settings-shot" && query["page"] == "installation")
         {
-            // tests: the Installation settings page, rendered to a PNG (path=); custom=1 shows the profile as a
+            // tests: the Installation settings page, rendered to a PNG (path=, height=); custom=1 shows the profile as a
             // Custom one downloading its build (put back after)
             var window = AppServices.App.Lifetime.MainWindow!;
             var installation = AppServices.AppSettings.Installation;
@@ -482,7 +482,7 @@ public class MaterialPorterService : IService
             {
                 window.WindowState = Avalonia.Controls.WindowState.Normal;
                 window.Width = 1600;
-                window.Height = 1100;
+                window.Height = int.TryParse(query["height"], out var tall) ? tall : 1100;
                 AppServices.Navigation.App.Open<Views.SettingsView>();
             });
             // (the settings pane's own frame exists once its view has loaded)
@@ -490,6 +490,9 @@ public class MaterialPorterService : IService
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 AppServices.Navigation.Settings.Open<Views.Settings.InstallationSettingsView>();
+                // profile=<name start>: that profile's page
+                if (query["profile"] is { } named && installation.Profiles.FirstOrDefault(p => p.ProfileName.StartsWith(named, StringComparison.OrdinalIgnoreCase)) is { } picked)
+                    installation.SelectedEditProfile = picked;
                 installation.SelectedEditProfile ??= installation.Profiles.FirstOrDefault(p => p.IsSelected) ?? installation.Profiles.FirstOrDefault();
                 if (query["custom"] == "1" && installation.SelectedEditProfile is { } shown)
                 {
@@ -640,6 +643,12 @@ public class MaterialPorterService : IService
                 Lines = StatusLog.Instance.Lines.Take(int.TryParse(query["count"], out var n) ? n : 60).ToArray(),
             });
         }
+        if (route == "fork-find-builds")
+        {
+            // tests: the builds the Installation page's Build picker lists (Find)
+            var builds = await OnDemandBuilds.FindAsync(AppServices.AppSettings.Installation.Profiles.Select(p => p.ArchiveDirectory));
+            return new JArray(builds.Select(b => $"{b.Build} | {b.Source} | {(b.StudioManifest is null ? "-" : "UEFN")} | {Path.GetFileName(b.Manifest)}"));
+        }
         if (route == "fork-find-assets")
         {
             // tests: the asset registry's entries whose package name holds ?path= (and whose class is ?class=, if given)
@@ -721,7 +730,20 @@ public class MaterialPorterService : IService
         {
             // tests: a package's exports (name, type, outer, properties) as CUE4Parse reads them; full=1: each
             // export as CUE4Parse writes it (what it reads outside the properties too: a material's cached data...)
-            var dumped = await Game.Provider.LoadPackageAsync(query["path"] ?? throw new ArgumentException("path missing"));
+            // game=<EGame>: read with that Unreal version instead (put back after)
+            var versions = ((global::CUE4Parse.FileProvider.AbstractFileProvider) Game.Provider).Versions;
+            var was = versions.Game;
+            if (query["game"] is { } game) versions.Game = Enum.Parse<global::CUE4Parse.UE4.Versions.EGame>(game);
+            global::CUE4Parse.UE4.Assets.IPackage dumped;
+            try
+            {
+                dumped = await Game.Provider.LoadPackageAsync(query["path"] ?? throw new ArgumentException("path missing"));
+                if (query["game"] is not null) _ = dumped.GetExports().ToList();
+            }
+            finally
+            {
+                versions.Game = was;
+            }
             var settings = new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore };
             // count=1: how many exports of each class (a level's lights, decals, effects - a 117 MB level's
             // full dump doesn't serialize)

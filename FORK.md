@@ -671,8 +671,24 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   file or a link to it (Epic's API only lists the live build; the launcher keeps
   past ones in the install's `.egstore`). Its chunks come from Epic's CDN as the
   On-Demand mode's, its keys and mappings from Fetch Data, its textures stream
-  from that build's own TOC (cached per build). The Unreal version must match
-  the build (33.11 is UE 5.5: 5.6 fails at the first package header).
+  from that build's own TOC (cached per build), its material graphs cached
+  under its build name.
+  - **Build picker.** Find lists the builds this PC's launcher kept (the
+    `.egstore` of every Fortnite install it knows, and of the profiles' archive
+    folders; manifests told apart by what they install, as newer launchers name
+    the app by an id) and every build of the fn-releases archive; picking one
+    fills the manifests and fetches its keys and mappings.
+  - **UEFN manifest.** The same build's UEFN (Studio) manifest is registered
+    beside the game's: its editor data (`*.o.utoc`, which registering skipped:
+    the extension was read after the first dot) gives exact materials. The
+    launcher keeps it when UEFN was installed; the archive has none.
+  - **Unreal version detection.** On load, a balance table and some Blueprints
+    and structs are read with the versions near the profile's and the one the
+    UEFN's `Engine/Build/Build.version` names (3 either way: a much older one
+    misreads the package header and CUE4Parse's name reading corrupts memory),
+    serialization errors fatal; the one reading the most wins, the profile's,
+    then the UEFN's on a tie. 36.10 reads as UE 5.6 (5.8 misreads its structs),
+    33.11 as 5.5.
 - **Texture streaming for Custom installs.** A Custom profile whose folder has
   an on-demand TOC of its own streams textures too, and the Epic token is
   checked before it goes into the streaming options (an expired one stayed in

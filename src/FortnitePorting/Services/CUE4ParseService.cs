@@ -162,7 +162,8 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         Progress = 0;
 
         // Material Porter fork: exact materials, served to Blender from these files
-        MaterialPorter.MaterialPorterService.Instance.OnGameLoaded(Provider!, _resolvedVersion?.Version);
+        // (a build downloaded from its manifest names itself: its graphs are cached apart from other builds')
+        MaterialPorter.MaterialPorterService.Instance.OnGameLoaded(Provider!, _resolvedVersion?.Version ?? LiveManifest?.Meta.BuildVersion);
     }
 
     public void Reset()
@@ -357,12 +358,21 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
             // Material Porter fork: an older build, from its manifest (its keys and mappings the profile's own)
             case EFortniteVersion.Custom when AppSettings.Installation.CurrentProfile.IsCustomOnDemand:
             {
-                var manifest = await CustomManifestAsync();
+                var manifest = await CustomManifestAsync(AppSettings.Installation.CurrentProfile.ManifestPath);
                 if (manifest is null) break;
 
                 Log.Information("On-Demand Build: {Build}", manifest.Meta.BuildVersion);
                 LiveManifest = manifest;
                 await Provider.RegisterFiles(manifest);
+
+                // the same build's UEFN: its editor data (the materials' graphs) beside the game's, as the live mode's
+                if (!string.IsNullOrWhiteSpace(AppSettings.Installation.CurrentProfile.StudioManifestPath)
+                    && await CustomManifestAsync(AppSettings.Installation.CurrentProfile.StudioManifestPath) is { } studio)
+                {
+                    Log.Information("On-Demand UEFN Build: {Build}", studio.Meta.BuildVersion);
+                    _studioEngine = await StudioEngineAsync(studio);
+                    await Provider.RegisterFiles(studio);
+                }
                 break;
             }
             default:
@@ -370,6 +380,95 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                 await Provider.InitializeAsync();
                 break;
             }
+        }
+    }
+
+    // Material Porter fork: a downloaded Custom build's Unreal version (the archive leaves most builds' engine
+    // out), found by reading packages every build has with each one: a balance table, some Blueprints and structs
+    // (their properties' layout changes between versions), with serialization errors fatal so a wrong version fails
+    // instead of reading half. The chosen version first, then the one the build's UEFN names, then newest first.
+    private void DetectUnrealVersion()
+    {
+        var profile = AppSettings.Installation.CurrentProfile;
+        if (!profile.IsCustomOnDemand || !profile.AutoUnrealVersion) return;
+
+        // some of each: Blueprints and structs (by their usual names: S_, ...Struct...)
+        List<global::CUE4Parse.FileProvider.Objects.GameFile> Sample(Func<string, bool> named, int count)
+        {
+            var files = Provider.Files.Values
+                .Where(f => f.Extension == "uasset" && f.Path.StartsWith("FortniteGame/", StringComparison.OrdinalIgnoreCase) && named(f.Name))
+                .OrderBy(f => f.Path, StringComparer.OrdinalIgnoreCase).ToList();
+            return files.Where((_, i) => i % Math.Max(1, files.Count / count) == 0).Take(count).ToList();
+        }
+        var probes = Sample(name => name.StartsWith("BP_", StringComparison.OrdinalIgnoreCase), 6)
+            .Concat(Sample(name => name.StartsWith("S_", StringComparison.OrdinalIgnoreCase)
+                                   || name.Contains("Struct", StringComparison.OrdinalIgnoreCase), 6)).ToList();
+        if (Provider.TryGetGameFile("FortniteGame/Content/Balance/RarityData.uasset", out var rarity)) probes.Insert(0, rarity);
+        if (probes.Count == 0) return;
+
+        // only near the chosen version and the UEFN's (3 either way): one much older reads the package header wrong,
+        // and CUE4Parse's name reading then corrupts memory instead of throwing
+        var chosen = Provider.Versions.Game;
+        var engines = Enum.GetValues<EGame>()
+            .Where(g => g is >= EGame.GAME_UE4_16 and <= EGame.GAME_UE6_0 && ((int) g & 0xFFFF) == 0).Distinct().Order().ToList();
+        var anchors = new[] { chosen }.Concat(_studioEngine is { } hint ? [hint] : []).ToList();
+        var candidates = anchors
+            .Concat(engines.Where(g => anchors.Any(a => engines.IndexOf(a) is >= 0 and var at && Math.Abs(engines.IndexOf(g) - at) <= 3))
+                .OrderByDescending(g => g))
+            .Distinct();
+        // the version reading the most (some packages fail with every one: not the version's doing), the first
+        // in that order on a tie
+        var fatal = global::CUE4Parse.Globals.FatalObjectSerializationErrors;
+        global::CUE4Parse.Globals.FatalObjectSerializationErrors = true;
+        var (best, bestRead) = (chosen, -1);
+        try
+        {
+            foreach (var game in candidates)
+            {
+                Provider.Versions.Game = game;
+                var read = probes.Count(file =>
+                {
+                    try
+                    {
+                        return Provider.LoadPackage(file).GetExports().ToList().Count > 0;
+                    }
+                    catch (Exception)
+                    {
+                        return false;
+                    }
+                });
+                if (read > bestRead) (best, bestRead) = (game, read);
+                if (read == probes.Count) break;
+            }
+        }
+        finally
+        {
+            global::CUE4Parse.Globals.FatalObjectSerializationErrors = fatal;
+        }
+
+        Provider.Versions.Game = best;
+        Log.Information("[Material Porter] Unreal version of this build: {Game}{Note} ({Read} of {Count} packages read)",
+            best, best == chosen ? "" : " (found)", bestRead, probes.Count);
+        if (best != chosen) Avalonia.Threading.Dispatcher.UIThread.Post(() => profile.UnrealVersion = best);
+    }
+
+    // the engine version the build's UEFN names (Engine/Build/Build.version, only Studio builds ship it)
+    private EGame? _studioEngine;
+
+    private static async Task<EGame?> StudioEngineAsync(FBuildPatchAppManifest studio)
+    {
+        try
+        {
+            if (studio.Files.FirstOrDefault(f => f.FileName.EndsWith("Engine/Build/Build.version", StringComparison.OrdinalIgnoreCase)) is not { } file)
+                return null;
+            using var reader = new StreamReader(file.GetStream());
+            var json = Newtonsoft.Json.Linq.JObject.Parse(await reader.ReadToEndAsync());
+            return Enum.TryParse<EGame>($"GAME_UE{(int?) json["MajorVersion"]}_{(int?) json["MinorVersion"]}", out var game) ? game : null;
+        }
+        catch (Exception e)
+        {
+            Log.Warning("[Material Porter] UEFN engine version not read: {Error}", e.Message);
+            return null;
         }
     }
 
@@ -384,9 +483,9 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
 
     // Material Porter fork: a Custom profile's build manifest - a .manifest file, or a link to one - parsed as
     // the live one is; null (and said) when it can't be had
-    private async Task<FBuildPatchAppManifest?> CustomManifestAsync()
+    private async Task<FBuildPatchAppManifest?> CustomManifestAsync(string path)
     {
-        var source = AppSettings.Installation.CurrentProfile.ManifestPath.Trim().Trim('"');
+        var source = path.Trim().Trim('"');
         try
         {
             FileInfo? file = null;
@@ -519,6 +618,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     [LoadingStage("Loading Required Assets", stage: 9, weight: 5)]
     private async Task LoadApplicationAssets()
     {
+        DetectUnrealVersion();     // Material Porter fork: before the first package is read
         if (await Provider.SafeLoadPackageObjectAsync("FortniteGame/Content/Balance/RarityData") is { } rarityData)
         {
             for (var i = 0; i < rarityData.Properties.Count; i++)

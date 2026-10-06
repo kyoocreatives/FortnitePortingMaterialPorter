@@ -79,6 +79,20 @@
                         <ToggleSwitch IsChecked="{Binding Profile.DownloadFromManifest}" />
                     </controls:SettingsItem.Footer>
                 </controls:SettingsItem>
+                <controls:SettingsItem Title="Build"
+                                       Description="Find the builds this PC's launcher kept (with their UEFN, for exact materials) and the fn-releases archive's: picking one fills the manifests, keys and mappings."
+                                       IsVisible="{Binding Profile.IsCustomOnDemand}">
+                    <controls:SettingsItem.Footer>
+                        <StackPanel Orientation="Horizontal">
+                            <ComboBox MinWidth="280" PlaceholderText="Find builds first" ItemsSource="{Binding Profile.AvailableBuilds}"
+                                      SelectedItem="{Binding Profile.SelectedBuild}" />
+                            <Button Margin="4 0 0 0" Command="{Binding Profile.FindBuilds}" IsEnabled="{Binding !Profile.IsFindingBuilds}"
+                                    ToolTip.Tip="Find builds">
+                                <avalonia:MaterialIcon Kind="Magnify"/>
+                            </Button>
+                        </StackPanel>
+                    </controls:SettingsItem.Footer>
+                </controls:SettingsItem>
                 <controls:SettingsItem Title="Build Manifest"
                                        Description="The build's .manifest file, or a link to it."
                                        IsVisible="{Binding Profile.IsCustomOnDemand}">
@@ -89,6 +103,25 @@
                                 <avalonia:MaterialIcon Kind="File"/>
                             </Button>
                         </StackPanel>
+                    </controls:SettingsItem.Footer>
+                </controls:SettingsItem>
+                <controls:SettingsItem Title="UEFN Manifest"
+                                       Description="The same build's UEFN (Studio) .manifest file, or a link to it: its editor data gives exact materials. Optional."
+                                       IsVisible="{Binding Profile.IsCustomOnDemand}">
+                    <controls:SettingsItem.Footer>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding Profile.StudioManifestPath}" Watermark="Optional" />
+                            <Button Margin="4 0 0 0" Command="{Binding Profile.BrowseStudioManifestFile}">
+                                <avalonia:MaterialIcon Kind="File"/>
+                            </Button>
+                        </StackPanel>
+                    </controls:SettingsItem.Footer>
+                </controls:SettingsItem>
+                <controls:SettingsItem Title="Detect Unreal Version"
+                                       Description="Find the build's Unreal Version on load, reading some of its packages with the versions near the one below (and the one its UEFN names); the one found replaces it."
+                                       IsVisible="{Binding Profile.IsCustomOnDemand}">
+                    <controls:SettingsItem.Footer>
+                        <ToggleSwitch IsChecked="{Binding Profile.AutoUnrealVersion}" />
                     </controls:SettingsItem.Footer>
                 </controls:SettingsItem>
                 <controls:SettingsItem Title="Game Language" 

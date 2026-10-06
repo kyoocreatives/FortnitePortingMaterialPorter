@@ -113,6 +113,20 @@
                         <ToggleSwitch IsChecked="{Binding DownloadFromManifest}" />
                     </controls:SettingsItem.Footer>
                 </controls:SettingsItem>
+                <controls:SettingsItem Title="Build"
+                                       Description="Find the builds this PC's launcher kept (with their UEFN, for exact materials) and the fn-releases archive's: picking one fills the manifests, keys and mappings."
+                                       IsVisible="{Binding IsCustomOnDemand}">
+                    <controls:SettingsItem.Footer>
+                        <StackPanel Orientation="Horizontal">
+                            <ComboBox MinWidth="280" PlaceholderText="Find builds first" ItemsSource="{Binding AvailableBuilds}"
+                                      SelectedItem="{Binding SelectedBuild}" />
+                            <Button Margin="4 0 0 0" Command="{Binding FindBuilds}" IsEnabled="{Binding !IsFindingBuilds}"
+                                    ToolTip.Tip="Find builds">
+                                <material:MaterialIcon Kind="Magnify"/>
+                            </Button>
+                        </StackPanel>
+                    </controls:SettingsItem.Footer>
+                </controls:SettingsItem>
                 <controls:SettingsItem Title="Build Manifest"
                                        Description="The build's .manifest file, or a link to it."
                                        IsVisible="{Binding IsCustomOnDemand}">
@@ -123,6 +137,25 @@
                                 <material:MaterialIcon Kind="File"/>
                             </Button>
                         </StackPanel>
+                    </controls:SettingsItem.Footer>
+                </controls:SettingsItem>
+                <controls:SettingsItem Title="UEFN Manifest"
+                                       Description="The same build's UEFN (Studio) .manifest file, or a link to it: its editor data gives exact materials. Optional."
+                                       IsVisible="{Binding IsCustomOnDemand}">
+                    <controls:SettingsItem.Footer>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding StudioManifestPath}" Watermark="Optional" />
+                            <Button Margin="4 0 0 0" Command="{Binding BrowseStudioManifestFile}">
+                                <material:MaterialIcon Kind="File"/>
+                            </Button>
+                        </StackPanel>
+                    </controls:SettingsItem.Footer>
+                </controls:SettingsItem>
+                <controls:SettingsItem Title="Detect Unreal Version"
+                                       Description="Find the build's Unreal Version on load, reading some of its packages with the versions near the one below (and the one its UEFN names); the one found replaces it."
+                                       IsVisible="{Binding IsCustomOnDemand}">
+                    <controls:SettingsItem.Footer>
+                        <ToggleSwitch IsChecked="{Binding AutoUnrealVersion}" />
                     </controls:SettingsItem.Footer>
                 </controls:SettingsItem>
 

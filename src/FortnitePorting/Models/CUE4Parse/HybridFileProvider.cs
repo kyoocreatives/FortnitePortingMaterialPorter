@@ -96,7 +96,8 @@ public class HybridFileProvider : AbstractVfsFileProvider
             
             UEParse.UpdateStatus($"Registering On-Demand Archive {file.FileName.SubstringAfterLast("/")}");
             
-            var extension = file.FileName.SubstringAfter('.').ToLower();
+            // (after the last dot: the editor data's containers are <name>.o.utoc - Material Porter fork)
+            var extension = file.FileName.SubstringAfterLast('.').ToLower();
             if (extension is "pak" or "utoc")
             {
                 RegisterVfs(file.FileName, (Stream[]) [file.GetStream()],

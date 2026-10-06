@@ -46,6 +46,16 @@ public partial class InstallationProfile : ObservableValidator
     private bool _downloadFromManifest;
 
     [ObservableProperty] private string _manifestPath = string.Empty;
+
+    // the same build's UEFN (Studio) manifest: its editor data gives exact materials
+    [ObservableProperty] private string _studioManifestPath = string.Empty;
+
+    // the Unreal version found by reading the build (the archive leaves most builds' engine out)
+    [ObservableProperty] private bool _autoUnrealVersion = true;
+
+    [ObservableProperty] [property: JsonIgnore] private ObservableCollection<MaterialPorter.OnDemandBuild> _availableBuilds = [];
+    [ObservableProperty] [property: JsonIgnore] private MaterialPorter.OnDemandBuild? _selectedBuild;
+    [ObservableProperty] [property: JsonIgnore] private bool _isFindingBuilds;
     
     [ObservableProperty] private EGame _unrealVersion = EGame.GAME_UE6_0;
     
@@ -109,6 +119,41 @@ public partial class InstallationProfile : ObservableValidator
         {
             MappingsFile = path;
         }
+    }
+
+    public async Task BrowseStudioManifestFile()
+    {
+        if (await App.BrowseFileDialog(fileTypes: new Avalonia.Platform.Storage.FilePickerFileType("Epic Build Manifest") { Patterns = ["*.manifest"] },
+                suggestedFileName: StudioManifestPath) is { } path)
+        {
+            StudioManifestPath = path;
+        }
+    }
+
+    // Material Porter fork: the builds this profile can download - the launcher's on this PC, the archive's
+    public async Task FindBuilds()
+    {
+        IsFindingBuilds = true;
+        try
+        {
+            var builds = await MaterialPorter.OnDemandBuilds.FindAsync(AppSettings.Installation.Profiles.Select(p => p.ArchiveDirectory));
+            AvailableBuilds = new ObservableCollection<MaterialPorter.OnDemandBuild>(builds);
+            Info.Message("Builds", $"{builds.Count} builds found ({builds.Count(b => b.Source == "this PC")} on this PC, {builds.Count(b => b.StudioManifest is not null)} with UEFN)");
+        }
+        finally
+        {
+            IsFindingBuilds = false;
+        }
+    }
+
+    // a build picked: its manifests, then its keys and mappings (Fetch Data)
+    partial void OnSelectedBuildChanged(MaterialPorter.OnDemandBuild? value)
+    {
+        if (value is null) return;
+        ManifestPath = value.Manifest;
+        StudioManifestPath = value.StudioManifest ?? string.Empty;
+        FetchVersion = value.Version;
+        _ = FetchVersionData();
     }
 
     public async Task FetchVersionData()
