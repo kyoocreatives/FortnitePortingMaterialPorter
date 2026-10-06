@@ -359,29 +359,59 @@ public partial class ExportContext
         return objects;
     }
 
+    /// <summary>
+    /// A point, spot or rect light of an asset (Material Porter fork: FP mapped point lights only), as the levels' lights are
+    /// (ExportContext.Light(MapLight)): the values the engine reads (the component's over its templates', else the engine's
+    /// defaults: white, 6500 K, 1000 cm of reach, a 44 degree spot, a 64 cm rect, 8 candelas), in the units it reads them in.
+    /// </summary>
     public ExportLight? LightComponent(ULightComponentBase lightComponent)
     {
         lightComponent.GatherTemplateProperties();
-        return lightComponent switch
+        var kind = lightComponent switch
         {
-            UPointLightComponent pointLightComponent => LightComponent(pointLightComponent),
+            USpotLightComponent => "Spot",
+            URectLightComponent => "Rect",
+            UPointLightComponent => "Point",
             _ => null
         };
-    }
+        if (kind is null) return null;
 
-    public ExportLight LightComponent(UPointLightComponent pointLightComponent)
-    {
-        return new ExportPointLight
+        var intensity = lightComponent.GetOrDefault("Intensity", lightComponent.GetOrDefault("Brightness", 8f));
+        if (intensity < 0 || !float.IsFinite(intensity)) return null;
+
+        ExportLight export = kind switch
         {
-            Name = pointLightComponent.Name,
-            Location = pointLightComponent.RelativeLocation,
-            Rotation = pointLightComponent.RelativeRotation,
-            Scale = pointLightComponent.RelativeScale3D,
-            Intensity = pointLightComponent.Intensity,
-            Color = pointLightComponent.LightColor.ToLinearColor(),
-            CastShadows = pointLightComponent.CastShadows,
-            AttenuationRadius = pointLightComponent.AttenuationRadius,
-            Radius = pointLightComponent.SourceRadius
+            "Spot" => new ExportSpotLight
+            {
+                InnerConeAngle = lightComponent.GetOrDefault("InnerConeAngle", 0f),
+                OuterConeAngle = lightComponent.GetOrDefault("OuterConeAngle", 44f),
+            },
+            "Rect" => new ExportRectLight
+            {
+                SourceWidth = lightComponent.GetOrDefault("SourceWidth", 64f),
+                SourceHeight = lightComponent.GetOrDefault("SourceHeight", 64f),
+                BarnDoorAngle = lightComponent.GetOrDefault("BarnDoorAngle", 88f),
+            },
+            _ => new ExportPointLight(),
         };
+        export = export with
+        {
+            Name = lightComponent.Name,
+            Location = lightComponent.RelativeLocation,
+            Rotation = lightComponent.RelativeRotation,
+            Scale = lightComponent.RelativeScale3D,
+            Intensity = intensity,
+            IntensityUnits = MaterialPorterLightUnits(lightComponent.GetOrDefault<FName>("IntensityUnits").Text),
+            InverseSquaredFalloff = kind == "Rect" || lightComponent.GetOrDefault("bUseInverseSquaredFalloff", lightComponent.GetOrDefault("InverseSquaredFalloff", true)),
+            FalloffExponent = lightComponent.GetOrDefault("LightFalloffExponent", 8f),
+            Color = lightComponent.GetOrDefault("LightColor", new FColor(255, 255, 255, 255)).ToLinearColor(),
+            UseTemperature = lightComponent.GetOrDefault("bUseTemperature", false),
+            Temperature = lightComponent.GetOrDefault("Temperature", 6500f),
+            AttenuationRadius = lightComponent.GetOrDefault("AttenuationRadius", 1000f),
+            Radius = kind == "Rect" ? 0f : lightComponent.GetOrDefault("SourceRadius", 0f),
+            CastShadows = lightComponent.GetOrDefault("CastShadows", true)
+                          && (lightComponent.GetOrDefault("CastDynamicShadows", true) || lightComponent.GetOrDefault("CastStaticShadows", true)),
+        };
+        return export;
     }
 }

@@ -38,6 +38,12 @@ public partial class MeshExport : BaseExport
     public readonly List<ExportOverrideParameters> OverrideParameters = [];
     public readonly List<ExportOverrideMorphTargets> OverrideMorphTargets = [];
     public ExportLightCollection Lights = new();
+    /// <summary>Material Porter fork: a level's decals (a world export's; omitted from any other).</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public List<ExportDecal>? Decals;
+    /// <summary>Material Porter fork: a level's particle systems (a world export's; omitted from any other).</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public List<ExportEffect>? Effects;
     public AnimExport? Animation;
     [Newtonsoft.Json.JsonIgnore] public Dictionary<int, int> CarPicks = [];
     [Newtonsoft.Json.JsonIgnore] public Dictionary<string, int> FacePicks = [];
@@ -351,8 +357,10 @@ public partial class MeshExport : BaseExport
 
                 Name = world.Owner?.Name.SubstringAfterLast("/") ?? world.Name;
                 Meshes.AddRange(Context.World(world));
-                // Material Porter fork: the level's point, spot and rect lights
+                // Material Porter fork: the level's point, spot and rect lights, decals and particle systems
                 Lights.AddRange(Context.MaterialPorterLights);
+                Decals = [.. Context.MaterialPorterDecals];
+                Effects = [.. Context.MaterialPorterEffects];
                 break;
             }
             case EExportType.Item:
@@ -655,6 +663,8 @@ public partial class MeshExport : BaseExport
                 {
                     Meshes.AddRange(Context.World(caveWorld));
                     Lights.AddRange(Context.MaterialPorterLights);
+                    Decals = [.. Context.MaterialPorterDecals];
+                    Effects = [.. Context.MaterialPorterEffects];
                 }
                 break;
             }

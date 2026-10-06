@@ -237,7 +237,7 @@ public sealed class MaterialService
                 info.Master = cur;
                 foreach (var k in new[] { "BlendMode", "ShadingModel", "TwoSided", "OpacityMaskClipValue", "bUseMaterialAttributes",
                                           "bTangentSpaceNormal", "MaterialDomain", "bIsSky", "bUsedWithSkeletalMesh",
-                                          "TranslucencyLightingMode", "bAllowNegativeEmissiveColor" })
+                                          "TranslucencyLightingMode", "bAllowNegativeEmissiveColor", "DecalBlendMode" })
                     if (p[k] != null) info.Asset[k] = p[k].ToObject<object>();
                 // UE's default, which the cooked asset leaves out (the add-on tells it from an older app's silence)
                 info.Asset.TryAdd("TranslucencyLightingMode", "ETranslucencyLightingMode::TLM_VolumetricNonDirectional");

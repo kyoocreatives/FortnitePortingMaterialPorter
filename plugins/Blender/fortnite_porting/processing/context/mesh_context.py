@@ -35,14 +35,18 @@ def light_candelas(light, solid_angle):
     A light with the older falloff (Fortnite's street lamps and floodlights: bUseInverseSquaredFalloff off) has a
     brightness instead, whatever its units say, that fades as (1 - (d / reach)^2)^exponent: it is given the candelas
     that light a surface the same a third of the way out (as the particle lights of effect_replay are).
+    A light of no brightness (a car's headlights, which its Blueprint turns on when it drives: Intensity 0) is 0 candelas
+    whatever its units; a missing, negative or non-finite Intensity counts as 0 too.
     """
     intensity = light.get("Intensity")
+    if intensity is None or not np.isfinite(intensity) or intensity <= 0.0:
+        return 0.0
     if not light.get("InverseSquaredFalloff", True):
-        d = light.get("AttenuationRadius") / 3.0
+        d = (light.get("AttenuationRadius") or 0.0) / 3.0
         return intensity * (8.0 / 9.0) ** max(light.get("FalloffExponent", 8.0), 0.0) * (d * d + 1.0) / 1e4
     units = light.get("IntensityUnits") or "Candelas"
     if units == "Lumens":
-        return intensity / solid_angle
+        return intensity / max(solid_angle, 1e-6)
     if units == "Unitless":
         return intensity / 625.0
     return intensity
@@ -619,12 +623,12 @@ class MeshImportContext:
         # (a light's colour stops at white: what a hot tint goes past it moves to its power)
         peak = max(max(rgb), 1.0)
         light_data.color = [c / peak for c in rgb]
-        light_data.energy = light_candelas(data, solid_angle) * LIGHT_CANDELA_TO_WATTS * peak
+        light_data.energy = float(light_candelas(data, solid_angle) * LIGHT_CANDELA_TO_WATTS * peak)
         light_data.use_custom_distance = True
         light_data.cutoff_distance = data.get("AttenuationRadius") * self.scale
         light_data.use_shadow = data.get("CastShadows")
         # what UE stored, to retune the power by
-        light_data["ue_intensity"] = data.get("Intensity")
+        light_data["ue_intensity"] = data.get("Intensity") or 0.0
         light_data["ue_units"] = data.get("IntensityUnits") or "Candelas"
         return light, light_data
 

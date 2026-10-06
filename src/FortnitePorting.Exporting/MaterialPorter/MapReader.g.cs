@@ -38,6 +38,11 @@ public sealed class MapMesh
     public Dictionary<string, object> Spline { get; init; }
     /// <summary>What a big mesh covers (UE X/Y, world): an area keeps it when they overlap (water bodies); else null.</summary>
     public (float MinX, float MinY, float MaxX, float MaxY)? Area { get; init; }
+    /// <summary>
+    /// False when the component casts no shadow in the game (CastShadow, UE's master flag, off; or both bCastDynamicShadow and
+    /// bCastStaticShadow off): a lamp's housing around its light.
+    /// </summary>
+    public bool CastShadow { get; init; } = true;
     /// <summary>Where it stands, for an area's test: its origin, a spline mesh's segment middle.</summary>
     public Vector3 Anchor
     {
@@ -88,6 +93,39 @@ public sealed class MapLight
     public float SourceWidth { get; init; }
     public float SourceHeight { get; init; }
     public float BarnDoorAngle { get; init; }
+}
+
+/// <summary>
+/// A decal a map places (a DecalComponent: a DecalActor's, a Blueprint's): its world matrix (UE space, row vectors, cm; the
+/// decal projects along its X axis) and what the engine reads of it. Its half extents are DecalSize times the matrix's scale.
+/// </summary>
+public sealed class MapDecal
+{
+    public string Name { get; init; }
+    public string Actor { get; init; }
+    public string Level { get; init; }
+    public Matrix4x4 World { get; init; }
+    /// <summary>cm: the half extents before the component's scale (X the depth along the projection, Y and Z the footprint); UE's 128, 256, 256 unless stored.</summary>
+    public Vector3 DecalSize { get; init; }
+    public int SortOrder { get; init; }
+    public float FadeScreenSize { get; init; }
+    /// <summary>The decal material's asset path (or a dynamic instance's parent asset's).</summary>
+    public string Material { get; init; }
+    /// <summary>The values a dynamic instance sets over the material; else null.</summary>
+    public ParamSet Params { get; init; }
+}
+
+/// <summary>A particle system a map places (a NiagaraComponent: a NiagaraActor's, a Blueprint's): where, and its user parameters' overrides.</summary>
+public sealed class MapEffect
+{
+    public string Name { get; init; }
+    public string Actor { get; init; }
+    public string Level { get; init; }
+    public Matrix4x4 World { get; init; }
+    /// <summary>The Niagara system's asset path.</summary>
+    public string System { get; init; }
+    /// <summary>The component's user parameter overrides by name (as the system names them: "x", not "User.x"): a float, an int, a bool, or floats (a vector, a colour); may be empty.</summary>
+    public Dictionary<string, object> Parameters { get; init; } = new();
 }
 
 public sealed class MapOptions
@@ -161,6 +199,10 @@ public sealed class MapScan
     public List<MapMesh> Meshes { get; set; } = new();
     /// <summary>Its point, spot and rect lights (visible ones).</summary>
     public List<MapLight> Lights { get; set; } = new();
+    /// <summary>Its decals (visible ones with a material).</summary>
+    public List<MapDecal> Decals { get; set; } = new();
+    /// <summary>Its particle systems (visible ones with a system, not a device's).</summary>
+    public List<MapEffect> Effects { get; set; } = new();
     /// <summary>The landscape pieces its levels hold (exported when the bundle is made).</summary>
     public List<MapLandscape> Landscapes { get; set; } = new();
     /// <summary>The area asked for, if any.</summary>
@@ -242,6 +284,8 @@ public sealed class MapReader
     readonly ConcurrentDictionary<string, byte> streamed = new(StringComparer.OrdinalIgnoreCase);
     public readonly ConcurrentBag<MapMesh> Placed = new();
     public readonly ConcurrentBag<MapLight> Lights = new();
+    public readonly ConcurrentBag<MapDecal> Decals = new();
+    public readonly ConcurrentBag<MapEffect> Effects = new();
     public readonly ConcurrentBag<MapLandscape> Landscapes = new();
     public int Count => Placed.Count;
     static readonly JsonSerializerSettings Ser = new() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore };
@@ -337,7 +381,11 @@ public sealed class MapReader
             Interlocked.Increment(ref scan.Actors);
             try { await ActorAsync(actor, ctx, depth, ct); }
             catch (OperationCanceledException) { throw; }
-            catch { scan.Skip("unreadable actors"); }
+            catch (Exception e)
+            {
+                var why = (e.Message ?? "").Split('\n')[0];
+                scan.Skip($"unreadable actors ({e.GetType().Name}: {(why.Length > 90 ? why[..90] : why)})");
+            }
         }
 
         // a classic map's streamed sublevels, each where its streaming object puts it
@@ -395,7 +443,10 @@ public sealed class MapReader
         }
     }
 
-    static readonly string[] SkipActorPrefixes = { "Device_", "VerseDevice_", "BP_Device_" };
+    /// <summary>Devices: nothing of theirs is placed (they play when someone interacts).</summary>
+    static readonly string[] SkipActorPrefixes = { "Device_", "VerseDevice_" };
+    /// <summary>Blueprint devices: their meshes and lights stay out too, but their particle systems play on their own (a mushroom bouncer's light beams).</summary>
+    static readonly string[] EffectsOnlyPrefixes = { "BP_Device_" };
 
     async Task ActorAsync(UObject actor, LevelContext ctx, int depth, CancellationToken ct)
     {
@@ -438,6 +489,14 @@ public sealed class MapReader
         var rootName = RefChain(actor, "RootComponent")?.Name;
         var root = rootName == null ? null : comps.FirstOrDefault(c => c.Name == rootName);
 
+        if (EffectsOnlyPrefixes.Any(p => type.StartsWith(p, StringComparison.Ordinal) || actor.Name.StartsWith(p, StringComparison.Ordinal)))
+        {
+            scan.Skip("devices");
+            foreach (var c in comps)
+                if (c.ExportType.EndsWith("NiagaraComponent", StringComparison.Ordinal)) Effect(c, actor, ctx, root);
+            return;
+        }
+
         // level instances and a foundation's extra worlds: those levels, placed here
         if (depth < 4)
         {
@@ -475,6 +534,16 @@ public sealed class MapReader
             if (LightKind(c) is { } lightKind)
             {
                 Light(c, lightKind, actor, ctx, root);
+                continue;
+            }
+            if (ctype.EndsWith("DecalComponent", StringComparison.Ordinal))
+            {
+                Decal(c, actor, ctx, root);
+                continue;
+            }
+            if (ctype.EndsWith("NiagaraComponent", StringComparison.Ordinal))
+            {
+                Effect(c, actor, ctx, root);
                 continue;
             }
             if (!waterSurface && (ctype.StartsWith("ShadowProxy", StringComparison.Ordinal) || ctype.Contains("Landscape", StringComparison.Ordinal)
@@ -533,6 +602,7 @@ public sealed class MapReader
                 cpd = all;
             }
             var world = ctx.World(c, root);
+            var castShadow = Prop(c, "CastShadow", true) && (Prop(c, "bCastDynamicShadow", true) || Prop(c, "bCastStaticShadow", true));
 
             if (c is UInstancedStaticMeshComponent ism)
             {
@@ -553,13 +623,13 @@ public sealed class MapReader
                     {
                         Mesh = mesh, World = Of(data[i].TransformData) * world, Overrides = overrides, Params = ps,
                         AllSlots = main ? skin : null, Actor = actor.Name, Level = ctx.Level,
-                        PrimitiveData = perInstanceCpd ? mine : cpd, InstanceData = mine,
+                        PrimitiveData = perInstanceCpd ? mine : cpd, InstanceData = mine, CastShadow = castShadow,
                     });
                 }
                 continue;
             }
             Placed.Add(new MapMesh { Mesh = mesh, World = world, Overrides = overrides, Params = ps, AllSlots = main ? skin : null, Actor = actor.Name, Level = ctx.Level, Spline = spline,
-                               PrimitiveData = cpd, Area = area });
+                               PrimitiveData = cpd, Area = area, CastShadow = castShadow });
         }
     }
 
@@ -629,8 +699,8 @@ public sealed class MapReader
     /// templates', else the engine's defaults: white, 6500 K, 1000 cm of reach, a 44 degree spot, a 64 cm rect,
     /// 8 candelas, the brightness a light is placed with). Fortnite's lights state no units unless they leave the
     /// project's default (a street lamp: 20, a floodlight: 8), and those figures are candelas: Unitless would make them
-    /// 1/625 as bright. Hidden lights (bVisible, bHiddenInGame, bAffectsWorld) and lights of no brightness (a car's
-    /// headlights, which its Blueprint turns on when it drives) place nothing.
+    /// 1/625 as bright. Hidden lights (bVisible, bHiddenInGame, bAffectsWorld) place nothing; lights of no brightness (a
+    /// car's headlights, which its Blueprint turns on when it drives) are placed at 0.
     /// </summary>
     void Light(UObject c, string kind, UObject actor, LevelContext ctx, UObject root)
     {
@@ -640,9 +710,10 @@ public sealed class MapReader
             return;
         }
         var intensity = Prop(c, "Intensity", Prop(c, "Brightness", 8f));
-        if (intensity <= 0)
+        // (a light of no brightness stays: a car's headlights, which its Blueprint turns on when it drives, are lights at 0)
+        if (intensity < 0 || !float.IsFinite(intensity))
         {
-            scan.Skip("lights of no brightness");
+            scan.Skip("lights of negative brightness");
             return;
         }
         var unitsName = Prop(c, "IntensityUnits", new FName()).Text ?? "";
@@ -670,6 +741,122 @@ public sealed class MapReader
             SourceHeight = kind == "Rect" ? Prop(c, "SourceHeight", 64f) : 0f,
             BarnDoorAngle = kind == "Rect" ? Prop(c, "BarnDoorAngle", 88f) : 0f,
         });
+    }
+
+    // ------------------------------------------------------------ decals and particle systems
+
+    /// <summary>
+    /// A decal: its world matrix (it projects along its X axis) and what the engine reads of it (DecalSize, the half extents
+    /// before the component's scale: UE's 128, 256, 256 unless stored; SortOrder; FadeScreenSize), wearing DecalMaterial (a
+    /// dynamic instance's values over its parent). Hidden decals and decals without a material place nothing.
+    /// </summary>
+    void Decal(UObject c, UObject actor, LevelContext ctx, UObject root)
+    {
+        if (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false))
+        {
+            scan.Skip("hidden decals");
+            return;
+        }
+        var (material, values) = RefChain(c, "DecalMaterial") is { } idx ? Material(idx) : (null, null);
+        if (material == null)
+        {
+            scan.Skip("decals without a material");
+            return;
+        }
+        var size = Prop(c, "DecalSize", new FVector(128f, 256f, 256f));
+        Decals.Add(new MapDecal
+        {
+            Name = c.Name, Actor = actor.Name, Level = ctx.Level, World = ctx.World(c, root),
+            DecalSize = new Vector3((float)size.X, (float)size.Y, (float)size.Z),
+            SortOrder = Prop(c, "SortOrder", 0),
+            FadeScreenSize = Prop(c, "FadeScreenSize", 0.01f),
+            Material = material, Params = values,
+        });
+    }
+
+    /// <summary>
+    /// A particle system (NiagaraComponent): its world matrix, its system's path and the user parameters its overrides set.
+    /// Hidden components and components without a system place nothing.
+    /// </summary>
+    void Effect(UObject c, UObject actor, LevelContext ctx, UObject root)
+    {
+        if (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false))
+        {
+            scan.Skip("hidden effects");
+            return;
+        }
+        var system = PathOf(RefChain(c, "Asset"));
+        if (system == null)
+        {
+            scan.Skip("effects without a system");
+            return;
+        }
+        Effects.Add(new MapEffect
+        {
+            Name = c.Name, Actor = actor.Name, Level = ctx.Level, World = ctx.World(c, root),
+            System = system, Parameters = UserParametersSafe(c),
+        });
+    }
+
+    Dictionary<string, object> UserParametersSafe(UObject c)
+    {
+        try { return UserParameters(c); }
+        catch (Exception e)
+        {
+            scan.Skip($"effects whose parameters couldn't be read ({e.GetType().Name}: {(e.Message ?? "").Split('\n')[0]})");
+            return new Dictionary<string, object>();
+        }
+    }
+
+    /// <summary>
+    /// A Niagara component's user parameter overrides: its OverrideParameters store (the level's, else its template's) is
+    /// a byte block (ParameterData) and where each named parameter sits in it (SortedParameterOffsets: Offset, Name, TypeDef).
+    /// Floats, ints, bools, vectors and colours are read; a store that names no parameters (or types read elsewhere) gives none.
+    /// </summary>
+    Dictionary<string, object> UserParameters(UObject c)
+    {
+        var found = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var x in Chain(c))
+        {
+            // (read through the export's JSON, as a dynamic instance's values are: the struct's arrays come as plain tokens)
+            if (JObject.Parse(JsonConvert.SerializeObject(x, Ser))["Properties"]?["OverrideParameters"] is not JObject store) continue;
+            if (store["SortedParameterOffsets"] is not JArray offsets || offsets.Count == 0) continue;
+            if (store["ParameterData"] is not JArray bytes || bytes.Count == 0) continue;
+            var data = bytes.Select(b => (byte)b).ToArray();
+            foreach (var entry in offsets)
+            {
+                var name = (string)entry["Name"];
+                // (named as the system names them: the store says "User.x", the plugin sets "User." + name)
+                if (name != null && name.StartsWith("User.", StringComparison.Ordinal)) name = name[5..];
+                var offset = (int?)entry["Offset"] ?? -1;
+                var typeName = (string)entry["TypeDef"]?["ClassStructOrEnum"]?["ObjectName"] ?? "";
+                if (string.IsNullOrEmpty(name) || offset < 0) continue;
+                // "Class'NiagaraFloat'" -> NiagaraFloat
+                var q = typeName.IndexOf('\'');
+                var type = q >= 0 && typeName.LastIndexOf('\'') > q ? typeName[(q + 1)..typeName.LastIndexOf('\'')] : typeName;
+                var floats = type switch
+                {
+                    "NiagaraFloat" => 1,
+                    "Vector2f" => 2,
+                    "Vector3f" or "NiagaraPosition" => 3,
+                    "Vector4f" or "LinearColor" or "Quat4f" => 4,
+                    _ => 0,
+                };
+                if (floats > 0 && offset + floats * 4 <= data.Length)
+                {
+                    var v = new float[floats];
+                    for (var i = 0; i < floats; i++) v[i] = BitConverter.ToSingle(data, offset + i * 4);
+                    if (v.All(float.IsFinite)) found[name] = floats == 1 ? (object)v[0] : v;
+                }
+                else if (type is "NiagaraInt32" or "NiagaraBool" && offset + 4 <= data.Length)
+                {
+                    var n = BitConverter.ToInt32(data, offset);
+                    found[name] = type == "NiagaraBool" ? n != 0 : n;
+                }
+            }
+            break;
+        }
+        return found;
     }
 
     // ------------------------------------------------------------ materials
@@ -821,7 +1008,8 @@ public sealed class MapReader
     Matrix4x4 Local(UObject c)
     {
         var l = Prop(c, "RelativeLocation", new FVector(0, 0, 0));
-        var r = Prop(c, "RelativeRotation", new FRotator(0, 0, 0));
+        // (a DecalActor's decal faces down unless the level stores another rotation: ADecalActor's constructor sets its pitch to -90)
+        var r = Prop(c, "RelativeRotation", c.Outer?.Class?.Name.Text == "DecalActor" && c.ExportType.EndsWith("DecalComponent", StringComparison.Ordinal) ? new FRotator(-90, 0, 0) : new FRotator(0, 0, 0));
         var s = Prop(c, "RelativeScale3D", new FVector(1, 1, 1));
         var q = r.Quaternion();
         return Matrix4x4.CreateScale((float)s.X, (float)s.Y, (float)s.Z)

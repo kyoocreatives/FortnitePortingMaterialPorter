@@ -24,6 +24,9 @@ public partial record MaterialPorterMesh : ExportMesh
     public Dictionary<string, object>? MPSpline;
     /// <summary>A landscape's weight layers: LayerInfo asset name (FP's colour layer name) -> LayerName.</summary>
     public Dictionary<string, string>? MPLayerNames;
+    /// <summary>False when the component casts no shadow in the game (a lamp's housing around its light); omitted when it casts.</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public bool? MPCastShadow;
     /// <summary>The parent's bone the mesh follows (a weapon mod on its attach bone), or null: the parent itself.</summary>
     public string? MPParentBone;
     /// <summary>

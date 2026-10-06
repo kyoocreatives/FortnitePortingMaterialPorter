@@ -44,6 +44,12 @@ public partial class ExportContext
     /// <summary>The point, spot and rect lights the levels read so far: a world export puts them in its Lights (MeshExport).</summary>
     public readonly List<ExportLight> MaterialPorterLights = [];
 
+    /// <summary>The decals the levels read so far: a world export puts them in its Decals (MeshExport).</summary>
+    public readonly List<ExportDecal> MaterialPorterDecals = [];
+
+    /// <summary>The particle systems the levels read so far: a world export puts them in its Effects (MeshExport).</summary>
+    public readonly List<ExportEffect> MaterialPorterEffects = [];
+
     public List<ExportMesh>? MaterialPorterLevel(ULevel level)
     {
         if (level.Owner?.Name is not { } package) return null;
@@ -105,7 +111,21 @@ public partial class ExportContext
                 .OrderBy(l => l.Actor, StringComparer.Ordinal).ThenBy(l => l.Name, StringComparer.Ordinal)
                 .ThenBy(l => l.World.M41).ThenBy(l => l.World.M42).ThenBy(l => l.World.M43);
             foreach (var l in lights) MaterialPorterLights.Add(Light(l));
-            Log.Information("[Material Porter] {Level}: {Count} placements, {Lights} lights, skipped {Skipped}", package, meshes.Count, reader.Lights.Count,
+
+            var decals = reader.Decals.Where(d => MaterialPorterActorFilter is null || d.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(d => d.Actor, StringComparer.Ordinal).ThenBy(d => d.Name, StringComparer.Ordinal)
+                .ThenBy(d => d.World.M41).ThenBy(d => d.World.M42).ThenBy(d => d.World.M43);
+            foreach (var d in decals)
+            {
+                if (CancellationToken.IsCancellationRequested) break;
+                MaterialPorterDecals.AddIfNotNull(Decal(d));
+            }
+            var effects = reader.Effects.Where(e => MaterialPorterActorFilter is null || e.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(e => e.Actor, StringComparer.Ordinal).ThenBy(e => e.Name, StringComparer.Ordinal)
+                .ThenBy(e => e.World.M41).ThenBy(e => e.World.M42).ThenBy(e => e.World.M43);
+            foreach (var e in effects) MaterialPorterEffects.Add(Effect(e));
+            Log.Information("[Material Porter] {Level}: {Count} placements ({Unshadowed} casting no shadow), {Lights} lights, {Decals} decals, {Effects} effects, skipped {Skipped}",
+                package, meshes.Count, meshes.Count(m => m is MaterialPorterMesh { MPCastShadow: false }), reader.Lights.Count, reader.Decals.Count, reader.Effects.Count,
                 string.Join(", ", scan.Skipped.Select(kv => $"{kv.Value} {kv.Key}")));
         }
 
@@ -233,6 +253,55 @@ public partial class ExportContext
         return export;
     }
 
+    /// <summary>A light's units from the name of UE's ELightUnits value (as the map reader names them); unset is candelas.</summary>
+    private static string MaterialPorterLightUnits(string? name) =>
+        name is null ? "Candelas"
+        : name.Contains("Lumens", StringComparison.Ordinal) ? "Lumens"
+        : name.Contains("Unitless", StringComparison.Ordinal) ? "Unitless"
+        : name.EndsWith("EV", StringComparison.Ordinal) ? "EV"
+        : name.Contains("Nits", StringComparison.Ordinal) ? "Nits"
+        : "Candelas";
+
+    /// <summary>
+    /// One decal as the world export's record: the component's world transform (as the meshes'), the projection box, and its
+    /// material as a mesh slot's entry (Material over the asset, a dynamic instance's values as MPValues: SlotMaterial, as Placement
+    /// gives each slot). Null when the material can't be exported.
+    /// </summary>
+    private ExportDecal? Decal(MapDecal d)
+    {
+        if (LoadMaterialPorterObject(d.Material) is not UMaterialInterface mi || Material(mi, 0) is not { } material) return null;
+        var export = new ExportDecal
+        {
+            Name = d.Name,
+            DecalSize = new FVector(d.DecalSize.X, d.DecalSize.Y, d.DecalSize.Z),
+            SortOrder = d.SortOrder,
+            FadeScreenSize = d.FadeScreenSize,
+            Material = SlotMaterial(material, 0, d.Params ?? new ParamSet()),
+        };
+        SetMaterialPorterTransform(export, d.World);
+        return export;
+    }
+
+    /// <summary>One particle system as the world export's record: the component's world transform and its system's path and user parameters.</summary>
+    private static ExportEffect Effect(MapEffect e)
+    {
+        var export = new ExportEffect { Name = e.Name, System = e.System, Parameters = e.Parameters };
+        SetMaterialPorterTransform(export, e.World);
+        return export;
+    }
+
+    /// <summary>A slot's material as the plugin reads it: the material in its slot, a dynamic instance's or a building's values (MPValues) over it.</summary>
+    private static ExportMaterial SlotMaterial(ExportMaterial material, int slot, ParamSet values)
+    {
+        var hasValues = values.Scalars.Count + values.Vectors.Count + values.Textures.Count > 0;
+        if (!hasValues) return material with { Slot = slot };
+        return new MaterialPorterMaterial(material with { Slot = slot })
+        {
+            MPValues = values,
+            Hash = HashCode.Combine(material.Hash, values.Key()),
+        };
+    }
+
     /// <summary>One placement as FP's mesh record: the mesh (exported once), where it stands, what its slots wear.</summary>
     private ExportMesh? Placement(MapMesh m)
     {
@@ -256,6 +325,7 @@ public partial class ExportContext
             MPPrimitiveData = m.PrimitiveData,
             MPInstanceData = m.InstanceData,
             MPSpline = m.Spline,
+            MPCastShadow = m.CastShadow ? null : false,
         };
         export.Materials.AddRange(template.Materials);
         SetMaterialPorterTransform(export, m.World);
@@ -278,16 +348,7 @@ public partial class ExportContext
 
             material ??= template.Materials.FirstOrDefault(x => x.Slot == slot);
             if (material is null) continue;
-            if (hasValues)
-            {
-                material = new MaterialPorterMaterial(material with { Slot = slot })
-                {
-                    MPValues = values,
-                    Hash = HashCode.Combine(material.Hash, values.Key()),
-                };
-            }
-            else material = material with { Slot = slot };
-            export.OverrideMaterials.Add(material);
+            export.OverrideMaterials.Add(SlotMaterial(material, slot, values));
         }
         return export;
     }
