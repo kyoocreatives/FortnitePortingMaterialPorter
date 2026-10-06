@@ -33,12 +33,74 @@ def after_import(mesh, obj, mesh_obj, scale):
         target["mp_landscape"] = 1.0
     if cpd := mesh.get("MPPrimitiveData"):
         target["mp_cpd"] = 1.0
+        # (how many: an index past them reads the material parameter's default, as in UE)
+        target["mp_cpd_n"] = float(len(cpd))
         for j, x in enumerate(cpd):
             target["mp_cpd%d" % j] = float(x)
     if pic := mesh.get("MPInstanceData"):
         target["mp_pic"] = float(len(pic))
         for j, x in enumerate(pic):
             target["mp_pic%d" % j] = float(x)
+
+
+_UVS = {}       # material name -> (its session id, the UV maps its trees read)
+
+
+def uvs_read(material):
+    """The UV maps (by name) an exact material's trees read, through nested groups too; walked
+    once per material (a name, its id: a material built again under the same name is walked again)."""
+    name = material.name
+    hit = _UVS.get(name)
+    if hit is not None and hit[0] == material.session_uid:
+        return hit[1]
+    names = set()
+    if name.startswith("MP ") and material.node_tree is not None:
+        seen, todo = set(), [material.node_tree]
+        while todo:
+            tree = todo.pop()
+            if tree is None or tree.name in seen:
+                continue
+            seen.add(tree.name)
+            for node in tree.nodes:
+                kind = node.type
+                if kind == 'GROUP':
+                    todo.append(node.node_tree)
+                elif kind in ('UVMAP', 'NORMAL_MAP', 'TANGENT') and node.uv_map:
+                    names.add(node.uv_map)
+    _UVS[name] = (material.session_uid, names)
+    return names
+
+
+def ensure_uvs(mesh, material):
+    """UE binds a texture coordinate a mesh doesn't have to the mesh's last UV channel (the vertex
+    factory fills the remaining streams with it): each UV map the material reads that the mesh lacks
+    becomes a copy of the mesh's last one (Blender samples one texel from a missing map). A mesh with
+    no UV map gets none; a mesh's data is shared by its instances, so one that has the map is left."""
+    layers = mesh.uv_layers
+    count = len(layers)
+    if not count:
+        return
+    missing = [n for n in sorted(uvs_read(material)) if n not in layers]
+    if not missing or not len(mesh.loops):
+        return
+    import numpy
+    buf = numpy.empty(len(mesh.loops) * 2, dtype=numpy.float32)
+    layers[count - 1].data.foreach_get("uv", buf)
+    for name in missing:
+        try:
+            layer = layers.new(name=name, do_init=False)
+        except RuntimeError:        # (Blender's limit of eight UV maps)
+            return
+        if layer is None:
+            return
+        layer.data.foreach_set("uv", buf)
+
+
+def ensure_slot_uvs(slot, material):
+    """ensure_uvs for a mesh object's material slot (not a material read alone)."""
+    obj = slot.id_data
+    if material is not None and getattr(obj, "type", None) == 'MESH':
+        ensure_uvs(obj.data, material)
 
 
 def follow_bone(obj, bone):

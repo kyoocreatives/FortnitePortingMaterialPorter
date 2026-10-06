@@ -530,7 +530,10 @@ class MaterialEnv:
         """UE's Custom Primitive Data: floats a placed component carries (a
         tree's season tint), read from the object's custom properties
         mp_cpd<index> (a map import sets them, with mp_cpd = 1); an object
-        without them keeps the material's own value `v`."""
+        without them keeps the material's own value `v`, and so does an index
+        past the array the component carries (mp_cpd_n floats: UE starts a
+        primitive's data from the parameters' defaults; an object imported
+        before mp_cpd_n existed reads 0 there and keeps covering them all)."""
         tr = self.tr
 
         def attr(name):
@@ -542,6 +545,12 @@ class MaterialEnv:
                 return Val(n.outputs["Fac"], 1)
             return self.once("attr " + name, make)
         flag = attr("mp_cpd")
+        # the indices this read touches, covered by the object's array
+        count = attr("mp_cpd_n")
+        last = index if w == 1 else index + 2
+        covered = tr.math('MAXIMUM', tr.math('GREATER_THAN', count, tr.const(float(last) + 0.5)),
+                          tr.math('LESS_THAN', count, tr.const(0.5)))
+        flag = tr.math('MULTIPLY', flag, covered)
         if w == 1:
             data = attr("mp_cpd%d" % index)
             return tr.math('ADD', v, tr.math('MULTIPLY', tr.math('SUBTRACT', data, v), flag))

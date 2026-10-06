@@ -185,6 +185,9 @@ class MaterialImportContext:
                                   and existing_material.get("MPLandscapeLayers") == landscape):
             if not as_material_data:
                 material_slot.material = existing_material
+                # Material Porter fork: the UV maps an exact material reads that the mesh lacks (UE reads the last)
+                from ...material_porter.placement import ensure_slot_uvs
+                ensure_slot_uvs(material_slot, existing_material)
                 # Material Porter fork: a reused cel-shaded material still gets this mesh its outline
                 if is_toon(material_data):
                     self.add_toon_outline = True
@@ -281,6 +284,8 @@ class MaterialImportContext:
                 del exact["MPHideElements"]
             if not as_material_data:
                 material_slot.material = exact
+                from ...material_porter.placement import ensure_slot_uvs
+                ensure_slot_uvs(material_slot, exact)
             if material.users == 0:
                 bpy.data.materials.remove(material)
             material_hash_cache[hash_key] = exact
