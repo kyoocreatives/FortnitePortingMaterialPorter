@@ -140,6 +140,26 @@ def _animated(root):
     return False
 
 
+def _plain_world(obj):
+    """An object's world matrix worked out from the transforms it carries, or None where that isn't what the scene
+    would give (a parent on a bone or a vertex, a constraint, an animation or a driver up the chain). An object's
+    matrix_world is what the last evaluation made of it: an object made since has none, and evaluating a scene of
+    tens of thousands of objects once for each effect a level places costs most of a second a time."""
+    chain = []
+    at = obj
+    while at is not None:
+        data = at.animation_data
+        animated = data is not None and (data.action is not None or len(data.nla_tracks) or len(data.drivers))
+        if len(at.constraints) or animated or (at.parent is not None and at.parent_type != 'OBJECT'):
+            return None
+        chain.append(at)
+        at = at.parent
+    m = chain[-1].matrix_basis.copy()
+    for at in reversed(chain[:-1]):
+        m = m @ at.matrix_parent_inverse @ at.matrix_basis
+    return m
+
+
 class Stand:
     """Where the effect and its character stand, frame by frame: the effect's empty's transform,
     the armature's, and the bones and sockets the effect's scripts read."""
@@ -147,7 +167,8 @@ class Stand:
     def __init__(self, scene, root, rig, reads, scale, sockets=None):
         self.scene, self.root, self.rig, self.scale = scene, root, rig, scale
         self.seen = {}      # frame: its stand (an effect played several times asks for a frame again)
-        self.still = None if _animated(root) else False     # unmoving: one frame's stand serves them all
+        self.animated = _animated(root)
+        self.still = None if self.animated else False       # unmoving: one frame's stand serves them all
         self.bones = {}     # name read: (pose bone, where on it: a socket the armature doesn't have, else None)
         if rig is not None:
             by_name = {b.name.lower(): b for b in rig.pose.bones} if rig.type == 'ARMATURE' else {}
@@ -171,8 +192,12 @@ class Stand:
             return self.seen[frame]
         if self.still is None:
             self.scene.frame_set(frame)
-        bpy.context.view_layer.update()
-        owner = _ue(self.root.matrix_world, self.scale)
+        # (a still effect with no bones to read: where its objects stand by their own transforms, the scene unevaluated)
+        world = _plain_world(self.root) if self.still is False and self.rig is None and not self.bones else None
+        if world is None:
+            bpy.context.view_layer.update()
+            world = self.root.matrix_world
+        owner = _ue(world, self.scale)
         pose = {}
         for name, (bone, place) in self.bones.items():
             m = _ue(place if bone is None else bone.matrix @ place if place is not None else bone.matrix, self.scale)
@@ -963,8 +988,11 @@ def _camera(scene, root, scale, world):
     units, in the world or in the effect's own space. None without a camera."""
     if scene.camera is None:
         return None
-    bpy.context.view_layer.update()
-    m = scene.camera.matrix_world if world else root.matrix_world.inverted() @ scene.camera.matrix_world
+    camera, there = _plain_world(scene.camera), _plain_world(root)
+    if camera is None or there is None:
+        bpy.context.view_layer.update()
+        camera, there = scene.camera.matrix_world, root.matrix_world
+    m = camera if world else there.inverted() @ camera
     flip = lambda v: (v.x, -v.y, v.z)
     position = tuple(c / scale for c in flip(m.translation))
     return (position, flip(-m.col[2].xyz.normalized()), flip(m.col[1].xyz.normalized()), flip(m.col[0].xyz.normalized()))
@@ -1115,7 +1143,7 @@ def play(root):
             last = start + offset + lengths[i] if i < len(lengths) and lengths[i] > 0 else None
             runs.append((offset, replay(one, fps, frames - offset, stand, start + offset, last, watch if i == 0 else ())))
     finally:
-        if stand is not None:
+        if stand is not None and stand.animated:
             scene.frame_set(now)
     tracks = runs[0][1] if len(runs) == 1 else _together(runs, [e.name for e in system.emitters])
     emitters = {e.name: e for e in system.emitters}
