@@ -273,10 +273,23 @@ class MaterialEnv:
         return (tr.math('DIVIDE', tr.math('ADD', u, column), tr.const(across)),
                 tr.math('DIVIDE', tr.math('ADD', v, row), tr.const(down)))
 
+    def landscape_layer(self, name):
+        """Whether a layer is painted on the landscape component this material is built for
+        (the import's set, entry["landscape_layers"]: a LandscapeLayerSwitch compiles its
+        LayerNotUsed side otherwise, as UE does per component); unknown: as if it were."""
+        layers = self.entry.get("landscape_layers")
+        return True if layers is None else name in layers
+
     def landscape_weight(self, name):
         """A landscape layer's weight: the exported landscape's colour layer of
         that name (a grey weight: its red channel); on another mesh, or where
-        a component doesn't paint the layer, 0."""
+        a component doesn't paint the layer, 0. A layer the component is known not
+        to paint: None - left out of the blend, its textures with it, as UE compiles
+        each component (the Ch4 jungle landscape's 43 samplers are past Eevee's 32)."""
+        layers = self.entry.get("landscape_layers")
+        if layers is not None and name not in layers:
+            return None
+
         def make():
             n = self.tr.node("ShaderNodeVertexColor", "layer " + name)
             n.layer_name = name

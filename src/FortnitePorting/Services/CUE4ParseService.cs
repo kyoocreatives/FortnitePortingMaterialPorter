@@ -244,6 +244,8 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         Log.Information("Texture Streaming: {UseTextureStreaming}", AppSettings.Installation.CurrentProfile.UseTextureStreaming);
         
         ObjectTypeRegistry.RegisterEngine(typeof(UFortGameFeatureData).Assembly);
+        // Material Porter fork: island landscape collision components left unread (SkippedExports)
+        MaterialPorter.SkippedExports.Register();
 
         Provider.LoadOnDemandTocs = AppSettings.Installation.CurrentProfile is { TextureStreamingEnabled: true, UseTextureStreaming: true };
         Provider.LoadExtraDirectories = AppSettings.Installation.CurrentProfile.LoadInstalledBundles;

@@ -132,6 +132,60 @@ def exact_available(context):
     return bpy.app.version >= (5, 0, 0) and not _session(context)["down"]
 
 
+def _sampler_limit():
+    """Image nodes Eevee can draw a material through, or None for no limit: 30 on OpenGL (its 32
+    texture units, two of them Eevee's own; past that "too many samplers" leaves the material
+    magenta); Vulkan and Metal bind textures without the cap."""
+    try:
+        import gpu
+        backend = gpu.platform.backend_type_get()
+    except Exception:
+        backend = 'NONE'
+    if backend == 'NONE':
+        backend = getattr(bpy.context.preferences.system, "gpu_backend", 'OPENGL')
+    return 30 if backend == 'OPENGL' else None
+
+
+def _samplers(mat):
+    """The image nodes that reach a material's output, through its groups: what Eevee binds."""
+    seen, count = set(), 0
+
+    def walk(tree, outs):
+        nonlocal count
+        back = {}
+        for l in tree.links:
+            back.setdefault(l.to_node.name, []).append(l.from_node)
+        todo, done = list(outs), set()
+        while todo:
+            n = todo.pop()
+            if n.name in done:
+                continue
+            done.add(n.name)
+            if n.bl_idname == "ShaderNodeTexImage" and n.image is not None:
+                count += 1
+            elif n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None and n.node_tree.name not in seen:
+                seen.add(n.node_tree.name)
+                walk(n.node_tree, [x for x in n.node_tree.nodes if x.bl_idname == "NodeGroupOutput"])
+            todo.extend(back.get(n.name, []))
+    walk(mat.node_tree, [n for n in mat.node_tree.nodes if n.bl_idname == "ShaderNodeOutputMaterial"])
+    return count
+
+
+def _lightest_layer(obj, layers):
+    """Of a landscape proxy's painted layers, the one with the least weight over it."""
+    import numpy as np
+    total = {}
+    for name in layers:
+        a = obj.data.color_attributes.get(name)
+        if a is None:
+            total[name] = 0.0
+            continue
+        v = np.empty(len(a.data) * 4, dtype=np.float32)
+        a.data.foreach_get("color", v)
+        total[name] = float(v[0::4].sum())
+    return min(layers, key=lambda n: total[n])
+
+
 def build_exact(context, material_data, texture_data=None, override_parameters=None, obj=None):
     """The exact Blender material for FP's material data, or None (FP's presets then)."""
     if bpy.app.version < (5, 0, 0):
@@ -200,10 +254,32 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         entry["variant"] = hashlib.sha1(("%s shell" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
     if sss != (1.0, 1.0):
         entry["variant"] = hashlib.sha1(("%s sss %g %g" % ((entry.get("variant", ""),) + sss)).encode("utf-8")).hexdigest()[:8]
+    # a landscape proxy (placement.after_import marks it; FP exports the layers painted on it as
+    # colour attributes): its material built per set of those layers, as UE compiles each component -
+    # the other layers' textures fold away (the Ch4 jungle landscape samples 43 over all its layers,
+    # past Eevee's 32: it rendered magenta)
+    landscape_base = (entry.get("variant", ""), entry["name"])
+    if obj is not None and obj.type == 'MESH' and obj.get("mp_landscape"):
+        layers = sorted(a.name for a in obj.data.color_attributes if a.name != "COL0")
+        entry["landscape_layers"] = layers
+        entry["name"] = "%s (%s)" % (landscape_base[1], "+".join(layers) if layers else "no layers")
+        entry["variant"] = hashlib.sha1(("%s layers %s" % (landscape_base[0], " ".join(layers))).encode("utf-8")).hexdigest()[:8]
     # each tree laid out when a node editor first shows it: two fifths of a build, and cosmetic
     build.LAZY_LAYOUT = True
     try:
         mat = _material(job, entry, obj)
+        # on OpenGL Eevee draws a material through a limited number of image samplers (past it,
+        # "too many samplers" leaves the material magenta): a proxy whose painted layers' textures
+        # are still past that drops the layer it paints the least, as often as it takes
+        limit = _sampler_limit() if entry.get("landscape_layers") else None
+        while limit and len(entry["landscape_layers"]) > 1 and _samplers(mat) > limit:
+            layers = [l for l in entry["landscape_layers"] if l != _lightest_layer(obj, entry["landscape_layers"])]
+            _log("%s: %d image samplers over Eevee's %d on OpenGL - its least painted layer left out" % (
+                entry["name"], _samplers(mat), limit))
+            entry["landscape_layers"] = layers
+            entry["name"] = "%s (%s)" % (landscape_base[1], "+".join(layers))
+            entry["variant"] = hashlib.sha1(("%s layers %s" % (landscape_base[0], " ".join(layers))).encode("utf-8")).hexdigest()[:8]
+            mat = _material(job, entry, obj)
     except Exception as e:
         at = traceback.extract_tb(e.__traceback__)[-1]
         _log("%s: not built (%s: %s, at %s:%d) - FP's own material" % (

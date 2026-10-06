@@ -23,11 +23,14 @@ def after_import(mesh, obj, mesh_obj, scale):
         target.data = spline_bend(target.data, sp, scale)
     if bpy.app.version >= (5, 0, 0):
         white_colors(target.data)
-    if names := mesh.get("MPLayerNames"):
-        # a landscape's weight layers, by the LayerName its materials sample
+    if (names := mesh.get("MPLayerNames")) is not None:
+        # a landscape's weight layers, by the LayerName its materials sample (and marked as a
+        # landscape, an unpainted one's empty table too: its materials are built per set of
+        # painted layers, hook.build_exact)
         for attribute in target.data.color_attributes:
             if attribute.name in names:
                 attribute.name = names[attribute.name]
+        target["mp_landscape"] = 1.0
     if cpd := mesh.get("MPPrimitiveData"):
         target["mp_cpd"] = 1.0
         for j, x in enumerate(cpd):

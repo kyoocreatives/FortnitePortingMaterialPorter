@@ -173,10 +173,16 @@ class MaterialImportContext:
         rim_light = bool(self.options.get("RimLight"))
         from ...material_porter.hook import subsurface as subsurface_of
         subsurface = "%g %g" % subsurface_of(self, material_data)
+        # Material Porter fork: a landscape proxy's exact material is built per set of the layers painted on
+        # it (hook.build_exact): one built for another proxy's set isn't this one's
+        slot_object = None if as_material_data else material_slot.id_data
+        landscape = "+".join(sorted(a.name for a in slot_object.data.color_attributes if a.name != "COL0")) \
+            if slot_object is not None and slot_object.type == 'MESH' and slot_object.get("mp_landscape") else None
         existing_material = material_hash_cache.get(hash_key)
         if existing_material and (bool(existing_material.get("MPPreferFP")) == prefer_fp
                                   and bool(existing_material.get("MPRimLight", rim_light)) == rim_light
-                                  and existing_material.get("MPSubsurface", subsurface) == subsurface):
+                                  and existing_material.get("MPSubsurface", subsurface) == subsurface
+                                  and existing_material.get("MPLandscapeLayers") == landscape):
             if not as_material_data:
                 material_slot.material = existing_material
                 # Material Porter fork: a reused cel-shaded material still gets this mesh its outline
@@ -260,6 +266,10 @@ class MaterialImportContext:
             exact["MPRimLight"] = rim_light
             exact["MPSubsurface"] = subsurface
             exact["OriginalName"] = material_data.get("Name")
+            if landscape is not None:
+                exact["MPLandscapeLayers"] = landscape
+            elif "MPLandscapeLayers" in exact:
+                del exact["MPLandscapeLayers"]
             # the elements a style hides (its Hide Element 0X, by vertex colour: Dylan's sunglasses off):
             # FP's vertex crunch removes their faces, as for its own shaders (post parameter handling)
             if get_param(switches, "Use Vertex Colors for Mask"):
