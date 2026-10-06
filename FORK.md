@@ -666,6 +666,17 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   the dummy back or the ad twice when two-sided, the corner and edge frame
   instances, the struts. A prefab prop whose parts sit off its pivot goes under
   an empty at the item's transform (its parts' offsets turn and scale with it).
+- **Older builds without an install.** A Custom profile can download its build
+  instead of reading a folder: Download Build, then the build's `.manifest`
+  file or a link to it (Epic's API only lists the live build; the launcher keeps
+  past ones in the install's `.egstore`). Its chunks come from Epic's CDN as the
+  On-Demand mode's, its keys and mappings from Fetch Data, its textures stream
+  from that build's own TOC (cached per build). The Unreal version must match
+  the build (33.11 is UE 5.5: 5.6 fails at the first package header).
+- **Texture streaming for Custom installs.** A Custom profile whose folder has
+  an on-demand TOC of its own streams textures too, and the Epic token is
+  checked before it goes into the streaming options (an expired one stayed in
+  them all session); a TOC that won't read costs its streaming, not the load.
 - **No online account.** `SupabaseService` is inert (no client, no sign-in, no
   posted logins, exports or errors); the setup's sign-in step, the Online
   sidebar (Chat, Leaderboard) and the `fortniteporting://` registration are gone.

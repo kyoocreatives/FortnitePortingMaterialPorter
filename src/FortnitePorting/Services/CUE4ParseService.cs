@@ -226,6 +226,8 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         {
             EFortniteVersion.LatestOnDemand => new HybridFileProvider(new VersionContainer(LATEST_GAME_VERSION)),
             EFortniteVersion.LatestInstalled => new HybridFileProvider(AppSettings.Installation.CurrentProfile.ArchiveDirectory, ExtraDirectories, new VersionContainer(LATEST_GAME_VERSION)),
+            // Material Porter fork: an older build downloaded from its manifest (InitializeProvider)
+            _ when AppSettings.Installation.CurrentProfile.IsCustomOnDemand => new HybridFileProvider(new VersionContainer(AppSettings.Installation.CurrentProfile.UnrealVersion)),
             _ => new HybridFileProvider(AppSettings.Installation.CurrentProfile.ArchiveDirectory, [], new VersionContainer(AppSettings.Installation.CurrentProfile.UnrealVersion)),
         };
 
@@ -239,7 +241,9 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         }
         
         Log.Information("Installation Type: {Type}", AppSettings.Installation.CurrentProfile.FortniteVersion);
-        Log.Information("Archive Path: {Path}", AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestOnDemand ? "On-Demand" : AppSettings.Installation.CurrentProfile.ArchiveDirectory);
+        Log.Information("Archive Path: {Path}", AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestOnDemand ? "On-Demand"
+            : AppSettings.Installation.CurrentProfile.IsCustomOnDemand ? "On-Demand, " + AppSettings.Installation.CurrentProfile.ManifestPath
+            : AppSettings.Installation.CurrentProfile.ArchiveDirectory);
         Log.Information("Unreal Version: {Version}", Provider.Versions.Game.ToString());
         Log.Information("Texture Streaming: {UseTextureStreaming}", AppSettings.Installation.CurrentProfile.UseTextureStreaming);
         
@@ -318,7 +322,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         // Material Porter fork: a Custom install that streams needs Epic's token too, and the checked token goes
         // into the on-demand options (they were made at setup: an expired token stayed in them all session)
         if (AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestInstalled or EFortniteVersion.LatestOnDemand
-            || Provider.LoadOnDemandTocs)
+            || AppSettings.Installation.CurrentProfile.IsCustomOnDemand || Provider.LoadOnDemandTocs)
         {
             await Api.EpicGames.VerifyAuthAsync();
             if (Provider.OnDemandOptions is { } onDemand)
@@ -332,14 +336,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                 var manifestInfo = await Api.EpicGames.GetManifestInfoAsync();
                 if (manifestInfo is null) break;
 
-                var options = new ManifestParseOptions
-                {
-                    ChunkBaseUrl = "https://egdownload.fastly-edge.com/Builds/Fortnite/CloudDir/",
-                    ChunkCacheDirectory = CacheFolder.FullName,
-                    ManifestCacheDirectory = CacheFolder.FullName,
-                    Decompressor = Compression.Decompressor,
-                    CacheChunksAsIs = true
-                };
+                var options = OnDemandManifestOptions();
                 
                 var (manifest, element) = await manifestInfo.DownloadAndParseAsync(options);
                 LiveManifest = manifest;
@@ -357,6 +354,17 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                 
                 break;
             }
+            // Material Porter fork: an older build, from its manifest (its keys and mappings the profile's own)
+            case EFortniteVersion.Custom when AppSettings.Installation.CurrentProfile.IsCustomOnDemand:
+            {
+                var manifest = await CustomManifestAsync();
+                if (manifest is null) break;
+
+                Log.Information("On-Demand Build: {Build}", manifest.Meta.BuildVersion);
+                LiveManifest = manifest;
+                await Provider.RegisterFiles(manifest);
+                break;
+            }
             default:
             {
                 await Provider.InitializeAsync();
@@ -365,22 +373,62 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         }
     }
 
+    private ManifestParseOptions OnDemandManifestOptions() => new()
+    {
+        ChunkBaseUrl = "https://egdownload.fastly-edge.com/Builds/Fortnite/CloudDir/",
+        ChunkCacheDirectory = CacheFolder.FullName,
+        ManifestCacheDirectory = CacheFolder.FullName,
+        Decompressor = Compression.Decompressor,
+        CacheChunksAsIs = true
+    };
+
+    // Material Porter fork: a Custom profile's build manifest - a .manifest file, or a link to one - parsed as
+    // the live one is; null (and said) when it can't be had
+    private async Task<FBuildPatchAppManifest?> CustomManifestAsync()
+    {
+        var source = AppSettings.Installation.CurrentProfile.ManifestPath.Trim().Trim('"');
+        try
+        {
+            FileInfo? file = null;
+            if (Uri.TryCreate(source, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
+                file = await Api.DownloadFileAsync(source, CacheFolder);
+            else if (File.Exists(source))
+                file = new FileInfo(source);
+            if (file is not { Exists: true }) throw new FileNotFoundException("not found", source);
+
+            return FBuildPatchAppManifest.Deserialize(await File.ReadAllBytesAsync(file.FullName), OnDemandManifestOptions());
+        }
+        catch (Exception e)
+        {
+            Log.Error("[Material Porter] build manifest {Source} not read: {Error}", source, e.Message);
+            Info.Message("On-Demand Build", $"The build manifest \"{source}\" couldn't be read ({e.Message}): no game files are loaded.",
+                FluentAvalonia.UI.Controls.InfoBarSeverity.Error, autoClose: false);
+            return null;
+        }
+    }
+
     [LoadingStage("Loading Texture Streaming", stage: 5, weight: 5)]
     private async Task InitializeTextureStreaming()
     {
-        if (AppSettings.Installation.CurrentProfile.FortniteVersion is not (EFortniteVersion.LatestInstalled or EFortniteVersion.LatestOnDemand)) return;
-        if (AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestInstalled  
+        // Material Porter fork: an older build downloaded from its manifest streams as the On-Demand mode does,
+        // its TOC kept apart (TOC names repeat from build to build)
+        var customOnDemand = AppSettings.Installation.CurrentProfile.IsCustomOnDemand;
+        if (AppSettings.Installation.CurrentProfile.FortniteVersion is not (EFortniteVersion.LatestInstalled or EFortniteVersion.LatestOnDemand) && !customOnDemand) return;
+        if ((AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestInstalled || customOnDemand)
             && !AppSettings.Installation.CurrentProfile.UseTextureStreaming) return;
 
         try
         {
-            var tocPath = await GetTocPath(AppSettings.Installation.CurrentProfile.FortniteVersion);
+            var tocPath = await GetTocPath(customOnDemand ? EFortniteVersion.LatestOnDemand : AppSettings.Installation.CurrentProfile.FortniteVersion);
             if (string.IsNullOrEmpty(tocPath)) return;
             
             Log.Information("Found toc path: {tocPath}", tocPath);
 
             var tocName = tocPath.SubstringAfterLast("/");
-            var onDemandFile = new FileInfo(Path.Combine(CacheFolder.FullName, tocName));
+            var tocFolder = customOnDemand && LiveManifest is not null
+                ? Directory.CreateDirectory(Path.Combine(CacheFolder.FullName, "uondemandtoc", LiveManifest.Meta.BuildVersion)).FullName
+                : CacheFolder.FullName;
+            var onDemandFile = new FileInfo(Path.Combine(tocFolder, tocName));
             if (!onDemandFile.Exists || onDemandFile.Length == 0)
             {
                 await Api.DownloadFileAsync($"https://download.epicgames.com/{tocPath}", onDemandFile.FullName);

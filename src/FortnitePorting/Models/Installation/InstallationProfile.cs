@@ -28,12 +28,24 @@ public partial class InstallationProfile : ObservableValidator
     [NotifyPropertyChangedFor(nameof(TextureStreamingEnabled))]
     [NotifyPropertyChangedFor(nameof(LoadInstalledBundlesEnabled))]
     [NotifyPropertyChangedFor(nameof(IsCustom))]
+    [NotifyPropertyChangedFor(nameof(IsCustomOnDemand))]
     private EFortniteVersion _fortniteVersion = EFortniteVersion.LatestInstalled;
     
     [NotifyDataErrorInfo]
     [ArchiveDirectory(canValidateProperty: nameof(ArchiveDirectoryEnabled))]
     [NotifyPropertyChangedFor(nameof(TextureStreamingEnabled))]
     [ObservableProperty] private string _archiveDirectory = string.Empty;
+
+    // Material Porter fork: a Custom profile can download its build instead of reading an install - an older
+    // one, from its manifest (a .manifest file or a link: Epic's API only lists the live build), its chunks
+    // from Epic's CDN as the On-Demand mode's
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsCustomOnDemand))]
+    [NotifyPropertyChangedFor(nameof(ArchiveDirectoryEnabled))]
+    [NotifyPropertyChangedFor(nameof(TextureStreamingEnabled))]
+    private bool _downloadFromManifest;
+
+    [ObservableProperty] private string _manifestPath = string.Empty;
     
     [ObservableProperty] private EGame _unrealVersion = EGame.GAME_UE6_0;
     
@@ -62,13 +74,14 @@ public partial class InstallationProfile : ObservableValidator
     [ObservableProperty] private bool _isSelected;
 
     [JsonIgnore] public bool IsCustom => FortniteVersion is EFortniteVersion.Custom;
-    [JsonIgnore] public bool ArchiveDirectoryEnabled => FortniteVersion is not EFortniteVersion.LatestOnDemand;
+    [JsonIgnore] public bool IsCustomOnDemand => IsCustom && DownloadFromManifest;
+    [JsonIgnore] public bool ArchiveDirectoryEnabled => FortniteVersion is not EFortniteVersion.LatestOnDemand && !IsCustomOnDemand;
     [JsonIgnore] public bool UnrealVersionEnabled => IsCustom;
     [JsonIgnore] public bool EncryptionKeyEnabled => IsCustom;
     [JsonIgnore] public bool MappingsFileEnabled => IsCustom;
     // Material Porter fork: an older install (Custom) streams too when it has an on-demand TOC of its own -
     // the chunks its build lists (the latest build's TOC, the Latest modes', wouldn't match it)
-    [JsonIgnore] public bool TextureStreamingEnabled => FortniteVersion is EFortniteVersion.LatestInstalled || IsCustom && HasOnDemandToc;
+    [JsonIgnore] public bool TextureStreamingEnabled => FortniteVersion is EFortniteVersion.LatestInstalled || IsCustom && (DownloadFromManifest || HasOnDemandToc);
     [JsonIgnore] public bool HasOnDemandToc => Directory.Exists(ArchiveDirectory) && Directory.EnumerateFiles(ArchiveDirectory, "*.uondemandtoc").Any();
     [JsonIgnore] public bool LoadInstalledBundlesEnabled => FortniteVersion is EFortniteVersion.LatestInstalled;
     [JsonIgnore] public bool CanFetchVersion => !string.IsNullOrWhiteSpace(FetchVersion);
@@ -81,6 +94,15 @@ public partial class InstallationProfile : ObservableValidator
         }
     }
     
+    public async Task BrowseManifestFile()
+    {
+        if (await App.BrowseFileDialog(fileTypes: new Avalonia.Platform.Storage.FilePickerFileType("Epic Build Manifest") { Patterns = ["*.manifest"] },
+                suggestedFileName: ManifestPath) is { } path)
+        {
+            ManifestPath = path;
+        }
+    }
+
     public async Task BrowseMappingsFile()
     {
         if (await App.BrowseFileDialog(fileTypes: Globals.MappingsFileType, suggestedFileName: MappingsFile) is { } path)

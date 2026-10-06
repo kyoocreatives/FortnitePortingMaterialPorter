@@ -105,6 +105,26 @@
                         </StackPanel>
                     </controls:SettingsItem.Footer>
                 </controls:SettingsItem>
+                <!-- Material Porter fork: an older build downloaded from its manifest -->
+                <controls:SettingsItem Title="Download Build"
+                                       Description="Download this version from Epic with its build manifest instead of reading an installation (Epic only lists the live build: an older one needs its manifest)."
+                                       IsVisible="{Binding IsCustom}">
+                    <controls:SettingsItem.Footer>
+                        <ToggleSwitch IsChecked="{Binding DownloadFromManifest}" />
+                    </controls:SettingsItem.Footer>
+                </controls:SettingsItem>
+                <controls:SettingsItem Title="Build Manifest"
+                                       Description="The build's .manifest file, or a link to it."
+                                       IsVisible="{Binding IsCustomOnDemand}">
+                    <controls:SettingsItem.Footer>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBox Text="{Binding ManifestPath}" Watermark="Ex. C:/Manifests/Fortnite_26.00.manifest" />
+                            <Button Margin="4 0 0 0" Command="{Binding BrowseManifestFile}">
+                                <material:MaterialIcon Kind="File"/>
+                            </Button>
+                        </StackPanel>
+                    </controls:SettingsItem.Footer>
+                </controls:SettingsItem>
 
                 <TextBlock Text="Config"
                            Classes="SettingsSectionHeaderStyle TextFillColorTertiaryBrush"
