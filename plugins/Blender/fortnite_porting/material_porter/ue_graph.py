@@ -2504,7 +2504,10 @@ class Translator:
         def make():
             nb = self.to_blender(self.vertex_normal())
             tb = self.to_blender(self._hook("vertex_tangent", self._blender_tangent))
-            bb = self.vmath('CROSS_PRODUCT', nb, tb, out_w=3)
+            # Blender's own bitangent where Blender gives the tangent: its sign turns with a mesh's
+            # mirrored UV islands and a mirrored object, which normal x tangent misses
+            bb = self.vmath('CROSS_PRODUCT', nb, tb, out_w=3) if hasattr(self.env, "vertex_tangent") \
+                else self._blender_bitangent()
             return (self.from_blender(tb), self.from_blender(self.vmath('SCALE', bb, self.const(-1.0), out_w=3)),
                     self.from_blender(nb))
         return self.shared("tangent frame", make)
@@ -2569,6 +2572,19 @@ class Translator:
             none = self.math('LESS_THAN', self.vmath('LENGTH', t, out_w=1), self.const(1e-4))
             return self.vmath('ADD', t, self.vmath('SCALE', Val(baked.outputs["Vector"], 3), none, out_w=3), out_w=3)
         return self.from_blender(self.shared("tangent", make))
+
+    def _blender_bitangent(self):
+        """Blender's UV bitangent (Blender world space), signed as its Normal Map node signs it: by
+        the mesh's tangent handedness (a mirrored UV island) and the object's (negative scale: a
+        prefab's mirrored roof piece, whose normal map lit upside down by normal x tangent). A
+        Normal Map node reading +Y gives exactly that."""
+        def make():
+            nm = self.node("ShaderNodeNormalMap", "UV bitangent", space='TANGENT', uv_map="UV0")
+            if hasattr(nm, "convention"):
+                nm.convention = 'OPENGL'
+            nm.inputs["Color"].default_value = (0.5, 1.0, 0.5, 1.0)
+            return Val(nm.outputs["Normal"], 3)
+        return self.shared("bitangent", make)
 
     def vertex_normal(self):
         return self._hook("vertex_normal", lambda: self.shared(
