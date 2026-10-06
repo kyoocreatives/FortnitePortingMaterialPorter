@@ -107,7 +107,9 @@ public static class IslandProjects
         public string File { get; init; }
     }
 
+    // MATERIAL_PORTER_NO_PROJECTS=1: no project at all (tests of an island master's approximation)
     static IEnumerable<string> AllRoots() =>
+        Environment.GetEnvironmentVariable("MATERIAL_PORTER_NO_PROJECTS") == "1" ? Array.Empty<string>() :
         roots.Concat((Environment.GetEnvironmentVariable("MATERIAL_PORTER_PROJECTS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
              .Distinct(StringComparer.OrdinalIgnoreCase);
 

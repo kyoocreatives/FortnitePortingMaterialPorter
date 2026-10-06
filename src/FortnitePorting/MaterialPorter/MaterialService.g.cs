@@ -37,6 +37,8 @@ public sealed class MaterialInfo
     public bool Fallback { get; set; }
     /// <summary>Every texture the master samples, parameter or hard-coded (a fallback's only way to know the fixed ones).</summary>
     public List<string> ReferencedTextures { get; set; } = new();
+    /// <summary>What the master's compiled shader uses (its inline shader map): the textures it samples, the parameters it reads (a fallback's).</summary>
+    public ShaderHints Shader { get; set; }
 
     static readonly JsonSerializer Snake = JsonSerializer.Create(new JsonSerializerSettings
     {
@@ -340,6 +342,8 @@ public sealed class MaterialService
                 m.AppendReferencedTextures(list, false);
                 foreach (var t in list.OfType<UTexture>().Concat(ImportedTextures(m)))
                     if (t.GetPathName() is { } tp && !info.ReferencedTextures.Contains(tp)) info.ReferencedTextures.Add(tp);
+                // what the compiled shader really uses (its shader map): the textures it samples, the parameters it reads
+                info.Shader = ShaderMapHints.For(ShaderMapHints.From(game.Provider, info.Master, m, info.ReferencedTextures), info.Scalars, info.Vectors);
             }
         }
         catch { /* only the parameters' textures, then */ }

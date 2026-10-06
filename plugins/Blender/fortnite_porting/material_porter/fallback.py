@@ -10,14 +10,27 @@ parameter the fixer reads as a base colour (Color, MainColor, Param...), one
 brighter than 1 as a glow, a "Black" material black, a light's colour as its
 emission, glass see-through. The textures nothing claims wait in an "Unused
 Textures" frame, to wire by hand. The material says it's approximate
-(mp_fallback, its value this builder's revision)."""
+(mp_fallback, its value this builder's revision).
+
+The master's cooked shader map says more than its names do (entry["shader"], from the app): the
+textures the compiled shader really samples (a hard-coded one by its path, a parameter's through
+the instance chain's value), the vector and scalar parameters it reads, and the folded value of a
+tint times its brightness. When it's there, only the textures it samples are wired (the roles
+still from texture and parameter names, the first layer's before a damage or dirt layer's), the
+colour is picked among the vectors it reads, and the textures it never samples wait in a frame of
+their own."""
 import re
+from collections import Counter
 
 import bpy
 
 # 2: the FP Material Fixer's texture names and colour rules
 # 3: the textures an island master's graph samples (its package's imports), which came through empty
-REVISION = 3
+# 4: the compiled shader's own textures, colour parameters and folded tints (its shader map), the rest in a frame of their own
+REVISION = 4
+
+# the textures the shader never samples wait in a frame of their own (False: they aren't loaded at all, only counted in the notes)
+PARK_UNSAMPLED = False
 
 # a texture's name -> its role (the FP Material Fixer's img_class)
 def _role_of_texture(path):
@@ -93,6 +106,33 @@ _BASE_COLOURS = ("color", "base color", "basecolor", "maincolor", "diffusecolor"
 # a colour tinting the base texture
 _TINTS = ("maincolor", "color", "basecolor", "base color", "tint", "albedo", "diffusecolor", "diffuse color", "colour")
 
+# words that make a parameter belong to a secondary layer or effect, not the surface itself
+_SECONDARY = {"damage", "dirt", "detail", "wear", "snow", "moss", "top", "second", "extra", "overlay", "blend", "decal",
+              "wet", "rain", "puddle", "macro", "mask", "gradient", "outline", "fresnel", "rim", "shadow", "emissive",
+              "emission", "glow", "light", "sss", "subsurface", "spec", "specular", "fog", "sky", "edge", "line"}
+# a scalar that scales a colour (a tint's brightness)
+_BRIGHTNESS = ("bright", "intens", "mult", "strength", "boost", "gain", "exposure", "power", "scale")
+
+
+def _norm(path):
+    """A texture's path without its object name ("/G/T_A.T_A" and "/G/T_A.0" are one), lower case."""
+    head, _, tail = path.rpartition("/")
+    return (head + "/" + tail.split(".")[0]).lower()
+
+
+def _tokens(name):
+    """A parameter's words: "L2AlbedoT" -> l2, albedo, t; "Layer 1 Normal" -> layer, 1, normal."""
+    spaced = re.sub(r"(?<=[a-z])(?=[A-Z])|(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ", name)
+    return [t for t in re.split(r"[^A-Za-z0-9]+", spaced.lower()) if t]
+
+
+def _secondary(name):
+    """0 for the surface's own, 1 for a secondary layer's or effect's (damage, dirt, layer 2...)."""
+    toks = _tokens(name)
+    if any(t in _SECONDARY for t in toks):
+        return 1
+    return 1 if any(len(t) == 1 and t in "23456789" for t in toks) else 0
+
 
 def build_fallback(entry, app, objects, env_cls, settings, keys):
     """(material, notes). keys: build's (PREFIX, KEY_PATH, KEY_REV, BUILD_REVISION, KEY_VARIANT)."""
@@ -112,23 +152,44 @@ def build_fallback(entry, app, objects, env_cls, settings, keys):
     textures = dict(entry.get("textures") or {})
     scalars = entry.get("scalars") or {}
     vectors = entry.get("vectors") or {}
+    shader = entry.get("shader") if isinstance(entry.get("shader"), dict) else None
     what = (entry["name"] + " " + " ".join(entry.get("chain") or [])).lower()
-    roles, unused, unnamed = {}, [], []
-    for name, path in sorted(textures.items()):
-        role = _role(name, path)
-        if role and role not in roles and role not in ("height", "ao"):
-            roles[role] = (name, path)
-        elif role:
-            unused.append((name, path))
-        else:
-            unnamed.append((name, path))
-    # the master's own fixed textures: by their names only
-    for path in entry.get("referenced_textures") or []:
-        if path in textures.values():
-            continue
-        name = path.rsplit("/", 1)[-1].split(".")[0]
-        role = _role_of_texture(path)
-        if role and role not in roles and role not in ("height", "ao", "mask?"):
+    fixed = [(p.rsplit("/", 1)[-1].split(".")[0], p, False) for p in entry.get("referenced_textures") or [] if p not in textures.values()]
+    skipped = []
+    if shader is not None and shader.get("textures") is not None:
+        # the textures the compiled shader samples: a hard-coded one by its path, a parameter's by the
+        # chain's value (the master's default texture where the chain sets none). Only they are wired.
+        bound, other, seen = [], [], set()
+        defaults, shared = {}, Counter(t.get("param") for t in shader["textures"] if t.get("param"))
+        for t in shader["textures"]:
+            if t.get("param") and t.get("path"):
+                defaults.setdefault(t["param"], set()).add(_norm(t["path"]))
+        for t in shader["textures"]:
+            param = t.get("param")
+            chain = textures.get(param) if param else None
+            if chain and _norm(chain) in defaults.get(param, ()):
+                chain = None     # the master's own default (a name two parameters share, "Param", holds one value for both)
+            path = chain or t.get("path")
+            if not path or _norm(path) in seen:
+                continue
+            seen.add(_norm(path))
+            # a name two parameters share, or the editor's default ("Param", "Param_1"), says nothing: the texture's own
+            label = param if param and shared[param] == 1 and not re.fullmatch(r"param(_\d+)?", param.lower()) else path.rsplit("/", 1)[-1].split(".")[0]
+            (bound if (t.get("kind") or "2D") == "2D" else other).append((label, path, bool(param)))
+        bound.sort(key=lambda b: _secondary(b[0]))     # the first layer's before a damage or dirt layer's
+        # the master's other textures: never read by the shader
+        for name, path in [(n, p) for n, p in sorted(textures.items())] + [(n, p) for n, p, _ in fixed]:
+            if _norm(path) not in seen:
+                seen.add(_norm(path))
+                skipped.append((name, path))
+        candidates, shader_only = bound, [(n, p) for n, p, _ in other]    # a cube or a volume: not wired here
+    else:
+        candidates, shader_only = [(n, p, True) for n, p in sorted(textures.items())] + fixed, []
+    roles, unused, unnamed = {}, list(shader_only), []
+    for name, path, named in candidates:
+        # a parameter's texture by its name, then the parameter's; a fixed one by its name only
+        role = _role(name, path) if named else _role_of_texture(path)
+        if role and role not in roles and role not in (("height", "ao") if named else ("height", "ao", "mask?")):
             roles[role] = (name, path)
         elif role:
             unused.append((name, path))
@@ -138,6 +199,8 @@ def build_fallback(entry, app, objects, env_cls, settings, keys):
     if "base" not in roles and unnamed:
         roles["base"] = unnamed.pop(0)
     unused += unnamed
+    used_vec = set(shader.get("used_vectors") or []) if shader is not None and "used_vectors" in shader else None
+    used_sc = set(shader.get("used_scalars") or []) if shader is not None and "used_scalars" in shader else None
 
     y = [300]
 
@@ -149,22 +212,49 @@ def build_fallback(entry, app, objects, env_cls, settings, keys):
         y[0] -= 280
         return n
 
+    consumed = set()        # scalars a folded tint already holds (its brightness)
+
     def value(names, default=None):
         for k, v in scalars.items():
+            if k in consumed or used_sc is not None and k not in used_sc:
+                continue
             if k.lower().replace("_", "").replace(" ", "") in names:
                 return float(v)
         return default
 
-    def vector(names):
+    def pick(names, loose=False):
+        """(name, value) of the first vector parameter called one of names (the shader's own, when it's known)."""
         for want in names:
             for k, v in vectors.items():
-                if k.lower() == want:
-                    return v
-        return None
+                if k.lower() == want and (used_vec is None or k in used_vec):
+                    return k, v
+        if loose and used_vec is not None:
+            # the shader's own vectors that are colours of the surface itself: L1Color, Layer1ColorMultiplier
+            for k, v in vectors.items():
+                if k in used_vec and not _secondary(k) and any(t in ("color", "colour", "tint", "albedo", "diffuse") for t in _tokens(k)):
+                    return k, v
+        return None, None
 
-    colour = vector(_BASE_COLOURS)
+    def vector(names):
+        return pick(names)[1]
+
+    def folded(name):
+        """(the shader's own product of a colour and the scalars that scale it, those scalars), or (None, [])."""
+        for p in (shader or {}).get("preshader_values") or []:
+            v, params = p.get("value"), p.get("params") or []
+            if name in params and p.get("product") and v and len(v) >= 3 and all(
+                    q == name or q in scalars and any(w in q.lower() for w in _BRIGHTNESS) for q in params):
+                return v, [q for q in params if q != name]
+        return None, []
+
+    colour_name, colour = pick(_BASE_COLOURS, loose=True)
+    fold, scaled = folded(colour_name) if colour_name else (None, [])
+    if fold is not None:
+        colour = fold
     glow = None
     base = roles.get("base")
+    if fold is not None and not base:
+        consumed.update(scaled)     # a flat colour (or a light) holds the brightness it was folded with
     if colour is not None and max(colour[:3]) > 1.001:
         # brighter than a surface colour: a flat material's light; beside a base texture it's
         # something else (an unnamed "Param" vector, an offset...)
@@ -172,8 +262,14 @@ def build_fallback(entry, app, objects, env_cls, settings, keys):
     if base:
         img = image(base[1], label=base[0])
         col = img.outputs["Color"]
-        tint = vector(_TINTS)
-        if tint is not None and max(tint[:3]) < 0.999:
+        tint_name, tint = pick(_TINTS, loose=True)
+        tint_fold, tint_scaled = folded(tint_name) if tint_name else (None, [])
+        if tint_fold is not None:
+            tint = tint_fold
+            consumed.update(tint_scaled)
+        # a plain tint only darkens (a vector brighter than 1 beside a base texture is something else);
+        # a folded one is the shader's own colour times its brightness, whichever way it goes
+        if tint is not None and (max(tint[:3]) < 0.999 or tint_fold is not None and any(abs(c - 1.0) > 0.001 for c in tint[:3])):
             mix = N.new("ShaderNodeMix")
             mix.data_type = 'RGBA'
             mix.blend_type = 'MULTIPLY'
@@ -253,7 +349,8 @@ def build_fallback(entry, app, objects, env_cls, settings, keys):
             bsdf.inputs["Metallic"].default_value = max(0.0, min(1.0, value({"metallic", "metalness", "metalic"}, 0.0)))
 
     strength = value({"emissivestrength", "emissiveintensity", "emissive", "emissionstrength", "glow", "brightness", "intensity"}, 1.0)
-    emissive_col = next((v for k, v in vectors.items() if "emissive" in k.lower() or "emission" in k.lower()), None)
+    emissive_col = next((v for k, v in vectors.items() if ("emissive" in k.lower() or "emission" in k.lower())
+                         and (used_vec is None or k in used_vec)), None)
     light = vector(("light color", "lightcolor"))
     if "emissive" in roles:
         img = image(roles["emissive"][1], label=roles["emissive"][0])
@@ -281,23 +378,34 @@ def build_fallback(entry, app, objects, env_cls, settings, keys):
         mat.surface_render_method = 'BLENDED' if "Masked" not in s["blend"] else 'DITHERED'
     mat.use_backface_culling = not s["two_sided"]
 
-    if unused:
+    def park(label, items, x):
         frame = N.new("NodeFrame")
-        frame.label = "Unused Textures"
-        frame.location = (-1200, 300)
+        frame.label = label
+        frame.location = (x, 300)
         yy = 0
-        for name, path in unused:
+        for name, path in items:
             n = N.new("ShaderNodeTexImage")
             n.image = env.texture(path, "")
             n.label = name
             n.parent = frame
             n.location = (0, yy)
             yy -= 280
+
+    if unused:
+        park("Unused Textures", unused, -1200)
+    if skipped and PARK_UNSAMPLED:
+        # the shader never samples these: the master lists them (parameters it doesn't read, a layer a switch turns off)
+        park("Unused Textures (not sampled by the shader)", skipped, -1700)
     mat[key_path] = entry["path"]
     mat[key_rev] = revision
     mat["mp_fallback"] = REVISION
+    if shader is not None:
+        mat["mp_shader"] = len(candidates)      # the textures its shader samples (the others are in their own frame)
     if entry.get("variant"):
         mat[key_variant] = entry["variant"]
     notes = ["approximate: its master has no editor graph (an island's own material), built from %d texture(s) and its values"
              % (len(roles) + len(unused))] + list(env.notes)
+    if shader is not None:
+        notes.append("its shader map says which textures and parameters it reads: %d texture(s) sampled, %d parked as not sampled"
+                     % (len(candidates) + len(shader_only), len(skipped)))
     return mat, notes
