@@ -10,7 +10,8 @@ namespace FortnitePorting.Exporting.Context;
 /// format (a header, then UE 5 tagged properties whose object values index the template's
 /// ActorDataReferenceTable). CUE4Parse's reader stops one byte short of the properties (the
 /// class serialization control byte) and drops them all - a prefab's walls, rugs and crates
-/// lost their texture data (Rebel's Roost).
+/// lost their texture data (Rebel's Roost). Older records (UE5 file version before 1012:
+/// Neon City's, saved by 26.00) have the old property tags.
 /// </summary>
 public static class ActorDataReader
 {
@@ -31,22 +32,32 @@ public static class ActorDataReader
             using var stream = new MemoryStream(data);
             using var reader = new BinaryReader(stream);
             if (reader.ReadUInt32() != Magic) return null;
-            stream.Position += 2 + 2 + 4;   // file version, reserved, count
-            stream.Position += 2 + 2 + 6;   // engine version major, minor, and the rest
-            ReadString(reader);             // the build ("++Fortnite+Main")
+            reader.ReadInt32();                         // FileVersionUE4 (522)
+            var fileVersionUE5 = reader.ReadInt32();    // 1009 (26.00) .. 1013 (37.x)
+            stream.Position += 2 + 2 + 2 + 4;   // engine version: major, minor, patch, changelist
+            ReadString(reader);                 // and branch ("++Fortnite+Main")
             stream.Position += 4 + 2;       // 0xFFFFFFFF, 01 03
             var customVersions = reader.ReadInt32();
             stream.Position += customVersions * 20L;   // (guid, version)
 
             // UObject::SerializeScriptProperties: EClassSerializationControlExtension first
-            var control = reader.ReadByte();
-            if ((control & 0x02) != 0) reader.ReadByte();
+            // (PROPERTY_TAG_EXTENSION_AND_OVERRIDABLE_SERIALIZATION, UE5 1011)
+            if (fileVersionUE5 >= UE5PropertyTagExtension)
+            {
+                var control = reader.ReadByte();
+                if ((control & 0x02) != 0) reader.ReadByte();
+            }
 
             var properties = new List<Property>();
             while (true)
             {
                 var name = ReadString(reader);
                 if (name.Length == 0 || name == "None") break;
+                if (fileVersionUE5 < UE5CompleteTypeName)
+                {
+                    properties.Add(ReadOldTag(reader, name, fileVersionUE5));
+                    continue;
+                }
                 var type = ReadTypeName(reader);
                 var size = reader.ReadInt32();
                 var flags = reader.ReadByte();
@@ -65,6 +76,43 @@ public static class ActorDataReader
         {
             return null;
         }
+    }
+
+    const int UE5PropertyTagExtension = 1011;
+    const int UE5CompleteTypeName = 1012;
+
+    // A tag before PROPERTY_TAG_COMPLETE_TYPE_NAME (a prefab saved by 26.00: Neon City's): type,
+    // size, array index, the type's own names, a guid flag
+    static Property ReadOldTag(BinaryReader reader, string name, int fileVersionUE5)
+    {
+        var type = ReadString(reader);
+        var size = reader.ReadInt32();
+        var arrayIndex = reader.ReadInt32();
+        byte flags = 0;
+        switch (type)
+        {
+            case "StructProperty":
+                type += "(" + ReadString(reader) + ")";
+                reader.BaseStream.Position += 16;   // struct guid
+                break;
+            case "BoolProperty":
+                if (reader.ReadByte() != 0) flags |= 0x10;
+                break;
+            case "ByteProperty" or "EnumProperty" or "ArrayProperty" or "SetProperty" or "OptionalProperty":
+                type += "(" + ReadString(reader) + ")";
+                break;
+            case "MapProperty":
+                type += "(" + ReadString(reader) + "," + ReadString(reader) + ")";
+                break;
+        }
+        if (reader.ReadByte() != 0) reader.BaseStream.Position += 16;     // property guid
+        if (fileVersionUE5 >= UE5PropertyTagExtension)
+        {
+            var extension = reader.ReadByte();
+            if ((extension & 0x02) != 0) reader.BaseStream.Position += 1 + 4;
+        }
+        if (arrayIndex != 0) flags |= 0x01;
+        return new Property(name, type, arrayIndex, flags, reader.ReadBytes(size));
     }
 
     static string ReadString(BinaryReader reader)
