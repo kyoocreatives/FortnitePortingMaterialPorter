@@ -63,15 +63,15 @@ def prepare(context, mesh_object, shells, meta):
             continue
         base = slots[slot].material
         # FP builds a material into a slot: a slot of its own for the time it takes
-        mesh_object.data.materials.append(bpy.data.materials.new("MP shell placeholder"))
+        placeholder = bpy.data.materials.new("MP shell placeholder")
+        mesh_object.data.materials.append(placeholder)
         index = len(mesh_object.data.materials) - 1
-        placeholder = mesh_object.data.materials[index]
         data["MPMoves"] = True          # (its World Position Offset places the layers)
         data["MPShell"] = True          # (it all scatters light, as fur: build.assemble)
         context.import_material(mesh_object.material_slots[index], data, meta)
         shell = mesh_object.material_slots[index].material
         mesh_object.data.materials.pop(index=index)
-        if placeholder is not None and placeholder != shell and placeholder.users == 0:
+        if placeholder != shell and placeholder.users == 0:
             bpy.data.materials.remove(placeholder)
         if shell is None or shell == base:
             continue
@@ -123,7 +123,7 @@ def apply(context, objects):
                 continue
         except ReferenceError:      # (a part joined into the body is gone)
             continue
-        mats = set(m for m in o.data.materials if m is not None)
+        mats = {m for m in o.data.materials if m is not None}
         mine = [p for p in pairs if p["base"] in mats]
         if not mine:
             continue
@@ -225,9 +225,7 @@ def shell_group(name, pairs):
         geo = store(geo, 440, SHELL_VECTOR, whole.outputs[0], kind='FLOAT_VECTOR')
         geo = store(geo, 620, SHELL_OFFSET, offset.outputs[0], kind='FLOAT_VECTOR')
         if not p.get("moves"):
-            move = node("GeometryNodeSetPosition", 700, -200)
-            L.new(geo, move.inputs["Geometry"]); L.new(offset.outputs[0], move.inputs["Offset"])
-            geo = move.outputs[0]
+            shift = offset.outputs[0]
         else:
             # a hair inside the mesh: a layer its material doesn't move (no fur there: Crash's eyes)
             # lies just behind the mesh, not on it - at the very same depth Eevee drew the layer
@@ -235,9 +233,10 @@ def shell_group(name, pairs):
             tuck = node("ShaderNodeVectorMath", 620, -560, operation='SCALE')
             tuck.inputs["Scale"].default_value = -p.get("tuck", 0.0002)
             L.new(normal.outputs[0], tuck.inputs[0])
-            move = node("GeometryNodeSetPosition", 700, -200)
-            L.new(geo, move.inputs["Geometry"]); L.new(tuck.outputs[0], move.inputs["Offset"])
-            geo = move.outputs[0]
+            shift = tuck.outputs[0]
+        move = node("GeometryNodeSetPosition", 700, -200)
+        L.new(geo, move.inputs["Geometry"]); L.new(shift, move.inputs["Offset"])
+        geo = move.outputs[0]
         mat = node("GeometryNodeSetMaterial", 780)
         mat.inputs["Material"].default_value = p["shell"]
         L.new(geo, mat.inputs["Geometry"])

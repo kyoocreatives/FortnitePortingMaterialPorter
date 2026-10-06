@@ -376,10 +376,10 @@ def draw_inputs(layout, obj):
     if mod is None or mod.node_group is None:
         return False
     col = layout.column(align=True)
+    holder = getattr(getattr(mod, "properties", None), "inputs", None)
     for it in mod.node_group.interface.items_tree:
         if it.item_type != 'SOCKET' or it.in_out != 'INPUT' or it.name == "Geometry":
             continue
-        holder = getattr(getattr(mod, "properties", None), "inputs", None)
         if holder is not None and hasattr(holder, it.identifier):
             col.prop(getattr(holder, it.identifier), "value", text=it.name)
         else:

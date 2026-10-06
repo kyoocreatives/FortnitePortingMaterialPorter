@@ -151,7 +151,7 @@ def ue_rest(bone):
     if any(k in keys for k in ("orig_head", "orig_tail", "orig_roll")):
         head = Vector(bone["orig_head"]) if "orig_head" in keys else bone.head_local.copy()
         tail = Vector(bone["orig_tail"]) if "orig_tail" in keys else bone.tail_local.copy()
-        roll = float(bone["orig_roll"]) if "orig_roll" in keys else             bpy.types.Bone.AxisRollFromMatrix(bone.matrix_local.to_3x3())[1]
+        roll = float(bone["orig_roll"]) if "orig_roll" in keys else bpy.types.Bone.AxisRollFromMatrix(bone.matrix_local.to_3x3())[1]
         frame = Matrix.Translation(head) @ bpy.types.Bone.MatrixFromAxisRoll((tail - head).normalized(), roll).to_4x4()
     else:
         frame = bone.matrix_local.copy()
@@ -180,11 +180,13 @@ def on_bone(obj, bone, offset=None):
     obj.parent_type = 'BONE'
     obj.parent_bone = rest.name
     obj.matrix_parent_inverse = Matrix.Identity(4)
+    if offset is None:
+        offset = Matrix.Identity(4)
     # (a bone's children hang from its tail; the offset is in the game's frame of the bone)
-    obj.matrix_basis = Matrix.Translation((0.0, -rest.length, 0.0)) @ ue_offset(rest) @ (offset if offset is not None else Matrix.Identity(4))
+    obj.matrix_basis = Matrix.Translation((0.0, -rest.length, 0.0)) @ ue_offset(rest) @ offset
     # where it is put, for settle(): FP's later steps reshape the bones (a head shortened, Tasty's arms)
     obj[KEY_BONE] = rest.name
-    obj[KEY_OFFSET] = [v for row in (offset if offset is not None else Matrix.Identity(4)) for v in row]
+    obj[KEY_OFFSET] = [v for row in offset for v in row]
     return True
 
 
@@ -251,7 +253,7 @@ def _hold(rig):
     loose = [t for t in tops if t is not rig]
     if len(loose) != 1:
         return None
-    hand = next((b for b in rig.data.bones if b.name.lower() == "weapon_r"), None) or         next((b for b in rig.data.bones if b.name.lower() == "hand_r"), None)
+    hand = next((b for b in rig.data.bones if b.name.lower() == "weapon_r"), None) or next((b for b in rig.data.bones if b.name.lower() == "hand_r"), None)
     if hand is None:
         return None
     axe = loose[0]
@@ -360,10 +362,15 @@ def settle(context):
             for line in effect_replay.play(root):
                 _log(line)
         except Exception as e:      # the pieces stay as imported
-            import os
-            import traceback
-            at = traceback.extract_tb(e.__traceback__)[-1]
-            _log("%s: not replayed (%s: %s, at %s:%d)" % (root.name, type(e).__name__, e, os.path.basename(at.filename), at.lineno))
+            _not_replayed(root, e)
+
+
+def _not_replayed(root, e):
+    import os
+    import traceback
+    from .hook import _log
+    at = traceback.extract_tb(e.__traceback__)[-1]
+    _log("%s: not replayed (%s: %s, at %s:%d)" % (root.name, type(e).__name__, e, os.path.basename(at.filename), at.lineno))
 
 
 FX_CYCLES = "mp_fx_cycles"      # scene: 1 while it renders with Cycles (effect materials read it)
@@ -443,6 +450,8 @@ def finish(context, mesh, root):
     fx = mesh.get("MPEffect") or {}
     if fx.get("Kind") != "System":
         return
+    from . import effect_replay
+    from .hook import _log
     scene = bpy.context.scene
     if FX_CYCLES not in scene:
         scene[FX_CYCLES] = int(scene.render.engine == 'CYCLES')
@@ -450,10 +459,7 @@ def finish(context, mesh, root):
     cycles = getattr(scene, "cycles", None)
     if cycles is not None and cycles.transparent_max_bounces < TRANSPARENT_BOUNCES:
         cycles.transparent_max_bounces = TRANSPARENT_BOUNCES
-        from .hook import _log as log
-        log("Cycles' transparent bounces raised to %d for effects (overlapping particles)" % TRANSPARENT_BOUNCES)
-    from . import effect_replay
-    from .hook import _log
+        _log("Cycles' transparent bounces raised to %d for effects (overlapping particles)" % TRANSPARENT_BOUNCES)
     # what FP's importer hides on a character (an anime outline's shell: its material draws ink lines
     # from the scene's depth, which a Blender material can't read) isn't drawn as a white shell here
     hidden = list(getattr(context, "full_vertex_crunch_materials", None) or ())
@@ -527,7 +533,4 @@ def finish(context, mesh, root):
         for line in effect_replay.play(root):
             _log(line)
     except Exception as e:      # the pieces stay as imported
-        import os
-        import traceback
-        at = traceback.extract_tb(e.__traceback__)[-1]
-        _log("%s: not replayed (%s: %s, at %s:%d)" % (root.name, type(e).__name__, e, os.path.basename(at.filename), at.lineno))
+        _not_replayed(root, e)

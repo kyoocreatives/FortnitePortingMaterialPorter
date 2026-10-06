@@ -41,6 +41,10 @@ def _log(message):
     Log.info("[Material Porter] " + message)
 
 
+def _digest(text):
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
+
+
 def _texture_path(texture):
     return (texture or {}).get("Path")
 
@@ -104,7 +108,6 @@ def _material(job, entry, obj):
                     shapes[shape] = src
             except Exception as e:
                 notes.append("%s: copy of %s failed (%s), built instead" % (entry["name"], src.name, e))
-                mat = None
     if mat is None:
         mat, n = build.build_one(dict(entry, target={}, variant=variant), app, [obj] if obj else [])
         if mat.get(build.KEY_SHAPE):
@@ -228,32 +231,32 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     if overlay:
         for kind, values in overlay.items():
             entry[kind] = dict(entry.get(kind) or {}, **values)
-        entry["variant"] = hashlib.sha1(json.dumps(overlay, sort_keys=True).encode("utf-8")).hexdigest()[:8]
+        entry["variant"] = _digest(json.dumps(overlay, sort_keys=True))
     # a sprite with a flipbook: its UV0 is the sub-image its particle shows (env.uv)
     if sprite := material_data.get("MPSprite"):
         entry["sprite"] = [float(x) for x in sprite]
-        entry["variant"] = hashlib.sha1(("%s %s" % (entry.get("variant", ""), entry["sprite"])).encode("utf-8")).hexdigest()[:8]
+        entry["variant"] = _digest("%s %s" % (entry.get("variant", ""), entry["sprite"]))
     # a ribbon's: its particles' values are its mesh's attributes (env._particle_attr)
     if material_data.get("MPRibbon"):
         entry["ribbon"] = True
-        entry["variant"] = hashlib.sha1(("%s ribbon" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
+        entry["variant"] = _digest("%s ribbon" % entry.get("variant", ""))
     # a particle effect's piece: its material's World Position Offset moves its vertices too (build.build_one)
     if obj is not None and obj.get("mp_effect") in ("Sprite", "Ribbon", "Mesh", "Decal"):
         entry["particle"] = True
-        entry["variant"] = hashlib.sha1(("%s particle" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
+        entry["variant"] = _digest("%s particle" % entry.get("variant", ""))
     # a shell fur layer's or its base's (material_porter.shells): its World Position Offset puts it
     # where the game draws it
     if material_data.get("MPMoves"):
         entry["moves"] = True
-        entry["variant"] = hashlib.sha1(("%s moves" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
+        entry["variant"] = _digest("%s moves" % entry.get("variant", ""))
     # the import's subsurface intensity and scale (shell fur's own): times the game's
     sss = subsurface(context, material_data)
     # a shell fur layer (material_porter.shells): it all scatters, as fur
     if material_data.get("MPShell"):
         entry["shell"] = True
-        entry["variant"] = hashlib.sha1(("%s shell" % entry.get("variant", "")).encode("utf-8")).hexdigest()[:8]
+        entry["variant"] = _digest("%s shell" % entry.get("variant", ""))
     if sss != (1.0, 1.0):
-        entry["variant"] = hashlib.sha1(("%s sss %g %g" % ((entry.get("variant", ""),) + sss)).encode("utf-8")).hexdigest()[:8]
+        entry["variant"] = _digest("%s sss %g %g" % ((entry.get("variant", ""),) + sss))
     # a landscape proxy (placement.after_import marks it; FP exports the layers painted on it as
     # colour attributes): its material built per set of those layers, as UE compiles each component -
     # the other layers' textures fold away (the Ch4 jungle landscape samples 43 over all its layers,
@@ -263,7 +266,7 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         layers = sorted(a.name for a in obj.data.color_attributes if a.name != "COL0")
         entry["landscape_layers"] = layers
         entry["name"] = "%s (%s)" % (landscape_base[1], "+".join(layers) if layers else "no layers")
-        entry["variant"] = hashlib.sha1(("%s layers %s" % (landscape_base[0], " ".join(layers))).encode("utf-8")).hexdigest()[:8]
+        entry["variant"] = _digest("%s layers %s" % (landscape_base[0], " ".join(layers)))
     # each tree laid out when a node editor first shows it: two fifths of a build, and cosmetic
     build.LAZY_LAYOUT = True
     try:
@@ -272,13 +275,14 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         # "too many samplers" leaves the material magenta): a proxy whose painted layers' textures
         # are still past that drops the layer it paints the least, as often as it takes
         limit = _sampler_limit() if entry.get("landscape_layers") else None
-        while limit and len(entry["landscape_layers"]) > 1 and _samplers(mat) > limit:
-            layers = [l for l in entry["landscape_layers"] if l != _lightest_layer(obj, entry["landscape_layers"])]
+        while limit and len(entry["landscape_layers"]) > 1 and (samplers := _samplers(mat)) > limit:
+            lightest = _lightest_layer(obj, entry["landscape_layers"])
+            layers = [l for l in entry["landscape_layers"] if l != lightest]
             _log("%s: %d image samplers over Eevee's %d on OpenGL - its least painted layer left out" % (
-                entry["name"], _samplers(mat), limit))
+                entry["name"], samplers, limit))
             entry["landscape_layers"] = layers
             entry["name"] = "%s (%s)" % (landscape_base[1], "+".join(layers))
-            entry["variant"] = hashlib.sha1(("%s layers %s" % (landscape_base[0], " ".join(layers))).encode("utf-8")).hexdigest()[:8]
+            entry["variant"] = _digest("%s layers %s" % (landscape_base[0], " ".join(layers)))
             mat = _material(job, entry, obj)
     except Exception as e:
         at = traceback.extract_tb(e.__traceback__)[-1]
@@ -293,7 +297,7 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     if build.KEY_SUBSURFACE in mat:
         # (its root group's node: the only one in its own tree with those inputs)
         for n in mat.node_tree.nodes:
-            if n.bl_idname == "ShaderNodeGroup" and build.SUBSURFACE_SCALE in n.inputs                     and build.SUBSURFACE_INTENSITY in n.inputs:
+            if n.bl_idname == "ShaderNodeGroup" and build.SUBSURFACE_SCALE in n.inputs and build.SUBSURFACE_INTENSITY in n.inputs:
                 n.inputs[build.SUBSURFACE_INTENSITY].default_value = sss[0]
                 n.inputs[build.SUBSURFACE_SCALE].default_value = mat[build.KEY_SUBSURFACE] * sss[1]
     # a LEGO figure's face: where its rig puts the character accents for each mouth pose (face_anim.py)

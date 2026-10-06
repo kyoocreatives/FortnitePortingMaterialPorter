@@ -87,7 +87,7 @@ class _Surfaces:
                     got = (BVHTree.FromObject(o, self.depsgraph), m, m.inverted_safe(), m.to_3x3().inverted_safe().transposed())
                     self.built += 1
             except Exception:       # (no evaluated mesh: a surface to skip)
-                got = None
+                pass
             self.bvh[i] = got
         return got
 
@@ -322,7 +322,7 @@ def _one(context, entry, surfaces, done, stats):
     obj.visible_shadow = False
     obj[KEY] = material.get("Name") or ""
     obj[KEY_SORT] = sort_order
-    obj[KEY_BOX] = [abs(h) for h in (float(size[k]) * float(sc3[k]) for k in "XYZ")]
+    obj[KEY_BOX] = [abs(h) for h in half]
     obj[KEY_HITS] = int(hit.sum())
     obj[KEY_FACING] = int(facing.sum())
     obj[KEY_VERTS] = len(hit)

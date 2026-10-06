@@ -22,7 +22,7 @@ import urllib.parse
 
 import bpy
 
-from . import effect_replay, effects, hook
+from . import effects, hook
 from .app_client import AppError
 
 CONNECT_TIMEOUT = 3.0       # seconds: an app that's there answers at once

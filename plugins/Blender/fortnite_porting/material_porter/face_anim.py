@@ -48,7 +48,7 @@ def _mode(modes, name, index):
     m = modes.get(name) or ""
     if not m:
         return 'L'
-    return m[0] if len(m) == 1 else m[min(index, len(m) - 1)]
+    return m[min(index, len(m) - 1)]
 
 
 def _evaluate(keys, modes, name, frame):
