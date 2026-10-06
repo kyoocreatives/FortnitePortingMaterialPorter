@@ -107,6 +107,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
 
     public async Task Initialize()
     {
+        MaterialPorter.MaterialPorterService.Instance.OnGameLoading();     // Material Porter fork
         if (!HasValidArchivePath())
         {
             Info.Dialog("Invalid Installation Settings", "The archive directory set in Installation Settings does not exist or is empty. Please set it to your Fortnite installation's archive directory (generally located at FortniteGame/Content/Paks).", buttons:

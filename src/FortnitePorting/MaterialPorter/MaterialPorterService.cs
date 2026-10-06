@@ -62,6 +62,11 @@ public class MaterialPorterService : IService
     public MaterialService? Materials { get; private set; }
     private Bridge? _bridge;
 
+    const string NoGraphsMessage = "material-porter-no-graphs";
+
+    /// <summary>A load starting: the last one's warnings no longer hold.</summary>
+    public void OnGameLoading() => Avalonia.Threading.Dispatcher.UIThread.Post(() => AppServices.Info.CloseMessage(NoGraphsMessage));
+
     /// <summary>Once the game's files are mounted: the bridge starts listening (again after a reload).</summary>
     public void OnGameLoaded(IFileProvider provider, string? buildVersion)
     {
@@ -91,10 +96,15 @@ public class MaterialPorterService : IService
             {
                 if (provider.Files.Keys.Any(k => k.EndsWith(".o.uasset", StringComparison.OrdinalIgnoreCase))) return;
                 Log.Warning("[Material Porter] no editor graphs in this install: materials are approximated (install Unreal Editor for Fortnite)");
+                // (a build downloaded from its manifest gets them from its UEFN manifest instead)
+                var downloaded = AppServices.AppSettings.Installation.CurrentProfile.IsCustomOnDemand;
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => AppServices.Info.Message("Exact materials need UEFN",
-                    "This Fortnite install has no editor data, so materials are approximated. Install Unreal Editor for Fortnite " +
-                    "from the Epic Games Launcher (it adds its editor data to the game's folder), then restart the app.",
-                    FluentAvalonia.UI.Controls.InfoBarSeverity.Warning, autoClose: false));
+                    downloaded
+                        ? "This build was loaded without UEFN data, so materials are approximated. In Installation, pick a build " +
+                          "marked \"+ UEFN\" (or set its UEFN Manifest), then reload."
+                        : "This Fortnite install has no editor data, so materials are approximated. Install Unreal Editor for Fortnite " +
+                          "from the Epic Games Launcher (it adds its editor data to the game's folder), then restart the app.",
+                    FluentAvalonia.UI.Controls.InfoBarSeverity.Warning, autoClose: false, id: NoGraphsMessage));
             });
         }
         catch (Exception e)
