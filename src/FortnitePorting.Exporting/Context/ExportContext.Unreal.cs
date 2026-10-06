@@ -397,7 +397,7 @@ public partial class ExportContext
             },
             _ => new ExportPointLight(),
         };
-        export = export with
+        return export with
         {
             Name = lightComponent.Name,
             Location = lightComponent.RelativeLocation,
@@ -415,6 +415,5 @@ public partial class ExportContext
             CastShadows = lightComponent.GetOrDefault("CastShadows", true)
                           && (lightComponent.GetOrDefault("CastDynamicShadows", true) || lightComponent.GetOrDefault("CastStaticShadows", true)),
         };
-        return export;
     }
 }

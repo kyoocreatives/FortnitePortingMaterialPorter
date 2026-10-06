@@ -238,7 +238,6 @@ public partial class ExportContext
     /// </summary>
     private static ExportLight Light(MapLight l)
     {
-        var color = l.Color.ToLinearColor();
         ExportLight export = l.Kind switch
         {
             "Spot" => new ExportSpotLight { InnerConeAngle = l.InnerConeAngle, OuterConeAngle = l.OuterConeAngle },
@@ -249,7 +248,7 @@ public partial class ExportContext
         {
             Name = $"{l.Name}.{l.Actor}",
             Actor = l.Actor,
-            Color = color,
+            Color = l.Color.ToLinearColor(),
             Intensity = l.Intensity,
             IntensityUnits = l.Units,
             InverseSquaredFalloff = l.InverseSquared,
@@ -348,10 +347,8 @@ public partial class ExportContext
         foreach (var slot in slots)
         {
             ExportMaterial? material = null;
-            if (m.Overrides.TryGetValue(slot, out var path))
-            {
-                if (LoadMaterialPorterObject(path) is UMaterialInterface mi) material = Material(mi, slot);
-            }
+            if (m.Overrides.TryGetValue(slot, out var path) && LoadMaterialPorterObject(path) is UMaterialInterface mi)
+                material = Material(mi, slot);
             var values = new ParamSet();
             if (m.Params.TryGetValue(slot, out var mine)) values.MergeFrom(mine);
             if (m.AllSlots is { } skin) values.MergeFrom(skin);

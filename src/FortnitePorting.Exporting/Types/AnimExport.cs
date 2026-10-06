@@ -187,12 +187,13 @@ public class AnimExport : BaseExport
         {
             var timed = notify.NotifyStateClass?.Load<UObject>();
             var played = timed ?? notify.Notify?.Load<UObject>();
-            // a swing's trail switch
+            // a swing's hit (the melee ability it triggers)
             if (played?.ExportType is "FortAnimNotify_TriggerGameplayAbility")
             {
                 MPHits = MPHits.Append(sectionTime + notify.GetTime()).Distinct().OrderBy(t => t).ToList();
                 return;
             }
+            // a swing's trail switch
             if (played?.ExportType is "FortAnimNotify_MeleeAnimTrails_On" or "FortAnimNotify_MeleeAnimTrails_Off")
             {
                 (played.ExportType.EndsWith("_On") ? _trailsOn : _trailsOff).Add(sectionTime + notify.GetTime());

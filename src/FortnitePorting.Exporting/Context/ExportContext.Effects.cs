@@ -74,12 +74,7 @@ public partial class ExportContext
     private FSoftObjectPath Swapped(FSoftObjectPath path) =>
         EffectSwaps.TryGetValue(path.AssetPathName.Text, out var swapped) ? swapped : path;
 
-    /// <summary>
-    /// One of an item's own effects, under its mesh: the effect (Effect) with what it is ("trail",
-    /// "swing", "idle", "event": Role), the socket it sits on (MPParentBone) and where it sits there
-    /// (Place). In Blender it is on the item's armature and reads its bones and sockets.
-    /// </summary>
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ExportMesh, Dictionary<string, MaterialPorter.ExportSocket>> _meshSockets = new();
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ExportMesh, Dictionary<string, ExportSocket>> _meshSockets = new();
 
     /// <summary>
     /// A mesh's sockets, kept for the effects put on it: a skeletal mesh's own and its skeleton's, each
@@ -87,14 +82,14 @@ public partial class ExportContext
     /// </summary>
     private void MeshSockets(ExportMesh export, UObject mesh)
     {
-        var table = new Dictionary<string, MaterialPorter.ExportSocket>();
+        var table = new Dictionary<string, ExportSocket>();
         try
         {
             if (mesh is USkeletalMesh skeletal)
             {
                 foreach (var index in skeletal.Sockets.Concat(skeletal.Skeleton.Load<USkeleton>()?.Sockets ?? []))
-                    if (index.Load<global::CUE4Parse.UE4.Assets.Exports.SkeletalMesh.USkeletalMeshSocket>() is { } socket && Effects.Named(socket.SocketName))
-                        table.TryAdd(socket.SocketName.Text, new MaterialPorter.ExportSocket
+                    if (index.Load<USkeletalMeshSocket>() is { } socket && Effects.Named(socket.SocketName))
+                        table.TryAdd(socket.SocketName.Text, new ExportSocket
                         {
                             Bone = socket.BoneName.Text, Location = socket.RelativeLocation, Rotation = socket.RelativeRotation, Scale = socket.RelativeScale,
                         });
@@ -102,8 +97,8 @@ public partial class ExportContext
             else if (mesh is UStaticMesh fixedMesh)
             {
                 foreach (var index in fixedMesh.Sockets ?? [])
-                    if (index.Load<global::CUE4Parse.UE4.Assets.Exports.StaticMesh.UStaticMeshSocket>() is { } socket && Effects.Named(socket.SocketName))
-                        table.TryAdd(socket.SocketName.Text, new MaterialPorter.ExportSocket
+                    if (index.Load<UStaticMeshSocket>() is { } socket && Effects.Named(socket.SocketName))
+                        table.TryAdd(socket.SocketName.Text, new ExportSocket
                         {
                             Location = socket.RelativeLocation, Rotation = socket.RelativeRotation, Scale = socket.RelativeScale,
                         });
@@ -116,6 +111,11 @@ public partial class ExportContext
         if (table.Count > 0) _meshSockets.AddOrUpdate(export, table);
     }
 
+    /// <summary>
+    /// One of an item's own effects, under its mesh: the effect (Effect) with what it is ("trail",
+    /// "swing", "idle", "event": Role), the socket it sits on (MPParentBone) and where it sits there
+    /// (Place). In Blender it is on the item's armature and reads its bones and sockets.
+    /// </summary>
     private MaterialPorterMesh? OwnEffect(ExportMesh mesh, UObject? system, string role, string? socket, FTransform? place = null)
     {
         if (system is null || Effect(system) is not MaterialPorterMesh effect) return null;
@@ -401,8 +401,9 @@ public partial class ExportContext
             {
                 if (EffectMaterial(RendererMaterial(system, renderer), 0, values) is not { } material) break;
                 var sub = renderer.GetOrDefault("SubImageSize", new FVector2D(1, 1));
+                var ribbon = renderer.ExportType.Contains("Ribbon");
                 // a flipbook: each particle shows one sub-image, which the material picks (the plugin's env.uv)
-                if (renderer.ExportType.Contains("Ribbon"))
+                if (ribbon)
                     material = new MaterialPorterMaterial(material)
                     {
                         MPValues = (material as MaterialPorterMaterial)?.MPValues,
@@ -418,11 +419,11 @@ public partial class ExportContext
                     };
                 yield return new MaterialPorterMesh
                 {
-                    Name = $"{emitter.Name} {(renderer.ExportType.Contains("Ribbon") ? "ribbon" : "sprite")}",
+                    Name = $"{emitter.Name} {(ribbon ? "ribbon" : "sprite")}",
                     IsEmpty = true,
                     MPEffect = new Dictionary<string, object>
                     {
-                        ["Kind"] = renderer.ExportType.Contains("Ribbon") ? "Ribbon" : "Sprite",
+                        ["Kind"] = ribbon ? "Ribbon" : "Sprite",
                         ["Renderer"] = renderer.Name,
                         ["Material"] = material,
                         ["SubImages"] = new[] { sub.X, sub.Y },
