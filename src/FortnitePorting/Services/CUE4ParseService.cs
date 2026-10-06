@@ -315,9 +315,14 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     [LoadingStage("Initializing Provider", stage: 4, weight: 10)]
     private async Task InitializeProvider()
     {
-        if (AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestInstalled or EFortniteVersion.LatestOnDemand)
+        // Material Porter fork: a Custom install that streams needs Epic's token too, and the checked token goes
+        // into the on-demand options (they were made at setup: an expired token stayed in them all session)
+        if (AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestInstalled or EFortniteVersion.LatestOnDemand
+            || Provider.LoadOnDemandTocs)
         {
             await Api.EpicGames.VerifyAuthAsync();
+            if (Provider.OnDemandOptions is { } onDemand)
+                onDemand.Authorization = new AuthenticationHeaderValue("Bearer", AppSettings.Application.EpicAuth?.Token);
         }
         
         switch (AppSettings.Installation.CurrentProfile.FortniteVersion)

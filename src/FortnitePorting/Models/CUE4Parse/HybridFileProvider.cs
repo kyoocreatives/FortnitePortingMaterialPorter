@@ -70,9 +70,17 @@ public class HybridFileProvider : AbstractVfsFileProvider
 
             if (extension is "uondemandtoc" && LoadOnDemandTocs)
             {
-                var archive = new FByteArchive(file.FullName, File.ReadAllBytes(file.FullName), Versions);
-                var ioChunkToc = new IoChunkToc(archive);
-                await RegisterVfsAsync(ioChunkToc);
+                // Material Porter fork: a TOC that won't read (an older build's) costs its streaming, not the game's load
+                try
+                {
+                    var archive = new FByteArchive(file.FullName, File.ReadAllBytes(file.FullName), Versions);
+                    var ioChunkToc = new IoChunkToc(archive);
+                    await RegisterVfsAsync(ioChunkToc);
+                }
+                catch (Exception e)
+                {
+                    Serilog.Log.Warning("[Material Porter] {File}: on-demand TOC not read, its textures stay as installed: {Error}", file.Name, e.Message);
+                }
             }
         }
     }
