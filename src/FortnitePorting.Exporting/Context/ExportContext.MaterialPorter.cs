@@ -248,6 +248,7 @@ public partial class ExportContext
         export = export with
         {
             Name = $"{l.Name}.{l.Actor}",
+            Actor = l.Actor,
             Color = color,
             Intensity = l.Intensity,
             IntensityUnits = l.Units,
@@ -336,6 +337,7 @@ public partial class ExportContext
             MPInstanceData = m.InstanceData,
             MPSpline = m.Spline,
             MPCastShadow = m.CastShadow ? null : false,
+            MPActor = m.Actor,
         };
         export.Materials.AddRange(template.Materials);
         SetMaterialPorterTransform(export, m.World);

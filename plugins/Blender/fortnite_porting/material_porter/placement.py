@@ -31,6 +31,9 @@ def after_import(mesh, obj, mesh_obj, scale):
             if attribute.name in names:
                 attribute.name = names[attribute.name]
         target["mp_landscape"] = 1.0
+    # the actor this mesh came from (a lamp's housing and its light share one: shadow_linking)
+    if actor := mesh.get("MPActor"):
+        target["mp_actor"] = str(actor)
     if cpd := mesh.get("MPPrimitiveData"):
         target["mp_cpd"] = 1.0
         # (how many: an index past them reads the material parameter's default, as in UE)

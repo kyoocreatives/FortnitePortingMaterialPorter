@@ -40,6 +40,8 @@ public record ExportLight : ExportObject
     public float AttenuationRadius = 1000;
     public float Radius = 0.0f;
     public bool CastShadows;
+    /// <summary>The actor the light came from (a level's lamp): its own meshes don't shadow it in Blender (shadow linking); null on a prop's.</summary>
+    public string? Actor;
     /// <summary>
     /// Material Porter fork: what Intensity is in (UE's ELightUnits: Candelas, Lumens, Unitless, EV, Nits); FP's
     /// own point lights have always been read as candelas.

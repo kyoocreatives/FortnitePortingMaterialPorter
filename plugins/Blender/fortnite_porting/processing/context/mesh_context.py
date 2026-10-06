@@ -115,6 +115,9 @@ class MeshImportContext:
         from ...material_porter.level_effects import import_effects
         import_decals(self, data.get("Decals"))
         import_effects(self, data.get("Effects"))
+        # Material Porter fork: a lamp's own housing casts no shadow from its light (material_porter.shadow_linking)
+        from ...material_porter.shadow_linking import link_housings
+        link_housings(self)
                 
         if self.type in [EExportType.OUTFIT]:
             for imported_mesh in self.imported_meshes:
@@ -630,6 +633,9 @@ class MeshImportContext:
         # what UE stored, to retune the power by
         light_data["ue_intensity"] = data.get("Intensity") or 0.0
         light_data["ue_units"] = data.get("IntensityUnits") or "Candelas"
+        # the actor it came from: its own meshes won't shadow it (material_porter.shadow_linking)
+        if data.get("Actor"):
+            light["mp_actor"] = str(data["Actor"])
         return light, light_data
 
     def import_mesh(self, path: str, can_reorient=True):
