@@ -215,6 +215,8 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     {
         return AppSettings.Installation.CurrentProfile.FortniteVersion switch
         {
+            // Material Porter fork: a build downloaded from its manifest has no folder
+            _ when AppSettings.Installation.CurrentProfile.IsCustomOnDemand => true,
             EFortniteVersion.LatestInstalled or EFortniteVersion.Custom => Directory.Exists(AppSettings.Installation.CurrentProfile.ArchiveDirectory),
             _ => true
         };

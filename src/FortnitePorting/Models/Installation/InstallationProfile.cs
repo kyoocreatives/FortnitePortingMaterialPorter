@@ -234,6 +234,7 @@ public partial class InstallationProfile : ObservableValidator
         switch (e.PropertyName)
         {
             case nameof(FortniteVersion):
+            case nameof(DownloadFromManifest):     // Material Porter fork: a downloaded build needs no folder
             {
                 ValidateAllProperties();
                 break;
