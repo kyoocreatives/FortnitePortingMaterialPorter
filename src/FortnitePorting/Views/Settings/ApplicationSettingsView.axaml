@@ -47,7 +47,7 @@
             </controls:SettingsItem>
             
             <controls:SettingsItem Title="UEFN Project Folders"
-                                   Description="Folders that hold your UEFN projects, found by their .uefnproject file. An island of yours then imports with exact materials, read from its project's own graphs."
+                                   Description="Your Fortnite Projects folder and the projects UEFN lists are found by themselves; add folders that hold other UEFN projects here (found by their .uefnproject file). An island of yours then imports with exact materials, read from its project's own graphs."
                                    IsVisible="{Binding ShowIslandSettings}">
                 <controls:SettingsItem.Footer>
                     <StackPanel Spacing="4" HorizontalAlignment="Right">

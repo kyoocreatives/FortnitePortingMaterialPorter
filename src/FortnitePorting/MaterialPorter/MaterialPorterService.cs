@@ -111,7 +111,33 @@ public class MaterialPorterService : IService
     /// takes MATERIAL_PORTER_PROJECTS whatever the settings say.
     /// </summary>
     public static void ApplyProjectFolders() =>
-        IslandProjects.Roots = Fork.Islands ? AppSettings.Application.UefnProjectFolders.ToArray() : [];
+        IslandProjects.Roots = Fork.Islands
+            ? AppSettings.Application.UefnProjectFolders.Concat(DetectedProjectRoots()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+            : [];
+
+    /// <summary>
+    /// Where UEFN itself keeps the user's projects: the default Fortnite Projects folder, and the folders of the
+    /// projects it lists outside it (its EditorPerProjectUserSettings.ini: AdditionalProjectFiles=X:/.../P/P.uefnproject,
+    /// each one's parent, so the projects beside it count too). Found by themselves; the settings add to them.
+    /// </summary>
+    static IEnumerable<string> DetectedProjectRoots()
+    {
+        var defaultRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Fortnite Projects");
+        if (Directory.Exists(defaultRoot)) yield return defaultRoot;
+        var ini = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                               "UnrealEditorFortnite", "Saved", "Config", "WindowsEditor", "EditorPerProjectUserSettings.ini");
+        if (!File.Exists(ini)) yield break;
+        string[] lines;
+        try { lines = File.ReadAllLines(ini); }
+        catch (IOException) { yield break; }
+        foreach (var line in lines)
+        {
+            if (!line.StartsWith("AdditionalProjectFiles=", StringComparison.Ordinal)) continue;
+            var file = line["AdditionalProjectFiles=".Length..].Trim().Trim('"').Replace('/', Path.DirectorySeparatorChar);
+            var parent = Path.GetDirectoryName(Path.GetDirectoryName(file));
+            if (parent != null && Directory.Exists(parent)) yield return parent;
+        }
+    }
 
     /// <summary>A key the user's key tool gave for an island (shared with the Material Porter app).</summary>
     private sealed class IslandKey
