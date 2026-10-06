@@ -33,7 +33,8 @@ GROUP_VERSION = 9
 DECAL_DOWN = (-0.5, 0.5, 0.5, 0.5)
 # how a particle's piece is turned (the modifier's Turn): as the renderer says
 TURN_OWN, TURN_CAMERA, TURN_CAMERA_VELOCITY, TURN_FACING, TURN_MESH_VELOCITY, TURN_MESH_CAMERA, TURN_FACING_ALIGNED = range(7)
-FACINGS = "What a ribbon's width runs across: 0: the view (it faces the camera); 1: each particle's facing; "           "2: along each particle's side vector (a trail between two sockets)"
+FACINGS = "What a ribbon's width runs across: 0: the view (it faces the camera); 1: each particle's facing; " \
+          "2: along each particle's side vector (a trail between two sockets)"
 TURNS = "0: the particle's own rotation (a mesh); 1: a sprite facing the camera; 2: a sprite facing the camera, its length " \
         "along its velocity (or its own vector); 3: a sprite facing the particle's own direction; 4: a mesh, its X axis along the velocity; " \
         "5: a mesh, its X axis to the camera; 6: a sprite facing its own direction, its length along its own vector"
@@ -570,9 +571,8 @@ def _lights(piece, track, renderer, keep, scale, start, loop, parent, root):
     counts = np.bincount(frame, minlength=len(track.frames))
     count = int(min(counts.max(), LIGHTS_MAX))
     made = []
-    name = piece.name
     for slot in range(count):
-        light = bpy.data.lights.new("%s %d" % (name, slot + 1), 'POINT')
+        light = bpy.data.lights.new("%s %d" % (piece.name, slot + 1), 'POINT')
         light.shadow_soft_size = 0.05
         light.use_custom_distance = True
         light.diffuse_factor = float(renderer.get("DiffuseScale", 1.0))
@@ -1029,7 +1029,7 @@ def _enabled(system, emitter, renderer):
         value = np.frombuffer(system.user.raw(name)[:4], np.int32)
     if value is None or not len(value):
         return True
-    return bool(int(np.asarray(value).view(np.int32)[0]) != 0)
+    return int(np.asarray(value).view(np.int32)[0]) != 0
 
 
 # user parameters the game sets in its front end (the lobby, the locker): on for an import
@@ -1102,7 +1102,8 @@ def play(root):
     drawn_order = {}        # per piece (its layers: Fire, Fire001...), the players in the order they're made
     scene = bpy.context.scene
     clear(root)
-    system = niagara.System(exports, fields=fields, sockets=[s for s in str(root.get(KEY_SOCKETS) or "").split(",") if s])
+    sockets = [s for s in str(root.get(KEY_SOCKETS) or "").split(",") if s]
+    system = niagara.System(exports, fields=fields, sockets=sockets)
     _user(root, system)
     rig = holder_of(root)
     fps = scene.render.fps / scene.render.fps_base
@@ -1137,7 +1138,7 @@ def play(root):
                 break
             one = system
             if i:
-                one = niagara.System(exports, fields=fields, seed=1 + i, sockets=[s for s in str(root.get(KEY_SOCKETS) or "").split(",") if s])
+                one = niagara.System(exports, fields=fields, seed=1 + i, sockets=sockets)
                 _user(root, one)
                 one.camera = system.camera
             last = start + offset + lengths[i] if i < len(lengths) and lengths[i] > 0 else None
@@ -1207,7 +1208,7 @@ def play(root):
             _set(modifier, tree, "Start Frame", start)
             _set(modifier, tree, "Frames", len(track.frames))
             _set(modifier, tree, "Loop", loop)
-            bias_by_order(obj, modifier, tree, bpy.context.scene)
+            bias_by_order(obj, modifier, tree, scene)
             tied = bindings(renderer, emitter)
             if tied:
                 bound_params.update(_bind(piece, (piece, obj), tied, system.history, start, loop))
@@ -1301,7 +1302,7 @@ def play(root):
             root.name, ", ".join(sorted(system.reads)[:6]))
     elif rig is not None and system.unresolved():
         yield "%s: %s has no bone or socket named %s: each sits at its origin" % (root.name, rig.name, ", ".join(system.unresolved()[:8]))
-    if getattr(system, "meshless", False):
+    if system.meshless:
         yield "%s: samples a static mesh's surface or sockets (in the game, the mesh it is on): with none here, as the engine without one, from the effect's origin" % root.name
     left = ["%s (%s)" % s for s in system.skipped]
     if left:

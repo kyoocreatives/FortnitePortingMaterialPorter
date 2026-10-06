@@ -90,7 +90,7 @@ class Emitter:
         born = 0
         if self.state == niagara.ACTIVE and system.asked == niagara.ACTIVE:
             for name in self.infos:
-                _, f0, i0, _, _ = system.layout.vars[name]
+                i0 = system.layout.vars[name][2]
                 count = int(system.data.ints[i0, 0])
                 if count > 0:
                     self.asked = True

@@ -228,10 +228,8 @@ class Array:
         # what reading an empty one gives (the engine's GetDefaultValue): white for a colour (a variant's
         # colour array the game fills: Cerberus's flames are white x their material's colours, not black),
         # the identity for a quaternion or a matrix, else zeros
-        self.default = (1.0, 1.0, 1.0, 1.0) if kind.endswith("Color") else (0.0, 0.0, 0.0, 1.0) if kind.endswith("Quat") else             tuple(np.eye(4, dtype=float).ravel()) if kind.endswith("Matrix") else None
-
-    def _table(self, width):
-        return self.rows
+        self.default = (1.0, 1.0, 1.0, 1.0) if kind.endswith("Color") else (0.0, 0.0, 0.0, 1.0) if kind.endswith("Quat") else \
+            tuple(np.eye(4, dtype=float).ravel()) if kind.endswith("Matrix") else None
 
     def function(self, name, specifiers, inputs, outputs):
         kind = I if self.ints else F
@@ -242,14 +240,14 @@ class Array:
             return [view(a) for a in args[len(args) - width:]]
 
         if name in ("Length", "Num"):
-            return lambda count, args: [np.full(count, len(self._table(1)), I)]
+            return lambda count, args: [np.full(count, len(self.rows), I)]
         if name == "IsValidIndex":
-            return lambda count, args: [np.where((vm.it(args[-1]) >= 0) & (vm.it(args[-1]) < len(self._table(1))), I(-1), I(0)) + np.zeros(count, I)]
+            return lambda count, args: [np.where((vm.it(args[-1]) >= 0) & (vm.it(args[-1]) < len(self.rows)), I(-1), I(0)) + np.zeros(count, I)]
         if name in ("LastIndex", "GetLastIndex"):
-            return lambda count, args: [np.full(count, len(self._table(1)) - 1, I)]
+            return lambda count, args: [np.full(count, len(self.rows) - 1, I)]
         if name == "Get":
             def get(count, args):
-                table = self._table(outputs)
+                table = self.rows
                 if not len(table):
                     if self.default is not None and len(self.default) == outputs:
                         return [np.full(count, v, kind) for v in self.default]
@@ -261,23 +259,23 @@ class Array:
             # the arguments: (the interface's own), whether to skip, (an index), the value
             def change(count, args):
                 if name == "Clear" or name == "Reset":
-                    self.rows = self._table(1)[:0]
+                    self.rows = self.rows[:0]
                     return []
                 if name == "Resize":
-                    table, size = self._table(1), max(int(np.max(vm.it(args[-1]))), 0)
+                    table, size = self.rows, max(int(np.max(vm.it(args[-1]))), 0)
                     grown = np.zeros((size, table.shape[1]), table.dtype)
                     grown[:min(size, len(table))] = table[:size]
                     self.rows = grown
                     return []
                 if name == "RemoveLastElem":
-                    table = self._table(outputs - 1)
+                    table = self.rows
                     if not len(table):
                         return [np.zeros(count, kind)] * (outputs - 1) + [np.zeros(count, I)]
                     last, self.rows = table[-1], table[:-1]
                     return [np.full(count, last[i], kind) for i in range(outputs - 1)] + [np.full(count, -1, I)]
-                skip_at = inputs - (self.width_of(args, name)) - (2 if name == "SetArrayElem" else 1)
                 width = self.width_of(args, name)
-                table = self._table(width)
+                skip_at = inputs - width - (2 if name == "SetArrayElem" else 1)
+                table = self.rows
                 skip = np.broadcast_to(vm.it(args[skip_at]), (count,)) != 0
                 new = np.stack([np.broadcast_to(v, (count,)) for v in values(args, width)], axis=1)
                 if name == "Add":
@@ -292,7 +290,7 @@ class Array:
 
     def width_of(self, args, name):
         """How many components a value has: the table's, else what the call's inputs leave."""
-        if self.rows is not None and self.rows.shape[1]:
+        if self.rows.shape[1]:
             return self.rows.shape[1]
         return max(len(args) - (3 if name == "SetArrayElem" else 2), 1)
 
@@ -308,20 +306,20 @@ class ParticleRead:
     def function(self, name, specifiers, inputs, outputs):
         attribute = _specifiers(specifiers).get("Attribute")
         source = self.source if self.source and str(self.source) != "None" else self.caller
-        self = _Reader(self.system, source)
+        reader = _Reader(self.system, source)
 
         def nothing(count):
             return [np.zeros(count, I)] * outputs
 
         if name == "Get Num Particles":
-            return lambda count, args: [np.full(count, e.data.count if (e := self.emitter()) else 0, I)]
+            return lambda count, args: [np.full(count, e.data.count if (e := reader.emitter()) else 0, I)]
         if name == "Get Num Spawned Particles":
-            return lambda count, args: [np.full(count, e.born if (e := self.emitter()) else 0, I)]
+            return lambda count, args: [np.full(count, e.born if (e := reader.emitter()) else 0, I)]
         if name == "GetLocalSpace":
-            return lambda count, args: [np.full(count, -1 if (e := self.emitter()) and e.local else 0, I)]
+            return lambda count, args: [np.full(count, -1 if (e := reader.emitter()) and e.local else 0, I)]
         if attribute and name.endswith("By Index"):
             def by_index(count, args):
-                e = self.emitter()
+                e = reader.emitter()
                 rows = e.attribute(attribute) if e else None
                 if rows is None or not rows.shape[1]:
                     return nothing(count)
@@ -332,7 +330,7 @@ class ParticleRead:
             return by_index
         if attribute and name.endswith("By ID"):
             def by_id(count, args):
-                e = self.emitter()
+                e = reader.emitter()
                 rows, ids = (e.attribute(attribute), e.attribute("ID")) if e else (None, None)
                 if rows is None or ids is None or not rows.shape[1]:
                     return nothing(count)
@@ -826,7 +824,7 @@ class Emitter:
             self.update.store.put("Engine.ExecutionCount", "<i", existing)
             binding = vm.Binding(self.data, 0, self.next, 0)
             sent = []
-            for buffer, most in self.sends:
+            for buffer, _ in self.sends:
                 buffer.reserve(existing)
                 sent.append(vm.Binding(target=buffer))
             self.update.run(existing, blocks(self.update), [binding] + sent, system.rng, self.ids)
