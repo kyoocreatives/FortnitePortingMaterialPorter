@@ -323,7 +323,7 @@ public partial class MeshExport : BaseExport
                     // Material Porter fork: a prop whose parts sit off its pivot (a billboard's screen and
                     // frame) under an empty at the item's transform - added to each part, the transform
                     // moved their offsets without turning or scaling them with the item
-                    if (objects.Any(o => o.Location.X != 0 || o.Location.Y != 0 || o.Location.Z != 0
+                    if (objects.Any(o => o.Location != FVector.ZeroVector
                                          || o.Rotation.Pitch != 0 || o.Rotation.Yaw != 0 || o.Rotation.Roll != 0))
                     {
                         var item = new ExportMesh

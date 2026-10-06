@@ -286,17 +286,17 @@ public partial class ExportContext
             // Material Porter fork: each template's own objects and actor data (the record's ActorData
             // list skips null templates, so its index isn't the template's key)
             var templateObjects = Blueprint(actorBlueprint);
-            if (templateObjects is null || templateObjects.Count == 0) continue;
+            if (templateObjects.Count == 0) continue;
             objects.AddRange(templateObjects);
 
             // the texture data the actor sets, by slot: null where it clears one (the mesh's own material)
             var textureDatas = new Dictionary<int, UBuildingTextureData?>();
             if (templateRecord.bUsingRecordDataReferenceTable)
             {
+                var table = templateRecord.ActorDataReferenceTable;
                 foreach (var property in ActorDataReader.Read(templateRecord.ActorData) ?? [])
                 {
                     if (property.Name != "TextureData" || property.ReferenceIndex < 0) continue;
-                    var table = templateRecord.ActorDataReferenceTable;
                     if (table is null || property.ReferenceIndex >= table.Length) continue;
 
                     var textureDataPath = table[property.ReferenceIndex];

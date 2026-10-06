@@ -10,7 +10,6 @@ using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.UE4.Objects.UObject;
 using FortnitePorting.Exporting.MaterialPorter;
 using FortnitePorting.Exporting.Models;
-using FortnitePorting.Shared.Extensions;
 
 namespace FortnitePorting.Exporting.Context;
 
@@ -32,17 +31,17 @@ public partial class ExportContext
     public List<ExportObject>? SignFrame(UBlueprintGeneratedClass blueprint)
     {
         var chain = new List<UBlueprintGeneratedClass>();
-        for (var c = blueprint; c is not null && chain.Count < 16; c = c.SuperStruct?.Load<UBlueprintGeneratedClass>())
+        for (var c = blueprint; c is not null; c = c.SuperStruct?.Load<UBlueprintGeneratedClass>())
             chain.Add(c);
         var root = chain.FirstOrDefault(c => c.Name == SignFrameClass);
         if (root is null) return null;
 
         // the class's values: the nearest class's default (a CP_ prop sets its size and ad)
-        var defaults = chain.Select(c => c.ClassDefaultObject.TryLoad(out var cdo) ? cdo : null).Where(o => o is not null).ToList();
+        var defaults = chain.Select(c => c.ClassDefaultObject.TryLoad(out var cdo) ? cdo : null).OfType<UObject>().ToList();
         T Value<T>(string name, T fallback)
         {
             foreach (var cdo in defaults)
-                if (cdo!.TryGetValue(out T value, name)) return value;
+                if (cdo.TryGetValue(out T value, name)) return value;
             return fallback;
         }
 
@@ -79,7 +78,9 @@ public partial class ExportContext
             objects.Add(edges);
         }
 
-        // ValidateSignPlaneTransform: the screen in the frame's middle, 23 units in (its X mirrored)
+        // ValidateSignPlaneTransform: the screen in the frame's middle, 23 units in (its X mirrored);
+        // ValidateMaterial_*, SetupMaterialParamsOnSignMesh: the ad in slot 0 (and slot 1 when two-sided,
+        // else the dummy back), the Lumen values on both, PIxelCellSize as custom primitive data 0
         if (templates.TryGetValue("MainSignBox", out var boxTemplate) && boxTemplate is UStaticMeshComponent boxComponent
             && MeshComponent(boxComponent) is { } box && width != 0 && height != 0)
         {
@@ -93,17 +94,25 @@ public partial class ExportContext
             values.Scalars["LumenSaturation"] = Math.Min(1 - Value("LumenSaturation", 1.0), 1);
             var tint = Value("LumenColorOverride", new FLinearColor(1, 1, 1, 0));
             values.Vectors["LumenColorOverride"] = [tint.R, tint.G, tint.B, 1];
-            objects.Add(SignScreen(box, Value<UMaterialInterface?>("Material", null), Value("TwoSided", false),
-                Value<UMaterialInterface?>("DummyMaterial", null), values, (float) Value("PIxelCellSize", 0.01)));
+
+            var ad = Value<UMaterialInterface?>("Material", null);
+            var back = Value<UMaterialInterface?>("DummyMaterial", null);
+            var front = ad is not null ? Material(ad, 0)
+                : box.OverrideMaterials.FirstOrDefault(m => m.Slot == 0) ?? box.Materials.FirstOrDefault(m => m.Slot == 0);
+            var rear = Value("TwoSided", false) ? (ad is not null ? Material(ad, 1) : front) : back is not null ? Material(back, 1) : null;
+            box.OverrideMaterials.Clear();
+            if (front is not null) box.OverrideMaterials.Add(SlotMaterial(front, 0, values));
+            if (rear is not null) box.OverrideMaterials.Add(SlotMaterial(rear, 1, values));
+            objects.Add(new MaterialPorterMesh(box) { MPPrimitiveData = [(float) Value("PIxelCellSize", 0.01)] });
         }
 
         // AddStruts
-        if (Value("bAddStruts", false))
+        var count = Value("StrutCount", 2);
+        if (Value("bAddStruts", false)
+            && LoadMaterialPorterObject(SignFrameMeshes + (count > 1 ? "SM_NeonCity_SignFrame_Holder_B" : "SM_NeonCity_SignFrame_Holder_A")) is UStaticMesh holder)
         {
-            var count = Value("StrutCount", 2);
             var spread = Value("StrutSpreadFactor", 1.5);
-            var holder = LoadMaterialPorterObject(SignFrameMeshes + (count > 1 ? "SM_NeonCity_SignFrame_Holder_B" : "SM_NeonCity_SignFrame_Holder_A")) as UStaticMesh;
-            for (var i = 0; i < count && holder is not null; i++)
+            for (var i = 0; i < count; i++)
             {
                 var m = ((double) (i + 1) / (count + 1) - 0.5) * 2;
                 var f = (Math.Sign(m) * (1 - Math.Pow(1 - Math.Abs(m), spread)) + 1) / 2;
@@ -115,20 +124,6 @@ public partial class ExportContext
         }
 
         return objects;
-    }
-
-    // SetupMaterialParamsOnSignMesh / ValidateMaterial_*: the ad in slot 0 (and slot 1 when two-sided,
-    // else the dummy back), the Lumen values on both, PIxelCellSize as custom primitive data 0
-    ExportMesh SignScreen(ExportMesh box, UMaterialInterface? ad, bool twoSided, UMaterialInterface? back,
-        ParamSet values, float pixelCellSize)
-    {
-        var front = ad is not null ? Material(ad, 0)
-            : box.OverrideMaterials.FirstOrDefault(m => m.Slot == 0) ?? box.Materials.FirstOrDefault(m => m.Slot == 0);
-        var rear = twoSided ? (ad is not null ? Material(ad, 1) : front) : back is not null ? Material(back, 1) : null;
-        box.OverrideMaterials.Clear();
-        if (front is not null) box.OverrideMaterials.Add(SlotMaterial(front, 0, values));
-        if (rear is not null) box.OverrideMaterials.Add(SlotMaterial(rear, 1, values));
-        return new MaterialPorterMesh(box) { MPPrimitiveData = [pixelCellSize] };
     }
 
     /// <summary>The sign frame class's own component templates, by variable name (its SCS).</summary>
