@@ -50,6 +50,7 @@ public partial class MeshExport : BaseExport
     
     public MeshExport(string name, UObject asset, ExportStyleBase[] styles, EExportType exportType, ExportDataMeta metaData, IExportFileMeta? fileMeta) : base(name, exportType, metaData)
     {
+        Context.StartPrefetch(asset);     // Material Porter fork: a downloaded build's files fetched beside the export
         // Material Porter fork: the wrap and the weapon mods picked on the asset's page
         Context.WrapPick = styles.OfType<MaterialPorter.ExportWrapStyle>().FirstOrDefault()?.Path;
         Context.EffectsPick = styles.OfType<MaterialPorter.ExportEffectsStyle>().Any(s => s.On);

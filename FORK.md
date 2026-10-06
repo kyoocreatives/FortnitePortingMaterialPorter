@@ -701,6 +701,11 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   as downloaded, every read (one 64 KB IoStore block) inflated its whole 1 MB
   chunk again - a landmark's export took 50 s with everything cached, 5 s now
   (21 s downloading it), a load 12 s.
+- **Exports prefetch.** A downloaded build's export has its packages read
+  beside it, 12 at a time with their bulk data: the asset's (a map's streaming
+  levels and partition cells too) and what they import, level by level, from
+  the container headers already in memory. A landmark from an empty cache:
+  55 s, 33 s with it. `MATERIAL_PORTER_PREFETCH=0` turns it off.
 - **Mappings repaired.** Some builds' mappings (38.00's) hold editor template
   structs named like real classes after them (ActorComponent, Skeleton,
   PhysicsAsset); CUE4Parse keeps the last of a name, so every component read 15

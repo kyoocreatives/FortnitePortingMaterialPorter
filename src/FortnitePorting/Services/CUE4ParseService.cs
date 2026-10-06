@@ -108,6 +108,9 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     public async Task Initialize()
     {
         MaterialPorter.MaterialPorterService.Instance.OnGameLoading();     // Material Porter fork
+        // Material Porter fork: downloaded files are fetched beside an export (a local install's are at hand)
+        Exporting.MaterialPorter.Prefetch.Enabled = AppSettings.Installation.CurrentProfile.IsCustomOnDemand
+            || AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestOnDemand;
         if (!HasValidArchivePath())
         {
             Info.Dialog("Invalid Installation Settings", "The archive directory set in Installation Settings does not exist or is empty. Please set it to your Fortnite installation's archive directory (generally located at FortniteGame/Content/Paks).", buttons:
