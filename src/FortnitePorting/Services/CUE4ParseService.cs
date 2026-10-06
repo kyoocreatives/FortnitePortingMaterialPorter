@@ -399,6 +399,48 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         }
     }
 
+    // Material Porter fork: a downloaded build's own package and custom versions, from its UEFN - whose pak's
+    // packages are versioned (the game's aren't: CUE4Parse guesses them from the engine version, and a build between
+    // engine releases (28.00) then read its meshes' distance fields and instanced components wrong). Same changelist,
+    // same code: the same versions.
+    private void ApplyStudioVersions()
+    {
+        if (!AppSettings.Installation.CurrentProfile.IsCustomOnDemand) return;
+        var pak = Provider.MountedVfs.FirstOrDefault(v => v.Name.Equals("UEFNFortniteGame-WindowsUEFN.pak", StringComparison.OrdinalIgnoreCase));
+        if (pak is null) return;
+
+        // each package lists only the custom versions it uses: some of every kind, Fortnite's meshes first
+        var files = pak.Files.Values.Where(f => f.Extension == "uasset" && !f.IsEncrypted && f.Path.StartsWith("FortniteGame/", StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(f => f.Path.Contains("/Meshes/", StringComparison.OrdinalIgnoreCase)).Take(400);     // (40 missed some)
+        var versions = new Dictionary<global::CUE4Parse.UE4.Objects.Core.Misc.FGuid, int>();
+        global::CUE4Parse.UE4.Versions.FPackageFileVersion? fileVersion = null;
+        foreach (var file in files)
+        {
+            try
+            {
+                var summary = Provider.LoadPackage(file).Summary;
+                if (summary.bUnversioned || summary.CustomVersionContainer is not { } custom) continue;
+                foreach (var version in custom.Versions)
+                    versions[version.Key] = Math.Max(version.Version, versions.GetValueOrDefault(version.Key, int.MinValue));
+                if (fileVersion is null || summary.FileVersionUE.FileVersionUE5 > fileVersion.Value.FileVersionUE5) fileVersion = summary.FileVersionUE;
+            }
+            catch (Exception e)
+            {
+                Exporting.MaterialPorter.Failures.Note("UEFN package versions", file.Path, e);
+            }
+        }
+        if (fileVersion is { } ver && versions.Count > 0)
+        {
+            Provider.Versions.CustomVersions = new global::CUE4Parse.UE4.Objects.Core.Serialization.FCustomVersionContainer(
+                versions.Select(v => new global::CUE4Parse.UE4.Objects.Core.Serialization.FCustomVersion(v.Key, v.Value)));
+            MaterialPorter.OnDemandBuilds.SetVer(Provider.Versions, ver);
+            Log.Information("[Material Porter] package versions of this build from its UEFN: UE5 file version {Version}, {Count} custom versions",
+                ver.FileVersionUE5, versions.Count);
+            return;
+        }
+        Log.Warning("[Material Porter] no versioned package in this build's UEFN: package versions guessed from the engine version");
+    }
+
     // Material Porter fork: a downloaded Custom build's Unreal version (the archive leaves most builds' engine
     // out), found by reading packages every build has with each one: a balance table, some Blueprints and structs
     // (their properties' layout changes between versions), with serialization errors fatal so a wrong version fails
@@ -637,7 +679,8 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     [LoadingStage("Loading Required Assets", stage: 9, weight: 5)]
     private async Task LoadApplicationAssets()
     {
-        DetectUnrealVersion();     // Material Porter fork: before the first package is read
+        ApplyStudioVersions();     // Material Porter fork: before the first package is read
+        DetectUnrealVersion();
         if (await Provider.SafeLoadPackageObjectAsync("FortniteGame/Content/Balance/RarityData") is { } rarityData)
         {
             for (var i = 0; i < rarityData.Properties.Count; i++)
