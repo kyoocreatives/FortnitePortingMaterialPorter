@@ -277,37 +277,38 @@ public partial class ExportContext
     public List<ExportObject> LevelSaveRecord(ULevelSaveRecord levelSaveRecord)
     {
         var objects = new List<ExportObject>();
-        foreach (var (index, templateRecord) in levelSaveRecord.TemplateRecords)
+        foreach (var (_, templateRecord) in levelSaveRecord.TemplateRecords)
         {
+            if (templateRecord is null) continue;
             var actorBlueprint = templateRecord.ActorClass.Load<UBlueprintGeneratedClass>();
             if (actorBlueprint is null) continue;
-            
-            objects.AddRangeIfNotNull(Blueprint(actorBlueprint));
-            
-            if (objects.Count == 0) continue;
 
-            var textureDatas = new Dictionary<int, UBuildingTextureData>();
-            var actorData = levelSaveRecord.ActorData[index];
+            // Material Porter fork: each template's own objects and actor data (the record's ActorData
+            // list skips null templates, so its index isn't the template's key)
+            var templateObjects = Blueprint(actorBlueprint);
+            if (templateObjects is null || templateObjects.Count == 0) continue;
+            objects.AddRange(templateObjects);
+
+            // the texture data the actor sets, by slot: null where it clears one (the mesh's own material)
+            var textureDatas = new Dictionary<int, UBuildingTextureData?>();
             if (templateRecord.bUsingRecordDataReferenceTable)
             {
-                foreach (var property in actorData.Properties)
+                foreach (var property in ActorDataReader.Read(templateRecord.ActorData) ?? [])
                 {
-                    if (!property.Name.Text.Equals("TextureData"))
-                        continue;
-                    
-                    if (property.Tag?.GetValue<FPackageIndex>() is not { } packageIndex)
-                        continue;
-                    
-                    var textureDataPath = templateRecord.ActorDataReferenceTable[packageIndex.Index];
-                    if (textureDataPath.AssetPathName.IsNone || string.IsNullOrEmpty(textureDataPath.AssetPathName.Text)) continue;
-                    
-                    var textureData = textureDataPath.Load<UBuildingTextureData>();
-                    textureDatas.Add(property.ArrayIndex, textureData);
+                    if (property.Name != "TextureData" || property.ReferenceIndex < 0) continue;
+                    var table = templateRecord.ActorDataReferenceTable;
+                    if (table is null || property.ReferenceIndex >= table.Length) continue;
+
+                    var textureDataPath = table[property.ReferenceIndex];
+                    UBuildingTextureData? textureData = null;
+                    if (!textureDataPath.AssetPathName.IsNone && !string.IsNullOrEmpty(textureDataPath.AssetPathName.Text))
+                        textureDataPath.TryLoad(out textureData);
+                    textureDatas[property.ArrayIndex] = textureData;
                 }
             }
             else
             {
-                foreach (var property in actorData.Properties)
+                foreach (var property in LegacyActorData(levelSaveRecord, templateRecord).Properties)
                 {
                     if (!property.Name.Text.Equals("TextureData"))
                         continue;
@@ -315,23 +316,48 @@ public partial class ExportContext
                     var textureData = property.Tag?.GetValue<FPackageIndex>()?.Load<UBuildingTextureData>();
                     if (property.Tag?.GetValue<string>() is { } textureDataAssetPath)
                         textureData ??= Meta.Provider.Provider!.SafeLoadPackageObject<UBuildingTextureData>(textureDataAssetPath);
-                    
+
                     if (textureData is not null)
-                        textureDatas.Add(property.ArrayIndex, textureData);
-                    
+                        textureDatas[property.ArrayIndex] = textureData;
                 }
             }
-            
-            var targetMesh = objects.OfType<ExportMesh>().FirstOrDefault();
+            if (textureDatas.Count == 0) continue;
+
+            // onto the actor's own mesh (the class default's, which carries its default texture data),
+            // replacing that slot's default
+            var meshes = templateObjects.OfType<ExportMesh>().ToList();
+            var defaultName = actorBlueprint.ClassDefaultObject?.Name;
+            var targetMesh = meshes.FirstOrDefault(mesh => mesh.TextureData.Count > 0)
+                             ?? meshes.FirstOrDefault(mesh => mesh.Name == defaultName)
+                             ?? meshes.FirstOrDefault();
+            if (targetMesh is null) continue;
             foreach (var (textureDataIndex, textureData) in textureDatas)
             {
-                targetMesh?.TextureData.AddIfNotNull(TextureData(textureData, textureDataIndex));
+                targetMesh.TextureData.RemoveAll(data => data.Index == textureDataIndex);
+                targetMesh.TextureData.AddIfNotNull(TextureData(textureData, textureDataIndex));
             }
         }
 
         return objects;
     }
-    
+
+    // An older record's actor data, read by CUE4Parse - which unsets its package's unversioned flag
+    // while it reads and leaves it unset when the read throws: put back here either way
+    static FStructFallback LegacyActorData(ULevelSaveRecord levelSaveRecord, FActorTemplateRecord templateRecord)
+    {
+        var owner = levelSaveRecord.Owner;
+        if (owner is null) return new FStructFallback();
+        var flags = owner.Summary.PackageFlags;
+        try
+        {
+            return templateRecord.ReadActorData(owner, levelSaveRecord.SaveVersion);
+        }
+        finally
+        {
+            owner.Summary.PackageFlags = flags;
+        }
+    }
+
     public List<ExportMesh> ExtraActorMeshes(UObject actor)
     {
         var extraMeshes = new List<ExportMesh>();

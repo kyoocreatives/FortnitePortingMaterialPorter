@@ -653,6 +653,11 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   node editor first shows them; FP's per-object metadata scan, active-object
   switch and edit-mode Tris to Quads were replaced (a Hera cell 214 s to 89 s;
   a 30,105-object island 190 s).
+- **Prefab texture data.** A prefab's (playset's) props keep the texture data
+  their level save record sets: `Context/ActorDataReader.cs` reads the
+  reference-table actor data CUE4Parse drops (one byte short of the properties),
+  and each slot replaces the class default's - or clears it (Rebel's Roost:
+  walls, rugs, crates and paintings came out in their default textures).
 - **No online account.** `SupabaseService` is inert (no client, no sign-in, no
   posted logins, exports or errors); the setup's sign-in step, the Online
   sidebar (Chat, Leaderboard) and the `fortniteporting://` registration are gone.
