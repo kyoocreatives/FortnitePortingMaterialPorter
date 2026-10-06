@@ -956,6 +956,9 @@ class System:
         self.spawn_inputs = Layout(compiled["SpawnInstanceParamsDataSetCompiledData"]["Variables"])
         self.update_inputs = Layout(compiled["UpdateInstanceParamsDataSetCompiledData"]["Variables"])
         self.handles = props.get("EmitterHandles") or []
+        for h in self.handles:     # (an older build's dump names the handle's guid "ID": 28.00)
+            if isinstance(h, dict) and "Id" not in h and "ID" in h:
+                h["Id"] = h["ID"]
         self.emitters, self.skipped = [], []        # skipped: (emitter name, why)
         self.approximate = []                       # the stateless emitters: played from their settings, the engine's random draws apart
         self.gpu = []                               # the GPU emitters among them: their motion a stand-in (niagara_gpu)
