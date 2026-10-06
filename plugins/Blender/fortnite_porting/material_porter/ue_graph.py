@@ -623,6 +623,27 @@ def _inner(object_name):
     return object_name.split("'")[1] if "'" in object_name else object_name
 
 
+# the nodes each tree's translation made, by what they compute (Translator.reuse): asked for
+# the same value twice, it gets the one node. merge_duplicates, which removes nodes, empties
+# its tree's.
+_MADE = {}
+
+
+def _ident(v):
+    """A value as a node input, for Translator.reuse: its socket or its number, with its
+    width; None for what no socket holds (Material Attributes, a texture reference)."""
+    if v is None:
+        return ()
+    s = v.s
+    if isinstance(s, (int, float)):
+        return (float(s), v.w)
+    if isinstance(s, tuple):
+        return (s, v.w)
+    if hasattr(s, "as_pointer"):
+        return (s.as_pointer(), v.w)
+    return None
+
+
 _GRAPHS = {}
 
 
@@ -945,6 +966,10 @@ class Translator:
         # then one frame per material function it calls, nested as UE nests them
         self.section = []
         self._shared = {}
+        self._made = _MADE.setdefault(tree.as_pointer(), {})
+        if parent is None or parent.tree != tree:
+            # (a tree made where a removed one was can have its address)
+            self._made.clear()
         # clip()s of the material's own graph: where one is 0 the pixel isn't drawn
         self.clips = []
 
@@ -987,6 +1012,17 @@ class Translator:
         for k, v in props.items():
             setattr(n, k, v)
         return n
+
+    def reuse(self, key, make):
+        """The value a node made for `key` (what it computes: its kind, settings and inputs'
+        _idents) gives, else make()'s: translation asks for one value in many places (a vector
+        split per read, a mix per branch) - each a node made, linked and folded away after."""
+        if key is None or None in key:
+            return make()
+        got = self._made.get(key)
+        if got is None:
+            got = self._made[key] = make()
+        return got
 
     def link(self, val, sock):
         if val is None:
@@ -1038,26 +1074,54 @@ class Translator:
                 return a
             if op == 'ADD' and ka == 0.0:
                 return b
-        n = self.node("ShaderNodeMath", label or op, operation=op, use_clamp=clamp)
-        for i, v in enumerate((a, b, c)):
-            if v is not None:
-                self.link(v, n.inputs[i])
-        return Val(n.outputs[0], 1)
+        flip = op == 'SUBTRACT' and c is None and not clamp and a.const and a.s == 1.0 and not b.const \
+            and hasattr(b.s, "as_pointer")
+        if flip:
+            # 1 - (1 - x): x (a UV's v flipped into UE's space, then back for a texture)
+            x = self._made.get(("1 - x", b.s.as_pointer()))
+            if x is not None:
+                return x
+
+        def make():
+            n = self.node("ShaderNodeMath", label or ("1 - x" if flip else op), operation=op, use_clamp=clamp)
+            for i, v in enumerate((a, b, c)):
+                if v is not None:
+                    self.link(v, n.inputs[i])
+            if flip and b.w == 1:
+                self._made[("1 - x", n.outputs[0].as_pointer())] = b
+            return Val(n.outputs[0], 1)
+        return self.reuse(("math", op, clamp, _ident(a), _ident(b), _ident(c)), make)
 
     def vmath(self, op, a, b=None, c=None, label="", out_w=None):
-        n = self.node("ShaderNodeVectorMath", label or op, operation=op)
-        if op == 'SCALE':
-            # the factor has its own socket; inputs[1] is hidden for SCALE,
-            # and a link to a hidden socket is silently ignored
-            self.link(a, n.inputs[0])
-            self.link(b, n.inputs["Scale"])
-            return Val(n.outputs["Vector"], out_w or a.w)
-        for i, v in enumerate((a, b, c)):
-            if v is not None:
-                self.link(v, n.inputs[i])
-        if op in ("DOT_PRODUCT", "LENGTH", "DISTANCE"):
-            return Val(n.outputs["Value"], 1)
-        return Val(n.outputs["Vector"], out_w or max(x.w for x in (a, b, c) if x is not None))
+        w = out_w or (a.w if op == 'SCALE' else max(x.w for x in (a, b, c) if x is not None))
+        if c is None and all(x is None or x.const and isinstance(x.s, (int, float, tuple)) for x in (a, b)):
+            # every input known: the result, as Blender's node computes it
+            def vec(x):
+                return None if x is None else (float(x.s),) * 3 if isinstance(x.s, (int, float)) else tuple(x.s)[:3]
+            if op == 'SCALE':
+                r = _blender_vmath(op, vec(a), float(b.s)) if isinstance(b.s, (int, float)) else None
+            else:
+                r = _blender_vmath(op, vec(a), vec(b))
+            if isinstance(r, float):
+                return Val(r, 1)
+            if r is not None:
+                return self.const(r, w)
+
+        def make():
+            n = self.node("ShaderNodeVectorMath", label or op, operation=op)
+            if op == 'SCALE':
+                # the factor has its own socket; inputs[1] is hidden for SCALE,
+                # and a link to a hidden socket is silently ignored
+                self.link(a, n.inputs[0])
+                self.link(b, n.inputs["Scale"])
+                return Val(n.outputs["Vector"], w)
+            for i, v in enumerate((a, b, c)):
+                if v is not None:
+                    self.link(v, n.inputs[i])
+            if op in ("DOT_PRODUCT", "LENGTH", "DISTANCE"):
+                return Val(n.outputs["Value"], 1)
+            return Val(n.outputs["Vector"], w)
+        return self.reuse(("vmath", op, w, _ident(a), _ident(b), _ident(c)), make)
 
     def alpha(self, v):
         """The 4th component of a value: its own for a float4, the value
@@ -1109,18 +1173,19 @@ class Translator:
                 return self.binop('MULTIPLY', a, self.const(big), label=label)
         if b.w == 4:
             return self.binop('DIVIDE', a, b, label=label)
+        # A over B, or over 1 / big where B is 0 (A's sign times big): B + (B is 0) / big
         if b.w != 1:
             # the same per component (a scale of 0 put through Scale UVs By Center - a sprite's
             # missing mouth - pushes its UVs off the texture: Blender's 0 drew the mouth's middle
             # over the whole body): 1 - sign(|B|) is 1 where a component is 0
             zero = self.vmath('SUBTRACT', self.const(1.0, b.w),
                               self.vmath('SIGN', self.vmath('ABSOLUTE', b, out_w=b.w), out_w=b.w), out_w=b.w)
-            return self.binop('ADD', self.binop('DIVIDE', a, b, label=label),
-                              self.binop('MULTIPLY', a, self.vmath('MULTIPLY', zero, self.const(big, b.w), out_w=b.w)))
-        # (1 where B is exactly 0) * big * A, added to the Divide's 0
+            safe = self.vmath('MULTIPLY_ADD', zero, self.const(1.0 / big, b.w), b, label="B, or tiny if 0", out_w=b.w)
+            return self.binop('DIVIDE', a, safe, label=label)
+        # (Blender's compare: within 1e-5 - a B that small gains 1 / big, nothing it shows)
         zero = self.math('COMPARE', b, self.const(0.0), self.const(0.0))
-        return self.binop('ADD', self.binop('DIVIDE', a, b, label=label),
-                          self.binop('MULTIPLY', a, self.math('MULTIPLY', zero, self.const(big))))
+        safe = self.math('MULTIPLY_ADD', zero, self.const(1.0 / big), b, label="B, or tiny if 0")
+        return self.binop('DIVIDE', a, safe, label=label)
 
     def unary(self, op, a):
         if a.w == 1:
@@ -1140,6 +1205,17 @@ class Translator:
             v = self.with_alpha(v, self.math('MULTIPLY', self.alpha(a), self.const(1.0), clamp=True))
         return v
 
+    def clamp(self, v, mn, mx):
+        """min(max(v, mn), mx) of floats: one Clamp node (its Min Max mode is that)."""
+        if v.const and mn.const and mx.const:
+            return Val(min(max(float(v.s), float(mn.s)), float(mx.s)), 1)
+
+        def make():
+            n = self.node("ShaderNodeClamp", "clamp", clamp_type='MINMAX')
+            self.link(v, n.inputs["Value"]); self.link(mn, n.inputs["Min"]); self.link(mx, n.inputs["Max"])
+            return Val(n.outputs[0], 1)
+        return self.reuse(("clamp", _ident(v), _ident(mn), _ident(mx)), make)
+
     def lerp(self, a, b, t, label="lerp"):
         if isinstance(a.s, Attrs) or isinstance(b.s, Attrs):
             if t.const and t.w == 1 and t.s in (0.0, 1.0):
@@ -1151,15 +1227,24 @@ class Translator:
         if a.const and b.const and a.w == b.w == w and a.s == b.s and (w != 4 or (a.a is not None and b.a is not None
                                                                                 and a.a.const and b.a.const and a.a.s == b.a.s)):
             return a        # (between a value and itself: Hit Glow's colours, 0 and 0 at rest)
-        if w == 1:
-            n = self.node("ShaderNodeMix", label, data_type='FLOAT', clamp_factor=False)
-            self.link(t, n.inputs[0]); self.link(a, n.inputs[2]); self.link(b, n.inputs[3])
-            return Val(n.outputs[0], 1)
-        n = self.node("ShaderNodeMix", label, data_type='VECTOR', clamp_factor=False,
-                      factor_mode='NON_UNIFORM' if t.w > 1 else 'UNIFORM')
-        self.link(t, n.inputs[1] if t.w > 1 else n.inputs[0])
-        self.link(a, n.inputs[4]); self.link(b, n.inputs[5])
-        v = Val(n.outputs[1], w)
+        if not a.const and w < 4 and a.w == b.w == w and _ident(a) == _ident(b):
+            return a
+        x = self._made.get(("1 - x", t.s.as_pointer())) if t.w == 1 and hasattr(t.s, "as_pointer") else None
+        if x is not None:
+            # lerp(a, b, 1 - x) is lerp(b, a, x): the 1 - x goes (a Step's, a OneMinus's)
+            return self.lerp(b, a, x, label=label)
+
+        def make():
+            if w == 1:
+                n = self.node("ShaderNodeMix", label, data_type='FLOAT', clamp_factor=False)
+                self.link(t, n.inputs[0]); self.link(a, n.inputs[2]); self.link(b, n.inputs[3])
+                return Val(n.outputs[0], 1)
+            n = self.node("ShaderNodeMix", label, data_type='VECTOR', clamp_factor=False,
+                          factor_mode='NON_UNIFORM' if t.w > 1 else 'UNIFORM')
+            self.link(t, n.inputs[1] if t.w > 1 else n.inputs[0])
+            self.link(a, n.inputs[4]); self.link(b, n.inputs[5])
+            return Val(n.outputs[1], w)
+        v = self.reuse(("lerp", w, _ident(a), _ident(b), _ident(t)), make)
         if w == 4:
             ta = self.alpha(t) if t.w > 1 else t
             v = self.with_alpha(v, self.lerp(self.alpha(a), self.alpha(b), ta))
@@ -1181,12 +1266,15 @@ class Translator:
             return [Val(c, 1) for c in v.s[:3]]
         # a vector put together here (UE's swizzles: append, then a mask): its parts as they were,
         # not a split of it - which drew a wire from where it was made to wherever it's read
-        made = self.__dict__.setdefault("_parts", {}).get(v.s.as_pointer()) if hasattr(v.s, "as_pointer") else None
+        made = self._made.get(("parts", v.s.as_pointer())) if hasattr(v.s, "as_pointer") else None
         if made is not None:
             return list(made)
-        n = self.node("ShaderNodeSeparateXYZ", "split")
-        self.link(v, n.inputs[0])
-        return [Val(n.outputs[i], 1) for i in range(3)]
+
+        def make():
+            n = self.node("ShaderNodeSeparateXYZ", "split")
+            self.link(v, n.inputs[0])
+            return [Val(n.outputs[i], 1) for i in range(3)]
+        return list(self.reuse(("split", _ident(v)), make))
 
     def combine(self, parts):
         parts = list(parts)
@@ -1197,11 +1285,15 @@ class Translator:
             return Val(v.s, 4, parts[3] if parts[3].w == 1 else self.comps(parts[3])[0])
         if all(p.const for p in parts):
             return self.const(tuple(p.s for p in parts) + (0.0,) * (3 - len(parts)), len(parts))
-        n = self.node("ShaderNodeCombineXYZ", "append")
-        for i, p in enumerate(parts):
-            self.link(p, n.inputs[i])
-        self.__dict__.setdefault("_parts", {})[n.outputs[0].as_pointer()] =             [p if p.w == 1 else self.comps(p)[0] for p in parts] + [self.const(0.0)] * (3 - len(parts))
-        return Val(n.outputs[0], len(parts))
+
+        def make():
+            n = self.node("ShaderNodeCombineXYZ", "append")
+            for i, p in enumerate(parts):
+                self.link(p, n.inputs[i])
+            self._made[("parts", n.outputs[0].as_pointer())] = \
+                [p if p.w == 1 else self.comps(p)[0] for p in parts] + [self.const(0.0)] * (3 - len(parts))
+            return Val(n.outputs[0], len(parts))
+        return self.reuse(("append",) + tuple(_ident(p) for p in parts), make)
 
     def mask(self, v, idx):
         """Components idx (0=R..3=A) of v."""
@@ -1427,7 +1519,7 @@ class Translator:
         if t == "OneMinus":
             a = P("Input")
             return self.binop('SUBTRACT', self.const(1.0), a) if a.w == 1 else \
-                self.vmath('SUBTRACT', self.const((1.0, 1.0, 1.0), a.w), a, out_w=a.w)
+                self.vmath('SUBTRACT', self.const((1.0, 1.0, 1.0), a.w), a, label="1 - x", out_w=a.w)
         if t == "Saturate":
             return self.saturate(P("Input"))
         if t in ("Abs", "Floor", "Ceil", "Frac"):
@@ -2167,6 +2259,8 @@ class Translator:
             mn = self.input(g, p.get("Min"), scope, self.const(float(p.get("MinDefault", 0.0))))
             mx = self.input(g, p.get("Max"), scope, self.const(float(p.get("MaxDefault", 1.0))))
             mode = str(p.get("ClampMode", "CMODE_Clamp")).split("::")[-1]
+            if mode == "CMODE_Clamp" and v.w == mn.w == mx.w == 1:
+                return self.clamp(v, mn, mx)
             if mode != "CMODE_ClampMax":
                 v = self.binop('MAXIMUM', v, mn, label="clamp min")
             if mode != "CMODE_ClampMin":
@@ -2194,18 +2288,12 @@ class Translator:
             gt = self.input(g, p.get("AGreaterThanB"), scope, self.const(0.0))
             lt = self.input(g, p.get("ALessThanB"), scope, self.const(0.0))
             eq = self.input(g, p.get("AEqualsB"), scope, None)
-            if a.const and b.const:
-                ge = self.const(1.0 if a.s >= b.s else 0.0)
-            else:
-                ge = self.binop('SUBTRACT', self.const(1.0), self.math('LESS_THAN', a, b), label="A >= B")
-            v = self.select(ge, lt, gt)
+            # (A < B picks Less: no 1 - x for A >= B)
+            v = self.select(self.math('LESS_THAN', a, b, label="A < B"), gt, lt)
             if eq is not None:
                 thr = float(p.get("EqualsThreshold", 0.00001))
-                if a.const and b.const:
-                    far = self.const(1.0 if abs(a.s - b.s) > thr else 0.0)
-                else:
-                    far = self.math('GREATER_THAN', self.math('ABSOLUTE', self.binop('SUBTRACT', a, b)),
-                                    self.const(thr), label="A != B")
+                far = self.math('GREATER_THAN', self.math('ABSOLUTE', self.binop('SUBTRACT', a, b)),
+                                self.const(thr), label="A != B")
                 v = self.select(far, eq, v)
             return v
         if t == "IfThenElse":
@@ -2215,9 +2303,9 @@ class Translator:
             cv = self.mask(self.input(g, p.get("Condition"), scope, self.const(0.0)), [0])
             if cv.const:
                 return self.input(g, p.get("True" if cv.s else "False"), scope, self.const(0.0))
-            on = self.binop('SUBTRACT', self.const(1.0), self.math('COMPARE', cv, self.const(0.0), self.const(0.0)))
-            return self.select(on, self.input(g, p.get("False"), scope, self.const(0.0)),
-                               self.input(g, p.get("True"), scope, self.const(0.0)))
+            off = self.math('COMPARE', cv, self.const(0.0), self.const(0.0), label="condition = 0")
+            no = self.input(g, p.get("False"), scope, self.const(0.0))
+            return self.select(off, self.input(g, p.get("True"), scope, self.const(0.0)), no)
         if t in ("Fmod", "Modulo"):
             # HLSL fmod: truncated, the sign of A (Blender's Modulo)
             return self.binop('MODULO', P("A"), P("B"))
@@ -4335,6 +4423,7 @@ def merge_duplicates(tree, memo=None):
     hands a value on unchanged (x * 1, x + 0) goes, and so does what reaches no output.
     Returns how many nodes went."""
     memo = {} if memo is None else memo
+    _MADE.get(tree.as_pointer(), {}).clear()
     nodes = {n.as_pointer(): n for n in tree.nodes}
     ins, outs, indeg = {}, {}, dict.fromkeys(nodes, 0)
     for l in tree.links:
@@ -4670,6 +4759,11 @@ def merge_duplicates(tree, memo=None):
                 return False
             out = n.outputs["Value"] if isinstance(r, float) else n.outputs["Vector"]
             return constant(p, {out.identifier: r})
+        if kind == "ShaderNodeClamp" and n.clamp_type == 'MINMAX':
+            vals = [const_in(p, n.inputs[k]) for k in ("Value", "Min", "Max")]
+            if any(v is None for v in vals):
+                return False
+            return constant(p, {n.outputs[0].identifier: min(max(vals[0], vals[1]), vals[2])})
         if kind == "ShaderNodeCombineXYZ":
             vals = [const_in(p, s) for s in n.inputs]
             if any(v is None for v in vals):
