@@ -1447,6 +1447,8 @@ class Translator:
             a, b = P("A"), P("B")
             parts = (self.comps(a)[:a.w] if a.w > 1 else [a]) + (self.comps(b)[:b.w] if b.w > 1 else [b])
             return self.combine(parts)
+        if t == "Convert":
+            return self.convert(g, x, out, scope)
         if t == "Constant":
             return self.const(p.get("R", 0.0))
         if t == "Constant2Vector":
@@ -2107,6 +2109,46 @@ class Translator:
         if v.w == 1:
             return self.combine([v, v, v])
         return self.zero_z(Val(v.s, min(v.w, 3)))
+
+    CONVERT_WIDTH = {"Scalar": 1, "Vector2": 2, "Vector3": 3, "Vector4": 4}
+
+    def convert(self, g, x, out, scope):
+        """UE 5.6's Convert (Break Float3, Make Float4...): each of an output's components is a component
+        of one of the inputs (ConvertMappings), else the output's own default."""
+        p = x.get("Properties") or {}
+        ins, outs, maps = p.get("ConvertInputs") or [], p.get("ConvertOutputs") or [], p.get("ConvertMappings") or []
+        if out >= len(outs):
+            return self.const(0.0)
+        width = lambda e: self.CONVERT_WIDTH.get(str((e or {}).get("Type", "")).split("::")[-1], 1)
+        have = {}
+
+        def component(i, c):
+            if i >= len(ins):
+                return None
+            if i not in have:
+                v = self.input(g, ins[i].get("ExpressionInput"), scope, None)
+                if v is not None and isinstance(v.s, Attrs):
+                    v = v.s.get("BaseColor")
+                have[i] = v
+            v = have[i]
+            if v is None:
+                d = ins[i].get("DefaultValue") or {}
+                return self.const(float(d.get("RGBA"[min(c, 3)], 0.0)))
+            if v.w == 1:
+                return v
+            if c < 3 and c < v.w:
+                return self.comps(v)[c]
+            if c == 3 and v.w == 4 and v.a is not None:
+                return v.a
+            return self.const(0.0)
+
+        d = outs[out].get("DefaultValue") or {}
+        parts = []
+        for c in range(width(outs[out])):
+            m = next((m for m in maps if (m.get("OutputIndex", 0) or 0) == out and (m.get("OutputComponentIndex", 0) or 0) == c), None)
+            v = component(m.get("InputIndex", 0) or 0, m.get("InputComponentIndex", 0) or 0) if m is not None else None
+            parts.append(v if v is not None else self.const(float(d.get("RGBA"[min(c, 3)], 0.0))))
+        return self.combine(parts)
 
     def evaluate_math(self, g, x, t, out, scope, p, P):
         if t == "Clamp":

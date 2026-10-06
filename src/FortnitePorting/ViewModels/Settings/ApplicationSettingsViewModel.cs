@@ -40,6 +40,14 @@ public partial class ApplicationSettingsViewModel : SettingsViewModelBase
     
     [ObservableProperty] private bool _useAssetsPath;
 
+    /// <summary>
+    /// Folders holding the user's UEFN projects (each project has a .uefnproject file): an island of theirs imports
+    /// with its materials exact, read from the project's own graphs (Material Porter's IslandProjects). Owner builds only.
+    /// </summary>
+    [ObservableProperty] private ObservableCollection<string> _uefnProjectFolders = [];
+
+    [JsonIgnore] public bool ShowIslandSettings => MaterialPorter.Fork.Islands;
+
     [ObservableProperty] private bool _showDeveloperSettings = false;
     
     [ObservableProperty] private HashSet<string> _favoriteAssets = [];
@@ -95,6 +103,19 @@ public partial class ApplicationSettingsViewModel : SettingsViewModelBase
     public async Task BrowseAssetsPath()
     {
         if (await App.BrowseFolderDialog() is { } path) AssetsPath = path;
+    }
+
+    public async Task AddUefnProjectFolder()
+    {
+        if (await App.BrowseFolderDialog() is not { } path) return;
+        if (!UefnProjectFolders.Any(folder => string.Equals(folder, path, StringComparison.OrdinalIgnoreCase))) UefnProjectFolders.Add(path);
+        MaterialPorter.MaterialPorterService.ApplyProjectFolders();
+    }
+
+    public void RemoveUefnProjectFolder(string? path)
+    {
+        if (path is null || !UefnProjectFolders.Remove(path)) return;
+        MaterialPorter.MaterialPorterService.ApplyProjectFolders();
     }
     
     partial void OnAudioDeviceIndexChanged(int value)

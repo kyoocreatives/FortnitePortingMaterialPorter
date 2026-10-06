@@ -46,6 +46,33 @@
                 </controls:SettingsItem.Footer>
             </controls:SettingsItem>
             
+            <controls:SettingsItem Title="UEFN Project Folders"
+                                   Description="Folders that hold your UEFN projects, found by their .uefnproject file. An island of yours then imports with exact materials, read from its project's own graphs."
+                                   IsVisible="{Binding ShowIslandSettings}">
+                <controls:SettingsItem.Footer>
+                    <StackPanel Spacing="4" HorizontalAlignment="Right">
+                        <ItemsControl ItemsSource="{Binding UefnProjectFolders}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="x:String">
+                                    <Grid ColumnDefinitions="* Auto" Margin="0 0 0 4">
+                                        <TextBlock Grid.Column="0" Text="{Binding}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
+                                        <Button Grid.Column="1" Classes="GhostButton" Margin="4 0 0 0" MinWidth="32"
+                                                ToolTip.Tip="Remove Folder"
+                                                Command="{Binding $parent[ItemsControl].((settings:ApplicationSettingsViewModel)DataContext).RemoveUefnProjectFolder}"
+                                                CommandParameter="{Binding}">
+                                            <avalonia:MaterialIcon Kind="Delete" Width="16" Height="16"/>
+                                        </Button>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <Button HorizontalAlignment="Right" ToolTip.Tip="Add Folder" Command="{Binding AddUefnProjectFolder}">
+                            <avalonia:MaterialIcon Kind="FolderPlus"/>
+                        </Button>
+                    </StackPanel>
+                </controls:SettingsItem.Footer>
+            </controls:SettingsItem>
+
             <TextBlock Text="Display"
                        Classes="SettingsSectionHeaderStyle TextFillColorTertiaryBrush"
                        HorizontalAlignment="Left"

@@ -68,6 +68,9 @@ public class MaterialPorterService : IService
         Game.Provider = provider;
         Game.BuildVersion = string.IsNullOrWhiteSpace(buildVersion) ? "unknown" : buildVersion;
         Materials = new MaterialService(Game);
+        IslandProjects.Log = message => Log.Information("[Material Porter] {Message}", message);
+        IslandProjects.Debug = message => Log.Debug("[Material Porter] {Message}", message);
+        ApplyProjectFolders();
         FigureRecipe.GeneratedDir = Materials.GeneratedDir;    // LEGO figures' colour grids, served by the bridge
         // cars: the registry's decals and wheel sets, read once in the background
         _carSkins = _carWheels = null;
@@ -102,6 +105,14 @@ public class MaterialPorterService : IService
     }
 
     // ------------------------------------------------------------ islands
+    /// <summary>
+    /// The folders of the user's UEFN projects (Settings > Application) to Material Porter's core, which reads an
+    /// island's master graphs from the matching project. Owner builds only, as islands are; the core also
+    /// takes MATERIAL_PORTER_PROJECTS whatever the settings say.
+    /// </summary>
+    public static void ApplyProjectFolders() =>
+        IslandProjects.Roots = Fork.Islands ? AppSettings.Application.UefnProjectFolders.ToArray() : [];
+
     /// <summary>A key the user's key tool gave for an island (shared with the Material Porter app).</summary>
     private sealed class IslandKey
     {
@@ -326,6 +337,17 @@ public class MaterialPorterService : IService
                 _ => throw new KeyNotFoundException("no route " + route),
             };
         }
+        if (route == "fork-projects")
+        {
+            // tests: the UEFN projects found, which island is which, and what graphs came from where so far
+            var (ownAssets, otherAssets, others, pairs) = IslandProjects.Counts();
+            return new
+            {
+                roots = IslandProjects.Roots,
+                projects = IslandProjects.All.Select(p => new { p.Name, p.Folder, p.Mount }),
+                pairs, ownAssets, otherAssets, others = others.Take(50),
+            };
+        }
         if (route == "fork-car")
         {
             // tests: a car body's channels and what the picks ("0:1,5:3") give
@@ -413,6 +435,34 @@ public class MaterialPorterService : IService
                 var file = query["path"] ?? throw new ArgumentException("path missing");
                 shot.Save(file);
                 return new { file, size.Width, size.Height, AppServices.AssetLoading.ActiveLoader?.Filtered.Count };
+            });
+        }
+        if (route == "fork-settings-shot" && query["page"] == "application")
+        {
+            // tests: the app's Application settings page, rendered to a PNG (path=); folders=A;B lists those UEFN
+            // project folders for the picture only (they are taken out again)
+            var window = AppServices.App.Lifetime.MainWindow!;
+            var shown = (query["folders"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries).ToList();
+            var settings = AppServices.AppSettings.Application;
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                window.WindowState = Avalonia.Controls.WindowState.Normal;
+                window.Width = 1600;
+                window.Height = 1100;
+                foreach (var folder in shown) settings.UefnProjectFolders.Add(folder);
+                AppServices.Navigation.App.Open<Views.SettingsView>();
+                AppServices.Navigation.Settings.Open<Views.Settings.ApplicationSettingsView>();
+            });
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var size = new Avalonia.PixelSize((int) window.Bounds.Width, (int) window.Bounds.Height);
+                using var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size);
+                shot.Render(window);
+                var file = query["path"] ?? throw new ArgumentException("path missing");
+                shot.Save(file);
+                foreach (var folder in shown) settings.UefnProjectFolders.Remove(folder);
+                return new { file, size.Width, size.Height, settings.ShowIslandSettings };
             });
         }
         if (route == "fork-settings-shot")

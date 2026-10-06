@@ -130,16 +130,23 @@ public sealed class MaterialService
             if (provider.Files.TryGetValue(k, out var f)) return f.Path;
         }
         // a plugin mount: "/Plugin/Rest/Name" -> a key ending ".../Rest/Name<ext>" under that plugin
+        // (a walk over every key: remembered, until an island mounted since adds keys)
         if (p.StartsWith("/"))
         {
+            var scan = p + "|" + ext;
+            if (mountScans.TryGetValue(scan, out var seen) && seen.Files == provider.Files.Count) return seen.Key;
             var parts = p.Trim('/').Split('/');
             var tail = "/" + string.Join('/', parts.Skip(1)) + ext;
             var hit = provider.Files.Keys.FirstOrDefault(k => k.EndsWith(tail, StringComparison.OrdinalIgnoreCase)
                                                              && k.Contains("/" + parts[0] + "/", StringComparison.OrdinalIgnoreCase));
-            if (hit != null) return provider.Files[hit].Path;
+            var found = hit == null ? null : provider.Files[hit].Path;
+            mountScans[scan] = (provider.Files.Count, found);
+            return found;
         }
         return null;
     }
+
+    readonly System.Collections.Concurrent.ConcurrentDictionary<string, (int Files, string Key)> mountScans = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>"/Game/X/T_A.0" (CUE4Parse's export index) -> "/Game/X/T_A.T_A".</summary>
     public static string ObjectPath(JToken reference)
@@ -179,13 +186,51 @@ public sealed class MaterialService
     /// </summary>
     public Task<string> GraphAsync(string path) => Locked(async () =>
     {
-        var key = ResolveKey(path, ".o.uasset") ?? throw new FileNotFoundException("No editor graph for " + path);
+        var key = ResolveKey(path, ".o.uasset");
+        if (key == null)
+        {
+            // an island's own master or function: the cooked pak has no editor graph, the creator's project does
+            if (await ProjectGraphAsync(path) is { } project) return project;
+            throw new FileNotFoundException("No editor graph for " + path);
+        }
         var file = System.IO.Path.Combine(Dir("graphs"), Safe(key) + ".json");
         if (File.Exists(file)) return file;
         var pkg = await game.Provider.LoadPackageAsync(key);
         await File.WriteAllTextAsync(file, JsonConvert.SerializeObject(pkg.GetExports().ToArray(), Formatting.None, Ser));
         return file;
     });
+
+    /// <summary>
+    /// What the editor-only package (&lt;path&gt;.o.uasset) holds of an uncooked package: its expressions and
+    /// editor data. The Material or function itself, the instance and the thumbnail are in the cooked one.
+    /// </summary>
+    static readonly HashSet<string> NotGraph = new(StringComparer.Ordinal)
+        { "Material", "MaterialFunction", "MaterialFunctionInstance", "MaterialInstanceConstant", "SceneThumbnailInfoWithPrimitive", "SceneThumbnailInfo" };
+
+    /// <summary>Bumped when what a project graph is dumped as changes (a cached one of an older form isn't reused).</summary>
+    const int ProjectGraphRev = 3;
+
+    /// <summary>
+    /// The graph of an island's master or function, from the uncooked package in the creator's UEFN project
+    /// (IslandProjects): its exports as GraphAsync dumps an .o.uasset (enum values qualified as the cooked
+    /// path writes them), the project's mount named as the island's ("/Cristaline/X/T_A" ->
+    /// "/&lt;guid&gt;/X/T_A": the cooked pak has the textures and the functions by those paths; the
+    /// project's uncooked textures are never read). Cached beside the others, dropped
+    /// when the project's file is newer. Null: no project has it. Call inside the gate.
+    /// </summary>
+    async Task<string> ProjectGraphAsync(string path)
+    {
+        var hit = IslandProjects.Find(game.Provider, path);
+        if (hit == null) return null;
+        var safeProject = string.Concat(hit.Project.Name.Select(c => char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_'));
+        var file = System.IO.Path.Combine(Dir("graphs"), Safe("island/" + hit.Guid + "/" + hit.Rel) + "~project" + ProjectGraphRev + "~" + safeProject + ".json");
+        if (File.Exists(file) && File.GetLastWriteTimeUtc(file) >= File.GetLastWriteTimeUtc(hit.File)) return file;
+        var key = hit.Project.KeyOf(hit.Rel) ?? throw new FileNotFoundException($"{hit.Project.Name} lists no package {hit.Rel}");
+        var pkg = await hit.Project.Provider.LoadPackageAsync(key);
+        var exports = pkg.GetExports().Where(e => !NotGraph.Contains(e.ExportType)).ToArray();
+        await File.WriteAllTextAsync(file, IslandProjects.ToIsland(exports, Ser, hit));
+        return file;
+    }
 
     // ------------------------------------------------------------ instances
     /// <summary>An instance (or a material) and everything its chain sets, child first.</summary>
@@ -196,8 +241,14 @@ public sealed class MaterialService
         await Locked(async () => { SkyValues(info, await DayValuesAsync()); return true; });
         if (info.Master != null && ResolveKey(info.Master, ".o.uasset") == null)
         {
-            info.Fallback = true;
-            await Locked(() => CookedDefaultsAsync(info));
+            // an island's own master: the creator's project, when one is set up and has it, else an approximation
+            var project = await Locked(() => ProjectGraphAsync(info.Master));
+            if (project != null) info.Graph = project;
+            else
+            {
+                info.Fallback = true;
+                await Locked(() => CookedDefaultsAsync(info));
+            }
         }
         else if (info.Master != null) info.Graph = await GraphAsync(info.Master);
         Timing.Log("describe " + Bridge.ShortName(path), sw);
@@ -349,10 +400,13 @@ public sealed class MaterialService
     async Task EditorMasksAsync(string path, MaterialInfo info)
     {
         var key = ResolveKey(path, ".o.uasset");
-        if (key == null) return;
+        // an island's instance has no editor package in the cooked pak: the creator's project's own
+        var hit = key == null ? IslandProjects.Find(game.Provider, path) : null;
+        if (key == null && hit == null) return;
         try
         {
-            var pkg = await game.Provider.LoadPackageAsync(key);
+            var pkg = hit == null ? await game.Provider.LoadPackageAsync(key)
+                                  : await hit.Project.Provider.LoadPackageAsync(hit.Project.KeyOf(hit.Rel) ?? throw new FileNotFoundException(hit.Rel));
             var ed = pkg.GetExports().FirstOrDefault(e => e.ExportType == "MaterialInstanceEditorOnlyData");
             if (ed == null) return;
             var sp = JObject.Parse(JsonConvert.SerializeObject(ed, Ser))["Properties"]?["StaticParameters"];

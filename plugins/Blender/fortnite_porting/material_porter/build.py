@@ -258,10 +258,12 @@ def assemble(tr, mat, a, s):
                 sock.description = "How far each colour scatters, times the scale"
                 gi = tr.node("NodeGroupInput", "subsurface radius")
                 tr.L.new(next(o for o in gi.outputs if o.identifier == sock.identifier), bsdf.inputs["Subsurface Radius"])
-            else:
+            elif game is not None:
                 # the game's amount over its skin's (a character's SkinSubsurfaceIntensity: Helsie's face 0.4,
                 # her lips 0): 1 on the skin, the game's ratio elsewhere - its soft edges kept - then times
-                # Subsurface Intensity; without that parameter the game's amount itself
+                # Subsurface Intensity; without that parameter the game's amount itself. (A weight the graph
+                # leaves a constant, a tree's leaf: no game amount to take a ratio of - the flat Subsurface
+                # Intensity, linked above)
                 skin = next((it for it in tr.tree.interface.items_tree if it.item_type == 'SOCKET'
                              and it.in_out == 'INPUT' and it.name == SKIN_SUBSURFACE), None)
                 ratio = tr.node("ShaderNodeMath", "game's scattering over its skin's", operation='DIVIDE', use_clamp=True)
