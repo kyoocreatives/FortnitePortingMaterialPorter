@@ -410,8 +410,9 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         if (pak is null) return;
 
         // each package lists only the custom versions it uses: some of every kind, Fortnite's meshes first
-        var files = pak.Files.Values.Where(f => f.Extension == "uasset" && !f.IsEncrypted && f.Path.StartsWith("FortniteGame/", StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(f => f.Path.Contains("/Meshes/", StringComparison.OrdinalIgnoreCase)).Take(400);     // (40 missed some)
+        var all = pak.Files.Values.Where(f => f.Extension is "uasset" or "umap" && !f.IsEncrypted)
+            .OrderBy(f => f.Path, StringComparer.OrdinalIgnoreCase).ToList();
+        var files = all.Where((_, i) => i % Math.Max(1, all.Count / 600) == 0);     // (spread over the whole pak: 40 missed some)
         var versions = new Dictionary<global::CUE4Parse.UE4.Objects.Core.Misc.FGuid, int>();
         global::CUE4Parse.UE4.Versions.FPackageFileVersion? fileVersion = null;
         foreach (var file in files)

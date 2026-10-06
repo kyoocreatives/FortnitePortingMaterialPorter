@@ -769,8 +769,14 @@ edit there, then `python tools/sync_fork.py`.
   same way. Today: `FSpline.cs`, which reads UE 5.6's new spline format
   (positions, then Rotation/Scale attribute channels: control values, knots,
   interp modes) where upstream throws, so SplineComponents and
-  WaterSplineComponents lost everything after it. After updating the submodule,
-  check whether upstream now reads it and drop the overlay if so.
+  WaterSplineComponents lost everything after it. `DistanceFieldAtlas.cs`,
+  `UStaticMesh.cs` and `UInstancedStaticMeshComponent.cs`: builds between engine
+  releases (Fortnite 28.00, between 5.3 and 5.4) mix the layouts CUE4Parse
+  switches by engine version - each part (distance field bounds and mips, the
+  material list after the render data, an instanced component's cooked render
+  data) is read in its engine version's layout and, when that doesn't look
+  right, in the other; other games read as before. After updating the submodule,
+  check whether upstream now reads these and drop the overlays if so.
 
 ## Merging upstream
 
