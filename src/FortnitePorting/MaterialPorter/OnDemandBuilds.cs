@@ -182,6 +182,9 @@ public static partial class OnDemandBuilds
     {
         var kept = IniOptions.Where(versions.Options.ContainsKey).ToDictionary(key => key, key => versions.Options[key]);
         versions.Game = game;
+        // (the package file version stays the one the container was made with otherwise: a profile made at UE 6.0
+        // read 28.30 (5.4) packages with 6.0's header layout - every one failed)
+        if (!versions.bExplicitVer) versions.Ver = default;
         foreach (var (key, value) in kept) versions.Options[key] = value;
     }
 
