@@ -201,7 +201,7 @@ class MeshImportContext:
         mp_shells.apply(self, [m.get("Mesh") for m in self.imported_meshes])
 
         # Material Porter fork: a character's effects not played yet (no merge of its parts): now
-        if getattr(self, "mp_deferred_effects", None) is not None:
+        if self.mp_deferred_effects is not None:
             from ...material_porter import effects as mp_effects
             mp_effects.settle(self)
 
@@ -272,8 +272,8 @@ class MeshImportContext:
                 try:
                     from ...material_porter import sky
                 except ImportError:
-                    sky = None
-                if sky is not None:
+                    pass
+                else:
                     sky.finish(self, mesh, empty_object, imported_children)
             return empty_object
         
@@ -615,7 +615,6 @@ class MeshImportContext:
         if light_type != 'POINT':
             # a UE spot or rect light shines along its X axis, a Blender one along its -Z
             rotation = (rotation.to_matrix() @ Matrix.Rotation(radians(-90), 3, 'Y')).to_euler()
-            light.scale = (1, 1, 1)
         light.rotation_euler = rotation
         light.location = make_vector(data.get("Location"), unreal_coords_correction=True) * self.scale
 

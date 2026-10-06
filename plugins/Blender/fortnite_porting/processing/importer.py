@@ -30,7 +30,7 @@ class Importer:
         names = ", ".join(str(e.get("Name")) for e in exports or [])
         status.post("Importing %s" % names, state="begin")
         t0 = time.perf_counter()
-        objects0 = set(o.name for o in bpy.data.objects)
+        objects0 = {o.name for o in bpy.data.objects}
         failed = None
         # Material Porter fork: the function groups the import made lose what no material reads
         from ..material_porter.build import pruning

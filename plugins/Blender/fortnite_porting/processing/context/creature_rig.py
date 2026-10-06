@@ -11,7 +11,7 @@ pose and hierarchy (an animation still plays on them: turn the legs' IK off firs
 import re
 
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 KEY = "is_creature_rig"
 PREFIX = "CR_"          # the rig's own bones: CR_IK_<foot>, CR_Pole_<limb>
@@ -63,9 +63,6 @@ class Survey:
         self.head = next((n for n in self.spine if HEAD.search(n)), None)
         self.tail = self._tail()
         self.limbs = self._limbs(edit_bones)
-
-    def _descendants(self, name):
-        return len(self.bones[name].children_recursive)
 
     def _pelvis(self, edit_bones):
         named = [b.name for b in edit_bones if PELVIS.search(b.name) and side_of(b.name) == "C" and not HELPER.search(b.name)]
@@ -167,27 +164,23 @@ def _collection(armature, name, visible=True):
     return collection
 
 
-def _shape(pose_bone, shape, palette, scale=1.0, by_length=True, wire=2.0):
-    pose_bone.custom_shape = bpy.data.objects.get(shape)
-    pose_bone.color.palette = palette
-    pose_bone.use_custom_shape_bone_size = by_length
-    pose_bone.custom_shape_scale_xyz = (scale, scale, scale)
-    pose_bone.custom_shape_wire_width = wire
-
-
 # the control shapes' own sizes (Blender units), to size them in metres
 NATIVE = {"CTRL_Root": 1.0, "CTRL_Spine": 0.231, "CTRL_Box": 0.1, "CTRL_Pole": 0.1, "CTRL_Pole_Leg": 0.103, "CTRL_Dynamic": 1.175}
 
 
 def sized(pose_bone, shape, palette, size, wire=2.5):
     """A control's shape, `size` metres across."""
-    _shape(pose_bone, shape, palette, size / NATIVE.get(shape, 0.1), by_length=False, wire=wire)
+    scale = size / NATIVE.get(shape, 0.1)
+    pose_bone.custom_shape = bpy.data.objects.get(shape)
+    pose_bone.color.palette = palette
+    pose_bone.use_custom_shape_bone_size = False
+    pose_bone.custom_shape_scale_xyz = (scale, scale, scale)
+    pose_bone.custom_shape_wire_width = wire
 
 
 def align_shape(obj, pose_bone, x=None, y=None, z=None):
     """Turn a control's shape so its axes point where asked (armature space; a ring's plane is its XZ,
     so y=up lays it flat). Axes not given are completed to a right-handed frame."""
-    from mathutils import Matrix
     axes = [x, y, z]
     if axes.count(None) == 2:       # one given: any frame with it
         i = next(i for i in range(3) if axes[i] is not None)

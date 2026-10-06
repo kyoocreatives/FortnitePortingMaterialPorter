@@ -317,11 +317,10 @@ class AnimImportContext:
 
         # Material Porter fork: the effects the animation plays, each on its socket from its frame
         if data.get("MPEffects"):
-            from ...material_porter import effects
             # an effect on a bone the armature lacks (the game's skeleton has more than a mesh's): the skeleton as
             # the game has it, animated alike - what FP makes for an emote's props
             master_skeleton = first(target_skeleton.children, lambda child: child.name == "Master_Skeleton")
-            if master_skeleton is None and effects.lacks_bones(data.get("MPEffects"), target_skeleton, data.get("MPSockets")):
+            if master_skeleton is None and mp_effects.lacks_bones(data.get("MPEffects"), target_skeleton, data.get("MPSockets")):
                 master_skeleton = self.import_model(data.get("Skeleton"), can_reorient=False)
                 master_skeleton.name = "Master_Skeleton"
                 master_skeleton.parent = target_skeleton
@@ -330,7 +329,7 @@ class AnimImportContext:
                 master_track.name = "Sections"
                 import_sections(data.get("Sections"), master_skeleton, master_track)
                 master_skeleton.hide_set(True)
-            effects.from_animation(self, data.get("MPEffects"), target_skeleton, data.get("MPSockets"), master_skeleton)
+            mp_effects.from_animation(self, data.get("MPEffects"), target_skeleton, data.get("MPSockets"), master_skeleton)
 
         # Material Porter fork: the character's own effects follow its bones now that they move (a swing's
         # replay below takes the idle ones)
@@ -339,8 +338,7 @@ class AnimImportContext:
             mp_effects.follow(target_skeleton, [r for r in mp_present if not (swung and r.get(mp_effects.KEY_ROLE) == "idle")])
         # Material Porter fork: a swing's trail windows and hits, given to the effects of the pickaxe the armature holds
         if data.get("MPTrails") or data.get("MPHits"):
-            from ...material_porter import effects
-            effects.swing(data.get("MPTrails") or [], target_skeleton, data.get("MPHits") or [])
+            mp_effects.swing(data.get("MPTrails") or [], target_skeleton, data.get("MPHits") or [])
 
     def import_anim(self, path: str, override_skeleton=None) -> tuple[bpy.types.Action, AnimDto]:
         path = path[1:] if path.startswith("/") else path

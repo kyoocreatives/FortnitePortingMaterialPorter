@@ -27,10 +27,7 @@ def _ask_caps():
     except Exception:
         _caps['next'] = time.time() + 30      # the app isn't open: ask again later, not on every redraw
         return None
-    for w in bpy.context.window_manager.windows:
-        for a in w.screen.areas:
-            if a.type in ('VIEW_3D', 'NODE_EDITOR'):
-                a.tag_redraw()
+    tag_redraw(bpy.context)
     return None
 
 

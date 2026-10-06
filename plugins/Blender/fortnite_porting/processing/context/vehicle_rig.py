@@ -77,8 +77,7 @@ class Survey:
         forward.z = 0.0
         self.forward = forward.normalized() if forward.length > 1e-6 else Vector((1.0, 0.0, 0.0))
         self.left = Vector((0.0, 0.0, 1.0)).cross(self.forward)
-        heads = [b.head for b in edit_bones] + [b.tail for b in edit_bones]
-        heads = heads or [Vector()]
+        heads = [b.head for b in edit_bones] + [b.tail for b in edit_bones] or [Vector()]
         self.fit(heads)         # (then the meshes', if any)
         middle = sum(h.dot(self.forward) for h in heads) / len(heads)
         steering = [n for n in self.bones if STEER.search(n)]
@@ -140,16 +139,6 @@ def _transform(owner, target, subtarget, source, to_axis, scale, map_from, name=
         setattr(con, "to_min_%s_rot" % axis, -scale if axis == to_axis.lower() else 0.0)
         setattr(con, "to_max_%s_rot" % axis, scale if axis == to_axis.lower() else 0.0)
     return con
-
-
-def _driven(obj, constraint, prop):
-    driver = constraint.driver_add("influence").driver
-    driver.type = 'SCRIPTED'
-    var = driver.variables.new()
-    var.name, var.type = "on", 'SINGLE_PROP'
-    var.targets[0].id = obj
-    var.targets[0].data_path = '["%s"]' % prop
-    driver.expression = "on"
 
 
 def _moved(owner, target, subtarget, source, to_axis, scale, name):
@@ -250,7 +239,7 @@ def create(obj):
     """Rig the armature object. Returns what it found, in a line."""
     from ...utils import ensure_blend_data
     from . import rig_shapes
-    from .creature_rig import align_shape, sized
+    from .creature_rig import _driven, align_shape, sized
     armature = obj.data
     if armature.get(KEY):
         return "%s: already has a vehicle rig" % obj.name
