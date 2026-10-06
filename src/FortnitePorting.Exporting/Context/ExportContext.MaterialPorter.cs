@@ -55,12 +55,17 @@ public partial class ExportContext
         if (level.Owner?.Name is not { } package) return null;
 
         var meshes = new List<ExportMesh>();
+        // the Map page's Actors, Lights, Decals and Effects toggles: the level is read when any is on, and each
+        // kind is converted (and so exported) only when its own flag is
         var actors = Meta.WorldFlags.HasFlag(EWorldFlags.Actors);
-        if (actors)
+        var withLights = Meta.WorldFlags.HasFlag(EWorldFlags.Lights);
+        var withDecals = Meta.WorldFlags.HasFlag(EWorldFlags.Decals);
+        var withEffects = Meta.WorldFlags.HasFlag(EWorldFlags.Effects);
+        if (actors || withLights || withDecals || withEffects)
         {
             var options = new MapOptions
             {
-                Instances = Meta.WorldFlags.HasFlag(EWorldFlags.InstancedFoliage),
+                Instances = actors && Meta.WorldFlags.HasFlag(EWorldFlags.InstancedFoliage),
                 Landscape = false,
             };
             var scan = new MapScan { Name = package, Key = package };
@@ -85,10 +90,10 @@ public partial class ExportContext
             var tracks = new List<MapMesh>();
             foreach (var read in levels)
             {
-                if (CancellationToken.IsCancellationRequested) break;
+                if (!actors || CancellationToken.IsCancellationRequested) break;
                 tracks.AddRange(DelMarTracks.Place(FileProvider, read, (what, n) => scan.Skip(what, n)));
             }
-            if (DelMarTracks.TestTrack is { } test)
+            if (actors && DelMarTracks.TestTrack is { } test)
             {
                 // (once: a world's streamed levels come through here too)
                 DelMarTracks.TestTrack = null;
@@ -98,7 +103,8 @@ public partial class ExportContext
                 Log.Information("[Material Porter] {Level}: {Pieces} Rocket Racing road pieces laid along {Tracks} tracks", package, tracks.Count,
                     tracks.Select(t => t.Actor).Distinct().Count());
 
-            var placed = reader.Placed.Concat(tracks).Where(m => MaterialPorterActorFilter is null || m.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
+            var placed = (actors ? reader.Placed.Concat(tracks) : [])
+                .Where(m => MaterialPorterActorFilter is null || m.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(m => m.Actor, StringComparer.Ordinal).ThenBy(m => m.Mesh, StringComparer.Ordinal).ToList();
             var done = 0;
             foreach (var m in placed)
@@ -110,22 +116,26 @@ public partial class ExportContext
             var lights = reader.Lights.Where(l => MaterialPorterActorFilter is null || l.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(l => l.Actor, StringComparer.Ordinal).ThenBy(l => l.Name, StringComparer.Ordinal)
                 .ThenBy(l => l.World.M41).ThenBy(l => l.World.M42).ThenBy(l => l.World.M43);
-            foreach (var l in lights) MaterialPorterLights.Add(Light(l));
+            if (withLights)
+                foreach (var l in lights) MaterialPorterLights.Add(Light(l));
 
             var decals = reader.Decals.Where(d => MaterialPorterActorFilter is null || d.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(d => d.Actor, StringComparer.Ordinal).ThenBy(d => d.Name, StringComparer.Ordinal)
                 .ThenBy(d => d.World.M41).ThenBy(d => d.World.M42).ThenBy(d => d.World.M43);
-            foreach (var d in decals)
-            {
-                if (CancellationToken.IsCancellationRequested) break;
-                MaterialPorterDecals.AddIfNotNull(Decal(d));
-            }
+            if (withDecals)
+                foreach (var d in decals)
+                {
+                    if (CancellationToken.IsCancellationRequested) break;
+                    MaterialPorterDecals.AddIfNotNull(Decal(d));
+                }
             var effects = reader.Effects.Where(e => MaterialPorterActorFilter is null || e.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(e => e.Actor, StringComparer.Ordinal).ThenBy(e => e.Name, StringComparer.Ordinal)
                 .ThenBy(e => e.World.M41).ThenBy(e => e.World.M42).ThenBy(e => e.World.M43);
-            foreach (var e in effects) MaterialPorterEffects.Add(Effect(e));
+            if (withEffects)
+                foreach (var e in effects) MaterialPorterEffects.Add(Effect(e));
             Log.Information("[Material Porter] {Level}: {Count} placements ({Unshadowed} casting no shadow), {Lights} lights, {Decals} decals, {Effects} effects, skipped {Skipped}",
-                package, meshes.Count, meshes.Count(m => m is MaterialPorterMesh { MPCastShadow: false }), reader.Lights.Count, reader.Decals.Count, reader.Effects.Count,
+                package, meshes.Count, meshes.Count(m => m is MaterialPorterMesh { MPCastShadow: false }),
+                withLights ? reader.Lights.Count : 0, withDecals ? reader.Decals.Count : 0, withEffects ? reader.Effects.Count : 0,
                 string.Join(", ", scan.Skipped.Select(kv => $"{kv.Value} {kv.Key}")));
         }
 

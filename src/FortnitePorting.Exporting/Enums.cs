@@ -285,6 +285,9 @@ public enum EWorldFlags
     Landscape = 1 << 2,
     InstancedFoliage = 1 << 3,
     HLODs = 1 << 4,
+    Lights = 1 << 5,
+    Decals = 1 << 6,
+    Effects = 1 << 7,
 }
 
 file static class ExportCategory

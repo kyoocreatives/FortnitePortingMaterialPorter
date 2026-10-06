@@ -46,6 +46,9 @@ public partial class WorldPartitionMap : ObservableObject
     [ObservableProperty] private bool _worldFlagsInstancedFoliage = true;
     [ObservableProperty] private bool _worldFlagsLandscape = true;
     [ObservableProperty] private bool _worldFlagsHLODs = false;
+    [ObservableProperty] private bool _worldFlagsLights = true;
+    [ObservableProperty] private bool _worldFlagsDecals = true;
+    [ObservableProperty] private bool _worldFlagsEffects = true;
 
     [ObservableProperty] private bool _includeMainLevel;
     
@@ -257,6 +260,9 @@ public partial class WorldPartitionMap : ObservableObject
             if (WorldFlagsInstancedFoliage) _exportMeta.WorldFlags |= EWorldFlags.InstancedFoliage;
             if (WorldFlagsLandscape) _exportMeta.WorldFlags |= EWorldFlags.Landscape;
             if (WorldFlagsHLODs) _exportMeta.WorldFlags |= EWorldFlags.HLODs;
+            if (WorldFlagsLights) _exportMeta.WorldFlags |= EWorldFlags.Lights;
+            if (WorldFlagsDecals) _exportMeta.WorldFlags |= EWorldFlags.Decals;
+            if (WorldFlagsEffects) _exportMeta.WorldFlags |= EWorldFlags.Effects;
 
             SelectedMaps.ForEach(map => map.Status = EWorldPartitionGridMapStatus.Waiting);
             

@@ -461,7 +461,8 @@ public partial class FilesViewModel(
             return;
         }
 
-        meta.WorldFlags = EWorldFlags.Actors | EWorldFlags.Landscape | EWorldFlags.WorldPartitionGrids | EWorldFlags.HLODs;
+        meta.WorldFlags = EWorldFlags.Actors | EWorldFlags.Landscape | EWorldFlags.WorldPartitionGrids | EWorldFlags.HLODs
+                         | EWorldFlags.Lights | EWorldFlags.Decals | EWorldFlags.Effects;
         if (meta.Settings.ImportInstancedFoliage)
             meta.WorldFlags |= EWorldFlags.InstancedFoliage;
 

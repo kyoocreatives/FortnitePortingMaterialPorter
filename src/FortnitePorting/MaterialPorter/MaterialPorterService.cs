@@ -448,6 +448,74 @@ public class MaterialPorterService : IService
                 return new { file, blender.SubsurfaceIntensity, blender.SubsurfaceScale, blender.FurSubsurfaceIntensity, blender.FurSubsurfaceScale };
             });
         }
+        if (route == "fork-map-shot")
+        {
+            // tests: the Map page with its Flags menu open (a throwaway map stands in when the list has none), rendered
+            // to a PNG (path=) and the menu's own popup to path+".menu.png"; flip=Header unchecks that item first;
+            // answers each item's header, checked state and the map's world flags
+            var window = AppServices.App.Lifetime.MainWindow!;
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                window.WindowState = Avalonia.Controls.WindowState.Normal;
+                window.Width = 1600;
+                window.Height = 950;
+                AppServices.Navigation.App.Open<Views.MapView>();
+            });
+            var maps = AppServices.MapVM;
+            for (var i = 0; i < 240 && (maps.IsLoading || !maps.IsInitialized); i++) await Task.Delay(500);
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (maps.SelectedMap is null)
+                {
+                    var stand = new Models.Map.WorldPartitionMap(Models.Map.MapInfo.CreateNonDisplay("Test", "FortniteGame/Content/Test"));
+                    maps.Maps.Add(stand);
+                    maps.SelectedMap = stand;
+                }
+            });
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            var items = new List<object>();
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var flags = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<Avalonia.Controls.DropDownButton>()
+                    .First(b => b.Flyout is Avalonia.Controls.MenuFlyout);
+                flags.Flyout!.ShowAt(flags);
+            });
+            await Task.Delay(TimeSpan.FromSeconds(1.5));
+            return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var flags = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<Avalonia.Controls.DropDownButton>()
+                    .First(b => b.Flyout is Avalonia.Controls.MenuFlyout);
+                var menu = (Avalonia.Controls.MenuFlyout) flags.Flyout!;
+                if (query["flip"] is { } flip && menu.Items.OfType<Avalonia.Controls.MenuItem>().FirstOrDefault(m => m.Header as string == flip) is { } flipped)
+                    flipped.IsChecked = !flipped.IsChecked;
+                foreach (var item in menu.Items.OfType<Avalonia.Controls.MenuItem>()) items.Add(new { Header = item.Header, item.IsChecked, item.IsEnabled });
+                var file = query["path"] ?? throw new ArgumentException("path missing");
+                var size = new Avalonia.PixelSize((int) window.Bounds.Width, (int) window.Bounds.Height);
+                using (var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size))
+                {
+                    shot.Render(window);
+                    shot.Save(file);
+                }
+                // Avalonia keeps the flyout's popup in a private member of its PopupFlyoutBase
+                Avalonia.Controls.Primitives.Popup? popup = null;
+                for (var type = menu.GetType(); type is not null && popup is null; type = type.BaseType)
+                {
+                    const System.Reflection.BindingFlags all = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.DeclaredOnly;
+                    popup = type.GetProperties(all).Where(p => p.PropertyType == typeof(Avalonia.Controls.Primitives.Popup)).Select(p => p.GetValue(menu)).OfType<Avalonia.Controls.Primitives.Popup>().FirstOrDefault()
+                            ?? type.GetFields(all).Select(f => f.GetValue(menu)).OfType<Avalonia.Controls.Primitives.Popup>().FirstOrDefault()
+                            ?? type.GetFields(all).Select(f => f.GetValue(menu)).OfType<Lazy<Avalonia.Controls.Primitives.Popup>>().Select(l => l.Value).FirstOrDefault();
+                }
+                items.Add(new { menu.IsOpen, PopupOpen = popup?.IsOpen, Child = popup?.Child?.GetType().Name, Host = popup?.Host?.GetType().Name });
+                if (popup?.Host is Avalonia.Visual { Bounds.Width: > 0 } host)
+                {
+                    using var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(new Avalonia.PixelSize((int) host.Bounds.Width, (int) host.Bounds.Height));
+                    shot.Render(host);
+                    shot.Save(file + ".menu.png");
+                }
+                var map = maps.SelectedMap;
+                return new { file, Popup = popup?.Child is not null, items, map.WorldFlagsActors, map.WorldFlagsInstancedFoliage, map.WorldFlagsLandscape, map.WorldFlagsHLODs, map.WorldFlagsLights, map.WorldFlagsDecals, map.WorldFlagsEffects };
+            });
+        }
         if (route == "fork-status")
         {
             // tests: the status line and the newest log lines, as the window shows them
@@ -789,7 +857,7 @@ public class MaterialPorterService : IService
                 assetData.Exports,
             }));
         }
-        // tests: /fork-export-world?path=<level package>[&landscape=1][&actor=name part], FP's world export of that
+        // tests: /fork-export-world?path=<level package>[&landscape=1][&actors=0][&lights=0][&decals=0][&effects=0][&actor=name part], FP's world export of that
         // one level (actors and instances, as the Map page sends it to Blender) as the plugin receives it;
         // track=<Rocket Racing track object path>&points=x,y,z;x,y,z...: also that track's road laid along those points
         if (route != "fork-export-world") return null;
@@ -799,7 +867,8 @@ public class MaterialPorterService : IService
         var world = package.GetExports().OfType<UWorld>().FirstOrDefault()
                     ?? throw new FileNotFoundException("no world in " + path);
         using var meta = AppServices.AppSettings.ExportSettings.CreateExportMeta(EExportLocation.Blender);
-        meta.WorldFlags = EWorldFlags.Actors | EWorldFlags.InstancedFoliage | (query["landscape"] == "1" ? EWorldFlags.Landscape : 0);
+        meta.WorldFlags = (query["actors"] == "0" ? 0 : EWorldFlags.Actors | EWorldFlags.InstancedFoliage) | (query["landscape"] == "1" ? EWorldFlags.Landscape : 0)
+                         | (query["lights"] == "0" ? 0 : EWorldFlags.Lights) | (query["decals"] == "0" ? 0 : EWorldFlags.Decals) | (query["effects"] == "0" ? 0 : EWorldFlags.Effects);
         var session = new ExportSession(meta);
         Exporting.Context.ExportContext.MaterialPorterActorFilter = query["actor"];
         if (query["track"] is { } track)

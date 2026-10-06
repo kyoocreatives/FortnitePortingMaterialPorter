@@ -194,6 +194,12 @@
                                                   IsChecked="{Binding SelectedMap.WorldFlagsLandscape, Mode=TwoWay}"/>
                                         <MenuItem Header="HLODs" Classes="Checked"
                                                   IsChecked="{Binding SelectedMap.WorldFlagsHLODs, Mode=TwoWay}" />
+                                        <MenuItem Header="Lights" Classes="Checked"
+                                                  IsChecked="{Binding SelectedMap.WorldFlagsLights, Mode=TwoWay}" />
+                                        <MenuItem Header="Decals" Classes="Checked"
+                                                  IsChecked="{Binding SelectedMap.WorldFlagsDecals, Mode=TwoWay}" />
+                                        <MenuItem Header="Effects" Classes="Checked"
+                                                  IsChecked="{Binding SelectedMap.WorldFlagsEffects, Mode=TwoWay}" />
 
                                     </MenuFlyout>
                                 </DropDownButton.Flyout>
