@@ -330,8 +330,8 @@ def add_fur(obj):
         if value is not None:
             try:
                 set_geo_nodes_param(mod, name, value)
-            except Exception:
-                pass
+            except Exception as e:
+                _log("custom fur: kept value of %s not restored (%s)" % (name, e))
     # the strands are see-through layers: Cycles counts each as a transparent bounce
     scene = bpy.context.scene
     if hasattr(scene, "cycles"):

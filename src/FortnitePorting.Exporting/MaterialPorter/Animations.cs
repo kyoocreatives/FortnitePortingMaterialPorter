@@ -186,8 +186,9 @@ public static partial class Animations
                 if (f.Length == 4) _known[f[0]] = new Outline(f[0], f[1].Length > 0 ? f[1] : null, f[2].Length > 0 ? f[2] : null, KindOf(f[0], f[2]));
             }
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Serilog.Log.Warning("[Material Porter] animation listing cache unreadable, read again: {Error}", e.Message);
             _known.Clear();
         }
     }
@@ -203,8 +204,9 @@ public static partial class Animations
             foreach (var (package, o) in _known)
                 writer.WriteLine($"{package}\t{o.Class}\t{o.Skeleton}\t{o.Kind}");
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Serilog.Log.Warning("[Material Porter] animation listing cache not saved: {Error}", e.Message);
             // (only the next listing is slower)
         }
     }
@@ -232,8 +234,9 @@ public static partial class Animations
                     skeleton = import.Name.Text;
             return new Outline(package, type, skeleton, KindOf(package, skeleton));
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Failures.Note("animation listing", package, e);
             return null;
         }
     }
@@ -248,8 +251,9 @@ public static partial class Animations
                 if (loaded.ResolvePackageIndex(new FPackageIndex(loaded, -(i + 1))) is { } import && import.Class?.Name.Text == "Skeleton")
                     return import.Name.Text;
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Failures.Note("animation skeletons", package, e);
             // (none found)
         }
         return null;

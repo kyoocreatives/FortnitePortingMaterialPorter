@@ -418,7 +418,7 @@ public sealed class Cars(IFileProvider provider)
                     decals.Add(new Decal(s.Title + (tiers.Count > 1 ? $" ({t.Name})" : ""), icon, t.Vcid, mat, color, vcid,
                                          lockedBody, Rgba(skin["LockedSkinColor"])));
                 }
-                catch { /* a decal that won't read isn't offered */ }
+                catch (Exception e) { Failures.Note("car decals", s.Title, e); /* a decal that won't read isn't offered */ }
             }
         }
         var wheelItems = wheels.OrderBy(a => a.Title, StringComparer.OrdinalIgnoreCase).ToList();
@@ -548,7 +548,7 @@ public sealed class Cars(IFileProvider provider)
         if (coPath == null) return plan;
         MutableProgram mp;
         try { mp = await ProgramAsync(coPath); }
-        catch { return plan; }      // no program: the materials keep their own values
+        catch (Exception e) { Serilog.Log.Warning("[Material Porter] {Car}: Mutable program {Program} unreadable: {Error}", bodyName, coPath, e.Message); return plan; }      // no program: the materials keep their own values
         var vals = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         Put(mp, vals, vc, "Body_");
         if (wv != null) Put(mp, vals, wv, "Wheel_");
@@ -601,7 +601,7 @@ public sealed class Cars(IFileProvider provider)
 
         List<MutableProgram.Surface> surfaces;
         try { surfaces = mp.Evaluate(vals); }
-        catch { return plan; }
+        catch (Exception e) { Serilog.Log.Warning("[Material Porter] {Car}: Mutable program didn't run, the materials keep their own colours: {Error}", bodyName, e.Message); return plan; }
         var wheelSlots = wheelMesh == null ? [] : await SlotsAsync(wheelMesh);
         foreach (var s in surfaces)
         {

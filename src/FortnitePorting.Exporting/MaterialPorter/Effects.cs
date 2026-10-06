@@ -138,8 +138,9 @@ public static class Effects
             }
             return new Outline(found, emitters, gpu, draws.ToArray());
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Failures.Note("effect outlines", package, e);
             return null;
         }
     }
@@ -163,8 +164,9 @@ public static class Effects
         {
             return Named(path.AssetPathName) && path.TryLoad(out UObject? system) && Emitters(system).Count > 0 ? system : null;
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Failures.Note("item effects", path.AssetPathName.Text, e);
             return null;
         }
     }
@@ -188,8 +190,9 @@ public static class Effects
                                     return true;
                         }
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Failures.Note("item effect styles", item.Name, e);
             // an item whose styles don't read: as if it had none
         }
         return false;
@@ -460,8 +463,9 @@ public static class Effects
             }
             return all.Count > 0 ? all : null;
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Failures.Note("effect mesh bounds", renderer.Name, e);
             return null;
         }
     }
@@ -610,8 +614,9 @@ public static class Effects
             });
             return $"{emitters.Count} emitter{(emitters.Count == 1 ? "" : "s")}: {string.Join(", ", parts)}";
         }
-        catch
+        catch (Exception e)
         {
+            Failures.Note("effect descriptions", system.Name, e);
             return "";
         }
     }

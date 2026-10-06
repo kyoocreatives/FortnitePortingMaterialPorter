@@ -192,7 +192,7 @@ public partial class ExportContext
 
         string key;
         try { key = FileProvider.FixPath(package); }
-        catch { return []; }
+        catch (Exception e) { Log.Warning("[Material Porter] {Package}: island cells not read: {Error}", package, e.Message); return []; }
         var dot = key.LastIndexOf('.');
         if (dot > key.LastIndexOf('/')) key = key[..dot];
         var prefix = key + "/_Generated_/";
@@ -211,7 +211,7 @@ public partial class ExportContext
         {
             ULandscapeComponent? component;
             try { component = componentLazy.Load<ULandscapeComponent>(); }
-            catch { continue; }
+            catch (Exception e) { MaterialPorter.Failures.Note("landscape components", componentLazy.Name, e); continue; }
             if (component is null) continue;
             foreach (var allocation in component.GetWeightmapLayerAllocations() ?? [])
             {
@@ -223,8 +223,9 @@ public partial class ExportContext
                     var layer = allocation.LayerInfo.Load()?.GetOrDefault<FName>("LayerName") ?? default;
                     if (!layer.IsNone && !string.IsNullOrEmpty(layer.Text)) names[asset] = layer.Text;
                 }
-                catch
+                catch (Exception e)
                 {
+                    MaterialPorter.Failures.Note("landscape layer infos", asset, e);
                     // an unreadable layer info keeps FP's name
                 }
             }

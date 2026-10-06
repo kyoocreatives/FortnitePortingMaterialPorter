@@ -72,8 +72,9 @@ public static class ActorDataReader
             }
             return properties;
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            MaterialPorter.Failures.Note("prefab actor data", "unreadable", e);
             return null;
         }
     }

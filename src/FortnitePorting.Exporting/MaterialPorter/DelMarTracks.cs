@@ -51,8 +51,9 @@ public static class DelMarTracks
             if (level == null) return placed;
             actors = exports.Where(e => e.Outer?.Name.Text == level.Name).ToList();
         }
-        catch
+        catch (Exception e)
         {
+            Failures.Note("Rocket Racing track levels", levelPackage, e);
             return placed;
         }
         // the level saved its tracks' pieces (segment actors, DelMarTrackSegmentBase): the map reader placed them
@@ -129,7 +130,7 @@ public static class DelMarTracks
         {
             UObject? type;
             try { type = trackType.Load(); }
-            catch { continue; }
+            catch (Exception e) { Failures.Note("Rocket Racing track types", trackType.ToString(), e); continue; }
             foreach (var entry in type?.GetOrDefault("StyleArray", Array.Empty<FStructFallback>()) ?? [])
             {
                 var first = entry.GetOrDefault("SegmentActors", Array.Empty<FPackageIndex>()).FirstOrDefault(s => s is { IsNull: false });
@@ -181,7 +182,7 @@ public static class DelMarTracks
         {
             yield return o;
             try { o = o.Template?.Load(); }
-            catch { o = null; }
+            catch (Exception e) { Failures.Note("Rocket Racing templates", o.Name, e); o = null; }
         }
     }
 
@@ -191,7 +192,7 @@ public static class DelMarTracks
             if (x.TryGetValue(out FPackageIndex i, name) && !i.IsNull)
             {
                 try { return i.Load(); }
-                catch { return null; }
+                catch (Exception e) { Failures.Note("Rocket Racing references", name, e); return null; }
             }
         return null;
     }

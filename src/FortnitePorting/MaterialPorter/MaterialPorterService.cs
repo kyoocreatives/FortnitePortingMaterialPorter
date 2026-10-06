@@ -153,7 +153,7 @@ public class MaterialPorterService : IService
     private static List<IslandKey> LoadIslandKeys()
     {
         try { return File.Exists(IslandKeysFile) ? JsonConvert.DeserializeObject<List<IslandKey>>(File.ReadAllText(IslandKeysFile)) ?? [] : []; }
-        catch { return []; }
+        catch (Exception e) { Log.Warning("[Material Porter] island keys file unreadable ({Error}): no island keys", e.GetType().Name); return []; }
     }
 
     /// <summary>
@@ -211,7 +211,7 @@ public class MaterialPorterService : IService
                 if (File.Exists(settings) && JObject.Parse(File.ReadAllText(settings))["IslandKeyTool"]?.ToString() is { Length: > 0 } dir)
                     return dir;
             }
-            catch { /* the default */ }
+            catch (Exception e) { Log.Warning("[Material Porter] Material Porter settings unreadable ({Error}): the default island key tool folder", e.GetType().Name); }
             return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "UEFN-AES-grabber-main");
         }
     }
@@ -232,7 +232,7 @@ public class MaterialPorterService : IService
         if (Game.Provider is not AbstractVfsFileProvider provider) return false;
         var opened = await provider.SubmitKeyAsync(new FGuid(NormalGuid(guid)), new FAesKey(key));
         if (opened == 0) return false;
-        try { provider.LoadVirtualPaths(); } catch { /* its files resolve by path still */ }
+        try { provider.LoadVirtualPaths(); } catch (Exception e) { Log.Warning("[Material Porter] island {Code}: virtual paths not loaded, its files resolve by path still: {Error}", code, e.Message); }
         Log.Information("[Material Porter] island {Code} unlocked ({Opened} archives)", code, opened);
         return true;
     }
@@ -322,7 +322,7 @@ public class MaterialPorterService : IService
                             if (await Game.Provider.LoadPackageObjectAsync(a.ObjectPath) is { } item)
                                 name = item.GetOrDefault<FText?>("ItemName")?.Text;
                         }
-                        catch { /* its asset name, then */ }
+                        catch (Exception e) { Exporting.MaterialPorter.Failures.Note("car names", a.AssetName.Text, e); /* its asset name, then */ }
                         var title = Cars.ItemTitle(name, a.AssetName.Text);
                         list.Add(new CarItem(a.AssetName.Text, title, a.PackageName.Text, a.ObjectPath));
                     }

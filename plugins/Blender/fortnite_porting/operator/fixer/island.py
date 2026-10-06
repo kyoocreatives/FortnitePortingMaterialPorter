@@ -86,13 +86,18 @@ def resolve(app, targets):
         return 0 if any(n.startswith(g) for g in here) else 1 if GUID_RX.search('/' + key + '/') else 2
 
     slots = {}
+    failed = []
 
     def mesh_slots(mesh):
         if mesh not in slots:
             keys = found.get(mesh) or []
             try:
                 slots[mesh] = app.get('fork-island-mesh', keys[0]) if keys else []
-            except Exception:
+            except Exception as e:
+                # (the app closed: every mesh would fail - the first one said)
+                if not failed:
+                    print("[FNPORTING] [Material Porter] island: %s's slots not read from the app (%s)" % (mesh, e))
+                failed.append(mesh)
                 slots[mesh] = []
         return slots[mesh]
 

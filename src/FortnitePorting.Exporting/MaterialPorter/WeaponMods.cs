@@ -121,7 +121,7 @@ public static class WeaponMods
                         }
                     }
                 }
-                catch { /* one that can't be read: the others still */ }
+                catch (Exception e) { Failures.Note("weapon mods", key, e); /* one that can't be read: the others still */ }
             }
             _mods = mods.OrderBy(m => m.Name, StringComparer.OrdinalIgnoreCase).ToList();
             _rows = rows;
@@ -164,7 +164,7 @@ public static class WeaponMods
         if (stream.Length < 3 || stream[1] == 0) return true;
         var at = 2;
         try { return Evaluate(stream, mod.AllowedTags, tags, ref at); }
-        catch { return true; }
+        catch (Exception e) { Failures.Note("weapon mod rules", mod.Name, e); return true; }
     }
 
     private static bool Evaluate(byte[] stream, string[] dictionary, HashSet<string> tags, ref int at)

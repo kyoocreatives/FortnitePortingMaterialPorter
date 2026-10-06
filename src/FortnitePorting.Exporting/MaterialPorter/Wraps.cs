@@ -78,8 +78,9 @@ public static class Wraps
             }
             return materials.Any(HasMask);
         }
-        catch
+        catch (Exception e)
         {
+            Failures.Note("wraps", item.Name, e);
             return false;
         }
     }

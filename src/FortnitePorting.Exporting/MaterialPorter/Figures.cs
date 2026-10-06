@@ -58,7 +58,7 @@ public static class Figures
                 return texture;
         string file;
         try { file = provider.FixPath(item.GetPathName().Split('.')[0]); }
-        catch { return null; }
+        catch (Exception e) { Failures.Note("LEGO creature icons", item.Name, e); return null; }
         var content = file.IndexOf("/Content/", StringComparison.OrdinalIgnoreCase);
         if (content >= 0 && pawns.TryGetValue(file[..(content + "/Content/".Length)], out var own) && MarkerIcon(provider, own) is { } icon)
             return icon;
@@ -234,8 +234,9 @@ public static class Figures
                 _ => null
             };
         }
-        catch
+        catch (Exception e)
         {
+            Failures.Note("LEGO meshes", $"{reference}", e);
             return null;
         }
     }
@@ -250,7 +251,7 @@ public static class Figures
         if (dot > path.LastIndexOf('/')) path = path[..dot];
         string key;
         try { key = provider.FixPath(path); }
-        catch { return null; }
+        catch (Exception e) { Failures.Note("LEGO bake folders", path, e); return null; }
         var mutable = key.IndexOf("/Mutable/", StringComparison.OrdinalIgnoreCase);
         return mutable < 0 ? null : key[..mutable] + "/Bake";
     }

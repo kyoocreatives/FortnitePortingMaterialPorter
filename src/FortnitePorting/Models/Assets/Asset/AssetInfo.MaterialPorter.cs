@@ -72,7 +72,7 @@ public partial class AssetInfo
                     if (Preview(option) is { } bitmap)
                         await Dispatcher.UIThread.InvokeAsync(() => data.StyleDisplayImage = bitmap);
                 }
-                catch { /* no preview for that one */ }
+                catch (Exception e) { Exporting.MaterialPorter.Failures.Note("car style previews", data.StyleName, e); }
             }
         });
     }
@@ -101,7 +101,7 @@ public partial class AssetInfo
                     if (string.IsNullOrWhiteSpace(name) || name == "TBD") name = wrap.Name;
                     wraps.Add((name, wrap.GetPathName(), Loading.AssetLoader.GetLowResIcon(wrap)?.GetPathName()));
                 }
-                catch { /* one that can't be read */ }
+                catch (Exception e) { Exporting.MaterialPorter.Failures.Note("wraps", data.AssetName.Text, e); }
             }
             return _wraps = wraps.OrderBy(w => w.Name, StringComparer.OrdinalIgnoreCase).ToList();
         }
@@ -125,7 +125,7 @@ public partial class AssetInfo
                 using var small = full.Resize(new SKImageInfo(96, 96), SKFilterQuality.Medium);
                 return small?.ToWriteableBitmap();
             }
-            catch { return null; }
+            catch (Exception e) { Exporting.MaterialPorter.Failures.Note("wrap tiles", iconPath ?? "", e); return null; }
         });
     }
 

@@ -51,8 +51,9 @@ public static class AnimationOwners
                     if (await Animations.SkeletonOf(UEParse.Provider, mesh.Split('.')[0]) is { } skeleton)
                         found.Add((false, skeleton, owner));
             }
-            catch (Exception)
+            catch (Exception e)
             {
+                Exporting.MaterialPorter.Failures.Note("animation owners", data.ObjectPath, e);
                 // (an item that can't be read owns nothing)
             }
         });
@@ -65,8 +66,9 @@ public static class AnimationOwners
             foreach (var (folder, at, owner) in found)
                 writer.WriteLine($"{(folder ? "F" : "S")}\t{at}\t{owner.Name}\t{owner.Icon}");
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Serilog.Log.Warning("[Material Porter] animation owners cache not saved: {Error}", e.Message);
             // (only the next listing is slower)
         }
     }
@@ -89,8 +91,9 @@ public static class AnimationOwners
             }
             return true;
         }
-        catch (Exception)
+        catch (Exception e)
         {
+            Serilog.Log.Warning("[Material Porter] animation owners cache unreadable, read again: {Error}", e.Message);
             Animations.ClearOwners();
             return false;
         }
