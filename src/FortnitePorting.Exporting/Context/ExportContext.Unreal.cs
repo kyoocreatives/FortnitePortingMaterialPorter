@@ -282,6 +282,9 @@ public partial class ExportContext
 
     public List<ExportObject> Blueprint(UBlueprintGeneratedClass blueprintGeneratedClass)
     {
+        // Material Porter fork: a blueprint whose construction script builds it (Neon City's billboards)
+        if (SignFrame(blueprintGeneratedClass) is { } sign) return sign;
+
         var objects = new List<ExportObject>();
         
         objects.AddRangeIfNotNull(ConstructionScript(blueprintGeneratedClass));

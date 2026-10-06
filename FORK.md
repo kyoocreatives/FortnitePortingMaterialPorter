@@ -658,6 +658,14 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   reference-table actor data CUE4Parse drops (one byte short of the properties),
   and each slot replaces the class default's - or clears it (Rebel's Roost:
   walls, rugs, crates and paintings came out in their default textures).
+- **Neon City billboards.** `Context/ExportContext.SignFrame.cs` ports
+  `Asteria_NeonCity_SignFrame_E`'s construction script (FP doesn't run
+  blueprint scripts, so its CP_ signs came out empty): the screen stretched
+  between TopLeft and BottomRight with its ad (LumenBoost, saturation, colour
+  override as the material's values, PIxelCellSize as custom primitive data),
+  the dummy back or the ad twice when two-sided, the corner and edge frame
+  instances, the struts. A prefab prop whose parts sit off its pivot goes under
+  an empty at the item's transform (its parts' offsets turn and scale with it).
 - **No online account.** `SupabaseService` is inert (no client, no sign-in, no
   posted logins, exports or errors); the setup's sign-in step, the Online
   sidebar (Chat, Leaderboard) and the `fortniteporting://` registration are gone.

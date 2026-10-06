@@ -320,7 +320,24 @@ public partial class MeshExport : BaseExport
                     
                     var transform = prop.GetOrDefault<FTransform>("Transform");
                     var objects = Context.LevelSaveRecord(targetSaveRecord);
-                    foreach (var mesh in objects)
+                    // Material Porter fork: a prop whose parts sit off its pivot (a billboard's screen and
+                    // frame) under an empty at the item's transform - added to each part, the transform
+                    // moved their offsets without turning or scaling them with the item
+                    if (objects.Any(o => o.Location.X != 0 || o.Location.Y != 0 || o.Location.Z != 0
+                                         || o.Rotation.Pitch != 0 || o.Rotation.Yaw != 0 || o.Rotation.Roll != 0))
+                    {
+                        var item = new ExportMesh
+                        {
+                            Name = prop.GetOrDefault<FName>("RecordUniqueName") is { IsNone: false } record ? record.Text : objects[0].Name,
+                            IsEmpty = true,
+                            Location = transform.Translation,
+                            Rotation = transform.Rotator(),
+                            Scale = transform.Scale3D
+                        };
+                        item.AddChildren(objects);
+                        objects = [item];
+                    }
+                    else foreach (var mesh in objects)
                     {
                         mesh.Location += transform.Translation;
                         mesh.Rotation += transform.Rotator();
