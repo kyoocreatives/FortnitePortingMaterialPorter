@@ -172,6 +172,19 @@ public static partial class OnDemandBuilds
         }
     }
 
+    // CUE4Parse's ini-read options (PostMount: DefaultEngine.ini's ConsoleVariables), which a version change resets to
+    // their defaults - a build with r.SkeletalMesh.KeepMobileMinLODSettingOnDesktop=1 (36.10) then reads its skeletal
+    // meshes' MinMobileLOD as their LOD count: 0 LODs, nothing exported
+    static readonly string[] IniOptions = ["StripAdditiveRefPose", "SkeletalMesh.KeepMobileMinLODSettingOnDesktop", "StaticMesh.KeepMobileMinLODSettingOnDesktop"];
+
+    /// <summary>Reads with another Unreal version, keeping the options the build's config set.</summary>
+    public static void SetGame(global::CUE4Parse.UE4.Versions.VersionContainer versions, global::CUE4Parse.UE4.Versions.EGame game)
+    {
+        var kept = IniOptions.Where(versions.Options.ContainsKey).ToDictionary(key => key, key => versions.Options[key]);
+        versions.Game = game;
+        foreach (var (key, value) in kept) versions.Options[key] = value;
+    }
+
     private static long Changelist(string build) => long.TryParse(build[(build.IndexOf("-CL-", StringComparison.Ordinal) + 4)..], out var cl) ? cl : 0;
 
     private static (int, int) VersionKey(string version)

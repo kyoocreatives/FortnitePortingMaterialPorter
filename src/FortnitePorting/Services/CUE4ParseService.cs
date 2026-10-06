@@ -438,7 +438,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         {
             foreach (var game in candidates)
             {
-                Provider.Versions.Game = game;
+                MaterialPorter.OnDemandBuilds.SetGame(Provider.Versions, game);
                 var read = probes.Count(file =>
                 {
                     try
@@ -459,7 +459,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
             global::CUE4Parse.Globals.FatalObjectSerializationErrors = fatal;
         }
 
-        Provider.Versions.Game = best;
+        MaterialPorter.OnDemandBuilds.SetGame(Provider.Versions, best);
         Log.Information("[Material Porter] Unreal version of this build: {Game}{Note} ({Read} of {Count} packages read)",
             best, best == chosen ? "" : " (found)", bestRead, probes.Count);
         if (best != chosen) Avalonia.Threading.Dispatcher.UIThread.Post(() => profile.UnrealVersion = best);

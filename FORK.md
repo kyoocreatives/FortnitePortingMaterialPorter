@@ -693,7 +693,10 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
     misreads the package header and CUE4Parse's name reading corrupts memory),
     serialization errors fatal; the one reading the most wins, the profile's,
     then the UEFN's on a tie. 36.10 reads as UE 5.6 (5.8 misreads its structs),
-    33.11 as 5.5.
+    33.11 as 5.5. Changing CUE4Parse's version resets the options the build's
+    DefaultEngine.ini set at mount, so `OnDemandBuilds.SetGame` keeps them: 36.10
+    sets `r.SkeletalMesh.KeepMobileMinLODSettingOnDesktop`, and without it every
+    skeletal mesh read its MinMobileLOD (0) as its LOD count and exported nothing.
 - **Texture streaming for Custom installs.** A Custom profile whose folder has
   an on-demand TOC of its own streams textures too, and the Epic token is
   checked before it goes into the streaming options (an expired one stayed in

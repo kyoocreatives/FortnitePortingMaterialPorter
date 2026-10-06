@@ -743,7 +743,7 @@ public class MaterialPorterService : IService
             // game=<EGame>: read with that Unreal version instead (put back after)
             var versions = ((global::CUE4Parse.FileProvider.AbstractFileProvider) Game.Provider).Versions;
             var was = versions.Game;
-            if (query["game"] is { } game) versions.Game = Enum.Parse<global::CUE4Parse.UE4.Versions.EGame>(game);
+            if (query["game"] is { } game) OnDemandBuilds.SetGame(versions, Enum.Parse<global::CUE4Parse.UE4.Versions.EGame>(game));
             global::CUE4Parse.UE4.Assets.IPackage dumped;
             try
             {
@@ -752,7 +752,7 @@ public class MaterialPorterService : IService
             }
             finally
             {
-                versions.Game = was;
+                OnDemandBuilds.SetGame(versions, was);
             }
             var settings = new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore };
             // count=1: how many exports of each class (a level's lights, decals, effects - a 117 MB level's
