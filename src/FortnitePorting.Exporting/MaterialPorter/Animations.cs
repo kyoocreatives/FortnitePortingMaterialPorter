@@ -103,7 +103,7 @@ public static partial class Animations
         {
             if (o.Owner is not null) continue;
             var folder = o.Folder;
-            for (var up = 0; up < 3 && o.Owner is null && folder.Length > 0; up++, folder = Up(folder))
+            for (var up = 0; up < 3 && folder.Length > 0; up++, folder = Up(folder))
                 if (beside.TryGetValue(folder, out var owner))
                 {
                     o.Owner = owner;
@@ -146,7 +146,7 @@ public static partial class Animations
         return shorter;
     }
 
-    public static string? IconPath(UObject animation) => ((Unloaded.Detail(animation) as Outline)?.Owner)?.Icon;
+    public static string? IconPath(UObject animation) => (Unloaded.Detail(animation) as Outline)?.Owner?.Icon;
 
     public static bool Owned(UObject animation) => (Unloaded.Detail(animation) as Outline)?.Owner is not null;
 

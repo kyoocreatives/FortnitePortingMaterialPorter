@@ -179,7 +179,10 @@ public sealed class Cars(IFileProvider provider)
             ch.Options.Add(new CarOption { Name = "Default", Swatch = Hex(start) });
         foreach (var c in variant?["BakedSwatchColors"] as JArray ?? [])
             if (Rgba(c) is { } rgba)
-                ch.Options.Add(new CarOption { Name = "#" + ((string?)c["Hex"] ?? Hex(rgba)), Swatch = (string?)c["Hex"] ?? Hex(rgba) });
+            {
+                var hex = (string?)c["Hex"] ?? Hex(rgba);
+                ch.Options.Add(new CarOption { Name = "#" + hex, Swatch = hex });
+            }
         return ch;
     }
 
@@ -371,7 +374,7 @@ public sealed class Cars(IFileProvider provider)
                 if (ams == null) continue;
                 if ((bool?)o["bIsDefault"] == true) tierDefault = tiers.Count;
                 tiers.Add(new Tier(Text(o["VariantName"]) ?? "Tier " + (tiers.Count + 1), RefPath(o["PreviewImage"]), ams,
-                                   props.Select(cp => (string?)cp["GameplayTag"]?["TagName"]).Where(t => t != null).Select(t => t!).ToList()));
+                                   props.Select(cp => (string?)cp["GameplayTag"]?["TagName"]).OfType<string>().ToList()));
             }
         }
         if (tiers.Count == 0 && RefPath(p["VehicleCosmeticsItemDef"]) is { } only)
@@ -518,7 +521,7 @@ public sealed class Cars(IFileProvider provider)
         plan.WheelMesh = wheelMesh;
         if (wv != null)     // a wheel naming no mesh is one Mutable builds (below)
         {
-            var setups = (wv!["WheelSetupInfos"] ?? new JArray()).ToDictionary(s => (string?)s["WheelLocation"] ?? "", s => s, StringComparer.OrdinalIgnoreCase);
+            var setups = (wv["WheelSetupInfos"] ?? new JArray()).ToDictionary(s => (string?)s["WheelLocation"] ?? "", s => s, StringComparer.OrdinalIgnoreCase);
             var sockets = await SocketsAsync(mesh, RefPath(vc["WheelAttachSkeletonReference"]));
             foreach (var at in vc["WheelAttachInfos"] ?? new JArray())
             {

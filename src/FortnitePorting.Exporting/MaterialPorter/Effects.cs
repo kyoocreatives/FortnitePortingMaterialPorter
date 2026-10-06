@@ -47,7 +47,7 @@ public static class Effects
     public static List<(FSoftObjectPath System, List<string> Surfaces)> PickaxeImpacts(UObject weaponDefinition)
     {
         var found = new List<(FSoftObjectPath, List<string>)>();
-        if (weaponDefinition.GetDataListItem<global::CUE4Parse.UE4.Assets.Objects.UScriptMap>("ImpactNiagaraPhysicalSurfaceEffectsMap") is not { } map) return found;
+        if (weaponDefinition.GetDataListItem<UScriptMap>("ImpactNiagaraPhysicalSurfaceEffectsMap") is not { } map) return found;
         foreach (var (key, value) in map.Properties)
         {
             if (value?.GetValue(typeof(FSoftObjectPath)) is not FSoftObjectPath path || !Named(path.AssetPathName)) continue;
@@ -151,7 +151,7 @@ public static class Effects
         return _plays.GetValue(system, s => new StrongBox<bool>(Emitters(s).Any(e => e.Sim != "GPU"))).Value;
     }
 
-    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<UObject, StrongBox<bool>> _plays = new();
+    private static readonly ConditionalWeakTable<UObject, StrongBox<bool>> _plays = new();
 
     /// <summary>
     /// The system a soft path names, where it shows something: many parts name a blank system
@@ -246,17 +246,17 @@ public static class Effects
         return found;
     }
 
-    /// <summary>
-    /// What of its own effects an item of a tab can be exported with ("trail", "swing", "idle",
-    /// "event effects"): a pickaxe's weapon definition's, a back bling's or an outfit's parts' idle
-    /// effects, a glider's trails, a weapon's actor class's Niagara components.
-    /// </summary>
     /// <summary>A sprite definition's DataList entry for its own effect (beside its SkeletalMesh and Material).</summary>
     public const string SpriteEffect = "NiagaraSystem";
 
     /// <summary>The bone a sprite's effect is on (BP_Weapon_Extractable attaches its ExtractableFX there).</summary>
     public const string SpriteEffectBone = "spine_4_bind";
 
+    /// <summary>
+    /// What of its own effects an item of a tab can be exported with ("trail", "swing", "idle",
+    /// "event effects"): a pickaxe's weapon definition's, a back bling's or an outfit's parts' idle
+    /// effects, a glider's trails, a weapon's actor class's Niagara components.
+    /// </summary>
     public static List<string> OwnEffectNames(UObject item, EExportType type)
     {
         switch (type)
@@ -578,9 +578,7 @@ public static class Effects
     }
 
     private static List<UObject> Enabled(IEnumerable<UObject?> renderers) =>
-        renderers.Where(r => r is not null && r.GetOrDefault("bIsEnabled", true)).Select(r => r!).ToList();
-
-    private static string Draws(UObject renderer) => DrawsOf(renderer.ExportType);
+        renderers.OfType<UObject>().Where(r => r.GetOrDefault("bIsEnabled", true)).ToList();
 
     private static string DrawsOf(string rendererClass) => rendererClass switch
     {
@@ -607,7 +605,7 @@ public static class Effects
             if (emitters.Count == 0) return "No emitters.";
             var parts = emitters.Select(e =>
             {
-                var draws = e.Renderers.Select(Draws).Distinct().ToList();
+                var draws = e.Renderers.Select(r => DrawsOf(r.ExportType)).Distinct().ToList();
                 return $"{e.Name} ({(draws.Count == 0 ? "draws nothing" : string.Join(" + ", draws))}, {(e.Sim == "Stateless" ? "stateless" : e.Sim)})";
             });
             return $"{emitters.Count} emitter{(emitters.Count == 1 ? "" : "s")}: {string.Join(", ", parts)}";

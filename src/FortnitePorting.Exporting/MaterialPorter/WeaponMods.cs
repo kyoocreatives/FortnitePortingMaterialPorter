@@ -247,9 +247,8 @@ public static class WeaponMods
     /// </summary>
     public static Dictionary<WeaponMod, string> Labels(IEnumerable<WeaponMod> options)
     {
-        var list = options.ToList();
         var labels = new Dictionary<WeaponMod, string>();
-        foreach (var group in list.GroupBy(m => m.Name, StringComparer.OrdinalIgnoreCase))
+        foreach (var group in options.GroupBy(m => m.Name, StringComparer.OrdinalIgnoreCase))
         {
             foreach (var mod in group)
             {
