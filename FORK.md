@@ -77,7 +77,27 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   hidden actors, ziplines and terrain-only (RVT) meshes are left out. A
   UEFN island's `_Generated_` cells, missing from its runtime hash, are read
   with its main level. Landscapes still export through FP, with their weight
-  layers renamed to the LayerName the exact materials sample.
+  layers renamed to the LayerName the exact materials sample. A UEFN island
+  keeps its landscape-spline meshes (roads, paths, fences: spline mesh and
+  control-point mesh components) on the `LandscapeSplineActor` itself, where
+  Fortnite's own map cooks them into separate LandscapeSplineMeshesActors: the
+  reader places them like any actor's and skips only a spline actor with no mesh
+  components.
+- **Lights.** The reader also yields every visible point, spot and rect light
+  component (class or derived class; not hidden, not off at zero brightness) with its
+  world matrix and the values the engine reads (units, LightColor, temperature,
+  reach, source size, cone angles; a light that states no units is read as
+  candelas, which is what Fortnite's 8 / 20 / 25 are). They go into the export's
+  `Lights` (`PointLights`, `SpotLights`, `RectLights`; `ExportLight.cs`) and the plugin
+  makes light objects (`mesh_context.create_light`): a UE spot or rect light shines
+  along its X, a Blender one along its -Z, so they're turned a quarter; candelas as
+  they are, lumens over the solid angle, Unitless /625 (UE's legacy 16 per 10,000),
+  and a candela is a Blender watt as FP has always read point lights
+  (`LIGHT_CANDELA_TO_WATTS`). Fortnite's own spots (street lamps, floodlights) use
+  UE's older falloff (no inverse square: a brightness times
+  `(1 - (d / reach)^2)^exponent`), so they're given the candelas that light a surface
+  the same a third of the way out, as the Niagara lights are. A colour temperature
+  tints the colour as UE's `MakeFromColorTemperature` does.
 - **UEFN islands by map code (owner's builds only).** Keys from the user's key
   tool live in Material Porter's `islands.json` (shared by both apps, never
   logged); the Map page lists downloaded islands and has an Unlock Island box.

@@ -552,7 +552,13 @@ public class MaterialPorterService : IService
                     .ToDictionary(g => g.Key, g => (object)new { count = g.Count(), example = g.First().Outer?.Name }));
             if (query["full"] == "1")
                 return new JRaw(JsonConvert.SerializeObject(dumped.GetExports(), settings));
-            return new JArray(dumped.GetExports().Select(e => new JObject
+            // type=<class>, outer=<part of the owner's name>, limit=<n>: only those exports (a big level's dump
+            // doesn't serialize whole)
+            var listed = dumped.GetExports().Where(e => (query["type"] is not { } wantType || e.ExportType == wantType)
+                                                          && (query["outer"] is not { } wantOuter || e.Outer?.Name.Text.Contains(wantOuter, StringComparison.OrdinalIgnoreCase) == true)
+                                                          && (query["name"] is not { } wantName || e.Name.Contains(wantName, StringComparison.OrdinalIgnoreCase)));
+            if (int.TryParse(query["limit"], out var listLimit)) listed = listed.Take(listLimit);
+            return new JArray(listed.Select(e => new JObject
             {
                 ["name"] = e.Name, ["type"] = e.ExportType, ["outer"] = e.Outer?.Name.Text,
                 ["props"] = JToken.Parse(JsonConvert.SerializeObject(e.Properties.ToDictionary(p => p.Name.Text, p => p.Tag?.GenericValue), settings)),

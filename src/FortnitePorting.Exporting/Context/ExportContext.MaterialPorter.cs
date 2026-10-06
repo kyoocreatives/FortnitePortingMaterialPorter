@@ -14,6 +14,7 @@ using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Objects.UObject;
+using FortnitePorting.CUE4Parse.Extensions;
 using FortnitePorting.CUE4Parse.Models.Fortnite.Enums;
 using FortnitePorting.Exporting.MaterialPorter;
 using FortnitePorting.Exporting.Models;
@@ -39,6 +40,9 @@ public partial class ExportContext
     public static string? MaterialPorterActorFilter;
 
     private readonly Dictionary<string, ExportMesh?> _mpMeshes = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The point, spot and rect lights the levels read so far: a world export puts them in its Lights (MeshExport).</summary>
+    public readonly List<ExportLight> MaterialPorterLights = [];
 
     public List<ExportMesh>? MaterialPorterLevel(ULevel level)
     {
@@ -97,7 +101,11 @@ public partial class ExportContext
                 if (++done % 200 == 0) Meta.OnUpdateProgress(m.Actor, done, placed.Count);
                 meshes.AddIfNotNull(Placement(m));
             }
-            Log.Information("[Material Porter] {Level}: {Count} placements, skipped {Skipped}", package, meshes.Count,
+            var lights = reader.Lights.Where(l => MaterialPorterActorFilter is null || l.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
+                .OrderBy(l => l.Actor, StringComparer.Ordinal).ThenBy(l => l.Name, StringComparer.Ordinal)
+                .ThenBy(l => l.World.M41).ThenBy(l => l.World.M42).ThenBy(l => l.World.M43);
+            foreach (var l in lights) MaterialPorterLights.Add(Light(l));
+            Log.Information("[Material Porter] {Level}: {Count} placements, {Lights} lights, skipped {Skipped}", package, meshes.Count, reader.Lights.Count,
                 string.Join(", ", scan.Skipped.Select(kv => $"{kv.Value} {kv.Key}")));
         }
 
@@ -192,6 +200,37 @@ public partial class ExportContext
             }
         }
         return names;
+    }
+
+    /// <summary>
+    /// One light as FP's light record: where it stands (as the meshes are), its colour (as FP reads a light's: LightColor
+    /// as linear), and the values the engine read, in the units it read them in (the plugin converts).
+    /// </summary>
+    private static ExportLight Light(MapLight l)
+    {
+        var color = l.Color.ToLinearColor();
+        ExportLight export = l.Kind switch
+        {
+            "Spot" => new ExportSpotLight { InnerConeAngle = l.InnerConeAngle, OuterConeAngle = l.OuterConeAngle },
+            "Rect" => new ExportRectLight { SourceWidth = l.SourceWidth, SourceHeight = l.SourceHeight, BarnDoorAngle = l.BarnDoorAngle },
+            _ => new ExportPointLight(),
+        };
+        export = export with
+        {
+            Name = $"{l.Name}.{l.Actor}",
+            Color = color,
+            Intensity = l.Intensity,
+            IntensityUnits = l.Units,
+            InverseSquaredFalloff = l.InverseSquared,
+            FalloffExponent = l.FalloffExponent,
+            UseTemperature = l.UseTemperature,
+            Temperature = l.Temperature,
+            AttenuationRadius = l.AttenuationRadius,
+            Radius = l.SourceRadius,
+            CastShadows = l.CastShadows,
+        };
+        SetMaterialPorterTransform(export, l.World);
+        return export;
     }
 
     /// <summary>One placement as FP's mesh record: the mesh (exported once), where it stands, what its slots wear.</summary>

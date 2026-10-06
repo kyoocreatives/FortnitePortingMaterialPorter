@@ -351,6 +351,8 @@ public partial class MeshExport : BaseExport
 
                 Name = world.Owner?.Name.SubstringAfterLast("/") ?? world.Name;
                 Meshes.AddRange(Context.World(world));
+                // Material Porter fork: the level's point, spot and rect lights
+                Lights.AddRange(Context.MaterialPorterLights);
                 break;
             }
             case EExportType.Item:
@@ -650,7 +652,10 @@ public partial class MeshExport : BaseExport
                 }
                 // a LEGO cave room: its level
                 else if (asset.GetOrDefault<FSoftObjectPath>("World").TryLoad<UWorld>(out var caveWorld))
+                {
                     Meshes.AddRange(Context.World(caveWorld));
+                    Lights.AddRange(Context.MaterialPorterLights);
+                }
                 break;
             }
             case EExportType.LegoOutfit:

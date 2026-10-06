@@ -50,6 +50,46 @@ public sealed class MapMesh
     }
 }
 
+/// <summary>
+/// A light a map places (point, spot or rect light component): where (UE space, row vectors, cm) and what the
+/// engine reads of it, as stored (the level's values over its templates'); units and colour are converted by the
+/// consumer (Unitless local lights are 1/625 candela per unit; spots and rects shine along their X axis).
+/// </summary>
+public sealed class MapLight
+{
+    /// <summary>"Point", "Spot" or "Rect".</summary>
+    public string Kind { get; init; }
+    public string Name { get; init; }
+    public string Actor { get; init; }
+    public string Level { get; init; }
+    public Matrix4x4 World { get; init; }
+    public float Intensity { get; init; }
+    /// <summary>"Candelas", "Lumens", "Unitless", "EV" or "Nits": what Intensity is in when the light falls off by the inverse square.</summary>
+    public string Units { get; init; }
+    /// <summary>
+    /// False: the older falloff (Intensity is a brightness, times (1 - (d / AttenuationRadius)^2)^FalloffExponent
+    /// out to the radius, whatever the units say); true: candelas and the like, falling off with the square of the distance.
+    /// </summary>
+    public bool InverseSquared { get; init; } = true;
+    public float FalloffExponent { get; init; } = 8f;
+    /// <summary>The sRGB colour (LightColor).</summary>
+    public FColor Color { get; init; }
+    public bool UseTemperature { get; init; }
+    public float Temperature { get; init; }
+    /// <summary>cm: where the light ends.</summary>
+    public float AttenuationRadius { get; init; }
+    /// <summary>cm: a point or spot light's source sphere.</summary>
+    public float SourceRadius { get; init; }
+    public bool CastShadows { get; init; }
+    /// <summary>A spot's cone, in degrees from its axis: where the light is full, where it ends.</summary>
+    public float InnerConeAngle { get; init; }
+    public float OuterConeAngle { get; init; }
+    /// <summary>cm: a rect light's source.</summary>
+    public float SourceWidth { get; init; }
+    public float SourceHeight { get; init; }
+    public float BarnDoorAngle { get; init; }
+}
+
 public sealed class MapOptions
 {
     /// <summary>
@@ -119,6 +159,8 @@ public sealed class MapScan
     public string Name { get; init; }
     public string Key { get; init; }
     public List<MapMesh> Meshes { get; set; } = new();
+    /// <summary>Its point, spot and rect lights (visible ones).</summary>
+    public List<MapLight> Lights { get; set; } = new();
     /// <summary>The landscape pieces its levels hold (exported when the bundle is made).</summary>
     public List<MapLandscape> Landscapes { get; set; } = new();
     /// <summary>The area asked for, if any.</summary>
@@ -199,6 +241,7 @@ public sealed class MapReader
     readonly ConcurrentDictionary<string, Lazy<UObject>> templates = new(StringComparer.OrdinalIgnoreCase);
     readonly ConcurrentDictionary<string, byte> streamed = new(StringComparer.OrdinalIgnoreCase);
     public readonly ConcurrentBag<MapMesh> Placed = new();
+    public readonly ConcurrentBag<MapLight> Lights = new();
     public readonly ConcurrentBag<MapLandscape> Landscapes = new();
     public int Count => Placed.Count;
     static readonly JsonSerializerSettings Ser = new() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore };
@@ -377,9 +420,15 @@ public sealed class MapReader
                 });
             }
         }
-        // a landscape spline actor holds the roads' shape only; World Partition cooks their meshes
-        // into LandscapeSplineMeshesActors (spline meshes and control-point meshes), placed like any other
-        else if (type == "LandscapeSplineActor") { scan.Skip("landscape spline shapes (their meshes come separately)"); return; }
+        // a landscape spline actor holds the roads' shape; Fortnite's own World Partition cooks their meshes
+        // into LandscapeSplineMeshesActors (spline meshes and control-point meshes), placed like any other. A UEFN
+        // island keeps them on the spline actor itself (its spline mesh and control-point mesh components, attached to
+        // its LandscapeSplinesComponent): those are read below like any actor's. Shape-only: nothing to place.
+        else if (type == "LandscapeSplineActor" && !ctx.Components(actor.Name).Any(c => c.ExportType.Contains("MeshComponent", StringComparison.Ordinal)))
+        {
+            scan.Skip("landscape spline shapes (their meshes come separately)");
+            return;
+        }
         if (SkipActorPrefixes.Any(p => type.StartsWith(p, StringComparison.Ordinal) || actor.Name.StartsWith(p, StringComparison.Ordinal))) { scan.Skip("devices"); return; }
         if (Prop(actor, "bHidden", false)) { scan.Skip("hidden actors"); return; }
         // a zipline's cable is laid between its poles when the game runs (its saved root sits at the origin)
@@ -423,6 +472,11 @@ public sealed class MapReader
             if (ctype.Contains("HLOD", StringComparison.Ordinal)) { scan.Skip("HLOD meshes"); continue; }
             var waterSurface = waterBody != null && (c.Name is "WaterInfoMeshComponent" or "CustomMeshComponent");
             if (waterBody != null && !waterSurface) continue;
+            if (LightKind(c) is { } lightKind)
+            {
+                Light(c, lightKind, actor, ctx, root);
+                continue;
+            }
             if (!waterSurface && (ctype.StartsWith("ShadowProxy", StringComparison.Ordinal) || ctype.Contains("Landscape", StringComparison.Ordinal)
                 || ctype.Contains("Water", StringComparison.Ordinal))) continue;
             var meshRef = RefChain(c, "StaticMesh") ?? RefChain(c, "SkeletalMesh") ?? RefChain(c, "SkeletalMeshAsset");
@@ -551,6 +605,71 @@ public sealed class MapReader
             ["o0"] = V2(Member("StartOffset", new FVector2D(0, 0))),
             ["o1"] = V2(Member("EndOffset", new FVector2D(0, 0))),
         };
+    }
+
+    // ------------------------------------------------------------ lights
+
+    /// <summary>"Spot", "Rect" or "Point" for a light component (its class or a class it derives from), else null.</summary>
+    static string LightKind(UObject c)
+    {
+        var k = c.Class;
+        for (var i = 0; k != null && i < 10; i++, k = k.Super)
+        {
+            var n = k.Name.Text;
+            if (n == null) continue;
+            if (n.EndsWith("SpotLightComponent", StringComparison.Ordinal)) return "Spot";
+            if (n.EndsWith("RectLightComponent", StringComparison.Ordinal)) return "Rect";
+            if (n.EndsWith("PointLightComponent", StringComparison.Ordinal)) return "Point";
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// A point, spot or rect light: its world matrix and the values the engine reads (the level's own over its
+    /// templates', else the engine's defaults: white, 6500 K, 1000 cm of reach, a 44 degree spot, a 64 cm rect,
+    /// 8 candelas, the brightness a light is placed with). Fortnite's lights state no units unless they leave the
+    /// project's default (a street lamp: 20, a floodlight: 8), and those figures are candelas: Unitless would make them
+    /// 1/625 as bright. Hidden lights (bVisible, bHiddenInGame, bAffectsWorld) and lights of no brightness (a car's
+    /// headlights, which its Blueprint turns on when it drives) place nothing.
+    /// </summary>
+    void Light(UObject c, string kind, UObject actor, LevelContext ctx, UObject root)
+    {
+        if (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false) || !Prop(c, "bAffectsWorld", true))
+        {
+            scan.Skip("hidden lights");
+            return;
+        }
+        var intensity = Prop(c, "Intensity", Prop(c, "Brightness", 8f));
+        if (intensity <= 0)
+        {
+            scan.Skip("lights of no brightness");
+            return;
+        }
+        var unitsName = Prop(c, "IntensityUnits", new FName()).Text ?? "";
+        var units = unitsName.Contains("Lumens", StringComparison.Ordinal) ? "Lumens"
+                  : unitsName.Contains("Unitless", StringComparison.Ordinal) ? "Unitless"
+                  : unitsName.EndsWith("EV", StringComparison.Ordinal) ? "EV"
+                  : unitsName.Contains("Nits", StringComparison.Ordinal) ? "Nits"
+                  : "Candelas";
+        Lights.Add(new MapLight
+        {
+            Kind = kind, Name = c.Name, Actor = actor.Name, Level = ctx.Level, World = ctx.World(c, root),
+            Intensity = intensity,
+            Units = units,
+            InverseSquared = kind == "Rect" || Prop(c, "bUseInverseSquaredFalloff", Prop(c, "InverseSquaredFalloff", true)),
+            FalloffExponent = Prop(c, "LightFalloffExponent", 8f),
+            Color = Prop(c, "LightColor", new FColor(255, 255, 255, 255)),
+            UseTemperature = Prop(c, "bUseTemperature", false),
+            Temperature = Prop(c, "Temperature", 6500f),
+            AttenuationRadius = Prop(c, "AttenuationRadius", 1000f),
+            SourceRadius = kind == "Rect" ? 0f : Prop(c, "SourceRadius", 0f),
+            CastShadows = Prop(c, "CastShadows", true) && (Prop(c, "CastDynamicShadows", true) || Prop(c, "CastStaticShadows", true)),
+            InnerConeAngle = kind == "Spot" ? Prop(c, "InnerConeAngle", 0f) : 0f,
+            OuterConeAngle = kind == "Spot" ? Prop(c, "OuterConeAngle", 44f) : 0f,
+            SourceWidth = kind == "Rect" ? Prop(c, "SourceWidth", 64f) : 0f,
+            SourceHeight = kind == "Rect" ? Prop(c, "SourceHeight", 64f) : 0f,
+            BarnDoorAngle = kind == "Rect" ? Prop(c, "BarnDoorAngle", 88f) : 0f,
+        });
     }
 
     // ------------------------------------------------------------ materials
