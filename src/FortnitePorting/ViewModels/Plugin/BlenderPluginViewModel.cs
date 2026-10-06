@@ -154,7 +154,22 @@ public partial class BlenderPluginViewModel : PluginInstallationViewModelBase<Bl
     private static bool TryGetBlenderProcess(string path, [MaybeNullWhen(false)] out Process process)
     {
         var blenderProcesses = Process.GetProcessesByName("blender");
-        process = blenderProcesses.FirstOrDefault(process => process.MainModule is { } mainModule && mainModule.FileName.Equals(path.Replace("/", "\\")));
+        process = blenderProcesses.FirstOrDefault(process => ExecutablePath(process) is { } file && file.Equals(path.Replace("/", "\\"), StringComparison.OrdinalIgnoreCase));
         return process is not null;
+    }
+
+    // Material Porter fork: a process whose modules can't be read (Win32Exception 299, a partial
+    // ReadProcessMemory - one exiting, or another session's) is skipped; it threw out of the whole
+    // plugin sync, so an updated app left an open Blender on the old plugin
+    private static string? ExecutablePath(Process process)
+    {
+        try
+        {
+            return process.MainModule?.FileName;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 }
