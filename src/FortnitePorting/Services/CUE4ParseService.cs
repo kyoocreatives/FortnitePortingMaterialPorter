@@ -491,7 +491,9 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         ChunkCacheDirectory = CacheFolder.FullName,
         ManifestCacheDirectory = CacheFolder.FullName,
         Decompressor = Compression.Decompressor,
-        CacheChunksAsIs = true
+        // Material Porter fork: chunks cached decompressed - cached as downloaded, every read (an IoStore block,
+        // 64 KB) inflated its whole 1 MB chunk again: a map export spent most of its time there
+        CacheChunksAsIs = false
     };
 
     // Material Porter fork: a Custom profile's build manifest - a .manifest file, or a link to one - parsed as
@@ -625,6 +627,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         }
         
         Provider.MappingsContainer = new FileUsmapTypeMappingsProvider(mappingsPath, StringComparer.Ordinal);
+        MaterialPorter.MappingsRepair.Repair(Provider.MappingsContainer, mappingsPath);     // Material Porter fork
         Log.Information("Loaded Mappings: {Path}", mappingsPath);
     }
     

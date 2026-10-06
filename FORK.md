@@ -697,6 +697,16 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
     DefaultEngine.ini set at mount, so `OnDemandBuilds.SetGame` keeps them: 36.10
     sets `r.SkeletalMesh.KeepMobileMinLODSettingOnDesktop`, and without it every
     skeletal mesh read its MinMobileLOD (0) as its LOD count and exported nothing.
+- **Downloaded builds read fast.** Their chunks are cached decompressed: cached
+  as downloaded, every read (one 64 KB IoStore block) inflated its whole 1 MB
+  chunk again - a landmark's export took 50 s with everything cached, 5 s now
+  (21 s downloading it), a load 12 s.
+- **Mappings repaired.** Some builds' mappings (38.00's) hold editor template
+  structs named like real classes after them (ActorComponent, Skeleton,
+  PhysicsAsset); CUE4Parse keeps the last of a name, so every component read 15
+  properties off and failed (596 errors in one map cell, 0 now). The file is
+  read again keeping every struct: an empty one of another parent hiding one
+  with properties goes back to the real class.
 - **Texture streaming for Custom installs.** A Custom profile whose folder has
   an on-demand TOC of its own streams textures too, and the Epic token is
   checked before it goes into the streaming options (an expired one stayed in
