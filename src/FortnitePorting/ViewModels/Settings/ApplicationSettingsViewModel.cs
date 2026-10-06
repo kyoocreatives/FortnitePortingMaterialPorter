@@ -48,6 +48,16 @@ public partial class ApplicationSettingsViewModel : SettingsViewModelBase
 
     [JsonIgnore] public bool ShowIslandSettings => MaterialPorter.Fork.Islands;
 
+    /// <summary>The UEFN projects found: under the folders above and where UEFN itself keeps them (an island of one imports with exact materials).</summary>
+    [JsonIgnore] public string FoundUefnProjects
+    {
+        get
+        {
+            var names = MaterialPorter.IslandProjects.All.Select(p => p.Name).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToArray();
+            return names.Length == 0 ? "No UEFN project found." : $"{names.Length} found: {string.Join(", ", names)}";
+        }
+    }
+
     [ObservableProperty] private bool _showDeveloperSettings = false;
     
     [ObservableProperty] private HashSet<string> _favoriteAssets = [];
@@ -110,12 +120,14 @@ public partial class ApplicationSettingsViewModel : SettingsViewModelBase
         if (await App.BrowseFolderDialog() is not { } path) return;
         if (!UefnProjectFolders.Any(folder => string.Equals(folder, path, StringComparison.OrdinalIgnoreCase))) UefnProjectFolders.Add(path);
         MaterialPorter.MaterialPorterService.ApplyProjectFolders();
+        OnPropertyChanged(nameof(FoundUefnProjects));
     }
 
     public void RemoveUefnProjectFolder(string? path)
     {
         if (path is null || !UefnProjectFolders.Remove(path)) return;
         MaterialPorter.MaterialPorterService.ApplyProjectFolders();
+        OnPropertyChanged(nameof(FoundUefnProjects));
     }
     
     partial void OnAudioDeviceIndexChanged(int value)

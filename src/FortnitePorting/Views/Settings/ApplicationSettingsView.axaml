@@ -66,6 +66,8 @@
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+                        <TextBlock Text="{Binding FoundUefnProjects}" Opacity="0.7" TextWrapping="Wrap" MaxWidth="440"
+                                   HorizontalAlignment="Right" TextAlignment="Right"/>
                         <Button HorizontalAlignment="Right" ToolTip.Tip="Add Folder" Command="{Binding AddUefnProjectFolder}">
                             <avalonia:MaterialIcon Kind="FolderPlus"/>
                         </Button>
