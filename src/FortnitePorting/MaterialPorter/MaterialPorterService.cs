@@ -540,6 +540,16 @@ public class MaterialPorterService : IService
             // export as CUE4Parse writes it (what it reads outside the properties too: a material's cached data...)
             var dumped = await Game.Provider.LoadPackageAsync(query["path"] ?? throw new ArgumentException("path missing"));
             var settings = new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore };
+            // count=1: how many exports of each class (a level's lights, decals, effects - a 117 MB level's
+            // full dump doesn't serialize)
+            if (query["count"] == "1")
+                return JObject.FromObject(dumped.GetExports().GroupBy(e => e.ExportType).OrderByDescending(g => g.Count())
+                    .ToDictionary(g => g.Key, g => g.Count()));
+            // of=<class>: whose exports those are (their outers' classes, with a name each)
+            if (query["of"] is { } ofClass)
+                return JObject.FromObject(dumped.GetExports().Where(e => e.ExportType == ofClass)
+                    .GroupBy(e => e.Outer?.Class?.Name.Text ?? "(none)").OrderByDescending(g => g.Count())
+                    .ToDictionary(g => g.Key, g => (object)new { count = g.Count(), example = g.First().Outer?.Name }));
             if (query["full"] == "1")
                 return new JRaw(JsonConvert.SerializeObject(dumped.GetExports(), settings));
             return new JArray(dumped.GetExports().Select(e => new JObject
