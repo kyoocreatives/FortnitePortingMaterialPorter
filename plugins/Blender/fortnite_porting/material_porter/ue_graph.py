@@ -692,6 +692,12 @@ class Graph:
         self.path = path
         self.name = os.path.splitext(os.path.basename(path))[0]
         self.o = json.load(open(path, encoding="utf-8"))
+        # an older build's dump (28.00) names a function input's and output's guid "ID", not "Id": unmatched,
+        # every input a call gives would read as unconnected
+        for x in self.o:
+            p = x.get("Properties")
+            if isinstance(p, dict) and "Id" not in p and "ID" in p:
+                p["Id"] = p["ID"]
         seen, self.dups = set(), set()
         for x in self.o:
             n = x.get("Name")

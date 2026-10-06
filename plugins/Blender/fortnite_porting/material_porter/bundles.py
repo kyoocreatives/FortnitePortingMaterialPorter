@@ -73,6 +73,30 @@ def _set(sock, value):
         pass
 
 
+def _ref(sock):
+    """A socket kept by its node's name and its identifier: a socket reference goes stale when sockets
+    are rebuilt (a group's interface changing), and then points at another socket."""
+    return None if sock is None else (sock.node.name, sock.identifier, sock.is_output)
+
+
+def _sock(tree, ref):
+    if ref is None:
+        return None
+    node = tree.nodes.get(ref[0])
+    if node is None:
+        return None
+    return next((s for s in (node.outputs if ref[2] else node.inputs) if s.identifier == ref[1]), None)
+
+
+def _link(tree, out, ref_in=None, ref_out=None, into=None):
+    """A link from out (or from ref_out) to into (or to ref_in), the references looked up now; none when
+    either is gone."""
+    src = out if out is not None else _sock(tree, ref_out)
+    dst = into if into is not None else _sock(tree, ref_in)
+    if src is not None and dst is not None and src.is_output and not dst.is_output:
+        tree.links.new(src, dst)
+
+
 def _users(group, trees):
     return [(t, n) for t in trees for n in t.nodes if n.bl_idname == "ShaderNodeGroup" and n.node_tree == group]
 
@@ -110,9 +134,9 @@ def _bundle_group(group, trees):
                     name = idents[s.identifier]
                     types.setdefault(name, _item_type(s))
                     if in_out == 'INPUT':
-                        rec[name] = (s.links[0].from_socket if s.is_linked else None, _value(s))
+                        rec[name] = (_ref(s.links[0].from_socket) if s.is_linked else None, _value(s))
                     else:
-                        rec[name] = [l.to_socket for l in s.links]
+                        rec[name] = [_ref(l.to_socket) for l in s.links]
                 recorded.append((t, n, rec))
             # and inside: the Group Inputs' links out of those sockets, the Group Output's into them
             inside = []
@@ -121,12 +145,12 @@ def _bundle_group(group, trees):
                     for s in n.outputs:
                         if s.identifier in idents and s.is_linked:
                             types.setdefault(idents[s.identifier], _item_type(s))
-                            inside.append((n, idents[s.identifier], [l.to_socket for l in s.links]))
+                            inside.append((n, idents[s.identifier], [_ref(l.to_socket) for l in s.links]))
                 elif in_out == 'OUTPUT' and n.bl_idname == "NodeGroupOutput":
                     for s in n.inputs:
                         if s.identifier in idents:
                             types.setdefault(idents[s.identifier], _item_type(s))
-                            inside.append((n, idents[s.identifier], (s.links[0].from_socket if s.is_linked else None, _value(s))))
+                            inside.append((n, idents[s.identifier], (_ref(s.links[0].from_socket) if s.is_linked else None, _value(s))))
             for name in names:
                 types[name] = ITEM_OF.get(name, types.get(name, 'FLOAT'))
             # the bundle socket, where the first of them was
@@ -154,7 +178,7 @@ def _bundle_group(group, trees):
                         by_gi[gi.name] = sep
                     out = sep.outputs[kept[name]]
                     for target in targets:
-                        group.links.new(out, target)
+                        _link(group, out, ref_in=target)
             else:
                 outs_by_node = {}
                 for go, name, (src, value) in inside:
@@ -171,7 +195,7 @@ def _bundle_group(group, trees):
                                 comb.bundle_items.new(kind, extra)
                                 _set(comb.inputs[extra], default)
                     if src is not None:
-                        group.links.new(src, comb.inputs[kept[name]])
+                        _link(group, None, ref_out=src, into=comb.inputs[kept[name]])
                     else:
                         _set(comb.inputs[kept[name]], value)
             # where the group is used
@@ -184,7 +208,7 @@ def _bundle_group(group, trees):
                     kept = _items(comb, names, types)
                     for name, (src, value) in rec.items():
                         if src is not None:
-                            t.links.new(src, comb.inputs[kept[name]])
+                            _link(t, None, ref_out=src, into=comb.inputs[kept[name]])
                         else:
                             _set(comb.inputs[kept[name]], value)
                     t.links.new(comb.outputs[0], sock)
@@ -198,7 +222,7 @@ def _bundle_group(group, trees):
                     t.links.new(sock, sep.inputs[0])
                     for name, targets in rec.items():
                         for target in targets:
-                            t.links.new(sep.outputs[kept[name]], target)
+                            _link(t, sep.outputs[kept[name]], ref_in=target)
             made += 1
     return made
 
