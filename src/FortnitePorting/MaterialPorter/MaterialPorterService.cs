@@ -752,7 +752,8 @@ public class MaterialPorterService : IService
             }
             finally
             {
-                OnDemandBuilds.SetGame(versions, was);
+                // (only then: setting it rebuilds the options other reads are using)
+                if (query["game"] is not null) OnDemandBuilds.SetGame(versions, was);
             }
             var settings = new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore };
             // count=1: how many exports of each class (a level's lights, decals, effects - a 117 MB level's

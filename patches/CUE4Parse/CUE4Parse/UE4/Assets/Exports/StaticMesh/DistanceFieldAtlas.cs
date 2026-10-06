@@ -118,45 +118,93 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
         // Remaining mips are streamed
         public FByteBulkData StreamableMips;
 
-        public FDistanceFieldVolumeData5(FAssetArchive Ar)
+        public FDistanceFieldVolumeData5(FAssetArchive Ar) : this(Ar, null) { }
+
+        // Material Porter fork: a build between engine releases mixes their layouts (Fortnite 28.00: 5.3's
+        // double-precision bounds, 5.4's single-precision mips). Each combination is read, the engine version's
+        // first, and kept when the whole block reads plausibly and what follows it does too (moreLods: the next
+        // LOD's flag, else the render data's bounds); when none does, the engine version's is read as before.
+        public FDistanceFieldVolumeData5(FAssetArchive Ar, bool? moreLods)
         {
-            // Material Porter fork: a build between engine releases mixes their layouts (Fortnite 28.00: 5.3's
-            // double-precision bounds, 5.4's single-precision mips). Each part is read in its engine version's
-            // layout and, when that doesn't look right, in the other one; one neither fits is read as before.
             var singleBounds = Ar.Game >= GAME_UE5_4 || Ar.Game is GAME_Highguard;
+            var singleMips = Ar.Game >= GAME_UE5_4;
             var start = Ar.Position;
-            LocalSpaceMeshBounds = ReadBounds(Ar, singleBounds);
-            if (!IsBool(Ar))
+            if (moreLods is { } more && Ar.Game is not (GAME_TheFinals or GAME_ArcRaiders))
             {
-                Ar.Position = start;
-                LocalSpaceMeshBounds = ReadBounds(Ar, !singleBounds);
-                if (!IsBool(Ar))
+                foreach (var (bounds, mips) in new[] { (singleBounds, singleMips), (!singleBounds, singleMips), (singleBounds, !singleMips), (!singleBounds, !singleMips) })
                 {
                     Ar.Position = start;
-                    LocalSpaceMeshBounds = ReadBounds(Ar, singleBounds);
+                    try
+                    {
+                        if (Read(Ar, bounds, mips, strict: true) && (more ? IsBool(Ar) : IsBoundsSphere(Ar)))
+                            return;
+                    }
+                    catch
+                    {
+                        // (not this layout)
+                    }
                 }
+                Ar.Position = start;
             }
+            Read(Ar, singleBounds, singleMips, strict: false);
+        }
+
+        private bool Read(FAssetArchive Ar, bool singleBounds, bool singleMips, bool strict)
+        {
+            LocalSpaceMeshBounds = ReadBounds(Ar, singleBounds);
+            if (strict && !IsPlausible(LocalSpaceMeshBounds)) return false;
+            if (strict && !IsBool(Ar)) return false;
             bMostlyTwoSided = Ar.ReadBoolean();
             var mips = Ar.Game switch
             {
                 GAME_TheFinals or GAME_ArcRaiders => 2,
                 _ => DistanceField.NumMips
             };
-            var singleMips = Ar.Game >= GAME_UE5_4;
-            start = Ar.Position;
             Mips = Ar.ReadArray(mips, () => new FSparseDistanceFieldMip(Ar, singleMips));
-            if (!Mips.All(m => m.IsPlausible()))
-            {
-                var end = Ar.Position;
-                Ar.Position = start;
-                var other = Ar.ReadArray(mips, () => new FSparseDistanceFieldMip(Ar, !singleMips));
-                if (other.All(m => m.IsPlausible())) Mips = other;
-                else Ar.Position = end;
-            }
+            if (strict && !Mips.All(m => m.IsPlausible())) return false;
+            if (strict && (Ar.Position + 4 > Ar.Length || PeekInt(Ar) is var count && (count < 0 || Ar.Position + 4 + count > Ar.Length))) return false;
             AlwaysLoadedMip = Ar.ReadArray<byte>();
             if (Ar.Game is GAME_TheFinals or GAME_ArcRaiders)
                 Ar.Position += 6;
             StreamableMips = new FByteBulkData(Ar);
+            return true;
+        }
+
+        private static int PeekInt(FAssetArchive Ar)
+        {
+            var value = Ar.Read<int>();
+            Ar.Position -= 4;
+            return value;
+        }
+
+        private static bool IsPlausible(FBox box)
+        {
+            static bool Ok(double d) => double.IsFinite(d) && Math.Abs(d) < 1e8;
+            return box.IsValid is 0 or 1 && Ok(box.Min.X) && Ok(box.Min.Y) && Ok(box.Min.Z) && Ok(box.Max.X) && Ok(box.Max.Y) && Ok(box.Max.Z)
+                   && box.Min.X <= box.Max.X && box.Min.Y <= box.Max.Y && box.Min.Z <= box.Max.Z;
+        }
+
+        // the render data's bounds that follow the last LOD's distance field
+        private static bool IsBoundsSphere(FAssetArchive Ar)
+        {
+            var saved = Ar.Position;
+            try
+            {
+                var sphere = new FBoxSphereBounds(Ar);
+                static bool Ok(double d) => double.IsFinite(d) && Math.Abs(d) < 1e8;
+                return Ok(sphere.Origin.X) && Ok(sphere.Origin.Y) && Ok(sphere.Origin.Z)
+                       && Ok(sphere.BoxExtent.X) && sphere.BoxExtent.X >= 0 && Ok(sphere.BoxExtent.Y) && sphere.BoxExtent.Y >= 0
+                       && Ok(sphere.BoxExtent.Z) && sphere.BoxExtent.Z >= 0 && Ok(sphere.SphereRadius) && sphere.SphereRadius >= 0
+                       && (sphere.SphereRadius > 0 || sphere.BoxExtent.X + sphere.BoxExtent.Y + sphere.BoxExtent.Z == 0);
+            }
+            catch
+            {
+                return false;
+            }
+            finally
+            {
+                Ar.Position = saved;
+            }
         }
 
         private static FBox ReadBounds(FAssetArchive Ar, bool singlePrecision) => singlePrecision ? Ar.Read<FBox>() : new FBox(Ar);

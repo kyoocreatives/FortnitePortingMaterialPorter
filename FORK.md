@@ -701,6 +701,10 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   as downloaded, every read (one 64 KB IoStore block) inflated its whole 1 MB
   chunk again - a landmark's export took 50 s with everything cached, 5 s now
   (21 s downloading it), a load 12 s.
+- **Downloaded containers read at random.** They were stream archives: every
+  read seeks the one stream, then reads, so two at once (an export and its
+  prefetch, parallel exports) could read each other's bytes. Now random-access
+  archives over the manifest's streams.
 - **Exports prefetch.** A downloaded build's export has its packages read
   beside it, 12 at a time with their bulk data: the asset's (a map's streaming
   levels and partition cells too) and what they import, level by level, from
@@ -770,12 +774,14 @@ edit there, then `python tools/sync_fork.py`.
   (positions, then Rotation/Scale attribute channels: control values, knots,
   interp modes) where upstream throws, so SplineComponents and
   WaterSplineComponents lost everything after it. `DistanceFieldAtlas.cs`,
-  `UStaticMesh.cs` and `UInstancedStaticMeshComponent.cs`: builds between engine
-  releases (Fortnite 28.00, between 5.3 and 5.4) mix the layouts CUE4Parse
-  switches by engine version - each part (distance field bounds and mips, the
-  material list after the render data, an instanced component's cooked render
-  data) is read in its engine version's layout and, when that doesn't look
-  right, in the other; other games read as before. After updating the submodule,
+  `FStaticMeshRenderData.cs` and `UInstancedStaticMeshComponent.cs`: builds
+  between engine releases (Fortnite 28.00, between 5.3 and 5.4) mix the layouts
+  CUE4Parse switches by engine version - a distance field's bounds and mips (each
+  combination read whole, kept when it and what follows read plausibly), the
+  render data's trailing strip flags, an instanced component's cooked render
+  data are read in the engine version's layout unless the other one is what's
+  there; other games read as before. 28.00: 270 of 275 static meshes read (was
+  none); some multi-LOD foliage still picks the wrong distance field layout. After updating the submodule,
   check whether upstream now reads these and drop the overlays if so.
 
 ## Merging upstream
