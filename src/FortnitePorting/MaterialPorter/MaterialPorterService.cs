@@ -471,6 +471,48 @@ public class MaterialPorterService : IService
                 return new { file, size.Width, size.Height, AppServices.AssetLoading.ActiveLoader?.Filtered.Count };
             });
         }
+        if (route == "fork-settings-shot" && query["page"] == "installation")
+        {
+            // tests: the Installation settings page, rendered to a PNG (path=); custom=1 shows the profile as a
+            // Custom one downloading its build (put back after)
+            var window = AppServices.App.Lifetime.MainWindow!;
+            var installation = AppServices.AppSettings.Installation;
+            (EFortniteVersion Version, bool Download)? was = null;
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                window.WindowState = Avalonia.Controls.WindowState.Normal;
+                window.Width = 1600;
+                window.Height = 1100;
+                AppServices.Navigation.App.Open<Views.SettingsView>();
+            });
+            // (the settings pane's own frame exists once its view has loaded)
+            await Task.Delay(TimeSpan.FromSeconds(1));
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                AppServices.Navigation.Settings.Open<Views.Settings.InstallationSettingsView>();
+                installation.SelectedEditProfile ??= installation.Profiles.FirstOrDefault(p => p.IsSelected) ?? installation.Profiles.FirstOrDefault();
+                if (query["custom"] == "1" && installation.SelectedEditProfile is { } shown)
+                {
+                    was = (shown.FortniteVersion, shown.DownloadFromManifest);
+                    shown.FortniteVersion = EFortniteVersion.Custom;
+                    shown.DownloadFromManifest = true;
+                }
+            });
+            await Task.Delay(TimeSpan.FromSeconds(3));
+            return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var file = query["path"] ?? throw new ArgumentException("path missing");
+                var size = SaveShot(window, file);
+                var profile = installation.SelectedEditProfile;
+                var custom = profile?.IsCustomOnDemand;
+                if (was is { } before && profile is not null)
+                {
+                    profile.FortniteVersion = before.Version;
+                    profile.DownloadFromManifest = before.Download;
+                }
+                return new { file, size.Width, size.Height, CustomOnDemand = custom };
+            });
+        }
         if (route == "fork-settings-shot" && query["page"] == "application")
         {
             // tests: the app's Application settings page, rendered to a PNG (path=); folders=A;B lists those UEFN
