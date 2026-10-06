@@ -9,7 +9,6 @@ using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.UObject;
 using CUE4Parse_Conversion.Textures;
 using FortnitePorting.Application;
-using FortnitePorting.CUE4Parse.Extensions;
 using FortnitePorting.Exporting.MaterialPorter;
 using FortnitePorting.Extensions;
 using FortnitePorting.MaterialPorter;
@@ -233,7 +232,7 @@ public partial class AssetInfo
         });
     }
 
-    const string FaceSettings ="/FigureCharacter/Figure_Core/Rig/DA_Figure_Face_Settings.DA_Figure_Face_Settings";
+    const string FaceSettings = "/FigureCharacter/Figure_Core/Rig/DA_Figure_Face_Settings.DA_Figure_Face_Settings";
     const string MouthAtlas = "/FigureCharacter/Figure_Core/Texture/Face/Mouth/T_Atlas_Figure_Mouth_Thin.T_Atlas_Figure_Mouth_Thin";
     const string BrowAtlas = "/FigureCharacter/Figure_Core/Texture/Face/Brow/T_Atlas_Figure_Brow_Thin01.T_Atlas_Figure_Brow_Thin01";
 

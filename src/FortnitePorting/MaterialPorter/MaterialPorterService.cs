@@ -341,9 +341,20 @@ public class MaterialPorterService : IService
     {
         var (skins, wheels) = await CarItemsAsync();
         var dot = bodyObjectPath.LastIndexOf('.');
-        var package = dot > bodyObjectPath.LastIndexOf('/') ? bodyObjectPath[..dot] : bodyObjectPath;
-        var name = dot > bodyObjectPath.LastIndexOf('/') ? bodyObjectPath[(dot + 1)..] : bodyObjectPath.Split('/').Last();
+        var hasObjectName = dot > bodyObjectPath.LastIndexOf('/');
+        var package = hasObjectName ? bodyObjectPath[..dot] : bodyObjectPath;
+        var name = hasObjectName ? bodyObjectPath[(dot + 1)..] : bodyObjectPath.Split('/').Last();
         return await new Cars(Game.Provider).PlanAsync(package, name, skins, wheels, picks);
+    }
+
+    /// <summary>tests: the window as it shows, rendered to a PNG (on the UI thread).</summary>
+    private static Avalonia.PixelSize SaveShot(Avalonia.Controls.Window window, string file)
+    {
+        var size = new Avalonia.PixelSize((int) window.Bounds.Width, (int) window.Bounds.Height);
+        using var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size);
+        shot.Render(window);
+        shot.Save(file);
+        return size;
     }
 
     private async Task<object?> ExtraRouteAsync(string route, NameValueCollection query)
@@ -405,7 +416,7 @@ public class MaterialPorterService : IService
             await Task.Delay(TimeSpan.FromSeconds(double.TryParse(query["wait"], System.Globalization.CultureInfo.InvariantCulture, out var pause) ? pause : 6));
             return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                var model = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<ViewModels.AssetsViewModel>(AppServices.Services);
+                var model = AppServices.Services.GetRequiredService<ViewModels.AssetsViewModel>();
                 var tabs = AppServices.AssetLoading.Categories.SelectMany(c => c.Loaders).Select(l => new
                 {
                     Type = l.Type.ToString(),
@@ -427,7 +438,7 @@ public class MaterialPorterService : IService
                 window.Height = double.TryParse(query["height"], out var h) ? h : 950;
                 AppServices.Navigation.App.Open<Views.AssetsView>();
             });
-            var assetsModel = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.GetRequiredService<ViewModels.AssetsViewModel>(AppServices.Services);
+            var assetsModel = AppServices.Services.GetRequiredService<ViewModels.AssetsViewModel>();
             for (var i = 0; i < 60 && !assetsModel.IsInitialized; i++) await Task.Delay(500);
             if (query["type"] is { } shown)
             {
@@ -455,11 +466,8 @@ public class MaterialPorterService : IService
             await Task.Delay(TimeSpan.FromSeconds(double.TryParse(query["wait"], System.Globalization.CultureInfo.InvariantCulture, out var settle) ? settle : 8));
             return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                var size = new Avalonia.PixelSize((int) window.Bounds.Width, (int) window.Bounds.Height);
-                using var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size);
-                shot.Render(window);
                 var file = query["path"] ?? throw new ArgumentException("path missing");
-                shot.Save(file);
+                var size = SaveShot(window, file);
                 return new { file, size.Width, size.Height, AppServices.AssetLoading.ActiveLoader?.Filtered.Count };
             });
         }
@@ -482,11 +490,8 @@ public class MaterialPorterService : IService
             await Task.Delay(TimeSpan.FromSeconds(3));
             return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                var size = new Avalonia.PixelSize((int) window.Bounds.Width, (int) window.Bounds.Height);
-                using var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size);
-                shot.Render(window);
                 var file = query["path"] ?? throw new ArgumentException("path missing");
-                shot.Save(file);
+                var size = SaveShot(window, file);
                 foreach (var folder in shown) settings.UefnProjectFolders.Remove(folder);
                 return new { file, size.Width, size.Height, settings.ShowIslandSettings };
             });
@@ -515,11 +520,8 @@ public class MaterialPorterService : IService
             await Task.Delay(TimeSpan.FromSeconds(2));
             return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
-                var size = new Avalonia.PixelSize((int) window.Bounds.Width, (int) window.Bounds.Height);
-                using var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size);
-                shot.Render(window);
                 var file = query["path"] ?? throw new ArgumentException("path missing");
-                shot.Save(file);
+                var size = SaveShot(window, file);
                 var blender = AppSettings.ExportSettings.Blender;
                 return new { file, blender.SubsurfaceIntensity, blender.SubsurfaceScale, blender.FurSubsurfaceIntensity, blender.FurSubsurfaceScale };
             });
@@ -564,14 +566,9 @@ public class MaterialPorterService : IService
                 var menu = (Avalonia.Controls.MenuFlyout) flags.Flyout!;
                 if (query["flip"] is { } flip && menu.Items.OfType<Avalonia.Controls.MenuItem>().FirstOrDefault(m => m.Header as string == flip) is { } flipped)
                     flipped.IsChecked = !flipped.IsChecked;
-                foreach (var item in menu.Items.OfType<Avalonia.Controls.MenuItem>()) items.Add(new { Header = item.Header, item.IsChecked, item.IsEnabled });
+                foreach (var item in menu.Items.OfType<Avalonia.Controls.MenuItem>()) items.Add(new { item.Header, item.IsChecked, item.IsEnabled });
                 var file = query["path"] ?? throw new ArgumentException("path missing");
-                var size = new Avalonia.PixelSize((int) window.Bounds.Width, (int) window.Bounds.Height);
-                using (var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size))
-                {
-                    shot.Render(window);
-                    shot.Save(file);
-                }
+                SaveShot(window, file);
                 // Avalonia keeps the flyout's popup in a private member of its PopupFlyoutBase
                 Avalonia.Controls.Primitives.Popup? popup = null;
                 for (var type = menu.GetType(); type is not null && popup is null; type = type.BaseType)
@@ -693,7 +690,7 @@ public class MaterialPorterService : IService
             if (query["of"] is { } ofClass)
                 return JObject.FromObject(dumped.GetExports().Where(e => e.ExportType == ofClass)
                     .GroupBy(e => e.Outer?.Class?.Name.Text ?? "(none)").OrderByDescending(g => g.Count())
-                    .ToDictionary(g => g.Key, g => (object)new { count = g.Count(), example = g.First().Outer?.Name }));
+                    .ToDictionary(g => g.Key, g => new { count = g.Count(), example = g.First().Outer?.Name }));
             if (query["full"] == "1")
                 return new JRaw(JsonConvert.SerializeObject(dumped.GetExports(), settings));
             // type=<class>, outer=<part of the owner's name>, limit=<n>: only those exports (a big level's dump
@@ -766,9 +763,7 @@ public class MaterialPorterService : IService
                         if (query["variants"] == "1")
                             foreach (var variant in item.Object.Owner!.GetExports().Where(e => e.ExportType.Contains("Variant")))
                             {
-                                var props = new JObject();
-                                foreach (var p in variant.Properties)
-                                    if (p.Tag?.GenericValue is { } v && !props.ContainsKey(p.Name.Text)) props[p.Name.Text] = JToken.FromObject(v, serializer);
+                                var props = Props(variant);
                                 foreach (var key in new[] { "VariantParticleParams", "VariantParticles", "InitalParticleSystemData" })
                                     foreach (var list in props.SelectTokens("$.." + key).OfType<JArray>().Where(a => a.Count > 0))
                                         variantKinds.Add((key, $"{item.DisplayName}: {list.ToString(Formatting.None)[..Math.Min(260, list.ToString(Formatting.None).Length)]}"));
@@ -798,9 +793,8 @@ public class MaterialPorterService : IService
                     if (p.Tag?.GenericValue is { } v && !j.ContainsKey(p.Name.Text)) j[p.Name.Text] = JToken.FromObject(v, serializer);
                 return j;
             }
-            foreach (var group in variantKinds.GroupBy(v => v.Kind))
-                foreach (var (kind, where) in group)
-                    Count("style: " + kind, where);
+            foreach (var (kind, where) in variantKinds)
+                Count("style: " + kind, where);
             var heavy = new List<(int Cpu, string Label, string Item)>();
             foreach (var (_, (system, items)) in owners)
             {
@@ -906,7 +900,7 @@ public class MaterialPorterService : IService
                         ?? throw new FileNotFoundException("not listed: " + wantedPath);
             }
             else asset = await Game.Provider.LoadPackageObjectAsync(query["path"] ?? throw new ArgumentException("path missing"));
-            var carStyles = (query["picks"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Split(':'))
+            var styles = (query["picks"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Split(':'))
                 .Where(x => x.Length == 2).Select(x => (Exporting.Styles.ExportStyleBase) new ExportCarStyle { Channel = int.Parse(x[0]), Option = int.Parse(x[1]) })
                 .Concat((query["face"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(x => x.Split(':'))
                     .Where(x => x.Length == 2).Select(x => (Exporting.Styles.ExportStyleBase) new ExportFigureFaceStyle { Feature = x[0], Pose = int.Parse(x[1]) }))
@@ -921,7 +915,7 @@ public class MaterialPorterService : IService
                 .ToArray();
             using var assetMeta = AppServices.AppSettings.ExportSettings.CreateExportMeta(EExportLocation.Blender);
             var assetSession = new ExportSession(assetMeta);
-            var assetData = await assetSession.RunAsync(() => [assetSession.CreateExport(asset.Name, asset, type, carStyles)]);
+            var assetData = await assetSession.RunAsync(() => [assetSession.CreateExport(asset.Name, asset, type, styles)]);
             return new JRaw(JsonConvert.SerializeObject(new
             {
                 MetaData = new

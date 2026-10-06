@@ -7,10 +7,8 @@ using System.Threading.Tasks;
 using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.UObject;
-using FortnitePorting.CUE4Parse.Extensions;
 using FortnitePorting.Exporting.MaterialPorter;
 using FortnitePorting.Models.Assets.Loading;
-using FortnitePorting.Services;
 
 namespace FortnitePorting.MaterialPorter;
 

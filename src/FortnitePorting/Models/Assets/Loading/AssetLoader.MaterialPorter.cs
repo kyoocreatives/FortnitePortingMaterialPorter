@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FortnitePorting.Exporting.MaterialPorter;
-using FortnitePorting.Models.Assets.Asset;
 using Serilog;
 
 namespace FortnitePorting.Models.Assets.Loading;
