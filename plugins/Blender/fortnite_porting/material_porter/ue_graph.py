@@ -1416,7 +1416,14 @@ class Translator:
                 base = self.binop('MAXIMUM', base, self.const(0.0))
             return self.vmath('POWER', base, ex, out_w=base.w)
         if t == "LinearInterpolate":
-            return self.lerp(P("A"), P("B"), P("Alpha"))
+            # an Alpha known to be 0 or 1 picks a side, and the other isn't built (only its
+            # width could matter: a float1 side broadcast to the other's, so that one is read)
+            al = P("Alpha")
+            if al.const and al.w == 1 and al.s in (0.0, 1.0):
+                taken = P("B" if al.s else "A")
+                if taken.w != 1 or not linked(p.get("A" if al.s else "B")):
+                    return taken
+            return self.lerp(P("A"), P("B"), al)
         if t == "OneMinus":
             a = P("Input")
             return self.binop('SUBTRACT', self.const(1.0), a) if a.w == 1 else \
@@ -1879,11 +1886,15 @@ class Translator:
         if t == "Switch":
             # floor(SwitchValue) picks an input; out of range, Default
             sv = self.input(g, p.get("SwitchValue"), scope, self.const(float(p.get("ConstSwitchValue", 0.0))))
-            result = self.input(g, p.get("Default"), scope, self.const(float(p.get("ConstDefault", 0.0))))
             items = p.get("Inputs") or []
             if sv.const:
+                # the input picked is known: neither the others nor Default (unless picked) are built
                 i = int(math.floor(sv.s if sv.w == 1 else sv.s[0]))
-                return self.input(g, items[i].get("Input"), scope, result) if 0 <= i < len(items) else result
+                if 0 <= i < len(items) and linked(items[i].get("Input")):
+                    return self.input(g, items[i].get("Input"), scope, None)
+            result = self.input(g, p.get("Default"), scope, self.const(float(p.get("ConstDefault", 0.0))))
+            if sv.const:
+                return result
             idx = self.math('FLOOR', self.mask(sv, [0]))
             for i, it in enumerate(items):
                 v = self.input(g, it.get("Input"), scope, None)
@@ -2174,6 +2185,12 @@ class Translator:
                 for k in culls:
                     pins[k] = pins[keep]
                 p = dict(p, **pins)
+            if a.const and b.const:
+                # the branch taken is known: the others aren't built
+                k = "AGreaterThanB" if a.s >= b.s else "ALessThanB"
+                if linked(p.get("AEqualsB")) and abs(a.s - b.s) <= float(p.get("EqualsThreshold", 0.00001)):
+                    k = "AEqualsB"
+                return self.input(g, p.get(k), scope, self.const(0.0))
             gt = self.input(g, p.get("AGreaterThanB"), scope, self.const(0.0))
             lt = self.input(g, p.get("ALessThanB"), scope, self.const(0.0))
             eq = self.input(g, p.get("AEqualsB"), scope, None)
@@ -2196,10 +2213,9 @@ class Translator:
             if c is not None:
                 return self.input(g, p.get("True" if c else "False"), scope, self.const(0.0))
             cv = self.mask(self.input(g, p.get("Condition"), scope, self.const(0.0)), [0])
-            on = cv if cv.const else self.binop('SUBTRACT', self.const(1.0),
-                                                self.math('COMPARE', cv, self.const(0.0), self.const(0.0)))
-            if on.const:
-                on = self.const(1.0 if on.s else 0.0)
+            if cv.const:
+                return self.input(g, p.get("True" if cv.s else "False"), scope, self.const(0.0))
+            on = self.binop('SUBTRACT', self.const(1.0), self.math('COMPARE', cv, self.const(0.0), self.const(0.0)))
             return self.select(on, self.input(g, p.get("False"), scope, self.const(0.0)),
                                self.input(g, p.get("True"), scope, self.const(0.0)))
         if t in ("Fmod", "Modulo"):
