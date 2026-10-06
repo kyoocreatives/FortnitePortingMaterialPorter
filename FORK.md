@@ -677,11 +677,16 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
     `.egstore` of every Fortnite install it knows, and of the profiles' archive
     folders; manifests told apart by what they install, as newer launchers name
     the app by an id) and every build of the fn-releases archive; picking one
-    fills the manifests and fetches its keys and mappings.
+    fills the manifests and fetches its keys and mappings. A build without UEFN
+    of its own gets the UEFN-releases archive's (Mast3rGamers/UEFN-releases,
+    24.01 on): the same changelist's, else the same version's nearest (shown
+    with its changelist). Epic's CDN no longer has the oldest ones' chunks
+    (24.10 404s, 28.10 and 33.11 download): a UEFN that won't download costs
+    exact materials, not the load.
   - **UEFN manifest.** The same build's UEFN (Studio) manifest is registered
     beside the game's: its editor data (`*.o.utoc`, which registering skipped:
     the extension was read after the first dot) gives exact materials. The
-    launcher keeps it when UEFN was installed; the archive has none.
+    launcher keeps it when UEFN was installed, the UEFN-releases archive the rest.
   - **Unreal version detection.** On load, a balance table and some Blueprints
     and structs are read with the versions near the profile's and the one the
     UEFN's `Engine/Build/Build.version` names (3 either way: a much older one

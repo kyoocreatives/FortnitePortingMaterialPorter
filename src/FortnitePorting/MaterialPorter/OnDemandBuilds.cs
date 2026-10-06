@@ -13,16 +13,19 @@ using Serilog;
 namespace FortnitePorting.MaterialPorter;
 
 /// <summary>A Fortnite build a Custom profile can download: its version, its manifest (a file or a link), its UEFN one when known.</summary>
-public record OnDemandBuild(string Version, string Build, string Manifest, string? StudioManifest, string Source)
+public record OnDemandBuild(string Version, string Build, string Manifest, string? StudioManifest, string Source, string? StudioBuild = null)
 {
-    public override string ToString() => $"{Version}   {Build[(Version.Length + 1)..]}   {Source}{(StudioManifest is null ? "" : " + UEFN")}";
+    // (a UEFN of the same version but another changelist - a hotfix's - says which)
+    public override string ToString() => $"{Version}   {Build[(Version.Length + 1)..]}   {Source}"
+        + (StudioManifest is null ? "" : StudioBuild is null || StudioBuild == Build ? " + UEFN" : $" + UEFN {StudioBuild[(Version.Length + 1)..]}");
 }
 
 /// <summary>
 /// Material Porter fork: the builds a Custom profile can download (Download Build) - Epic's API lists only the
 /// live one. The launcher keeps the manifests of the builds it installed in the install's .egstore, the UEFN
 /// (Studio) one of the same build beside it: its editor data gives exact materials. The fn-releases archive
-/// keeps every public Windows build's game manifest.
+/// keeps every public Windows build's game manifest, the UEFN-releases one every UEFN build's (24.01 on; Epic's
+/// CDN no longer has the oldest ones' chunks).
 /// </summary>
 public static partial class OnDemandBuilds
 {
@@ -30,6 +33,9 @@ public static partial class OnDemandBuilds
     const string ArchiveManifest = "https://raw.githubusercontent.com/polynite/fn-releases/master/manifests/{0}.manifest";
     const string GameApp = "FortniteReleaseBuilds";
     const string StudioApp = "FortniteReleaseBuilds_Studio";
+    const string StudioReadme = "https://raw.githubusercontent.com/Mast3rGamers/UEFN-releases/main/README.md";
+    const string StudioManifestUrl = "https://raw.githubusercontent.com/Mast3rGamers/UEFN-releases/main/archive/{0}.manifest";
+    const string StudioListing = "https://api.github.com/repos/Mast3rGamers/UEFN-releases/contents/archive";
     const string GameToc = "FortniteGame/Content/Paks/global.utoc";
     const string StudioToc = "FortniteGame/Content/Paks/UEFNFortniteGame-WindowsUEFN.utoc";
 
@@ -39,10 +45,23 @@ public static partial class OnDemandBuilds
     /// <summary>This PC's builds first (the launcher's, with UEFN when it kept that), then the archive's; newest first.</summary>
     public static async Task<List<OnDemandBuild>> FindAsync(IEnumerable<string> archiveDirectories)
     {
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("FortnitePorting");
         var installed = await Task.Run(() => Installed(archiveDirectories));
-        var archived = await ArchivedAsync();
+        var archived = await ArchivedAsync(client);
+        var studios = await ArchivedStudiosAsync(client);
         return installed.Concat(archived.Where(a => installed.All(i => i.Build != a.Build)))
+            .Select(b => b.StudioManifest is null ? WithStudio(b, studios) : b)
             .OrderByDescending(b => VersionKey(b.Version)).ThenByDescending(b => b.Build, StringComparer.Ordinal).ToList();
+    }
+
+    // the archive's UEFN of the same changelist, else of the same version (the nearest changelist)
+    private static OnDemandBuild WithStudio(OnDemandBuild build, List<(string Version, string Build, string Manifest)> studios)
+    {
+        var studio = studios.FirstOrDefault(s => s.Build == build.Build) is { Manifest: not null } same ? same
+            : studios.Where(s => s.Version == build.Version).OrderBy(s => Math.Abs(Changelist(s.Build) - Changelist(build.Build)))
+                .FirstOrDefault();
+        return studio.Manifest is null ? build : build with { StudioManifest = studio.Manifest, StudioBuild = studio.Build };
     }
 
     private static List<OnDemandBuild> Installed(IEnumerable<string> archiveDirectories)
@@ -97,12 +116,10 @@ public static partial class OnDemandBuilds
         return roots.Select(r => Path.GetFullPath(Path.Combine(r, ".egstore"))).Distinct(StringComparer.OrdinalIgnoreCase).Where(Directory.Exists);
     }
 
-    private static async Task<List<OnDemandBuild>> ArchivedAsync()
+    private static async Task<List<OnDemandBuild>> ArchivedAsync(HttpClient client)
     {
         try
         {
-            using var client = new HttpClient();
-            client.DefaultRequestHeaders.UserAgent.ParseAdd("FortnitePorting");
             var readme = await client.GetStringAsync(ArchiveReadme);
             var builds = new List<OnDemandBuild>();
             // | Build version | Engine version | Net CL | Build date | Manifest | Notes |
@@ -120,6 +137,42 @@ public static partial class OnDemandBuilds
             return [];
         }
     }
+
+    // | UEFN 33.11 CL-38773622 | <manifest id> | - the ones whose manifest the archive has
+    private static async Task<List<(string Version, string Build, string Manifest)>> ArchivedStudiosAsync(HttpClient client)
+    {
+        try
+        {
+            var readme = await client.GetStringAsync(StudioReadme);
+            HashSet<string>? files = null;
+            try
+            {
+                files = JArray.Parse(await client.GetStringAsync(StudioListing)).Select(f => (string?) f["name"] ?? "").ToHashSet();
+            }
+            catch (Exception e)
+            {
+                // (GitHub's API allows 60 calls an hour: every listed one, then)
+                Log.Warning("[Material Porter] the UEFN archive's file list not read, its manifests not checked: {Error}", e.Message);
+            }
+            var studios = new List<(string, string, string)>();
+            foreach (var line in readme.Split('\n'))
+            {
+                var cells = line.Trim().Trim('|').Split('|').Select(c => c.Trim()).ToArray();
+                // (its build written "33.11 CL-38773622")
+                if (cells.Length < 2 || !cells[0].StartsWith("UEFN ") || BuildRx().Match(cells[0].Replace(" CL-", "-CL-")) is not { Success: true } match) continue;
+                if (cells[1].Length == 0 || files is not null && !files.Contains(cells[1] + ".manifest")) continue;
+                studios.Add((match.Groups[1].Value, match.Value, string.Format(StudioManifestUrl, cells[1])));
+            }
+            return studios;
+        }
+        catch (Exception e)
+        {
+            Log.Warning("[Material Porter] the UEFN archive's builds not listed: {Error}", e.Message);
+            return [];
+        }
+    }
+
+    private static long Changelist(string build) => long.TryParse(build[(build.IndexOf("-CL-", StringComparison.Ordinal) + 4)..], out var cl) ? cl : 0;
 
     private static (int, int) VersionKey(string version)
     {

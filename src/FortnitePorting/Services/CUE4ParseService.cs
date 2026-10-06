@@ -360,7 +360,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
             // Material Porter fork: an older build, from its manifest (its keys and mappings the profile's own)
             case EFortniteVersion.Custom when AppSettings.Installation.CurrentProfile.IsCustomOnDemand:
             {
-                var manifest = await CustomManifestAsync(AppSettings.Installation.CurrentProfile.ManifestPath);
+                var manifest = await CustomManifestAsync(AppSettings.Installation.CurrentProfile.ManifestPath, "no game files are loaded");
                 if (manifest is null) break;
 
                 Log.Information("On-Demand Build: {Build}", manifest.Meta.BuildVersion);
@@ -369,11 +369,21 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
 
                 // the same build's UEFN: its editor data (the materials' graphs) beside the game's, as the live mode's
                 if (!string.IsNullOrWhiteSpace(AppSettings.Installation.CurrentProfile.StudioManifestPath)
-                    && await CustomManifestAsync(AppSettings.Installation.CurrentProfile.StudioManifestPath) is { } studio)
+                    && await CustomManifestAsync(AppSettings.Installation.CurrentProfile.StudioManifestPath, "materials are approximated") is { } studio)
                 {
                     Log.Information("On-Demand UEFN Build: {Build}", studio.Meta.BuildVersion);
                     _studioEngine = await StudioEngineAsync(studio);
-                    await Provider.RegisterFiles(studio);
+                    try
+                    {
+                        await Provider.RegisterFiles(studio);
+                    }
+                    catch (Exception e)
+                    {
+                        // (Epic's CDN no longer has the oldest UEFN builds' chunks: the game loads without them)
+                        Log.Error("[Material Porter] UEFN build {Build} not downloaded: {Error}", studio.Meta.BuildVersion, e.Message);
+                        Info.Message("On-Demand Build", $"This build's UEFN data couldn't be downloaded ({e.Message}): materials are approximated.",
+                            FluentAvalonia.UI.Controls.InfoBarSeverity.Warning, autoClose: false);
+                    }
                 }
                 break;
             }
@@ -485,7 +495,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
 
     // Material Porter fork: a Custom profile's build manifest - a .manifest file, or a link to one - parsed as
     // the live one is; null (and said) when it can't be had
-    private async Task<FBuildPatchAppManifest?> CustomManifestAsync(string path)
+    private async Task<FBuildPatchAppManifest?> CustomManifestAsync(string path, string without)
     {
         var source = path.Trim().Trim('"');
         try
@@ -502,7 +512,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         catch (Exception e)
         {
             Log.Error("[Material Porter] build manifest {Source} not read: {Error}", source, e.Message);
-            Info.Message("On-Demand Build", $"The build manifest \"{source}\" couldn't be read ({e.Message}): no game files are loaded.",
+            Info.Message("On-Demand Build", $"The build manifest \"{source}\" couldn't be read ({e.Message}): {without}.",
                 FluentAvalonia.UI.Controls.InfoBarSeverity.Error, autoClose: false);
             return null;
         }
