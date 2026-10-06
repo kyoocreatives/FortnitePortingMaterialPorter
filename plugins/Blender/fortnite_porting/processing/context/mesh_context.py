@@ -106,6 +106,11 @@ class MeshImportContext:
             after_world(self.collection.all_objects)
 
         self.import_light_data(data.get("Lights"))
+        # Material Porter fork: a level's decals and placed effects (material_porter.decals, level_effects)
+        from ...material_porter.decals import import_decals
+        from ...material_porter.level_effects import import_effects
+        import_decals(self, data.get("Decals"))
+        import_effects(self, data.get("Effects"))
                 
         if self.type in [EExportType.OUTFIT]:
             for imported_mesh in self.imported_meshes:

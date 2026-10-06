@@ -37,6 +37,9 @@ def after_import(mesh, obj, mesh_obj, scale):
         target["mp_cpd_n"] = float(len(cpd))
         for j, x in enumerate(cpd):
             target["mp_cpd%d" % j] = float(x)
+    # a component that casts no shadow in the game (a lamp's housing around its light)
+    if mesh.get("MPCastShadow") is False:
+        target.visible_shadow = False
     if pic := mesh.get("MPInstanceData"):
         target["mp_pic"] = float(len(pic))
         for j, x in enumerate(pic):
