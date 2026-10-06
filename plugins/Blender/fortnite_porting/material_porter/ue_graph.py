@@ -4089,10 +4089,14 @@ class Translator:
         needs = ft.reached(name) | (ft.reached(socket_name(name + " (A)")) if w == 4 else set())
         if not needs:
             return None
+        # in the group's input order, not the set's: reading an input builds the caller's
+        # nodes (and other calls' outputs) as it goes, and the first non-constant one stops
+        # it - over a set of names that order followed PYTHONHASHSEED, and so did the trees
+        needs = [s for s in ft.kind if s in needs]
+        if any(ft.kind[s][0] not in ("ue", "ue_alpha") for s in needs):
+            return None
         for sock in needs:
             kind, key = ft.kind[sock]
-            if kind not in ("ue", "ue_alpha"):
-                return None
             lazy = ins.get(key)
             v = lazy.get(self) if lazy is not None else None
             if v is None and sock in ft.previews:
@@ -4534,7 +4538,7 @@ def merge_duplicates(tree, memo=None):
             q_srcs = [v[1] for i, v in theirs.items() if i in need_q and isinstance(v, tuple) and v[:1] == ("link",)]
             if upstream(q, my_srcs) or upstream(p, q_srcs):
                 continue
-            for i in need - need_q:
+            for i in sorted(need - need_q):
                 s = socket(m, i, False)
                 v = mine[i]
                 if isinstance(v, tuple) and v[:1] == ("link",):
