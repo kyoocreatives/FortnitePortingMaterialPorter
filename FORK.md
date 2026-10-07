@@ -705,6 +705,17 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   read seeks the one stream, then reads, so two at once (an export and its
   prefetch, parallel exports) could read each other's bytes. Now random-access
   archives over the manifest's streams.
+- **Textures compressed in Blender's GPU memory.** BC1-BC3 textures go to
+  Blender as DDS with the legacy DXT1/DXT3/DXT5 header and their mips: the only
+  DDS Blender keeps compressed on the GPU (the DX10 ones were decoded to RGBA,
+  about 8.7 GB for a 1342-texture map scene). BC5 normals and BC7 are still
+  decoded (Blender has no compressed path for them). Copies of the same image
+  an appended node group brings again (.001...) are merged after the add-on's
+  data append.
+- **Shadow proxies.** A tree's ShadowProxyMeshComponent (hidden, out of the
+  main pass) is where its shadow comes from while the tree casts none: placed
+  as a shadow-only object (no camera, diffuse, glossy, transmission or volume
+  rays), so palms and bamboo get their shadows back.
 - **Builds Epic dropped.** Epic's CDN no longer has some builds' files (23.20,
   24.01; UEFN 24.01-24.20), build by build, not below a version. Picking a build
   asks the CDN for one of its chunks: a gone build says it can't load, a gone

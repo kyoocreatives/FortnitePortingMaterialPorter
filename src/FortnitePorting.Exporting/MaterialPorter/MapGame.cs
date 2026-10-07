@@ -27,6 +27,9 @@ public partial record MaterialPorterMesh : ExportMesh
     /// <summary>False when the component casts no shadow in the game (a lamp's housing around its light); omitted when it casts.</summary>
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public bool? MPCastShadow;
+    /// <summary>True when only its shadow shows (a tree's shadow proxy); omitted otherwise.</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public bool? MPShadowOnly;
     /// <summary>The actor the mesh came from: a light of the same actor (a lamp in its housing) isn't shadowed by it (shadow linking).</summary>
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public string? MPActor;

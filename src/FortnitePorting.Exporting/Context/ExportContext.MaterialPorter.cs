@@ -337,6 +337,7 @@ public partial class ExportContext
             MPInstanceData = m.InstanceData,
             MPSpline = m.Spline,
             MPCastShadow = m.CastShadow ? null : false,
+            MPShadowOnly = m.ShadowOnly ? true : null,
             MPActor = m.Actor,
         };
         export.Materials.AddRange(template.Materials);

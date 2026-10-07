@@ -43,6 +43,11 @@ public sealed class MapMesh
     /// bCastStaticShadow off): a lamp's housing around its light.
     /// </summary>
     public bool CastShadow { get; init; } = true;
+    /// <summary>
+    /// Seen only through its shadow: a shadow proxy (ShadowProxyMeshComponent: hidden, not in the main pass), the
+    /// simple mesh a tree's shadow comes from while the tree itself casts none.
+    /// </summary>
+    public bool ShadowOnly { get; init; }
     /// <summary>Where it stands, for an area's test: its origin, a spline mesh's segment middle.</summary>
     public Vector3 Anchor
     {
@@ -546,7 +551,9 @@ public sealed class MapReader
                 Effect(c, actor, ctx, root);
                 continue;
             }
-            if (!waterSurface && (ctype.StartsWith("ShadowProxy", StringComparison.Ordinal) || ctype.Contains("Landscape", StringComparison.Ordinal)
+            // a shadow proxy: hidden and out of the main pass, but the shadow of its actor (a palm tree casts none itself)
+            var shadowProxy = ctype.StartsWith("ShadowProxy", StringComparison.Ordinal);
+            if (!waterSurface && (ctype.Contains("Landscape", StringComparison.Ordinal)
                 || ctype.Contains("Water", StringComparison.Ordinal))) continue;
             var meshRef = RefChain(c, "StaticMesh") ?? RefChain(c, "SkeletalMesh") ?? RefChain(c, "SkeletalMeshAsset");
             if (meshRef == null) continue;
@@ -557,9 +564,9 @@ public sealed class MapReader
                 continue;
             }
             // (a water body's surface mesh is hidden: the game draws the water from it at run time)
-            if (!waterSurface && (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false))) continue;
+            if (!waterSurface && !shadowProxy && (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false))) continue;
             // drawn only into the terrain's runtime virtual texture (a dirt track the landscape shows), never on its own
-            if (!Prop(c, "bRenderInMainPass", true)
+            if (!shadowProxy && !Prop(c, "bRenderInMainPass", true)
                 || (Prop(c, "VirtualTextureRenderPassType", new FName()).Text?.EndsWith("Never", StringComparison.Ordinal) == true
                     && Prop(c, "RuntimeVirtualTextures", Array.Empty<FPackageIndex>()).Length > 0))
             {
@@ -602,7 +609,7 @@ public sealed class MapReader
                 cpd = all;
             }
             var world = ctx.World(c, root);
-            var castShadow = Prop(c, "CastShadow", true) && (Prop(c, "bCastDynamicShadow", true) || Prop(c, "bCastStaticShadow", true));
+            var castShadow = shadowProxy || Prop(c, "CastShadow", true) && (Prop(c, "bCastDynamicShadow", true) || Prop(c, "bCastStaticShadow", true));
 
             if (c is UInstancedStaticMeshComponent ism)
             {
@@ -623,13 +630,13 @@ public sealed class MapReader
                     {
                         Mesh = mesh, World = Of(data[i].TransformData) * world, Overrides = overrides, Params = ps,
                         AllSlots = main ? skin : null, Actor = actor.Name, Level = ctx.Level,
-                        PrimitiveData = perInstanceCpd ? mine : cpd, InstanceData = mine, CastShadow = castShadow,
+                        PrimitiveData = perInstanceCpd ? mine : cpd, InstanceData = mine, CastShadow = castShadow, ShadowOnly = shadowProxy,
                     });
                 }
                 continue;
             }
             Placed.Add(new MapMesh { Mesh = mesh, World = world, Overrides = overrides, Params = ps, AllSlots = main ? skin : null, Actor = actor.Name, Level = ctx.Level, Spline = spline,
-                               PrimitiveData = cpd, Area = area, CastShadow = castShadow });
+                               PrimitiveData = cpd, Area = area, CastShadow = castShadow, ShadowOnly = shadowProxy });
         }
     }
 

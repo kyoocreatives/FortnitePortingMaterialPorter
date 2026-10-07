@@ -43,6 +43,12 @@ def after_import(mesh, obj, mesh_obj, scale):
     # a component that casts no shadow in the game (a lamp's housing around its light)
     if mesh.get("MPCastShadow") is False:
         target.visible_shadow = False
+    # seen only through its shadow (a tree's shadow proxy: the tree casts none itself)
+    if mesh.get("MPShadowOnly"):
+        target.visible_camera = target.visible_diffuse = target.visible_glossy = False
+        target.visible_transmission = target.visible_volume_scatter = False
+        target.visible_shadow = True
+        target["mp_shadow_only"] = 1.0
     if pic := mesh.get("MPInstanceData"):
         target["mp_pic"] = float(len(pic))
         for j, x in enumerate(pic):
