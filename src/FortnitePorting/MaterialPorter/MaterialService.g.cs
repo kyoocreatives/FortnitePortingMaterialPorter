@@ -508,24 +508,33 @@ public sealed class MaterialService
         ["PF_DXT1"] = 71, ["PF_DXT3"] = 74, ["PF_DXT5"] = 77, ["PF_BC5"] = 83, ["PF_BC7"] = 98, ["PF_B8G8R8A8"] = 87,
     };
 
-    /// <summary>One mip's data as a DDS file (DX10 header, a single 2D surface).</summary>
-    static void WriteDds(string file, int width, int height, uint dxgi, byte[] data)
+    /// <summary>
+    /// A texture's mips as a DDS file, the first one given and the smaller ones after. BC1-BC3 get the legacy
+    /// "DXT1"/"DXT3"/"DXT5" header: the only ones Blender keeps compressed on the GPU (4-8 times less memory than the
+    /// RGBA it decodes the others to), with their mips (none: a distant surface shimmers). Others: DX10, one mip.
+    /// </summary>
+    static void WriteDds(string file, int width, int height, uint dxgi, IReadOnlyList<byte[]> mips)
     {
+        uint? legacy = dxgi switch { 71 => 0x31545844u, 74 => 0x33545844u, 77 => 0x35545844u, _ => null };   // "DXT1" "DXT3" "DXT5"
+        if (legacy is null) mips = [mips[0]];
         using var f = new BinaryWriter(File.Create(file));
         f.Write(0x20534444u);                                   // "DDS "
         f.Write(124u);
-        f.Write(0x1u | 0x2u | 0x4u | 0x1000u | 0x80000u);       // caps, height, width, pixel format, linear size
+        f.Write(0x1u | 0x2u | 0x4u | 0x1000u | 0x80000u | (mips.Count > 1 ? 0x20000u : 0u));   // + mip count
         f.Write((uint)height);
         f.Write((uint)width);
-        f.Write((uint)data.Length);
+        f.Write((uint)mips[0].Length);
         f.Write(0u);                                            // depth
-        f.Write(1u);                                            // mips
+        f.Write((uint)mips.Count);
         for (var i = 0; i < 11; i++) f.Write(0u);
-        f.Write(32u); f.Write(0x4u); f.Write(0x30315844u);      // pixel format: FourCC "DX10"
+        f.Write(32u); f.Write(0x4u); f.Write(legacy ?? 0x30315844u);   // pixel format: its FourCC, or "DX10"
         for (var i = 0; i < 5; i++) f.Write(0u);
-        f.Write(0x1000u); f.Write(0u); f.Write(0u); f.Write(0u); f.Write(0u);
-        f.Write(dxgi); f.Write(3u); f.Write(0u); f.Write(1u); f.Write(0u);   // 2D texture, one
-        f.Write(data);
+        f.Write(0x1000u | (mips.Count > 1 ? 0x400008u : 0u)); f.Write(0u); f.Write(0u); f.Write(0u); f.Write(0u);
+        if (legacy is null)
+        {
+            f.Write(dxgi); f.Write(3u); f.Write(0u); f.Write(1u); f.Write(0u);   // 2D texture, one
+        }
+        foreach (var mip in mips) f.Write(mip);
     }
 
     /// <summary>Textures Blender will soon ask for, exported in the background meanwhile.</summary>
@@ -536,7 +545,7 @@ public sealed class MaterialService
     }
 
     /// <summary>Bumped when what a cached texture file holds changes.</summary>
-    const int TextureCacheVersion = 2;
+    const int TextureCacheVersion = 3;     // 3: BC1-BC3 DDS with the legacy header and their mips
 
     /// <summary>
     /// Textures made here, not in the game (a LEGO figure's colour grids, an effect's exposed curve):
@@ -615,7 +624,17 @@ public sealed class MaterialService
                 if (mip?.BulkData?.Data is { Length: > 0 } bytes)
                 {
                     var file = stem + ".dds";
-                    WriteDds(file, mip.SizeX, mip.SizeY, dxgi, bytes);
+                    // the smaller mips after it, while each is there and half the one before
+                    var chain = new List<byte[]> { bytes };
+                    var (w, h) = (mip.SizeX, mip.SizeY);
+                    foreach (var next in pd.Mips.SkipWhile(m => m != mip).Skip(1))
+                    {
+                        if (next.SizeX != Math.Max(1, w / 2) || next.SizeY != Math.Max(1, h / 2)
+                            || !next.EnsureValidBulkData(null, 0) || next.BulkData?.Data is not { Length: > 0 } data) break;
+                        chain.Add(data);
+                        (w, h) = (next.SizeX, next.SizeY);
+                    }
+                    WriteDds(file, mip.SizeX, mip.SizeY, dxgi, chain);
                     var rec = Sampling(new TextureFile { File = file, Srgb = tex.SRGB, Width = mip.SizeX, Height = mip.SizeY }, tex);
                     await File.WriteAllTextAsync(meta, JsonConvert.SerializeObject(new CachedTexture { Version = TextureCacheVersion, Texture = rec }));
                     Timing.Log($"texture {Bridge.ShortName(path)} {mip.SizeX}x{mip.SizeY} {pd.PixelFormat} as DDS", sw);

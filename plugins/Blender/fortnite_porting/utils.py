@@ -65,6 +65,27 @@ def ensure_blend_data_for_file(file_name):
         appended_ids.extend(i for i in ids if i is not None)
 
     loaded_versions[file_name] = current
+    merge_duplicate_images()
+
+
+def merge_duplicate_images():
+    """Material Porter fork: an appended node group brings its images again (image.001, .002...) even when the
+    file has them, each a copy in GPU memory; a file imported into over many add-on updates had 18 of some (1.5 GB).
+    Copies of the same file (same colour space and alpha) are merged into the first. How many went."""
+    kept, gone = {}, 0
+    for img in sorted(bpy.data.images, key=lambda i: (len(i.name), i.name)):
+        if img.source != 'FILE' or not img.filepath or img.library is not None or img.packed_file is not None:
+            continue
+        key = (os.path.normcase(os.path.abspath(bpy.path.abspath(img.filepath))), img.colorspace_settings.name, img.alpha_mode)
+        first = kept.setdefault(key, img)
+        if first is img:
+            continue
+        img.user_remap(first)
+        bpy.data.images.remove(img)
+        gone += 1
+    if gone:
+        print("[material_porter] %d duplicate images merged" % gone)
+    return gone
 
 
 # Material Porter fork: the data files' groups, materials, images... this session appended
