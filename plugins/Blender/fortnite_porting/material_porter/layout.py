@@ -30,6 +30,8 @@ and the build runs in the background. The table below was measured in a UI
 session (tools/layout_measure.py) and is good to a few pixels.
 """
 import colorsys
+import bisect
+import heapq
 import zlib
 from collections import Counter, defaultdict
 
@@ -105,14 +107,21 @@ BUS_PAD = 40.0           # first bus this far into the gap
 BUS_STEP = 24.0          # buses side by side in one gap
 LANE_LIMIT = 160         # reroutes a tree's lanes may make, the most useful first; past it, plain wires
 LANE_WORK = 40000        # ...and reroutes times the tree's nodes: each new node and link costs Blender a pass over the tree
-LANE_DETOUR = 300.0      # a lane that climbs this much more than its wire would: the plain wire
+ROUTE_LONG = 600.0       # a wire longer than this that climbs more than ROUTE_SLANT is routed level (_wire_routes)
+ROUTE_SLANT = 40.0
+ROUTE_M = 16.0           # a routed wire's clearance from nodes and frames
+ROUTE_SEP = 14.0         # ...and from another routed wire running level
+ROUTE_BEND_W = 50.0      # the narrowest gap a bend takes
+ROUTE_BEND = 100.0       # a bend's cost, in level pixels x 1000
+ROUTE_SPAN = 400.0       # how far above and below its ends a route may go
+ROUTE_GRID = 40000       # a route's grid past this: the plain wire
+ROUTE_SNAP = 8.0         # grid lines closer than this merge
 # Wires between frames as reroute buses (UE's wiring). Off: a material's dozens of
 # parallel wires became ladders of reroute dots, harder to follow than the wires
 ROUTE_BUSES = False
 ROUTE_LANES = True
 SPLIT_FANOUTS = True
 HIDE_IDLE_INPUTS = True  # unlinked inputs still at their default hidden, Ctrl+H style (_hide_idle_inputs)
-LANE_BEND = 10.0         # a lane's step smaller than this stays straight: its gap keeps it clear     # a Separate Bundle read across columns: a copy per column (_split_fanouts)       # a long wire that would run behind a node follows its lane, through reroutes
 PULL_UP = True           # rows rise into the free space above them (_pull_up)
 ALIGN = "top"            # what a node lines up with its neighbours by: "top", "socket", "centre"
 GAP_PART_Y = 110.0       # between packed rows that don't wire to each other: parts read apart
@@ -1394,7 +1403,7 @@ def _sugiyama(items, edges):
         xy = [(gap_at[bus[0]] + BUS_PAD + BUS_STEP * bus[2], y) for bus, y in points]
         placed.append((src, ident, xy, links, feeds))
     if ROUTE_LANES:
-        placed += _lane_routes(trunks, reads, trunk_port, real, col_left, col_right)
+        placed += _wire_routes(dag, real, trunks)
     return x, max(it.y + it.h for it in real), placed
 
 
@@ -1473,60 +1482,174 @@ def _crosses(xa, ya, xb, yb, rects, skip):
     return False
 
 
-def _lane_routes(trunks, reads, trunk_port, real, col_left, col_right):
-    """Reroutes for the long wires that would run behind a node or frame, and for a bundle
-    read in several columns further on: such a wire keeps to its lane instead - the gap its
-    chain of dummies held free in every column it passes - and bends only between columns,
-    a dot at each end of a bend. A bundle's lane is a bus, tapped once per column (one
-    bundle fanning out to every column reads as a sheaf of lines). A wire that is already
-    clear stays one plain wire; so does one whose lane is a long way round (LANE_DETOUR),
-    and one into a multi-input socket (a Join reads its links in order: relinked, the order
-    would change).
+def _wire_routes(dag, real, trunks):
+    """Reroutes for the wires that would run behind a node or frame, the long ones that would
+    cross the graph on a slant, and a bundle read in several columns: such a wire runs level
+    and bends only where there's room, a dot at each end of a bend - few bends, none away
+    from where it goes and back. Routed on the finished positions (the columns' lanes are
+    candidate heights, not the route), the longest wires first; a lane already laid keeps
+    the next off its height. A wire into a multi-input socket stays plain (a Join reads its
+    links in order: relinked, the order would change).
 
     Returns [(source node, output id, [(x, y)], [(i, j)], [(reader node, input id, i)])]."""
-    routes = []
-    for key, chain in trunks.items():
-        u, pu = chain[0], trunk_port[key]
+    nets = defaultdict(list)
+    for u, v, pu, pv, _, wire in dag:
+        if v.layer > u.layer and not wire[4]:
+            nets[(wire[0], wire[1])].append((u, v, pu, pv, wire))
+    runs, routes = [], []
+    reach = lambda es: max(v.x - es[0][0].x - es[0][0].w for _, v, *_ in es)
+    for key, es in sorted(nets.items(), key=lambda kv: -reach(kv[1])):
+        u, pu = es[0][0], es[0][2]
         xa, ya = u.x + u.w, u.y + pu
-        stops = defaultdict(list)
-        bus = len({v.layer for v, *_ in reads[key]}) > 1
-        for v, pv, wire in reads[key]:
-            if wire[4]:
+        bus = es[0][4][5] and len({v.layer for _, v, *_ in es}) > 1
+        want = []
+        for _, v, _, pv, wire in es:
+            xb, yb = v.x, v.y + pv
+            if xb < xa + GAP_NODE_X * 0.5:
                 continue
-            yb = v.y + pv
-            if not (bus and wire[5]) and not _crosses(xa, ya, v.x, yb, real, (u, v)):
-                continue
-            # the climb along the lane, against the wire's own
-            ys = [ya] + [chain[i].y for i in range(1, v.layer - u.layer)] + [yb]
-            climb = sum(abs(b - a) for a, b in zip(ys, ys[1:]) if abs(b - a) > LANE_BEND)
-            if climb - abs(yb - ya) <= LANE_DETOUR:
-                stops[v.layer - u.layer - 1].append(wire)
-        if not stops:
+            # (a wire to the next column that clips a node stays plain: its dots would crowd)
+            if (bus or v.layer > u.layer + 1 and _crosses(xa, ya, xb, yb, real, (u, v))
+                    or xb - xa > ROUTE_LONG and abs(yb - ya) > ROUTE_SLANT):
+                want.append((v, xb, yb, wire))
+        if not want:
             continue
-        pts, links, feeds = [], [], []
-        cur, cur_y, cur_x = -1, ya, xa
-
-        def add(x, y):
-            nonlocal cur, cur_y, cur_x
-            pts.append((x, y))
-            links.append((cur, len(pts) - 1))
-            cur, cur_y, cur_x = len(pts) - 1, y, x
-        for i in range(1, max(stops) + 1):
-            d = chain[i]
-            left, right = col_left[d.layer], col_right[d.layer]
-            if right <= xa + 1.0:
-                continue        # (the source was pulled right over this stretch of its lane)
-            if abs(d.y - cur_y) > LANE_BEND:
-                if cur >= 0 and cur_x < col_right[d.layer - 1] - 1.0:
-                    add(col_right[d.layer - 1], cur_y)
-                add(max(left, xa + GAP_NODE_X), d.y)
-            if i in stops:
-                if cur < 0 or cur_x < right - 1.0:
-                    add(right, d.y)
-                feeds += [(wire[2], wire[3], cur) for wire in stops[i]]
-        if feeds:
-            routes.append((key[0], key[1], pts, links, feeds))
+        lane = [d.y for d in trunks.get(key, [])[1:]]
+        r = _route_net(u, xa, ya, want, real, runs, lane)
+        if r:
+            routes.append((key[0], key[1]) + r)
     return routes
+
+
+def _route_net(u, xa, ya, want, real, runs, lane):
+    """One source's routed wires: a cheapest path over a grid of the heights just clear of
+    what's in the way and the x where something starts or ends. Level stretches are free,
+    each bend costs, more when steep; a run away from the source's height costs a little,
+    so a wire leaves level and bends late, and wires to several readers share their start."""
+    readers = {id(v) for v, *_ in want}
+    x_end = max(xb for _, xb, _, _ in want)
+    ys_all = [ya] + [yb for _, _, yb, _ in want]
+    lo, hi = min(ys_all) - ROUTE_SPAN, max(ys_all) + ROUTE_SPAN
+    rects = []
+    for it in real:
+        if it is u or it.x >= x_end or it.x + it.w <= xa or it.y > hi or it.y + it.h < lo:
+            continue
+        m = 0.0 if id(it) in readers else ROUTE_M
+        rects.append((it.x - m, it.y - m, it.x + it.w + m, it.y + it.h + m))
+    lanes = [r for r in runs if r[0] < x_end and r[1] > xa]
+
+    def grid(fixed, extra):
+        # the ends exact; the rest thinned where they crowd (rows of nodes share their edges)
+        out = sorted(set(fixed))
+        for v in sorted(extra):
+            j = bisect.bisect_left(out, v)
+            if (j == len(out) or out[j] - v > ROUTE_SNAP) and (j == 0 or v - out[j - 1] > ROUTE_SNAP):
+                out.insert(j, v)
+        return out
+    X = grid([xa, *(xb for _, xb, _, _ in want)], [x for r in rects for x in (r[0], r[2]) if xa < x < x_end])
+    # a wide empty stretch: room to bend near either end of it, not only right across it
+    X = grid(X, [x for a, b in zip(X, X[1:]) if b - a > 4 * ROUTE_BEND_W
+                 for x in (a + 2 * ROUTE_BEND_W, b - 2 * ROUTE_BEND_W)])
+    Y = grid(ys_all, [*lane, *(y for r in rects for y in (r[1] - 1.0, r[3] + 1.0) if lo < y < hi)])
+    if len(X) * len(Y) > ROUTE_GRID:
+        return None
+    xi = {x: i for i, x in enumerate(X)}
+    yi = {y: i for i, y in enumerate(Y)}
+    across = {}
+
+    def blocks(i, j):
+        """What stands between X[i] and X[j]: its rects, its lanes."""
+        if (i, j) not in across:
+            x0, x1 = X[i], X[j]
+            across[i, j] = ([r for r in rects if r[0] < x1 - 0.5 and r[2] > x0 + 0.5],
+                            [r[2] for r in lanes if r[0] < x1 and r[1] > x0])
+        return across[i, j]
+
+    def level(i, y):
+        rs, ls = blocks(i, i + 1)
+        return not any(r[1] < y < r[3] for r in rs) and not any(abs(ly - y) < ROUTE_SEP for ly in ls)
+
+    def span(i, j, y):
+        """The heights a bend from y across X[i]..X[j] can reach: up to what's above, down to what's below."""
+        rs = blocks(i, j)[0]
+        top = max((r[3] for r in rs if r[1] < y), default=-1e18)
+        bottom = min((r[1] for r in rs if r[3] > y), default=1e18)
+        return top, bottom
+
+    start = (0, yi[ya])
+    goals = {(xi[xb], yi[yb]) for _, xb, yb, _ in want}
+    goal_xy = [(xb, yb) for _, xb, yb, _ in want]
+
+    def h(i, k):
+        # A*: what's left at the least - its level run, a bend if it isn't level with any reader
+        x, y = X[i], Y[k]
+        return min((xb - x) * 1e-3 + (0.0 if yb == y else ROUTE_BEND) for xb, yb in goal_xy if xb >= x)             if any(xb >= x for xb, _ in goal_xy) else 1e18
+    dist, prev = {start: 0.0}, {}
+    heap, done = [(h(*start), 0.0, start)], set()
+    while heap and not goals <= done:
+        _, c, s = heapq.heappop(heap)
+        if s in done:
+            continue
+        done.add(s)
+        i, k = s
+        y = Y[k]
+        moves = []
+        if i + 1 < len(X) and level(i, y):
+            moves.append(((i + 1, k), (X[i + 1] - X[i]) * (1e-3 if y == ya else 2e-3)))
+        # bends: across the narrowest gap that's wide enough, and the next two wider ones
+        j0 = bisect.bisect_left(X, X[i] + ROUTE_BEND_W, i + 1)
+        for j in range(j0, min(j0 + 3, len(X))):
+            w = X[j] - X[i]
+            top, bottom = span(i, j, y)
+            for k2 in range(bisect.bisect_left(Y, top), bisect.bisect_right(Y, bottom)):
+                if k2 != k:
+                    dy = abs(Y[k2] - y)
+                    moves.append(((j, k2), ROUTE_BEND + 0.05 * dy + 40.0 * max(0.0, dy / w - 2.0) + w * 4e-3))
+        for s2, cost in moves:
+            if c + cost < dist.get(s2, float("inf")):
+                dist[s2], prev[s2] = c + cost, s
+                heapq.heappush(heap, (c + cost + h(*s2), c + cost, s2))
+    paths = []
+    for v, xb, yb, wire in want:
+        g = (xi[xb], yi[yb])
+        if g not in done:
+            continue
+        p = [g]
+        while p[-1] != start:
+            p.append(prev[p[-1]])
+        paths.append((wire, p[::-1]))
+    if not paths:
+        return None
+    # a dot where a bend starts or ends, and where readers part; none at the source or a reader
+    bend_end = set()
+    for _, p in paths:
+        for a, b in zip(p, p[1:]):
+            if a[1] != b[1]:
+                bend_end.update((a, b))
+    inner = {s for _, p in paths for s in p[:-1]}
+    pts, index, links, feeds = [], {}, [], []
+    for wire, p in paths:
+        cur = -1
+        for s in p[1:]:
+            if s in bend_end and (s in inner or s != p[-1]):
+                if s not in index:
+                    index[s] = len(pts)
+                    pts.append((X[s[0]], Y[s[1]]))
+                if (cur, index[s]) not in links:
+                    links.append((cur, index[s]))
+                cur = index[s]
+        feeds.append((wire[2], wire[3], cur))
+        run = None
+        for a, b in zip(p, p[1:]):
+            if a[1] == b[1]:
+                run = (run[0] if run else X[a[0]], X[b[0]], Y[a[1]])
+            elif run:
+                runs.append(run)
+                run = None
+        if run:
+            runs.append(run)
+    if not pts:
+        return None
+    return pts, links, feeds
 
 
 def _pull_up(layers, dag, trunks=None, reads=None, trunk_port=None):

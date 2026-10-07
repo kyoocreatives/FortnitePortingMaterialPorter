@@ -718,6 +718,10 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   the add-on asks the app for each texture with that cap (texture?cap=, cached
   apart per size) and FP's own texture export decodes that mip. A background
   map at 1024 beside a character at full size.
+- **Wire routing.** The material layout routes long wires on the finished
+  positions (layout.py `_wire_routes`): level runs through reroutes, bends only
+  where there's room and clear of nodes, no up-and-down detours; a long slanted
+  wire to the next column is routed too. Build revision 64 rebuilds materials.
 - **Shadow proxies.** A tree's ShadowProxyMeshComponent (hidden, out of the
   main pass) is where its shadow comes from while the tree casts none: placed
   as a shadow-only object (no camera, diffuse, glossy, transmission or volume
