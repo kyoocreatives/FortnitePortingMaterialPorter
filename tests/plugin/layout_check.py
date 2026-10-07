@@ -5,8 +5,9 @@ output), lays out a copy of each and compares the two graphs the way a shader wo
 every node resolved through reroutes to the node and output that really feeds it, with pure input nodes (Group
 Input and the bundle split, Geometry, Texture Coordinate, ...) compared by what they are rather than by name,
 since the layout copies them. Also compares every unlinked input's value and the group interface, and checks
-that no link is invalid and no reroute is left dangling (and, for a tree whose nodes all carry a section tag,
-that every node is framed but the bundle/interface nodes).
+that no link is invalid and no reroute is left dangling. Framing (every node in its section's frame) is not
+checked here: the layout takes the sections from tags the builders write and drops them, and the translator's
+test trees have none; baseline.py's Blender signatures cover it (each node's parent frame on real imports).
 
     blender -b --factory-startup --python-exit-code 1 -P tests/plugin/layout_check.py -- <plugin parent>
 
@@ -20,7 +21,7 @@ import sys
 import bpy
 
 sys.path.insert(0, sys.argv[sys.argv.index("--") + 1])
-from fpmp_baseline.material_porter import layout, nodelib  # noqa: E402
+from fpmp_baseline.material_porter import layout  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 failed = 0
@@ -111,16 +112,6 @@ def invariants(tree):
     dangling = [n.name for n in tree.nodes
                 if n.bl_idname == "NodeReroute" and n.name not in linked_in]
     check(not dangling, "%s: no dangling reroute (%s)" % (tree.name, dangling[:5]))
-    # (the layout frames by the sections the builder tagged: a tree no builder tagged, like most of the translator's
-    # test trees, only has its tagged nodes framed)
-    if not all(nodelib.SECTION_KEY in n for n in tree.nodes if n.bl_idname != "NodeFrame"):
-        return
-    loose = [n.name for n in tree.nodes
-             if n.bl_idname not in ("NodeFrame",) and n.parent is None
-             and n.bl_idname not in ("NodeGroupInput", "NodeGroupOutput",
-                                     "NodeSeparateBundle", "NodeCombineBundle",
-                                     "NodeReroute")]
-    check(not loose, "%s: every node framed (%s)" % (tree.name, loose[:5]))
 
 
 def main():
