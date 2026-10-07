@@ -29,6 +29,7 @@ public partial class InstallationProfile : ObservableValidator
     [NotifyPropertyChangedFor(nameof(LoadInstalledBundlesEnabled))]
     [NotifyPropertyChangedFor(nameof(IsCustom))]
     [NotifyPropertyChangedFor(nameof(IsCustomOnDemand))]
+    [NotifyPropertyChangedFor(nameof(CanDownloadBuild))]
     private EFortniteVersion _fortniteVersion = EFortniteVersion.LatestInstalled;
     
     [NotifyDataErrorInfo]
@@ -84,14 +85,16 @@ public partial class InstallationProfile : ObservableValidator
     [ObservableProperty] private bool _isSelected;
 
     [JsonIgnore] public bool IsCustom => FortniteVersion is EFortniteVersion.Custom;
-    [JsonIgnore] public bool IsCustomOnDemand => IsCustom && DownloadFromManifest;
+    // (owner builds only for now: Fork.OlderBuilds)
+    [JsonIgnore] public bool CanDownloadBuild => IsCustom && MaterialPorter.Fork.OlderBuilds;
+    [JsonIgnore] public bool IsCustomOnDemand => CanDownloadBuild && DownloadFromManifest;
     [JsonIgnore] public bool ArchiveDirectoryEnabled => FortniteVersion is not EFortniteVersion.LatestOnDemand && !IsCustomOnDemand;
     [JsonIgnore] public bool UnrealVersionEnabled => IsCustom;
     [JsonIgnore] public bool EncryptionKeyEnabled => IsCustom;
     [JsonIgnore] public bool MappingsFileEnabled => IsCustom;
     // Material Porter fork: an older install (Custom) streams too when it has an on-demand TOC of its own -
     // the chunks its build lists (the latest build's TOC, the Latest modes', wouldn't match it)
-    [JsonIgnore] public bool TextureStreamingEnabled => FortniteVersion is EFortniteVersion.LatestInstalled || IsCustom && (DownloadFromManifest || HasOnDemandToc);
+    [JsonIgnore] public bool TextureStreamingEnabled => FortniteVersion is EFortniteVersion.LatestInstalled || IsCustomOnDemand || IsCustom && HasOnDemandToc;
     [JsonIgnore] public bool HasOnDemandToc => Directory.Exists(ArchiveDirectory) && Directory.EnumerateFiles(ArchiveDirectory, "*.uondemandtoc").Any();
     [JsonIgnore] public bool LoadInstalledBundlesEnabled => FortniteVersion is EFortniteVersion.LatestInstalled;
     [JsonIgnore] public bool CanFetchVersion => !string.IsNullOrWhiteSpace(FetchVersion);

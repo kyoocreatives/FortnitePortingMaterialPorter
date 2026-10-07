@@ -74,7 +74,7 @@
                 <!-- Material Porter fork: an older build downloaded from its manifest -->
                 <controls:SettingsItem Title="Download Build"
                                        Description="Download this version from Epic with its build manifest instead of reading an installation (Epic only lists the live build: an older one needs its manifest)."
-                                       IsVisible="{Binding Profile.IsCustom}">
+                                       IsVisible="{Binding Profile.CanDownloadBuild}">
                     <controls:SettingsItem.Footer>
                         <ToggleSwitch IsChecked="{Binding Profile.DownloadFromManifest}" />
                     </controls:SettingsItem.Footer>

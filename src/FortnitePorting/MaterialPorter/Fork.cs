@@ -39,6 +39,16 @@ public static class Fork
 #endif
 
     /// <summary>
+    /// Downloading an older build from its manifest (build picker, UEFN manifest, Unreal version detection): only in
+    /// the owner's builds for now, where Fork.local.props sets MPOlderBuilds.
+    /// </summary>
+#if MP_OLDER_BUILDS
+    public const bool OlderBuilds = true;
+#else
+    public const bool OlderBuilds = false;
+#endif
+
+    /// <summary>
     /// Time of Day export: only where the owner's private overlay (fpfork-private, beside the repo) is built in.
     /// Without it the Time of Day tab isn't there and the export is refused.
     /// </summary>

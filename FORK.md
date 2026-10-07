@@ -666,7 +666,8 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   the dummy back or the ad twice when two-sided, the corner and edge frame
   instances, the struts. A prefab prop whose parts sit off its pivot goes under
   an empty at the item's transform (its parts' offsets turn and scale with it).
-- **Older builds without an install.** A Custom profile can download its build
+- **Older builds without an install** (owner builds only for now: `Fork.OlderBuilds`,
+  set by Fork.local.props' MPOlderBuilds). A Custom profile can download its build
   instead of reading a folder: Download Build, then the build's `.manifest`
   file or a link to it (Epic's API only lists the live build; the launcher keeps
   past ones in the install's `.egstore`). Its chunks come from Epic's CDN as the

@@ -21,6 +21,9 @@
     <PropertyGroup Condition="'$(MPIslands)' == 'true'">
         <DefineConstants>$(DefineConstants);MP_ISLANDS</DefineConstants>
     </PropertyGroup>
+    <PropertyGroup Condition="'$(MPOlderBuilds)' == 'true'">
+        <DefineConstants>$(DefineConstants);MP_OLDER_BUILDS</DefineConstants>
+    </PropertyGroup>
 
     <!-- the owner's private overlay, beside the repo (..\..\..\fpfork-private): its code and plugin files when it's
          there; -p:MPPrivateRoot=none\ builds without it -->
