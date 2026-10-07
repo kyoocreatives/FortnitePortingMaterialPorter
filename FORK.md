@@ -712,6 +712,12 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   decoded (Blender has no compressed path for them). Copies of the same image
   an appended node group brings again (.001...) are merged after the add-on's
   data append.
+- **Max Texture Size.** Export Options > Blender > Texture: Full Size, 4096,
+  2048, 1024, 512, 256 - the largest textures are imported at, from their own
+  smaller mips (no resampling). It travels with the export (MaxTextureSize):
+  the add-on asks the app for each texture with that cap (texture?cap=, cached
+  apart per size) and FP's own texture export decodes that mip. A background
+  map at 1024 beside a character at full size.
 - **Shadow proxies.** A tree's ShadowProxyMeshComponent (hidden, out of the
   main pass) is where its shadow comes from while the tree casts none: placed
   as a shadow-only object (no camera, diffuse, glossy, transmission or volume

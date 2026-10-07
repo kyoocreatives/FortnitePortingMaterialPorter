@@ -31,11 +31,15 @@ class AppClient:
         u = urllib.parse.urlsplit(self.url)
         self._host, self._port = u.hostname or "localhost", u.port or 80
         self._conn = None
+        self.max_texture = 0        # pixels: the import's texture size cap (0: full size)
 
     def _fetch(self, route, path):
         """(status, body) of GET /route?path=..., on one kept-alive connection
         (a new one per request cost a connect each, hundreds per import)."""
-        target = "/%s?%s" % (route, urllib.parse.urlencode({"path": path}))
+        query = {"path": path}
+        if route == "texture" and self.max_texture:
+            query["cap"] = self.max_texture      # the import's texture size cap
+        target = "/%s?%s" % (route, urllib.parse.urlencode(query))
         for attempt in (0, 1):
             try:
                 if self._conn is None:

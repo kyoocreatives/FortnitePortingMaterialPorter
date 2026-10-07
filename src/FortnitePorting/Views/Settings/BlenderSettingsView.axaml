@@ -333,6 +333,14 @@
                                               SelectedItem="{Binding ImageFormat, Converter={StaticResource EnumToRecord}}"/>
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
+                            <!-- Material Porter fork -->
+                            <controls:SettingsItem Title="Max Texture Size"
+                                                   Description="The largest textures are imported at, from their own smaller mips (no resampling). Lower for backgrounds: a map of a thousand textures fits in far less GPU memory.">
+                                <controls:SettingsItem.Footer>
+                                    <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fpExport:ETextureSizeCap}}"
+                                              SelectedItem="{Binding MaxTextureSize, Converter={StaticResource EnumToRecord}}"/>
+                                </controls:SettingsItem.Footer>
+                            </controls:SettingsItem>
                             <controls:SettingsItem Title="Method"
                                                    Description="The way textures should be imported.">
                                 <controls:SettingsItem.Footer>

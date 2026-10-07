@@ -34,6 +34,11 @@ def _session(context):
     if _job["key"] is not context:
         build.begin_session()
         _job.update(key=context, app=AppClient(URL), down=False, built={}, shapes={}, notes=[])
+        # the export's texture size cap (Blender settings: Max Texture Size), asked of the app with each texture
+        try:
+            _job["app"].max_texture = int((getattr(context, "options", None) or {}).get("MaxTextureSize") or 0)
+        except (TypeError, ValueError):
+            pass
     return _job
 
 

@@ -80,7 +80,8 @@ public sealed class Bridge : IDisposable
             {
                 "ping" => new { app = "MaterialPorter", build = game.BuildVersion, mounted = game.Mounted },
                 "graph" => new { file = await materials.GraphAsync(Need(path)) },
-                "texture" => await materials.BlenderTextureAsync(Need(path)),
+                // cap=<pixels>: the import's texture size cap (its own smaller mip)
+                "texture" => await materials.BlenderTextureAsync(Need(path), int.TryParse(q["cap"], out var cap) && cap > 0 ? cap : null),
                 "collection" => await materials.CollectionAsync(Need(path)),
                 "material" => (await materials.DescribeAsync(Need(path))).ToJson(),
                 "find-materials" => await materials.FindMaterialsAsync(Need(path).Split(',')),

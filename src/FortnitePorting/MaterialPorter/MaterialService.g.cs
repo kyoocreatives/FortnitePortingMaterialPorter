@@ -486,11 +486,11 @@ public sealed class MaterialService
     /// (BC1/BC3/BC5/BC7, BGRA8) the mip's data as it is in a DDS - no decode,
     /// no encode, and Blender loads it faster than a PNG; else the PNG.
     /// </summary>
-    public Task<TextureFile> BlenderTextureAsync(string path) => TextureAsync(path, true);
+    public Task<TextureFile> BlenderTextureAsync(string path, int? cap = null) => TextureAsync(path, true, cap);
 
-    Task<TextureFile> TextureAsync(string path, bool raw)
+    Task<TextureFile> TextureAsync(string path, bool raw, int? sizeCap = null)
     {
-        var cap = MaxTextureSize;
+        var cap = sizeCap ?? MaxTextureSize;
         var key = (cap > 0 ? path + "@" + cap : path) + (raw ? "#dds" : "");
         var lazy = textures.GetOrAdd(key, _ => new Lazy<Task<TextureFile>>(() =>
         {
