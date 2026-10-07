@@ -423,7 +423,12 @@
                     <TextBlock Text="A preview of this map is not available."
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                Classes="BodyTextBlockStyle TextFillColorSecondaryBrush"
-                               IsVisible="{Binding SelectedMap.MapInfo.IsNonDisplay}"/>
+                               IsVisible="{Binding SelectedMap.NoPreview}"/>
+                    <!-- Material Porter fork: a drawn map's progress -->
+                    <TextBlock Text="{Binding SelectedMap.PreviewStatus}" Margin="{ext:Space 2}"
+                               HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"
+                               Classes="BodyTextBlockStyle TextFillColorSecondaryBrush"
+                               IsVisible="{Binding SelectedMap.PreviewStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
                 </Grid>
             </Grid>
         </Grid>

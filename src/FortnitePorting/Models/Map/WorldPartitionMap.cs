@@ -67,6 +67,7 @@ public partial class WorldPartitionMap : ObservableObject
 
     public void Detach()
     {
+        CancelPreview();     // Material Porter fork
         _world = null;
         _level = null;
         MapBitmap?.Dispose();
@@ -96,6 +97,9 @@ public partial class WorldPartitionMap : ObservableObject
             var mapTexture = await UEParse.Provider.SafeLoadPackageObjectAsync<UTexture2D>(MapInfo.MinimapPath);
             MapBitmap = mapTexture?.Decode()?.ToWriteableBitmap();
         }
+
+        // Material Porter fork: no minimap, or another map's - one is drawn (WorldPartitionMap.MaterialPorter.cs)
+        await NeedsDrawnPreviewAsync();
         
         WorldName = MapInfo.MapPath.SubstringAfterLast("/");
         
@@ -124,8 +128,12 @@ public partial class WorldPartitionMap : ObservableObject
                         position = bounds.GetCenter();
 
                         // please don't break other maps
-                        position.X -= position.X % MapInfo.MinGridDistance;
-                        position.Y -= position.Y % MapInfo.MinGridDistance;
+                        if (_drawnPreview) position = SnapCell(position);     // Material Porter fork: a drawn map's own grid
+                        else
+                        {
+                            position.X -= position.X % MapInfo.MinGridDistance;
+                            position.Y -= position.Y % MapInfo.MinGridDistance;
+                        }
                     }
 
                     FSoftObjectPath? worldAssetPath = null;
@@ -206,6 +214,7 @@ public partial class WorldPartitionMap : ObservableObject
         }
         
         Directory.CreateDirectory(ExportPath);
+        if (_drawnPreview) ShowKeptPreview();     // Material Porter fork
         DataLoaded = true;
     }
 

@@ -644,6 +644,45 @@ public class MaterialPorterService : IService
                 return new { file, Popup = popup?.Child is not null, items, map.WorldFlagsActors, map.WorldFlagsInstancedFoliage, map.WorldFlagsLandscape, map.WorldFlagsHLODs, map.WorldFlagsLights, map.WorldFlagsDecals, map.WorldFlagsEffects };
             });
         }
+        if (route == "fork-map-preview")
+        {
+            // tests: the Map page on a map (name=; none: the list), its drawn preview awaited (wait= seconds, 600),
+            // the page rendered to path=
+            var window = AppServices.App.Lifetime.MainWindow!;
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                window.WindowState = Avalonia.Controls.WindowState.Normal;
+                window.Width = 1600;
+                window.Height = 950;
+                AppServices.Navigation.App.Open<Views.MapView>();
+            });
+            var maps = AppServices.MapVM;
+            for (var i = 0; i < 600 && (maps.IsLoading || !maps.IsInitialized); i++) await Task.Delay(500);
+            var names = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => maps.Maps.Select(m => new { m.MapInfo.Name, m.MapInfo.MapPath, m.MapInfo.MinimapPath, m.MapInfo.IsNonDisplay, Grids = m.Grids.Count }).ToList());
+            if (query["name"] is not { } name) return new { names };
+            var map = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                var found = maps.Maps.FirstOrDefault(m => m.MapInfo.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
+                if (found is not null) maps.SelectedMap = found;
+                return found;
+            });
+            if (map is null) return new { error = "no such map", names };
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            var wait = int.TryParse(query["wait"], out var w) ? w : 600;
+            await Task.Delay(1000);
+            while (sw.Elapsed.TotalSeconds < wait && map.IsDrawingPreview) await Task.Delay(1000);
+            await Task.Delay(1000);
+            return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (query["path"] is { } file) SaveShot(window, file);
+                if (query["image"] is { } image && map.MapBitmap is { } bitmap) bitmap.Save(image);
+                return (object) new
+                {
+                    map.MapInfo.Name, seconds = sw.Elapsed.TotalSeconds, map.IsDrawingPreview, map.PreviewStatus, map.NoPreview,
+                    bitmap = map.MapBitmap?.PixelSize.ToString(), grids = map.Grids.Count, map.MapInfo.Scale, map.MapInfo.XOffset, map.MapInfo.YOffset,
+                };
+            });
+        }
         if (route == "fork-reload")
         {
             // tests: the installation loaded again instead of restarting the app; version=<EGame> and auto=0|1 set the

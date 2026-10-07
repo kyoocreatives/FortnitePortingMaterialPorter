@@ -718,6 +718,15 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   the add-on asks the app for each texture with that cap (texture?cap=, cached
   apart per size) and FP's own texture export decodes that mip. A background
   map at 1024 beside a character at full size.
+- **Drawn map previews.** A map without a minimap of its own (a UEFN island) or
+  whose listed minimap is another map's (FP's list gives WildEstate, Hera and
+  others Apollo_Terrain_Minimap, which the game's Hera_MapUIData says is
+  Hera_V2's) gets a picture drawn when it's opened (MaterialPorter/MapPreview.cs):
+  its landscape shaded by height, then each placed mesh's bounds from above
+  (trees as crowns, cliffs as rock, buildings by height), lit from the
+  north-west; clouds, backdrops, volumes and blockers left out. Kept in
+  Maps/<world>/Preview.png; its cells are laid over it exactly (no rotation,
+  corners floored). Wild Estate ~25 s, an island 5-10 s.
 - **Wire routing.** The material layout routes long wires on the finished
   positions (layout.py `_wire_routes`): level runs through reroutes, bends only
   where there's room and clear of nodes, no up-and-down detours; a long slanted
