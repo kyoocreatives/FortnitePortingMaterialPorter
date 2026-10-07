@@ -115,7 +115,7 @@ public class FStaticMeshRenderData
                     {
                         if (Ar.Game is >= GAME_UE5_0 or GAME_TerminullBrigade or GAME_WutheringWaves)
                         {
-                            _ = new FDistanceFieldVolumeData5(Ar, i < LODs.Length - 1);     // Material Porter fork: what follows it
+                            _ = new FDistanceFieldVolumeData5(Ar, LODs.Length - 1 - i);     // Material Porter fork: what follows it
                         }
                         else
                         {

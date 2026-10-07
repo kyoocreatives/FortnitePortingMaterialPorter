@@ -785,11 +785,12 @@ edit there, then `python tools/sync_fork.py`.
   `FStaticMeshRenderData.cs` and `UInstancedStaticMeshComponent.cs`: builds
   between engine releases (Fortnite 28.00, between 5.3 and 5.4) mix the layouts
   CUE4Parse switches by engine version - a distance field's bounds and mips (each
-  combination read whole, kept when it and what follows read plausibly), the
-  render data's trailing strip flags, an instanced component's cooked render
-  data are read in the engine version's layout unless the other one is what's
-  there; other games read as before. 28.00: 270 of 275 static meshes read (was
-  none); some multi-LOD foliage still picks the wrong distance field layout. After updating the submodule,
+  combination read whole, kept when it and what follows read plausibly: the
+  next LODs' flags, then a real bounds sphere - a block of zeros reads the same
+  in every layout), the render data's trailing strip flags, an instanced
+  component's cooked render data are read in the engine version's layout unless
+  the other one is what's there; other games read as before. 28.00: 275 of 275
+  static meshes, 150 of 150 materials exact (devtools/health.py). After updating the submodule,
   check whether upstream now reads these and drop the overlays if so.
 
 ## Merging upstream

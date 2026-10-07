@@ -122,21 +122,23 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
 
         // Material Porter fork: a build between engine releases mixes their layouts (Fortnite 28.00: 5.3's
         // double-precision bounds, 5.4's single-precision mips). Each combination is read, the engine version's
-        // first, and kept when the whole block reads plausibly and what follows it does too (moreLods: the next
-        // LOD's flag, else the render data's bounds); when none does, the engine version's is read as before.
-        public FDistanceFieldVolumeData5(FAssetArchive Ar, bool? moreLods)
+        // first, and kept when the whole block reads plausibly and what follows it does too: the LODs after it
+        // (lodsAfter) - their flags, and when none has a distance field, the render data's bounds, a real sphere (a
+        // block of zeros reads the same in every layout: the bounds after it tell). When none does, the engine
+        // version's is read as before.
+        public FDistanceFieldVolumeData5(FAssetArchive Ar, int? lodsAfter)
         {
             var singleBounds = Ar.Game >= GAME_UE5_4 || Ar.Game is GAME_Highguard;
             var singleMips = Ar.Game >= GAME_UE5_4;
             var start = Ar.Position;
-            if (moreLods is { } more && Ar.Game is not (GAME_TheFinals or GAME_ArcRaiders))
+            if (lodsAfter is { } after && Ar.Game is not (GAME_TheFinals or GAME_ArcRaiders))
             {
                 foreach (var (bounds, mips) in new[] { (singleBounds, singleMips), (!singleBounds, singleMips), (singleBounds, !singleMips), (!singleBounds, !singleMips) })
                 {
                     Ar.Position = start;
                     try
                     {
-                        if (Read(Ar, bounds, mips, strict: true) && (more ? IsBool(Ar) : IsBoundsSphere(Ar)))
+                        if (Read(Ar, bounds, mips, strict: true) && FollowedRight(Ar, after))
                             return;
                     }
                     catch
@@ -184,7 +186,29 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
                    && box.Min.X <= box.Max.X && box.Min.Y <= box.Max.Y && box.Min.Z <= box.Max.Z;
         }
 
-        // the render data's bounds that follow the last LOD's distance field
+        // the LODs after this one: each one's flag; when none has a distance field, the render data's bounds next
+        private static bool FollowedRight(FAssetArchive Ar, int lodsAfter)
+        {
+            var saved = Ar.Position;
+            try
+            {
+                for (var i = 0; i < lodsAfter; i++)
+                {
+                    if (Ar.Position + 4 > Ar.Length) return false;
+                    var flag = Ar.Read<int>();
+                    if (flag is not (0 or 1)) return false;
+                    if (flag == 1) return true;     // (its own distance field follows: not walked)
+                }
+                return IsBoundsSphere(Ar);
+            }
+            finally
+            {
+                Ar.Position = saved;
+            }
+        }
+
+        // the render data's bounds that follow the last LOD's distance field: a real mesh's (not zeros), its sphere
+        // around its box
         private static bool IsBoundsSphere(FAssetArchive Ar)
         {
             var saved = Ar.Position;
@@ -194,8 +218,9 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
                 static bool Ok(double d) => double.IsFinite(d) && Math.Abs(d) < 1e8;
                 return Ok(sphere.Origin.X) && Ok(sphere.Origin.Y) && Ok(sphere.Origin.Z)
                        && Ok(sphere.BoxExtent.X) && sphere.BoxExtent.X >= 0 && Ok(sphere.BoxExtent.Y) && sphere.BoxExtent.Y >= 0
-                       && Ok(sphere.BoxExtent.Z) && sphere.BoxExtent.Z >= 0 && Ok(sphere.SphereRadius) && sphere.SphereRadius >= 0
-                       && (sphere.SphereRadius > 0 || sphere.BoxExtent.X + sphere.BoxExtent.Y + sphere.BoxExtent.Z == 0);
+                       && Ok(sphere.BoxExtent.Z) && sphere.BoxExtent.Z >= 0 && Ok(sphere.SphereRadius) && sphere.SphereRadius > 0
+                       && sphere.SphereRadius >= Math.Max(sphere.BoxExtent.X, Math.Max(sphere.BoxExtent.Y, sphere.BoxExtent.Z)) * 0.99
+                       && sphere.SphereRadius <= sphere.BoxExtent.Size() * 1.01 + 1e-3;
             }
             catch
             {

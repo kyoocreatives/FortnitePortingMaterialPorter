@@ -227,14 +227,6 @@ public static partial class OnDemandBuilds
         }
     }
 
-    /// <summary>Reads with an explicit package file version, keeping the options the build's config set.</summary>
-    public static void SetVer(global::CUE4Parse.UE4.Versions.VersionContainer versions, global::CUE4Parse.UE4.Versions.FPackageFileVersion ver)
-    {
-        var kept = IniOptions.Where(versions.Options.ContainsKey).ToDictionary(key => key, key => versions.Options[key]);
-        versions.Ver = ver;
-        foreach (var (key, value) in kept) versions.Options[key] = value;
-    }
-
     public static void SetGame(global::CUE4Parse.UE4.Versions.VersionContainer versions, global::CUE4Parse.UE4.Versions.EGame game)
     {
         var kept = IniOptions.Where(versions.Options.ContainsKey).ToDictionary(key => key, key => versions.Options[key]);
