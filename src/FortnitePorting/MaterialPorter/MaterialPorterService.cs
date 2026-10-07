@@ -644,6 +644,21 @@ public class MaterialPorterService : IService
                 return new { file, Popup = popup?.Child is not null, items, map.WorldFlagsActors, map.WorldFlagsInstancedFoliage, map.WorldFlagsLandscape, map.WorldFlagsHLODs, map.WorldFlagsLights, map.WorldFlagsDecals, map.WorldFlagsEffects };
             });
         }
+        if (route == "fork-reload")
+        {
+            // tests: the installation loaded again instead of restarting the app; version=<EGame> and auto=0|1 set the
+            // profile's Unreal version and its detection first. Answers at once (the reload restarts this bridge):
+            // the log's next "exact materials served" says it's done.
+            var profile = AppServices.AppSettings.Installation.CurrentProfile;
+            if (query["version"] is { } version) profile.UnrealVersion = Enum.Parse<global::CUE4Parse.UE4.Versions.EGame>(version);
+            if (query["auto"] is { } auto) profile.AutoUnrealVersion = auto == "1";
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(200);
+                await AppServices.App.ReloadInstallationAsync();
+            });
+            return new { reloading = true };
+        }
         if (route == "fork-status")
         {
             // tests: the status line and the newest log lines, as the window shows them

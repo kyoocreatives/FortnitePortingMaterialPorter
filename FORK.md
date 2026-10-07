@@ -705,6 +705,14 @@ Branch `materialporter` on top of upstream `h4lfheart/FortnitePorting` (remote
   read seeks the one stream, then reads, so two at once (an export and its
   prefetch, parallel exports) could read each other's bytes. Now random-access
   archives over the manifest's streams.
+- **Builds Epic dropped.** Epic's CDN no longer has some builds' files (23.20,
+  24.01; UEFN 24.01-24.20), build by build, not below a version. Picking a build
+  asks the CDN for one of its chunks: a gone build says it can't load, a gone
+  UEFN is cleared (approximated materials); loading one stops with one message
+  instead of a 404 per container.
+- **Test instances.** `fork-reload` (version=, auto=) reloads without a restart;
+  `FORTNITEPORTING_MP_CHUNK_CACHE` shares one chunk cache between instances (chunk
+  files are named by hash). The owner's dev scripts live in fpfork-private.
 - **Exports prefetch.** A downloaded build's export has its packages read
   beside it, 12 at a time with their bulk data: the asset's (a map's streaming
   levels and partition cells too) and what they import, level by level, from

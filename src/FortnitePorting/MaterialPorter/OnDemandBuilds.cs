@@ -178,6 +178,55 @@ public static partial class OnDemandBuilds
     static readonly string[] IniOptions = ["StripAdditiveRefPose", "SkeletalMesh.KeepMobileMinLODSettingOnDesktop", "StaticMesh.KeepMobileMinLODSettingOnDesktop"];
 
     /// <summary>Reads with another Unreal version, keeping the options the build's config set.</summary>
+    const string ChunkBase = "https://egdownload.fastly-edge.com/Builds/Fortnite/CloudDir/";
+    private static readonly HttpClient Http = MakeClient();
+
+    private static HttpClient MakeClient()
+    {
+        var client = new HttpClient { Timeout = TimeSpan.FromSeconds(30) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("FortnitePorting");
+        return client;
+    }
+
+    /// <summary>
+    /// Whether Epic's CDN still has a build's files: one of its containers' chunks asked for. Epic drops the oldest
+    /// builds' chunks (24.x: every one answers 404); null when it can't be told (offline, a manifest that won't read).
+    /// </summary>
+    public static async Task<bool?> AvailableAsync(string manifest)
+    {
+        try
+        {
+            var source = manifest.Trim().Trim('"');
+            var bytes = Uri.TryCreate(source, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https"
+                ? await Http.GetByteArrayAsync(uri)
+                : await File.ReadAllBytesAsync(source);
+            return await AvailableAsync(FBuildPatchAppManifest.Deserialize(bytes, new ManifestParseOptions { ChunkBaseUrl = ChunkBase }));
+        }
+        catch (Exception e)
+        {
+            Log.Warning("[Material Porter] whether {Manifest}'s files are still on Epic's servers: unknown ({Error})", manifest, e.Message);
+            return null;
+        }
+    }
+
+    public static async Task<bool?> AvailableAsync(FBuildPatchAppManifest manifest)
+    {
+        try
+        {
+            var chunk = manifest.Files.Where(f => f.FileName.EndsWith(".utoc", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(f => f.ChunkParts).Select(p => p.Chunk).FirstOrDefault() ?? manifest.ChunkList.FirstOrDefault();
+            if (chunk is null) return null;
+            using var request = new HttpRequestMessage(HttpMethod.Head, chunk.GetUri(manifest));
+            using var response = await Http.SendAsync(request);
+            return response.StatusCode == System.Net.HttpStatusCode.NotFound ? false : response.IsSuccessStatusCode ? true : null;
+        }
+        catch (Exception e)
+        {
+            Log.Warning("[Material Porter] whether {Build}'s files are still on Epic's servers: unknown ({Error})", manifest.Meta.BuildVersion, e.Message);
+            return null;
+        }
+    }
+
     /// <summary>Reads with an explicit package file version, keeping the options the build's config set.</summary>
     public static void SetVer(global::CUE4Parse.UE4.Versions.VersionContainer versions, global::CUE4Parse.UE4.Versions.FPackageFileVersion ver)
     {

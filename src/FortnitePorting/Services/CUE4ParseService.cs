@@ -368,6 +368,14 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                 if (manifest is null) break;
 
                 Log.Information("On-Demand Build: {Build}", manifest.Meta.BuildVersion);
+                // (Epic drops its oldest builds' files: said once, rather than a 404 per container)
+                if (await MaterialPorter.OnDemandBuilds.AvailableAsync(manifest) == false)
+                {
+                    Log.Error("[Material Porter] {Build}: Epic's servers no longer have its files", manifest.Meta.BuildVersion);
+                    Info.Message("On-Demand Build", $"Epic's servers no longer have {manifest.Meta.BuildVersion}'s files (they answer \"not found\"): nothing can be loaded. Pick a newer build.",
+                        FluentAvalonia.UI.Controls.InfoBarSeverity.Error, autoClose: false);
+                    break;
+                }
                 LiveManifest = manifest;
                 await Provider.RegisterFiles(manifest);
 
@@ -376,6 +384,13 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                     && await CustomManifestAsync(AppSettings.Installation.CurrentProfile.StudioManifestPath, "materials are approximated") is { } studio)
                 {
                     Log.Information("On-Demand UEFN Build: {Build}", studio.Meta.BuildVersion);
+                    if (await MaterialPorter.OnDemandBuilds.AvailableAsync(studio) == false)
+                    {
+                        Log.Warning("[Material Porter] {Build}: Epic's servers no longer have its UEFN files", studio.Meta.BuildVersion);
+                        Info.Message("On-Demand Build", "Epic's servers no longer have this build's UEFN files: materials are approximated.",
+                            FluentAvalonia.UI.Controls.InfoBarSeverity.Warning, autoClose: false);
+                        break;
+                    }
                     _studioEngine = await StudioEngineAsync(studio);
                     try
                     {
@@ -534,7 +549,10 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     private ManifestParseOptions OnDemandManifestOptions() => new()
     {
         ChunkBaseUrl = "https://egdownload.fastly-edge.com/Builds/Fortnite/CloudDir/",
-        ChunkCacheDirectory = CacheFolder.FullName,
+        // Material Porter fork: FORTNITEPORTING_MP_CHUNK_CACHE shares one chunk cache between instances (test ones:
+        // chunks are named by their hash, any build's are the same file)
+        ChunkCacheDirectory = Environment.GetEnvironmentVariable("FORTNITEPORTING_MP_CHUNK_CACHE") is { Length: > 0 } shared
+            ? Directory.CreateDirectory(shared).FullName : CacheFolder.FullName,
         ManifestCacheDirectory = CacheFolder.FullName,
         Decompressor = Compression.Decompressor,
         // Material Porter fork: chunks cached decompressed - cached as downloaded, every read (an IoStore block,

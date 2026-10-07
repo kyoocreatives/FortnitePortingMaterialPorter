@@ -154,6 +154,24 @@ public partial class InstallationProfile : ObservableValidator
         StudioManifestPath = value.StudioManifest ?? string.Empty;
         FetchVersion = value.Version;
         _ = FetchVersionData();
+        _ = CheckBuildAsync(value);
+    }
+
+    // Material Porter fork: whether Epic still has the picked build's files (its oldest builds' are gone)
+    private async Task CheckBuildAsync(MaterialPorter.OnDemandBuild build)
+    {
+        if (await MaterialPorter.OnDemandBuilds.AvailableAsync(build.Manifest) == false)
+        {
+            Info.Message("Build", $"Epic's servers no longer have {build.Version}'s files (they answer \"not found\"): this build can't be loaded.",
+                FluentAvalonia.UI.Controls.InfoBarSeverity.Error, autoClose: false);
+            return;
+        }
+        if (build.StudioManifest is { } studio && await MaterialPorter.OnDemandBuilds.AvailableAsync(studio) == false)
+        {
+            if (SelectedBuild == build) StudioManifestPath = string.Empty;
+            Info.Message("Build", $"Epic's servers no longer have {build.Version}'s UEFN files: it loads, with approximated materials.",
+                FluentAvalonia.UI.Controls.InfoBarSeverity.Warning, autoClose: false);
+        }
     }
 
     public async Task FetchVersionData()
