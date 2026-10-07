@@ -3,8 +3,11 @@ An unofficial fork of [FortnitePorting](https://github.com/h4lfheart/FortnitePor
 **Install:** download `FortnitePortingMP.exe` below and run it (Windows x64, no installer). Windows may warn about an unsigned app: *More info > Run anyway*. It runs beside an installed FortnitePorting, with its own settings (`%APPDATA%\FortnitePorting MP`) and its own Blender plugin (`fortnite_porting_mp`), installed from the Plugins page as in FortnitePorting. Exact materials need Blender 5.0 or newer; older Blender gets FortnitePorting's shaders.
 
 **This release**
-- An emote imported onto a character makes its effects follow it: the outfit's idle effects are replayed on the animated bones (Elite Jules' flames stay on her legs and shoulders while she dances). For an animation of your own, select the effect and press *Replay Effect*.
-- Exact materials: a negative glow is dropped as in game (UE clamps emissive at 0 unless a material allows otherwise). Weapons whose time-of-day glow goes negative by day no longer lose their colour (Marker Bonerattler SMG came out magenta instead of green).
+- Shell fur, and subsurface settings for skin and fur.
+- Cleaner material node trees: fewer nodes, tidier layout, wires routed around nodes.
+- Max Texture Size setting (Export Options > Blender), and textures stay compressed on the GPU: much less VRAM.
+- Maps: Lights, Decals and Effects options, tree shadows fixed, and a drawn preview for maps without their own minimap.
+- Fixes for older builds (28.00 meshes, materials).
 
 **What it adds**
 - Exact materials, rebuilt from each material's Unreal graph. *Settings > Blender > Prefer FP Shaders for Characters* keeps FortnitePorting's shaders for character materials it has one for.
