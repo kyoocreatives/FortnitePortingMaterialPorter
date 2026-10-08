@@ -65,6 +65,48 @@ def _load(path, w, h):
     return img
 
 
+class Params(dict):
+    """A material's parameters by name, matched as UE matches FNames, without case (Nemia's instance sets "diffuse"
+    for its master's "Diffuse"). A later spelling of a name replaces the earlier one."""
+
+    def __init__(self, values=()):
+        super().__init__()
+        self._names = {}
+        for k, v in dict(values).items():
+            self[k] = v
+
+    def _name(self, k):
+        return self._names.get(k.lower(), k) if isinstance(k, str) else k
+
+    def __setitem__(self, k, v):
+        if isinstance(k, str):
+            old = self._names.get(k.lower())
+            if old is not None and old != k:
+                super().__delitem__(old)
+            self._names[k.lower()] = k
+        super().__setitem__(k, v)
+
+    def __getitem__(self, k):
+        return super().__getitem__(self._name(k))
+
+    def __contains__(self, k):
+        return super().__contains__(self._name(k))
+
+    def get(self, k, default=None):
+        return super().get(self._name(k), default)
+
+
+PARAM_KINDS = ("scalars", "vectors", "textures", "switches", "masks")
+
+
+def match_names(entry):
+    """The entry's parameter tables as Params (in place; once is enough)."""
+    for kind in PARAM_KINDS:
+        if not isinstance(entry.get(kind), Params):
+            entry[kind] = Params(entry.get(kind) or {})
+    return entry
+
+
 class MaterialEnv:
     nest_functions = True
     asset_paths = True          # textures and collections by object path
@@ -74,7 +116,7 @@ class MaterialEnv:
     whole_functions = True      # a function's group has all its outputs: materials share one group
 
     def __init__(self, app, entry, objects=()):
-        self.app, self.entry = app, entry
+        self.app, self.entry = app, match_names(entry)
         self.objects = [o for o in objects if o is not None]
         self.h = [None]
         self._once = {}

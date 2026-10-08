@@ -17,11 +17,12 @@ public sealed class MaterialInfo
     public List<string> Chain { get; set; } = new();
     public Dictionary<string, object> Asset { get; set; } = new();
     public Dictionary<string, object> Overrides { get; set; } = new();
-    public Dictionary<string, double> Scalars { get; set; } = new();
-    public Dictionary<string, double[]> Vectors { get; set; } = new();
-    public Dictionary<string, string> Textures { get; set; } = new();
-    public Dictionary<string, bool> Switches { get; set; } = new();
-    public Dictionary<string, bool[]> Masks { get; set; } = new();
+    // parameter names are FNames, case-insensitive: an instance may spell "diffuse" what its parent calls "Diffuse"
+    public Dictionary<string, double> Scalars { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, double[]> Vectors { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, string> Textures { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, bool> Switches { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, bool[]> Masks { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>The Subsurface Profile skin scatters by (nearest instance overriding it, else the master's).</summary>
     public SubsurfaceInfo Subsurface { get; set; }
     /// <summary>True when the master was cooked without its editor graph (a UEFN island's material): Blender approximates from the textures and values.</summary>

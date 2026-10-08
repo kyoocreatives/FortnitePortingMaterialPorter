@@ -11,14 +11,14 @@ import bpy
 from . import layout
 from .app_client import AppClient
 from . import world
-from .env import MaterialEnv, fit_socket
+from .env import MaterialEnv, fit_socket, match_names
 from .nodelib import SECTION_KEY
 from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PART_BOUNDS_MIN, HEAD_SOCKET, CARRIED, SHADING_MODELS, Translator, Val, merge_duplicates
 
 PREFIX = "MP "            # prefix of built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # game object the material translates
 KEY_REV = "mp_rev"        # build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 65       # bump when a builder change should rebuild existing materials
+BUILD_REVISION = 66       # bump when a builder change should rebuild existing materials
 KEY_REPLACES = "mp_replaces"
 KEY_FP = "mp_fp"          # function group fingerprint, for sharing groups
 KEY_VARIANT = "mp_variant"  # hash of a style's parameter values over the instance
@@ -1239,7 +1239,7 @@ def build_like(src, entry, app):
     root1 = _root_of(src)
     if root1 is None:
         return None
-    textures = entry.get("textures") or {}
+    textures = match_names(entry)["textures"]
     try:
         defaults = json.loads(src.get("mp_tex_defaults", "{}"))
         params = json.loads(root1["mp_params"])
