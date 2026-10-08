@@ -9,8 +9,8 @@ from .core import (
     T,
     TexKey,
     Val,
-    _Lazy,
-    _inner,
+    LazyInput,
+    inner_path,
     linked,
     object_path,
     section_name,
@@ -22,9 +22,9 @@ class StaticsMixin:
         """A texture (or collection) reference as the env names it: the object
         path when it asks for paths (env.asset_paths), else the name."""
         if isinstance(prop, dict):
-            name, path = _inner(str(prop.get("ObjectName", ""))), str(prop.get("ObjectPath", ""))
+            name, path = inner_path(str(prop.get("ObjectName", ""))), str(prop.get("ObjectPath", ""))
         else:
-            name, path = _inner(str(prop or "")), ""
+            name, path = inner_path(str(prop or "")), ""
         if getattr(self.env, "asset_paths", False) and path:
             return object_path(path, name)
         return name
@@ -79,7 +79,7 @@ class StaticsMixin:
             fo = self.function_output(fg, p.get("FunctionOutputs", []), ref.get("OutputIndex", 0) or 0)
             if fo is None:
                 return None
-            sub = {fi.get("ExpressionInputId"): _Lazy(g, fi.get("Input"), scope, self.section)
+            sub = {fi.get("ExpressionInputId"): LazyInput(g, fi.get("Input"), scope, self.section)
                    for fi in p.get("FunctionInputs", [])}
             sub["_id"] = ("static", id(x), g.path, scope.get("_id", 0))
             return self.static_bool(fg, fo["Properties"].get("A"), sub)
@@ -95,7 +95,7 @@ class StaticsMixin:
             v = fn.statics.get(fid)
         else:
             bound = scope.get(fid)
-            if isinstance(bound, _Lazy):
+            if isinstance(bound, LazyInput):
                 v = self.static_bool(bound.g, bound.ref, bound.scope)
         if v is None:
             v = self.static_bool(g, p.get("Preview"), scope)

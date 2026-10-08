@@ -64,7 +64,7 @@ GAP_DUMMY_Y = 20.0
 GAP_LANE_BOX = 40.0      # a lane or a loose node beside a frame
 LANE_LIMIT = 160         # reroutes a tree's lanes may make, the most useful first; past it, plain wires
 LANE_WORK = 40000        # ...and reroutes times the tree's nodes (each new node and link costs Blender a pass over the tree)
-ROUTE_LONG = 600.0       # a wire longer than this that climbs more than ROUTE_SLANT is routed level (_wire_routes)
+ROUTE_LONG = 600.0       # a wire longer than this that climbs more than ROUTE_SLANT is routed level (wire_routes)
 ROUTE_SLANT = 40.0
 ROUTE_M = 16.0           # a routed wire's clearance from nodes and frames
 ROUTE_SEP = 14.0         # ...and from another routed wire running level
@@ -75,8 +75,8 @@ ROUTE_GRID = 40000       # a route's grid past this: the plain wire
 ROUTE_SNAP = 8.0         # grid lines closer than this merge
 ROUTE_LANES = True
 SPLIT_FANOUTS = True
-HIDE_IDLE_INPUTS = True  # unlinked inputs still at their default hidden, Ctrl+H style (_hide_idle_inputs)
-PULL_UP = True           # rows rise into the free space above them (_pull_up)
+HIDE_IDLE_INPUTS = True  # unlinked inputs still at their default hidden, Ctrl+H style (hide_idle_inputs)
+PULL_UP = True           # rows rise into the free space above them (pull_up)
 ALIGN = "top"            # what a node lines up with its neighbours by: "top", "socket", "centre"
 GAP_PART_Y = 110.0       # between packed rows that don't wire to each other: parts read apart
 GAP_PART_X = 100.0       # the same, sideways
@@ -185,5 +185,5 @@ def socket_offset(n, sock):
 # A Group Input carries every interface socket (361 on the Variants group) and the cost of any link edit grows
 # with the sockets in the tree; a hundred copies make every later edit ten times slower. So until the last edit
 # a copy is stood in for by a Separate Bundle holding only the outputs that copy will show (same height and
-# order), and the real Group Input replaces it at the very end (_realize_inputs).
+# order), and the real Group Input replaces it at the very end (realize_inputs).
 STAND_IN = "fpv4_group_input"

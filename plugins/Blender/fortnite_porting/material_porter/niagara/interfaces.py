@@ -6,7 +6,7 @@ import numpy as np
 from .. import niagara_vm as vm
 from ..niagara_vm import F, I, Unsupported
 
-from .datasets import QUALITY, _rich, _specifiers, _zeros
+from .datasets import QUALITY, rich, specifier_dict, zero_outputs
 
 
 class Curve:
@@ -31,7 +31,7 @@ class Curve:
             keyed = [k.get("Time", 0.0) for c in channels for k in (props.get(c) or {}).get("Keys") or []]
             first, last = (min(keyed), max(keyed)) if keyed else (0.0, 1.0)
             x = np.linspace(first, last, 256)
-            self.lut = np.stack([_rich(props.get(c), x) for c in channels], axis=1)
+            self.lut = np.stack([rich(props.get(c), x) for c in channels], axis=1)
             self.start = F(first)
             self.scale = F(1.0 / (last - first)) if last > first else F(0.0)
         self.last = F(len(self.lut) - 1)
@@ -148,7 +148,7 @@ class ParticleRead:
         self.caller = None      # emitter whose script is being bound (Script sets it)
 
     def function(self, name, specifiers, inputs, outputs):
-        attribute = _specifiers(specifiers).get("Attribute")
+        attribute = specifier_dict(specifiers).get("Attribute")
         source = self.source if self.source and str(self.source) != "None" else self.caller
         reader = _Reader(self.system, source)
 
@@ -225,7 +225,7 @@ class RendererInfo:
         raise Unsupported("%s.%s" % (self.kind.replace("NiagaraDataInterface", ""), name))
 
 
-def _quaternion(rows):
+def quaternion(rows):
     """A rotation matrix (UE's: its rows the axes) as UE's quaternion (x, y, z, w)."""
     m = np.asarray(rows, np.float64)
     trace = m[0, 0] + m[1, 1] + m[2, 2]
@@ -289,7 +289,7 @@ class Skeleton:
             rotation = np.array([h[1] if h else (0.0, 0.0, 0.0, 1.0) for h in held], np.float64)
             rows = component[:3, :3]
             unit = rows / np.maximum(np.linalg.norm(rows, axis=1, keepdims=True), 1e-9)
-            built.append((position, rotation, position @ rows + component[3, :3], _multiply(_quaternion(unit), rotation)))
+            built.append((position, rotation, position @ rows + component[3, :3], _multiply(quaternion(unit), rotation)))
         self.cached = (system.ticks, built)
         return built
 
@@ -306,7 +306,7 @@ class Skeleton:
                 m = self.system.component
                 rows = m[:3, :3]
                 scale = np.linalg.norm(rows, axis=1)
-                q = _quaternion(rows / np.maximum(scale, 1e-9)[:, None])
+                q = quaternion(rows / np.maximum(scale, 1e-9)[:, None])
                 return [np.full(count, v, F) for v in (*m[3, :3], *q, *scale)][:outputs]
             return component
         if outputs == 1:
@@ -440,7 +440,7 @@ class Nothing:
         pass
 
     def function(self, name, specifiers, inputs, outputs):
-        return _zeros(outputs)
+        return zero_outputs(outputs)
 
 
 class NoMesh:

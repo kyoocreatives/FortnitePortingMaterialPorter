@@ -31,7 +31,7 @@ def bindings(renderer, emitter):
     return out
 
 
-def _bind(piece, carriers, bound, history, start, loop):
+def bind_parameters(piece, carriers, bound, history, start, loop):
     """Key a renderer's bound material parameters over the replay (where they change) on the piece and
     what draws it, as mp_bind_<parameter>. An Attribute node feeds that to the parameter's input on
     the piece's material, which is its own copy since other pieces may draw the same material with
@@ -263,7 +263,7 @@ def _keys(target, path, index, frames, values, loop):
         curve.modifiers.new('CYCLES')
 
 
-def _lights(piece, track, renderer, keep, scale, start, loop, parent, root):
+def particle_lights(piece, track, renderer, keep, scale, start, loop, parent, root):
     """A light renderer's particles as point lights, one per particle alive at once (up to LIGHTS_MAX),
     keyed frame by frame: position, colour (Color, scaled by alpha if the renderer says so, plus
     ColorAdd) and reach (LightRadius x RadiusScale). The power matches what UE's light gives a

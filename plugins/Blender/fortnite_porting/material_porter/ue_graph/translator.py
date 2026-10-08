@@ -17,12 +17,12 @@ from .core import (
     UE_DEFAULTS,
     Val,
     WATER_OUTPUTS,
-    _Lazy,
-    _MADE,
-    _PY,
-    _blender_vmath,
-    _ident,
-    _inner,
+    LazyInput,
+    MADE,
+    PY,
+    blender_vmath,
+    reuse_key,
+    inner_path,
     attribute_default,
     linked,
     load_graph,
@@ -57,7 +57,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         # per called material function, nested as UE nests them
         self.section = []
         self._shared = {}
-        self._made = _MADE.setdefault(tree.as_pointer(), {})
+        self._made = MADE.setdefault(tree.as_pointer(), {})
         if parent is None or parent.tree != tree:
             # a new tree can reuse a removed tree's address
             self._made.clear()
@@ -148,8 +148,8 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         return Val(v + (0.0,) * (3 - len(v)) if len(v) < 3 else v[:3], w or len(v))
 
     def math(self, op, a, b=None, c=None, clamp=False, label=""):
-        if a.const and (b is None or b.const) and (c is None or c.const) and not clamp and op in _PY:
-            return Val(_PY[op](a.s, None if b is None else b.s), 1)
+        if a.const and (b is None or b.const) and (c is None or c.const) and not clamp and op in PY:
+            return Val(PY[op](a.s, None if b is None else b.s), 1)
         if b is not None and c is None and not clamp:
             # x * 0, x * 1, x + 0, x - 0: known without a node (a weight of 0 drops its term)
             ka = a.s if a.const else None
@@ -180,7 +180,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             if flip and b.w == 1:
                 self._made[("1 - x", n.outputs[0].as_pointer())] = b
             return Val(n.outputs[0], 1)
-        return self.reuse(("math", op, clamp, _ident(a), _ident(b), _ident(c)), make)
+        return self.reuse(("math", op, clamp, reuse_key(a), reuse_key(b), reuse_key(c)), make)
 
     def vmath(self, op, a, b=None, c=None, label="", out_w=None):
         w = out_w or (a.w if op == 'SCALE' else max(x.w for x in (a, b, c) if x is not None))
@@ -189,9 +189,9 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             def vec(x):
                 return None if x is None else (float(x.s),) * 3 if isinstance(x.s, (int, float)) else tuple(x.s)[:3]
             if op == 'SCALE':
-                r = _blender_vmath(op, vec(a), float(b.s)) if isinstance(b.s, (int, float)) else None
+                r = blender_vmath(op, vec(a), float(b.s)) if isinstance(b.s, (int, float)) else None
             else:
-                r = _blender_vmath(op, vec(a), vec(b))
+                r = blender_vmath(op, vec(a), vec(b))
             if isinstance(r, float):
                 return Val(r, 1)
             if r is not None:
@@ -211,7 +211,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             if op in ("DOT_PRODUCT", "LENGTH", "DISTANCE"):
                 return Val(n.outputs["Value"], 1)
             return Val(n.outputs["Vector"], w)
-        return self.reuse(("vmath", op, w, _ident(a), _ident(b), _ident(c)), make)
+        return self.reuse(("vmath", op, w, reuse_key(a), reuse_key(b), reuse_key(c)), make)
 
     def alpha(self, v):
         """The 4th component of a value: its own for a float4, the value
@@ -304,7 +304,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             n = self.node("ShaderNodeClamp", "clamp", clamp_type='MINMAX')
             self.link(v, n.inputs["Value"]); self.link(mn, n.inputs["Min"]); self.link(mx, n.inputs["Max"])
             return Val(n.outputs[0], 1)
-        return self.reuse(("clamp", _ident(v), _ident(mn), _ident(mx)), make)
+        return self.reuse(("clamp", reuse_key(v), reuse_key(mn), reuse_key(mx)), make)
 
     def lerp(self, a, b, t, label="lerp"):
         if isinstance(a.s, Attrs) or isinstance(b.s, Attrs):
@@ -317,7 +317,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         if a.const and b.const and a.w == b.w == w and a.s == b.s and (w != 4 or (a.a is not None and b.a is not None
                                                                                 and a.a.const and b.a.const and a.a.s == b.a.s)):
             return a        # (between a value and itself: Hit Glow's colours, 0 and 0 at rest)
-        if not a.const and w < 4 and a.w == b.w == w and _ident(a) == _ident(b):
+        if not a.const and w < 4 and a.w == b.w == w and reuse_key(a) == reuse_key(b):
             return a
         x = self._made.get(("1 - x", t.s.as_pointer())) if t.w == 1 and hasattr(t.s, "as_pointer") else None
         if x is not None:
@@ -334,7 +334,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             self.link(t, n.inputs[1] if t.w > 1 else n.inputs[0])
             self.link(a, n.inputs[4]); self.link(b, n.inputs[5])
             return Val(n.outputs[1], w)
-        v = self.reuse(("lerp", w, _ident(a), _ident(b), _ident(t)), make)
+        v = self.reuse(("lerp", w, reuse_key(a), reuse_key(b), reuse_key(t)), make)
         if w == 4:
             ta = self.alpha(t) if t.w > 1 else t
             v = self.with_alpha(v, self.lerp(self.alpha(a), self.alpha(b), ta))
@@ -364,7 +364,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             n = self.node("ShaderNodeSeparateXYZ", "split")
             self.link(v, n.inputs[0])
             return [Val(n.outputs[i], 1) for i in range(3)]
-        return list(self.reuse(("split", _ident(v)), make))
+        return list(self.reuse(("split", reuse_key(v)), make))
 
     def combine(self, parts):
         parts = list(parts)
@@ -383,7 +383,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             self._made[("parts", n.outputs[0].as_pointer())] = \
                 [p if p.w == 1 else self.comps(p)[0] for p in parts] + [self.const(0.0)] * (3 - len(parts))
             return Val(n.outputs[0], len(parts))
-        return self.reuse(("append",) + tuple(_ident(p) for p in parts), make)
+        return self.reuse(("append",) + tuple(reuse_key(p) for p in parts), make)
 
     def mask(self, v, idx):
         """Components idx (0=R..3=A) of v."""
@@ -551,7 +551,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             if d is not None:
                 return d
         if "Declaration" in p:
-            full = _inner(str(p["Declaration"].get("ObjectName", "")))
+            full = inner_path(str(p["Declaration"].get("ObjectName", "")))
             return g.decl.get(full) or g.decl.get(full.split(":")[-1].split(".")[-1])
         return None
 
@@ -810,7 +810,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             return scope["_fn"].ue_input(x)
         if t == "FunctionInput":
             bound = scope.get(p.get("Id"))
-            if isinstance(bound, _Lazy):
+            if isinstance(bound, LazyInput):
                 bound = bound.get(self)
             if bound is not None:
                 return bound

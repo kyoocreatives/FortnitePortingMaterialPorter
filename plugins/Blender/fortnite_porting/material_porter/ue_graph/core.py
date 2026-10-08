@@ -383,7 +383,7 @@ CUSTOM_LAZY = {"custom_water_body_fixed", "custom_water_zone", "custom_water_inf
                "custom_water_info_velocity", "custom_gerstner_waves", "custom_zero", "custom_one"}
 
 
-class _LazyInputs(dict):
+class LazyInputs(dict):
     """A Custom node's inputs, each evaluated when first read."""
 
     def __init__(self, evaluate, refs):
@@ -505,17 +505,17 @@ def T(x):
     return (x.get("Type") or "").replace("MaterialExpression", "")
 
 
-def _inner(object_name):
+def inner_path(object_name):
     """"Class'Pkg:Outer.Name'" -> "Pkg:Outer.Name"."""
     return object_name.split("'")[1] if "'" in object_name else object_name
 
 
 # Nodes each tree's translation made, by what they compute (Translator.reuse): the same
 # value asked for twice gets the one node. merge_duplicates, which removes nodes, empties its tree's.
-_MADE = {}
+MADE = {}
 
 
-def _ident(v):
+def reuse_key(v):
     """A value as a node input, for Translator.reuse: its socket or number plus width;
     None for what no socket holds (Material Attributes, a texture reference)."""
     if v is None:
@@ -553,7 +553,7 @@ PIXEL_NORMAL = "PixelNormalWS"     # a function group's PixelNormalWS input (env
 NORMAL_PASS = "Normal pass"        # the frame the Normal's own pass is made in (Translator.normal_pass)
 
 
-def _comps3(s):
+def comps3(s):
     return tuple(s)[:3] if isinstance(s, (tuple, list)) else (s, s, s)
 
 
@@ -608,14 +608,14 @@ class Graph:
 
     @staticmethod
     def full_name(x):
-        outer = _inner(str((x.get("Outer") or {}).get("ObjectName", "")))
+        outer = inner_path(str((x.get("Outer") or {}).get("ObjectName", "")))
         return "%s%s%s" % (outer, "." if ":" in outer else ":", x.get("Name"))
 
     def key(self, ref):
         """The expression an input dict points at, as a key of `by`."""
         n = ref.get("ExpressionName")
         if n in self.dups:
-            return _inner(str((ref.get("Expression") or {}).get("ObjectName", ""))) or n
+            return inner_path(str((ref.get("Expression") or {}).get("ObjectName", ""))) or n
         return n
 
     def comment_of(self, x):
@@ -827,15 +827,15 @@ class FunctionTree:
         if out_name not in self.needs:
             want = self.go.inputs[out_name].identifier
             names = {s.identifier: s.name for s in self.gi.outputs}
-            self.needs[out_name] = {names[i] for i in _group_deps(self.tree, {}).get(want, ()) if i in names}
+            self.needs[out_name] = {names[i] for i in group_deps(self.tree, {}).get(want, ()) if i in names}
         return self.needs[out_name]
 
 
-class _Loop(Exception):
+class Loop(Exception):
     """A link into a shared call node that would close a loop through it."""
 
 
-class _Lazy:
+class LazyInput:
     """A function input, evaluated the first time the function reads it."""
     __slots__ = ("g", "ref", "scope", "done", "val", "section")
 
@@ -856,7 +856,7 @@ class _Lazy:
         return self.val
 
 
-class _Statics:
+class Statics:
     """A function scope that knows only its static values (compile-time
     questions about a function, asked without building it)."""
     __slots__ = ("statics",)
@@ -865,7 +865,7 @@ class _Statics:
         self.statics = statics
 
 
-class _SpecialInputs(list):
+class SpecialInputs(list):
     """Special functions read their inputs by index; evaluate on access."""
 
     def __init__(self, tr, lazies):
@@ -879,7 +879,7 @@ class _SpecialInputs(list):
         return (x.get(self.tr) for x in list.__iter__(self))
 
 
-def _group_deps(tree, memo):
+def group_deps(tree, memo):
     """{output socket identifier: {input socket identifiers it reads}} of a node group."""
     if tree.name in memo:
         return memo[tree.name]
@@ -910,7 +910,7 @@ def _group_deps(tree, memo):
         if n.bl_idname == "NodeGroupInput":
             return {ident}
         if n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None:
-            inner = _group_deps(n.node_tree, memo).get(ident)
+            inner = group_deps(n.node_tree, memo).get(ident)
             if inner is not None:
                 return set().union(*(ins.get(i, set()) for i in inner))
         return set().union(*ins.values())
@@ -924,18 +924,18 @@ def _group_deps(tree, memo):
     return memo[tree.name]
 
 
-_SHELL_ATTRIBUTES = {"ShellMeshShellLayerIndex": SHELL_LAYER, "ShellMeshNormalizedShellLayer": SHELL_LAYER_N,
+SHELL_ATTRIBUTES = {"ShellMeshShellLayerIndex": SHELL_LAYER, "ShellMeshNormalizedShellLayer": SHELL_LAYER_N,
                      "ShellMeshShellCount": SHELL_COUNT}
 
 
-_SHELL_VECTORS = {"ShellMeshLocalShellOffset": SHELL_OFFSET, "ShellMeshLocalShellVector": SHELL_VECTOR}
+SHELL_VECTORS = {"ShellMeshLocalShellOffset": SHELL_OFFSET, "ShellMeshLocalShellVector": SHELL_VECTOR}
 
 
 # constant folding (merge_duplicates): Blender's maths, as its nodes do it
 import math as _math
 
 
-def _blender_vmath(op, a, b=None):
+def blender_vmath(op, a, b=None):
     if op == "ADD": return tuple(x + y for x, y in zip(a, b))
     if op == "SUBTRACT": return tuple(x - y for x, y in zip(a, b))
     if op == "MULTIPLY": return tuple(x * y for x, y in zip(a, b))
@@ -955,7 +955,7 @@ def _blender_vmath(op, a, b=None):
     return None
 
 
-_PY = {
+PY = {
     "ADD": lambda a, b: a + b, "SUBTRACT": lambda a, b: a - b, "MULTIPLY": lambda a, b: a * b,
     "DIVIDE": lambda a, b: a / b if b else 0.0, "MAXIMUM": max, "MINIMUM": min,
     "POWER": lambda a, b: a ** b if a > 0 else 0.0,

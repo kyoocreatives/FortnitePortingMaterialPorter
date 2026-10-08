@@ -44,7 +44,7 @@ def _crosses(xa, ya, xb, yb, rects, skip):
     return False
 
 
-def _wire_routes(dag, real, trunks):
+def wire_routes(dag, real, trunks):
     """Reroutes for wires that would run behind a node or frame, long wires that would cross the graph on a slant,
     and a bundle read in several columns. Such a wire runs level and bends only where there is room, a dot at each
     end of a bend: few bends, none away from where it goes and back. Routed on the finished positions (the columns'
@@ -211,7 +211,7 @@ def _route_net(u, xa, ya, want, real, runs, lane):
     return pts, links, feeds
 
 
-def _pull_up(layers, dag, trunks=None, reads=None, trunk_port=None):
+def pull_up(layers, dag, trunks=None, reads=None, trunk_port=None):
     """Move rows up into the free space above them.
 
     A row is the items its level wires join (top edges equal, as Sugiyama lined them up), moved as one so its
@@ -257,7 +257,7 @@ def _pull_up(layers, dag, trunks=None, reads=None, trunk_port=None):
             for o in placed:
                 if o.x < it.x + it.w + 10.0 and it.x < o.x + o.w + 10.0:
                     lane = o.kind == "dummy" or it.kind == "dummy"
-                    gap = _vgap(o, it) if lane or mine in wired[id(o)] else max(_vgap(o, it), GAP_PART_Y)
+                    gap = vgap(o, it) if lane or mine in wired[id(o)] else max(vgap(o, it), GAP_PART_Y)
                     floor = max(floor, o.y + o.h + gap)
             room = it.y - floor
             shift = room if shift is None else min(shift, room)
@@ -267,7 +267,7 @@ def _pull_up(layers, dag, trunks=None, reads=None, trunk_port=None):
         placed += row
 
 
-def _pull_right(layers, dag):
+def pull_right(layers, dag):
     """Move each item right to just before the nearest thing that reads it, as far as nothing in its rows is in the way.
 
     A column is as wide as its widest item, so a short chain beside a long frame would otherwise wait at the left
@@ -299,7 +299,7 @@ def _pull_right(layers, dag):
             it.x = want
 
 
-def _vgap(a, b):
+def vgap(a, b):
     if a.kind == "box" and b.kind == "box":
         return GAP_BOX_Y
     if a.kind == "box" or b.kind == "box":

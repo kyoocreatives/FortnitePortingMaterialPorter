@@ -22,13 +22,13 @@ from .stand import (
     TURN_MESH_CAMERA,
     TURN_MESH_VELOCITY,
     TURN_OWN,
-    _moves,
-    _plain_world,
+    can_move,
+    plain_world,
     holder_of,
     program,
     replay,
 )
-from .points import Track, _bind, _lights, bindings, bound, points
+from .points import Track, bind_parameters, particle_lights, bindings, bound, points
 from .nodes import group, ribbons
 
 
@@ -69,7 +69,7 @@ def _camera(scene, root, scale, world):
     in world space or the effect's own space. None without a camera."""
     if scene.camera is None:
         return None
-    camera, there = _plain_world(scene.camera), _plain_world(root)
+    camera, there = plain_world(scene.camera), plain_world(root)
     if camera is None or there is None:
         bpy.context.view_layer.update()
         camera, there = scene.camera.matrix_world, root.matrix_world
@@ -197,7 +197,7 @@ def play(root):
     if KEY_LOOP not in root:
         root[KEY_LOOP] = not root.get(KEY_REPEATS) and root.get(effects.KEY_ROLE) not in ("trail", "swing", "event", "impact")
     loop = bool(root[KEY_LOOP])
-    stand = Stand(scene, root, rig, system.reads, scale, table) if _moves(root) else None
+    stand = Stand(scene, root, rig, system.reads, scale, table) if can_move(root) else None
     camera = _camera(scene, root, scale, stand is not None)
     if camera is not None:
         system.camera = camera
@@ -265,7 +265,7 @@ def play(root):
                 piece.hide_render = piece.hide_viewport = True      # none of this replay's particles belong to it
                 continue
             if kind == "Light":
-                made = _lights(piece, track, renderer, keep, scale, start, loop, node if stand is None or emitter.local else None, root)
+                made = particle_lights(piece, track, renderer, keep, scale, start, loop, node if stand is None or emitter.local else None, root)
                 piece.hide_render = piece.hide_viewport = True
                 drawn += bool(made)
                 continue
@@ -292,7 +292,7 @@ def play(root):
             bias_by_order(obj, modifier, tree, scene)
             tied = bindings(renderer, emitter)
             if tied:
-                bound_params.update(_bind(piece, (piece, obj), tied, system.history, start, loop))
+                bound_params.update(bind_parameters(piece, (piece, obj), tied, system.history, start, loop))
             # the drawn piece, when selected in the viewport, shows the piece's materials (the same ones:
             # an edit there changes what the particles draw; the points themselves draw nothing)
             for slot in piece.material_slots:

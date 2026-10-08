@@ -14,31 +14,31 @@ from .metrics import PURE_SOURCES, STAND_IN, UNUSED
 #
 # Sockets are kept by identifier, not by handle: a reroute rebuilds its sockets when the first link gives it
 # a type, and a handle taken before that points at freed memory.
-class _Wire:
+class Wire:
     __slots__ = ("link", "a", "ia", "type", "b", "ib")
 
     def __init__(self, link, a, ia, type_, b, ib):
         self.link, self.a, self.ia, self.type, self.b, self.ib = link, a, ia, type_, b, ib
 
 
-def _out(node, ident):
+def output_socket(node, ident):
     return next(s for s in node.outputs if s.identifier == ident)
 
 
-def _in(node, ident):
+def input_socket(node, ident):
     return next(s for s in node.inputs if s.identifier == ident)
 
 
-def _scan(tree):
+def scan_wires(tree):
     wires = []
     for l in tree.links:
         sa = l.from_socket
-        wires.append(_Wire(l, l.from_node, sa.identifier, sa.type,
+        wires.append(Wire(l, l.from_node, sa.identifier, sa.type,
                            l.to_node, l.to_socket.identifier))
     return wires
 
 
-def _adjacency(wires):
+def adjacency(wires):
     ins, outs = defaultdict(list), defaultdict(list)
     for w in wires:
         outs[w.a.name].append(w)
@@ -47,7 +47,7 @@ def _adjacency(wires):
 
 
 # ------------------------------------------------------------------ tags
-def _read_tags(tree):
+def read_tags(tree):
     tags = {}
     for n in tree.nodes:
         if n.bl_idname == "NodeFrame":
@@ -57,7 +57,7 @@ def _read_tags(tree):
     return tags
 
 
-def _is_source(n, ins):
+def is_source(n, ins):
     if n.bl_idname in PURE_SOURCES:
         return True
     if n.bl_idname == "NodeSeparateBundle":
@@ -66,13 +66,13 @@ def _is_source(n, ins):
     return n.bl_idname == "ShaderNodeValue" and _driver(n) is not None
 
 
-def _resolve_untagged(tree, tags, wires):
+def resolve_untagged(tree, tags, wires):
     """Nodes an insertion pass added after the builder finished.
 
     They go with the node they read from, which is where every pass inserts: the mirror after the
     object-space read, the grade after the variant colour, the cell variation after the LootHacker base.
     """
-    ins, outs = _adjacency(wires)
+    ins, outs = adjacency(wires)
     pending = [n for n in tree.nodes if n.name in tags and tags[n.name] is None]
     while pending:
         rest, moved = [], False
@@ -80,7 +80,7 @@ def _resolve_untagged(tree, tags, wires):
             votes = Counter()
             for w in ins[n.name]:
                 t = tags.get(w.a.name)
-                if t is not None and not _is_source(w.a, ins):
+                if t is not None and not is_source(w.a, ins):
                     votes[t] += 2
             for w in outs[n.name]:
                 t = tags.get(w.b.name)
@@ -98,9 +98,9 @@ def _resolve_untagged(tree, tags, wires):
         pending = rest
 
 
-def _park_dead(tree, tags, wires):
+def park_dead(tree, tags, wires):
     """Tag whatever no longer reaches the output into the Unused frame."""
-    ins, _ = _adjacency(wires)
+    ins, _ = adjacency(wires)
     live = set()
     stack = [n.name for n in tree.nodes if n.type in ('GROUP_OUTPUT', 'OUTPUT_MATERIAL')]
     while stack:
@@ -128,7 +128,7 @@ def _driver(n):
     return next((fc for fc in ad.drivers if fc.data_path == path), None)
 
 
-def _clone(tree, src):
+def clone_node(tree, src):
     c = tree.nodes.new(src.bl_idname)
     c.label = src.label
     c.width = src.width
@@ -166,30 +166,30 @@ def _key(n):
     return (n.bl_idname, props)
 
 
-def _relink(tree, a, ia, b, ib):
+def relink(tree, a, ia, b, ib):
     """Point input `ib` of `b` at output `ia` of `a`.
 
     A new link into a single input replaces the existing one, saving a separate remove
     (every edit costs Blender a tree update).
     """
-    sb = _in(b, ib)
+    sb = input_socket(b, ib)
     if sb.is_multi_input:
         for l in [l for l in tree.links if l.to_socket == sb]:
             tree.links.remove(l)
-    return tree.links.new(_out(a, ia), sb)
+    return tree.links.new(output_socket(a, ia), sb)
 
 
-def _out_of(node, ident, stand_ins):
+def source_output(node, ident, stand_ins):
     """Output `ident` of a node, or of the Group Input a stand-in stands for."""
     idents = stand_ins.get(node.name)
     if idents is None:
-        return _out(node, ident)
+        return output_socket(node, ident)
     outs = [s for s in node.outputs if s.identifier != "__extend__"]
     if ident in idents:
         return outs[idents.index(ident)]
     # Wires scanned after localizing name the stand-in's own outputs (Item_N), not the Group Input's (Socket_N).
     # A lane routed out of a stand-in into a nested frame arrives here with one of those; the two never collide.
-    return _out(node, ident)
+    return output_socket(node, ident)
 
 
 def _stand_in(tree, gi, idents):
@@ -206,7 +206,7 @@ def _stand_in(tree, gi, idents):
     return ph, kept
 
 
-def _localize_sources(tree, tags, wires):
+def localize_sources(tree, tags, wires):
     """Copy every pure input node into each frame that reads it, and a Group Input to each node that reads it,
     showing only what that node reads: a parameter sits beside its reader (one Group Input feeding a whole frame
     sent dozens of wires across it). A parameter bundle's Separate Bundle goes to each column of its readers with
@@ -214,21 +214,21 @@ def _localize_sources(tree, tags, wires):
 
     Returns (copies made, {stand-in name: Group Input output ids}).
     """
-    ins, outs = _adjacency(wires)
-    order = sorted((n for n in tree.nodes if n.name in tags and _is_source(n, ins)),
+    ins, outs = adjacency(wires)
+    order = sorted((n for n in tree.nodes if n.name in tags and is_source(n, ins)),
                    key=lambda n: 0 if n.bl_idname == "NodeSeparateBundle" else 1)
     sources = {n.name for n in order}
     # what each frame (or reader) reads from each source, so a stand-in can have exactly those outputs;
     # key (source, path, reader or None)
     stays, moves = set(), defaultdict(list)
-    rank = _ranks(tree, outs)
+    rank = node_ranks(tree, outs)
     for src in order:
         own = tags[src.name]
         split = src.bl_idname == "NodeSeparateBundle"
         for w in outs[src.name]:
             if src.type == 'GROUP_INPUT' and w.b.name not in sources:
                 moves[(src.name, tags[w.b.name], w.b.name)].append(w)
-            elif split and _in(w.b, w.ib).is_multi_input:
+            elif split and input_socket(w.b, w.ib).is_multi_input:
                 stays.add(src.name)     # a Join reads its links in order; relinking would change it
             elif split:
                 moves[(src.name, tags[w.b.name], ("column", rank.get(w.b.name, 0), ins[src.name][0].ia))].append(w)
@@ -264,20 +264,20 @@ def _localize_sources(tree, tags, wires):
                 c, stand_ins_ids = _stand_in(tree, src, needs[k])
                 stand_ins[c.name] = stand_ins_ids
             else:
-                c = _clone(tree, src)
+                c = clone_node(tree, src)
             tags[c.name] = path
             local[k] = c
             if src.bl_idname == "NodeSeparateBundle":
                 feed = ins[src.name][0]
                 gi = copy_in(feed.a, path, ("split", reader))
-                tree.links.new(_out_of(gi, feed.ia, stand_ins), c.inputs[0])
+                tree.links.new(source_output(gi, feed.ia, stand_ins), c.inputs[0])
         return local[k]
 
     for (name, path, reader), group in moves.items():
         c = copy_in(tree.nodes[name], path, reader)
         for w in group:
-            sb = _in(w.b, w.ib)
-            tree.links.new(_out_of(c, w.ia, stand_ins), sb)
+            sb = input_socket(w.b, w.ib)
+            tree.links.new(source_output(c, w.ia, stand_ins), sb)
     # a parameter bundle's Separate Bundle stays where most of its readers are, with its own Group Input
     # beside it (the first one's could be a frame away)
     for name in sorted(stays):
@@ -287,7 +287,7 @@ def _localize_sources(tree, tags, wires):
         feed = ins[name][0]
         needs[(_key(feed.a), tags[name], ("split", name))].add(feed.ia)
         gi = copy_in(feed.a, tags[name], ("split", name))
-        tree.links.new(_out_of(gi, feed.ia, stand_ins), n.inputs[0])
+        tree.links.new(source_output(gi, feed.ia, stand_ins), n.inputs[0])
     # an original nothing reads any more is clutter, but keep the first Group Input, which older code
     # looks the interface up through (a material's own tree has none)
     keep = next((n for n in tree.nodes if n.type == 'GROUP_INPUT'), None)
@@ -298,7 +298,7 @@ def _localize_sources(tree, tags, wires):
     return len(local), stand_ins
 
 
-def _ranks(tree, outs):
+def node_ranks(tree, outs):
     """Each node's longest path to an output, in links. Nodes with the same value share a column
     (the layering puts each just before its nearest reader)."""
     rank = {}

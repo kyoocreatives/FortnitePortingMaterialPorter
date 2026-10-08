@@ -2,7 +2,7 @@
 
 import math
 
-from .core import TexRef, Val, WATER_DEPTH_DEFAULT, _SHELL_ATTRIBUTES, _SHELL_VECTORS, render_tan_half_fov
+from .core import TexRef, Val, WATER_DEPTH_DEFAULT, SHELL_ATTRIBUTES, SHELL_VECTORS, render_tan_half_fov
 
 
 class RendererMixin:
@@ -281,9 +281,9 @@ class RendererMixin:
             return self._hook("particle_speed", lambda: self.stand_in("ParticleSpeed as 0", self.const(0.0)))
         if t == "PerInstanceFadeAmount":
             return self.stand_in("%s as 0" % t, self.const(0.0))
-        if t in _SHELL_ATTRIBUTES:
+        if t in SHELL_ATTRIBUTES:
             # the shell copy's layer (0 off the copies: the mesh itself, the base layer)
-            name = _SHELL_ATTRIBUTES[t]
+            name = SHELL_ATTRIBUTES[t]
             return self.shared(name, lambda: Val(self.node("ShaderNodeAttribute", name, attribute_type='GEOMETRY',
                                                            attribute_name=name).outputs["Fac"], 1))
         if t in ("ParticleMotionBlurFade", "SphericalParticleOpacity"):
@@ -295,9 +295,9 @@ class RendererMixin:
             return self._hook("particle_rotation", lambda: self.stand_in("ParticleSpriteRotation as 0", self.const((0.0, 0.0), 2)))
         if t == "ParticleDirection":
             return self._hook("particle_direction", lambda: self.stand_in("ParticleDirection as 0", self.const((0.0, 0.0, 0.0), 3)))
-        if t in _SHELL_VECTORS:
+        if t in SHELL_VECTORS:
             # the shell copy's offset from its root (UE local cm): the material moves it there (WPO)
-            name = _SHELL_VECTORS[t]
+            name = SHELL_VECTORS[t]
             return self.shared(name, lambda: self.from_blender(Val(self.node(
                 "ShaderNodeAttribute", name, attribute_type='GEOMETRY', attribute_name=name).outputs["Vector"], 3), point=True))
         if t == "SamplePhysicsVectorField":

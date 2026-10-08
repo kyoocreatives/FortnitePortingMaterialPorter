@@ -5,9 +5,9 @@ from .core import (
     FunctionTree,
     TexRef,
     Val,
-    _Lazy,
-    _Loop,
-    _SpecialInputs,
+    LazyInput,
+    Loop,
+    SpecialInputs,
     as_attrs,
     section_name,
     socket_name,
@@ -45,9 +45,9 @@ class FunctionsMixin:
         # Inputs bind lazily: UE compiles each function output on its own, so an output that
         # never reads an input must not evaluate it. The sky's horizon-hills mask feeds the chain
         # that ends in the same function's colour input: eager binding makes that a cycle.
-        ins = {fi.get("ExpressionInputId"): _Lazy(g, fi.get("Input"), scope, self.section)
+        ins = {fi.get("ExpressionInputId"): LazyInput(g, fi.get("Input"), scope, self.section)
                for fi in p.get("FunctionInputs", [])}
-        special = self.env.special_function(fname, _SpecialInputs(self, list(ins.values())))
+        special = self.env.special_function(fname, SpecialInputs(self, list(ins.values())))
         if special is not None:
             return special.get(out, self.const(0.0))
         found = self.function_graph(x)
@@ -191,7 +191,7 @@ class FunctionsMixin:
             try:
                 link_needs(needs, node, linked)
                 return node
-            except _Loop:
+            except Loop:
                 own, mine = fresh()
                 link_needs(needs, own, mine)
                 return own
@@ -221,7 +221,7 @@ class FunctionsMixin:
                 return
             if node.name in self.shared_calls and not v.const and not isinstance(v.s, (Attrs, TexRef))                     and self._closes_loop(node, v.s):
                 linked.discard(sock)
-                raise _Loop()
+                raise Loop()
             self.link(v, node.inputs[sock])
 
         if w == "attrs":

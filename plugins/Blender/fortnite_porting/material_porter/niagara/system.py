@@ -22,9 +22,9 @@ from .datasets import (
     SYSTEM_SIZE,
     Store,
     TYPES,
-    _zeros,
+    zero_outputs,
 )
-from .interfaces import INTERFACES, LIBRARY, Skeleton, _quaternion
+from .interfaces import INTERFACES, LIBRARY, Skeleton, quaternion
 
 
 class Script:
@@ -58,7 +58,7 @@ class Script:
                 kind = str(((owner or {}).get("ResolvedDataInterface") or {}).get("ObjectName") or f.get("OwnerName")).split("'")[0]
                 if lenient:
                     system.unanswered.add("%s.%s" % (kind.replace("NiagaraDataInterface", ""), f.get("Name")))
-                    self.functions.append(_zeros(outputs))
+                    self.functions.append(zero_outputs(outputs))
                     continue
                 raise Unsupported("%s.%s" % (kind.replace("NiagaraDataInterface", ""), f.get("Name")))
             if hasattr(interface, "caller"):
@@ -70,7 +70,7 @@ class Script:
                 if not lenient:
                     raise
                 system.unanswered.add(str(e))
-                self.functions.append(_zeros(outputs))
+                self.functions.append(zero_outputs(outputs))
 
     def run(self, count, blocks, sets, rng, ids=None):
         return vm.run(self.program, self.registers, count, b"".join(blocks) + self.literals, sets, self.functions, rng, ids)
@@ -444,7 +444,7 @@ class System:
         velocity = (m[3, :3] - before) / dt if self.ticks else np.zeros(3)
         for at, matrix in enumerate((m, inverse, m.T, inverse.T, plain, plain_inverse)):
             self.owner[64 * at:64 * at + 64] = matrix.astype(F).tobytes()
-        struct.pack_into("<4f", self.owner, 384, *_quaternion(unit))
+        struct.pack_into("<4f", self.owner, 384, *quaternion(unit))
         for at, v in ((400, m[3, :3]), (416, velocity), (432, unit[0]), (448, unit[1]), (464, unit[2]), (480, scale)):
             struct.pack_into("<3f", self.owner, at, *v)
 

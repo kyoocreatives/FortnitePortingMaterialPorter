@@ -3,27 +3,27 @@
 from collections import defaultdict
 
 from .metrics import STAND_IN, UNUSED
-from .wires import _Wire, _adjacency, _clone, _in, _is_source, _out, _ranks, _relink, _scan
+from .wires import Wire, adjacency, clone_node, input_socket, is_source, output_socket, node_ranks, relink, scan_wires
 
 
-def _split_fanouts(tree, tags, wires):
+def split_fanouts(tree, tags, wires):
     """Split a Separate Bundle read across many columns, which would send a wire per item the whole way.
 
     Each column of readers (a frame's nodes equally far from the output) gets its own copy right before it,
     showing only what that column reads, and only the bundle travels (one wire shared by every copy).
     Readers through a multi-input socket keep the original (a Join reads its links in order); one fed by a
-    Group Input is a pure input, copied per frame later (_localize_sources).
+    Group Input is a pure input, copied per frame later (localize_sources).
 
     Returns the copies made."""
-    ins, outs = _adjacency(wires)
-    rank = _ranks(tree, outs)
+    ins, outs = adjacency(wires)
+    rank = node_ranks(tree, outs)
     made = 0
     for n in [n for n in tree.nodes if n.bl_idname == "NodeSeparateBundle" and STAND_IN not in n]:
-        if len(ins[n.name]) != 1 or n.name not in tags or _is_source(n, ins):
+        if len(ins[n.name]) != 1 or n.name not in tags or is_source(n, ins):
             continue
         groups = defaultdict(list)
         for w in outs[n.name]:
-            if w.b.name in tags and not _in(w.b, w.ib).is_multi_input:
+            if w.b.name in tags and not input_socket(w.b, w.ib).is_multi_input:
                 groups[(tags[w.b.name], rank[w.b.name])].append(w)
         if len(groups) < 2:
             continue
@@ -31,20 +31,20 @@ def _split_fanouts(tree, tags, wires):
         idents = [o.identifier for o in n.outputs]
         # the nearest column keeps the original
         for k in sorted(groups, key=lambda k: -k[1])[1:]:
-            c = _clone(tree, n)
+            c = clone_node(tree, n)
             tags[c.name] = k[0]
-            tree.links.new(_out(feed.a, feed.ia), c.inputs[0])
+            tree.links.new(output_socket(feed.a, feed.ia), c.inputs[0])
             for w in groups[k]:
-                tree.links.new(c.outputs[idents.index(w.ia)], _in(w.b, w.ib))
+                tree.links.new(c.outputs[idents.index(w.ia)], input_socket(w.b, w.ib))
             made += 1
     return made
 
 
-def _realize_inputs(tree, stand_ins):
+def realize_inputs(tree, stand_ins):
     """Swap every stand-in for the Group Input it stands for."""
     N = tree.nodes
     feeds = defaultdict(list)
-    for w in _scan(tree):
+    for w in scan_wires(tree):
         if w.a.name in stand_ins:
             feeds[w.a.name].append(w)
     for name, idents in stand_ins.items():
@@ -56,7 +56,7 @@ def _realize_inputs(tree, stand_ins):
             s.hide = s.identifier not in idents
         outs = [s.identifier for s in ph.outputs if s.identifier != "__extend__"]
         for w in feeds[name]:
-            _relink(tree, gi, idents[outs.index(w.ia)], w.b, w.ib)
+            relink(tree, gi, idents[outs.index(w.ia)], w.b, w.ib)
         N.remove(ph)
 
 
@@ -78,7 +78,7 @@ def _port_name(node, src):
     return name
 
 
-def _ports(tree, tags, wires):
+def frame_ports(tree, tags, wires):
     """Reroutes where a signal crosses a frame's edge, UE comment-box style.
 
     Exits first, inside out. A value made deep inside a frame and read outside would leave from wherever its node
@@ -94,9 +94,9 @@ def _ports(tree, tags, wires):
     """
     L = tree.links
     pins = {}
-    ins, _ = _adjacency(wires)
+    ins, _ = adjacency(wires)
     # nor a wire into a multi-input socket (a Join reads its links in order; a relink there replaces them all)
-    live = [w for w in wires if not _is_source(w.a, ins) and not _in(w.b, w.ib).is_multi_input]
+    live = [w for w in wires if not is_source(w.a, ins) and not input_socket(w.b, w.ib).is_multi_input]
     paths = {p[:k] for p in tags.values() if p for k in range(1, len(p) + 1)}
     paths = [p for p in paths if p[0] != UNUSED]
 
@@ -113,12 +113,12 @@ def _ports(tree, tags, wires):
     def carry(group, r):
         """Feed `r` from the group's source and the group's readers from `r`."""
         node, ia, type_ = group[0].a, group[0].ia, group[0].type
-        link = L.new(_out(node, ia), r.inputs[0])
-        made = [_Wire(link, node, ia, type_, r, link.to_socket.identifier)]
+        link = L.new(output_socket(node, ia), r.inputs[0])
+        made = [Wire(link, node, ia, type_, r, link.to_socket.identifier)]
         r_out = r.outputs[0].identifier
         for w in group:
-            link = _relink(tree, r, r_out, w.b, w.ib)
-            made.append(_Wire(link, r, r_out, type_, w.b, w.ib))
+            link = relink(tree, r, r_out, w.b, w.ib)
+            made.append(Wire(link, r, r_out, type_, w.b, w.ib))
         return made
 
     for path in sorted(paths, key=lambda p: (-len(p), p)):
@@ -137,7 +137,7 @@ def _ports(tree, tags, wires):
         for group in groups.values():
             if item(tags[group[0].a.name], depth, group[0].a) not in busy:
                 continue
-            src = _out(group[0].a, group[0].ia)
+            src = output_socket(group[0].a, group[0].ia)
             r = reroute(path, _port_name(group[0].a, src) + EXIT_MARK, "last")
             gone.update(id(w) for w in group)
             made += carry(group, r)
@@ -164,7 +164,7 @@ def _ports(tree, tags, wires):
             deep = any(item(tags[w.b.name], depth, w.b) in fed for w in group)
             if len(group) < 2 and not deep:
                 continue
-            src = _out(group[0].a, group[0].ia)
+            src = output_socket(group[0].a, group[0].ia)
             r = reroute(path, PORT_MARK + _port_name(group[0].a, src), "first")
             gone.update(id(w) for w in group)
             made += carry(group, r)
@@ -179,7 +179,7 @@ COLLAPSIBLE = {"ShaderNodeSeparateXYZ", "ShaderNodeCombineXYZ", "ShaderNodeSepar
                "ShaderNodeCombineColor", "NodeEvaluateClosure"}
 
 
-def _collapse_trivial(tree, wires):
+def collapse_trivial(tree, wires):
     fed = {(w.b.name, w.ib) for w in wires}
     for n in tree.nodes:
         if n.bl_idname not in COLLAPSIBLE or getattr(n, "mode", 'RGB') != 'RGB':
@@ -188,7 +188,7 @@ def _collapse_trivial(tree, wires):
             n.hide = True
 
 
-def _hide_unused_outputs(tree, wires):
+def hide_unused_outputs(tree, wires):
     used = {(w.a.name, w.ia) for w in wires}
     for n in tree.nodes:
         if n.bl_idname in ("NodeFrame", "NodeReroute", "NodeGroupOutput"):
@@ -241,7 +241,7 @@ def _defaults(tree, n):
     return _DEFAULTS[key]
 
 
-def _hide_idle_inputs(tree, wires):
+def hide_idle_inputs(tree, wires):
     """Ctrl+H where nothing is lost: hide unlinked inputs still at their default (and ones with no value),
     except on operators and in a material's own tree, whose group node inputs are the material's controls."""
     if tree.is_embedded_data:

@@ -3,7 +3,7 @@
 from collections import defaultdict
 
 from .metrics import ALIGN, GAP_BOX_X, GAP_BOX_Y, GAP_NODE_X, GAP_NODE_Y, LABEL, PAD, PULL_UP, ROUTE_LANES
-from .routing import _pull_right, _pull_up, _vgap, _wire_routes
+from .routing import pull_right, pull_up, vgap, wire_routes
 
 
 # ------------------------------------------------------------------ boxes
@@ -34,7 +34,7 @@ class Box:
         return PAD if self.path else 0.0
 
 
-def _build_boxes(tree, tags):
+def build_boxes(tree, tags):
     root = Box((), None)
     index = {}
     for i, n in enumerate(tree.nodes):
@@ -63,7 +63,7 @@ def _build_boxes(tree, tags):
 
 
 # ------------------------------------------------------------------ sugiyama
-class _It:
+class It:
     __slots__ = ("key", "kind", "obj", "w", "h", "x", "y", "layer", "pos",
                  "order", "pin", "dot")
 
@@ -101,7 +101,7 @@ def _settle(col, desired, weight):
     n = len(col)
     c = [0.0] * n
     for i in range(1, n):
-        c[i] = c[i - 1] + col[i - 1].h + _vgap(col[i - 1], col[i])
+        c[i] = c[i - 1] + col[i - 1].h + vgap(col[i - 1], col[i])
     blocks = []
     for i in range(n):
         blocks.append([desired[i] - c[i], weight[i], 1])
@@ -212,7 +212,7 @@ def _brandes_koepf(layers, ins, outs):
                     ra, rb = id(root[id(a)]), id(root[id(b)])
                     if ra == rb:
                         continue
-                    sep = a.h + _vgap(a, b) + off[id(a)] - off[id(b)]
+                    sep = a.h + vgap(a, b) + off[id(a)] - off[id(b)]
                     if down:
                         succ[ra].append((rb, sep))
                     else:
@@ -249,7 +249,7 @@ def _brandes_koepf(layers, ins, outs):
         _settle(col, [it.y for it in col], [1.0] * len(col))
 
 
-def _sugiyama(items, edges):
+def sugiyama(items, edges):
     """Place `items`, x and y relative to the block's top-left.
 
     edges: (u, v, u_port, v_port, weight, wire) with ports measured from each
@@ -339,7 +339,7 @@ def _sugiyama(items, edges):
         reads[key].append((v, pv, wire))
         while chain[-1].layer < v.layer - 1:
             prev = chain[-1]
-            d = _It(key, "dummy", u, 0.0, 0.0, u.order)
+            d = It(key, "dummy", u, 0.0, 0.0, u.order)
             d.layer = prev.layer + 1
             layers[d.layer].append(d)
             segs.append((prev, d, pu if prev is u else 0.0, 0.0, 3.0))
@@ -407,7 +407,7 @@ def _sugiyama(items, edges):
         y = 0.0
         for i, it in enumerate(col):
             if i:
-                y += col[i - 1].h + _vgap(col[i - 1], it)
+                y += col[i - 1].h + vgap(col[i - 1], it)
             it.y = y
 
     def target(it, other, p_it, p_other):
@@ -484,14 +484,14 @@ def _sugiyama(items, edges):
         else:
             x += width
 
-    _pull_right(layers, dag)
+    pull_right(layers, dag)
     if PULL_UP:
-        _pull_up(layers, dag, trunks, reads, trunk_port)
+        pull_up(layers, dag, trunks, reads, trunk_port)
     _snap_sources(layers, dag)
 
     placed = []
     if ROUTE_LANES:
-        placed += _wire_routes(dag, real, trunks)
+        placed += wire_routes(dag, real, trunks)
     return x, max(it.y + it.h for it in real), placed
 
 
@@ -505,9 +505,9 @@ def _straighten(layers, trunks, reads, trunk_port):
     def room(it, y, h):
         l, i = where[id(it)]
         col = layers[l]
-        if i > 0 and col[i - 1].y + col[i - 1].h + _vgap(col[i - 1], it) > y + 0.01:
+        if i > 0 and col[i - 1].y + col[i - 1].h + vgap(col[i - 1], it) > y + 0.01:
             return False
-        if i + 1 < len(col) and y + h + _vgap(it, col[i + 1]) > col[i + 1].y + 0.01:
+        if i + 1 < len(col) and y + h + vgap(it, col[i + 1]) > col[i + 1].y + 0.01:
             return False
         return True
     for key, chain in trunks.items():

@@ -12,8 +12,8 @@ from .core import (
     T,
     VERTEX_ATTRIBUTES,
     Val,
-    _Lazy,
-    _Statics,
+    LazyInput,
+    Statics,
     as_attrs,
     attribute_default,
     attribute_name,
@@ -85,9 +85,9 @@ class AttributesMixin:
             fo = self.function_output(fg, p.get("FunctionOutputs", []), ref.get("OutputIndex") or 0)
             if fo is None:
                 return {}
-            ins = {fi.get("ExpressionInputId"): _Lazy(g, fi.get("Input"), scope, self.section)
+            ins = {fi.get("ExpressionInputId"): LazyInput(g, fi.get("Input"), scope, self.section)
                    for fi in p.get("FunctionInputs", [])}
-            inner = {"_fn": _Statics(self.function_statics(fg, ins)), "_id": ("pass", id(x))}
+            inner = {"_fn": Statics(self.function_statics(fg, ins)), "_id": ("pass", id(x))}
             out, mine = {}, {}
             for a, fid in self.passthrough(fg, fo["Properties"].get("A"), inner).items():
                 lazy = ins.get(fid)

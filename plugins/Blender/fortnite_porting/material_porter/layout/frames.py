@@ -17,16 +17,16 @@ from .metrics import (
     node_width,
     socket_offset,
 )
-from .wires import _in, _localize_sources, _out_of, _park_dead, _read_tags, _resolve_untagged, _scan
+from .wires import input_socket, localize_sources, source_output, park_dead, read_tags, resolve_untagged, scan_wires
 from .ports import (
-    _collapse_trivial,
-    _hide_idle_inputs,
-    _hide_unused_outputs,
-    _ports,
-    _realize_inputs,
-    _split_fanouts,
+    collapse_trivial,
+    hide_idle_inputs,
+    hide_unused_outputs,
+    frame_ports,
+    realize_inputs,
+    split_fanouts,
 )
-from .placement import _It, _build_boxes, _sugiyama
+from .placement import It, build_boxes, sugiyama
 
 
 # ------------------------------------------------------------------ layout
@@ -44,9 +44,9 @@ def _layout(box, index, ports):
     for name, kid in box.kids.items():
         # retired terms go last, under whatever shares their column
         order = float("inf") if name == UNUSED else kid.order
-        items[("box", name)] = _It(("box", name), "box", kid, kid.w, kid.h, order)
+        items[("box", name)] = It(("box", name), "box", kid, kid.w, kid.h, order)
     for n in box.nodes:
-        items[("node", n.name)] = _It(("node", n.name), "node", n, node_width(n),
+        items[("node", n.name)] = It(("node", n.name), "node", n, node_width(n),
                                       node_height(n), index[n.name],
                                       pin=ports.get(n.name))
 
@@ -68,7 +68,7 @@ def _layout(box, index, ports):
         edges.append((u, v, port(u, link.from_node, link.from_socket),
                       port(v, link.to_node, link.to_socket), 2.0 if main else 1.0, wire))
 
-    w, h, box.lanes = _sugiyama(list(items.values()), edges)
+    w, h, box.lanes = sugiyama(list(items.values()), edges)
     for it in items.values():
         if it.kind == "box":
             it.obj.x, it.obj.y = it.x, it.y
@@ -162,13 +162,13 @@ def _apply(tree, root, stand_ins):
     for src, ident, dots, links, feeds in routed:
         def out_of(i):
             if i < 0:
-                return _out_of(N[src], ident, stand_ins)
+                return source_output(N[src], ident, stand_ins)
             return dots[i].outputs[0]
         for i, j in links:
             tree.links.new(out_of(i), dots[j].inputs[0])
         for to, to_ident, i in feeds:
-            tree.links.new(out_of(i), _in(N[to], to_ident))
-    _realize_inputs(tree, stand_ins)
+            tree.links.new(out_of(i), input_socket(N[to], to_ident))
+    realize_inputs(tree, stand_ins)
     return sum(len(r[2]) for r in routed)
 
 
@@ -176,23 +176,23 @@ def arrange(tree):
     """Frame, place and tidy every node of `tree`. Returns a short report."""
     for n in [n for n in tree.nodes if n.bl_idname == "NodeFrame"]:
         tree.nodes.remove(n)
-    tags = _read_tags(tree)
+    tags = read_tags(tree)
     untagged = sum(1 for t in tags.values() if t is None)
-    wires = _scan(tree)
-    _resolve_untagged(tree, tags, wires)
-    parked = _park_dead(tree, tags, wires)
-    split = _split_fanouts(tree, tags, wires) if SPLIT_FANOUTS else 0
+    wires = scan_wires(tree)
+    resolve_untagged(tree, tags, wires)
+    parked = park_dead(tree, tags, wires)
+    split = split_fanouts(tree, tags, wires) if SPLIT_FANOUTS else 0
     if split:
-        wires = _scan(tree)
-    ports = _ports(tree, tags, wires)
-    copies, stand_ins = _localize_sources(tree, tags, _scan(tree))
+        wires = scan_wires(tree)
+    ports = frame_ports(tree, tags, wires)
+    copies, stand_ins = localize_sources(tree, tags, scan_wires(tree))
     copies += split
-    wires = _scan(tree)
-    _hide_unused_outputs(tree, wires)
+    wires = scan_wires(tree)
+    hide_unused_outputs(tree, wires)
     if HIDE_IDLE_INPUTS:
-        _hide_idle_inputs(tree, wires)
-    _collapse_trivial(tree, wires)
-    root, index = _build_boxes(tree, tags)
+        hide_idle_inputs(tree, wires)
+    collapse_trivial(tree, wires)
+    root, index = build_boxes(tree, tags)
     _layout(root, index, ports)
     lanes = _apply(tree, root, stand_ins)
     for n in tree.nodes:

@@ -2,7 +2,7 @@
 
 import math as _math
 
-from .core import NORMAL_PASS, SECTION_KEY, _MADE, _blender_vmath, _group_deps
+from .core import NORMAL_PASS, SECTION_KEY, MADE, blender_vmath, group_deps
 
 # ------------------------------------------------------------------ duplicates
 # Translation makes a node per expression pin and per call output: a texture read
@@ -62,7 +62,7 @@ def merge_duplicates(tree, memo=None):
     in HLSL, are nodes here) is the vector again; maths that hands a value on unchanged
     (x * 1, x + 0) goes; so does what reaches no output. Returns how many nodes went."""
     memo = {} if memo is None else memo
-    _MADE.get(tree.as_pointer(), {}).clear()
+    MADE.get(tree.as_pointer(), {}).clear()
     nodes = {n.as_pointer(): n for n in tree.nodes}
     ins, outs, indeg = {}, {}, dict.fromkeys(nodes, 0)
     for l in tree.links:
@@ -123,7 +123,7 @@ def merge_duplicates(tree, memo=None):
         return False
 
     def needs(p, n):
-        deps = _group_deps(n.node_tree, memo)
+        deps = group_deps(n.node_tree, memo)
         every = {s.identifier for s in n.inputs}
         got = set()
         for f, _b, _t in outs.get(p, ()):
@@ -393,7 +393,7 @@ def merge_duplicates(tree, memo=None):
                 return constant(p, {n.outputs["Vector"].identifier: (0.0, 0.0, 0.0)})
             if any(v is None for v in vals):
                 return False
-            r = _blender_vmath(op, *vals)
+            r = blender_vmath(op, *vals)
             if r is None:
                 return False
             out = n.outputs["Value"] if isinstance(r, float) else n.outputs["Vector"]

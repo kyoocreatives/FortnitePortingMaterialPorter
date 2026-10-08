@@ -106,7 +106,7 @@ def holder_of(root):
     return rig
 
 
-def _moves(root):
+def can_move(root):
     """Whether anything could move the effect over the frames: a parent, or its own animation."""
     return root.parent is not None or root.animation_data is not None
 
@@ -124,7 +124,7 @@ def _animated(root):
     return False
 
 
-def _plain_world(obj):
+def plain_world(obj):
     """An object's world matrix computed from its own transforms, or None where that wouldn't match the
     scene's (a parent on a bone or vertex, a constraint, an animation or a driver up the chain).
     matrix_world is stale for objects made since the last evaluation, and evaluating a scene of tens of
@@ -177,7 +177,7 @@ class Stand:
         if self.still is None:
             self.scene.frame_set(frame)
         # a still effect with no bones to read: use its objects' own transforms, without evaluating the scene
-        world = _plain_world(self.root) if self.still is False and self.rig is None and not self.bones else None
+        world = plain_world(self.root) if self.still is False and self.rig is None and not self.bones else None
         if world is None:
             bpy.context.view_layer.update()
             world = self.root.matrix_world
@@ -186,7 +186,7 @@ class Stand:
         for name, (bone, place) in self.bones.items():
             m = _ue(place if bone is None else bone.matrix @ place if place is not None else bone.matrix, self.scale)
             rows = m[:3, :3]
-            pose[name] = (m[3, :3].copy(), niagara._quaternion(rows / np.maximum(np.linalg.norm(rows, axis=1, keepdims=True), 1e-9)))
+            pose[name] = (m[3, :3].copy(), niagara.quaternion(rows / np.maximum(np.linalg.norm(rows, axis=1, keepdims=True), 1e-9)))
         stand = (owner, _ue(self.rig.matrix_world, self.scale) if self.rig is not None else owner, pose)
         if self.still is False:
             self.still = stand

@@ -104,7 +104,7 @@ class Store:
             self.data[self.size:2 * self.size] = self.data[:self.size]
 
 
-def _specifiers(listed):
+def specifier_dict(listed):
     """A function's specifiers ({Key, Value} pairs) as a dict."""
     found = {}
     for item in listed or []:
@@ -113,11 +113,11 @@ def _specifiers(listed):
     return found
 
 
-def _zeros(outputs):
+def zero_outputs(outputs):
     return lambda count, inputs: [np.zeros(count, I)] * outputs
 
 
-def _rich(curve, x):
+def rich(curve, x):
     """An editor curve (FRichCurve) at the times x: constant outside its keys, linear or cubic between."""
     keys = sorted((curve or {}).get("Keys") or [], key=lambda k: k.get("Time", 0.0))
     if not keys:

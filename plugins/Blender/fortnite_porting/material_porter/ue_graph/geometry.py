@@ -1,6 +1,6 @@
 """Transforms, normals and positions."""
 
-from .core import BOUNDS_CENTRE, HEAD_SOCKET, PIXEL_NORMAL, POSITION_SPACES, VECTOR_SPACES, Val, _comps3
+from .core import BOUNDS_CENTRE, HEAD_SOCKET, PIXEL_NORMAL, POSITION_SPACES, VECTOR_SPACES, Val, comps3
 
 
 class GeometryMixin:
@@ -143,7 +143,7 @@ class GeometryMixin:
                 n = None
             finally:
                 self._normal_busy = False
-            if n is None or n.const and tuple(_comps3(n.s)) == (0.0, 0.0, 1.0):
+            if n is None or n.const and tuple(comps3(n.s)) == (0.0, 0.0, 1.0):
                 return None
             return self.from_blender(self.material_normal(n, mode[1]))
         got = self.shared("pixel normal", make)

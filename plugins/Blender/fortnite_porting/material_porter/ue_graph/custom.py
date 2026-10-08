@@ -2,7 +2,7 @@
 
 import math
 
-from .core import Attrs, CUSTOM_LAZY, TexRef, Val, _LazyInputs, custom_handler, linked
+from .core import Attrs, CUSTOM_LAZY, TexRef, Val, LazyInputs, custom_handler, linked
 
 
 class CustomMixin:
@@ -14,7 +14,7 @@ class CustomMixin:
         handler = custom_handler(p)
         if handler in CUSTOM_LAZY:
             # reads only some inputs: the rest never become nodes
-            ins = _LazyInputs(lambda ref: self.input(g, ref, scope, self.const(0.0)),
+            ins = LazyInputs(lambda ref: self.input(g, ref, scope, self.const(0.0)),
                               {i.get("InputName"): i.get("Input") for i in p.get("Inputs", [])})
         else:
             ins = {i.get("InputName"): self.input(g, i.get("Input"), scope, self.const(0.0))
