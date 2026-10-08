@@ -143,6 +143,42 @@ def _user(root, system):
         system.set_user(name, list(value) if hasattr(value, "__len__") else value)
 
 
+# a reactive outfit's effects build up as the game raises this over a match (SypherPK's 0 to 5);
+# below a piece's stage its particles carry a visibility tag no renderer draws
+STAGE = "User.FX Stage"
+STAGES = 10             # highest stage probed
+PROBE_FRAMES = 30       # enough for every emitter to spawn and tag its particles
+
+
+def _hidden(system, tracks, exports):
+    """Emitters whose particles all carry a visibility tag none of their renderers draws."""
+    hidden = []
+    for emitter in system.emitters:
+        if not tracks.get(emitter.name):
+            continue
+        track = Track(emitter, tracks[emitter.name])
+        if not track.total:
+            continue
+        renderers = [e["props"] for e in exports if e["outer"] == emitter.export["name"] and "RendererProperties" in e["type"]]
+        tags = [(bound(r, "RendererVisibilityTagBinding", "VisibilityTag"), int(r.get("RendererVisibility", 0))) for r in renderers]
+        if tags and all(track.has(tag) and not (track.get(tag, (0,))[:, 0].astype(np.int64) == shown).any() for tag, shown in tags):
+            hidden.append(emitter.name)
+    return hidden
+
+
+def _last_stage(root, exports, fields, sockets, fps):
+    """The first FX Stage at which a reactive effect shows all its emitters (probed over a short replay),
+    left on the effect's empty; None, and the stage left at 0, when it shows at 0 or never does."""
+    for stage in range(STAGES + 1):
+        root[STAGE] = stage
+        probe = niagara.System(exports, fields=fields, sockets=sockets)
+        _user(root, probe)
+        if not _hidden(probe, replay(probe, fps, PROBE_FRAMES), exports):
+            return stage or None
+    root[STAGE] = 0
+    return None
+
+
 def _together(runs, names):
     """Several plays of an effect as one: each frame holds all plays' particles."""
     length = max([offset + len(track) for offset, tracks in runs for track in tracks.values()] or [0])
@@ -185,9 +221,10 @@ def play(root):
     clear(root)
     sockets = [s for s in str(root.get(KEY_SOCKETS) or "").split(",") if s]
     system = niagara.System(exports, fields=fields, sockets=sockets)
+    fps = scene.render.fps / scene.render.fps_base
+    staged = _last_stage(root, exports, fields, sockets, fps) if STAGE in system.user.offsets and STAGE not in root else None
     _user(root, system)
     rig = holder_of(root)
-    fps = scene.render.fps / scene.render.fps_base
     # scene frame the effect starts on: the range's first, unless its Start Frame property says otherwise
     if KEY_START not in root:
         root[KEY_START] = scene.frame_start
@@ -371,6 +408,12 @@ def play(root):
         guessed = [e.name for e in system.emitters if e.name in gpu and getattr(e, "guessed", False)]
         yield "%s: %s: GPU emitters, approximated (their counts, curves and materials the asset's; their particles held still around them, as where they go isn't kept%s)" % (
             root.name, ", ".join(gpu), "; %s spawned at a stand-in rate: what makes the game spawn it isn't in the replay" % ", ".join(guessed) if guessed else "")
+    if staged:
+        yield "%s: a reactive effect (the game raises its FX Stage over a match): played at stage %d, where all of it shows. "               "For an earlier stage set User.FX Stage on the effect's empty, then Replay Effect" % (root.name, staged)
+    untagged = [name for name in _hidden(system, tracks, exports) if name not in played]
+    if untagged:
+        yield "%s: %s: no particle goes to a renderer (their visibility tag waits on something the game sets), %s" % (
+            root.name, ", ".join(untagged[:6]), "hidden" if worn else "left as pieces")
     idle = [e.name for e in system.emitters if e.name not in played and not sum(f[0].shape[1] for f in tracks.get(e.name) or [])]
     if idle:
         # user parameters the game sets that are still off here (a burst count, a switch) are the likely wait
