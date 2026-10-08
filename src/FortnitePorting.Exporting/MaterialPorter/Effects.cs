@@ -165,9 +165,10 @@ public static class Effects
         }
     }
 
-    /// <summary>Whether a style of the item swaps one of its effects for one that shows something (NS_Empty for an aura).</summary>
-    public static bool StyleEffects(UObject item)
+    /// <summary>The systems the item's styles swap its effects for, those that show something (not NS_Empty for an aura).</summary>
+    public static List<UObject> StyleSystems(UObject item)
     {
+        var systems = new List<UObject>();
         try
         {
             foreach (var variant in item.GetOrDefault("ItemVariants", Array.Empty<UObject>()))
@@ -175,13 +176,12 @@ public static class Effects
                     if (property.Tag?.GenericValue is UScriptArray { Properties: var options })
                         foreach (var option in options.Select(o => o.GetValue(typeof(FStructFallback))).OfType<FStructFallback>())
                         {
-                            if (option.GetOrDefault("VariantParticles", Array.Empty<FStructFallback>())
-                                .Any(s => Shown(s.GetOrDefault<FSoftObjectPath>("OverrideParticleSystem")) is not null))
-                                return true;
+                            systems.AddRange(option.GetOrDefault("VariantParticles", Array.Empty<FStructFallback>())
+                                .Select(s => Shown(s.GetOrDefault<FSoftObjectPath>("OverrideParticleSystem"))).OfType<UObject>());
                             // a style's own parts (Blackheart's later stages: a body whose part has the aura)
                             foreach (var path in option.GetOrDefault("VariantParts", Array.Empty<FSoftObjectPath>()))
-                                if (path.TryLoad(out UObject? part) && Shown(part.GetOrDefault<FSoftObjectPath>(PartEffect)) is not null)
-                                    return true;
+                                if (path.TryLoad(out UObject? part) && Shown(part.GetOrDefault<FSoftObjectPath>(PartEffect)) is { } system)
+                                    systems.Add(system);
                         }
         }
         catch (Exception e)
@@ -189,7 +189,7 @@ public static class Effects
             Failures.Note("item effect styles", item.Name, e);
             // an item whose styles don't read is treated as having none
         }
-        return false;
+        return systems;
     }
 
     /// <summary>An outfit's character parts: its own, else its hero definition's first specialization's.</summary>
@@ -261,7 +261,7 @@ public static class Effects
                 return item.GetOrDefault<UObject?>("WeaponDefinition") is { } weapon ? PickaxeEffectNames(weapon) : [];
             case EExportType.Backpack or EExportType.Outfit:
                 var parts = type is EExportType.Backpack ? item.GetOrDefault("CharacterParts", Array.Empty<UObject>()) : OutfitParts(item);
-                return parts.Any(p => Shown(p.GetOrDefault<FSoftObjectPath>(PartEffect)) is not null) || StyleEffects(item) ? ["idle"] : [];
+                return parts.Any(p => Shown(p.GetOrDefault<FSoftObjectPath>(PartEffect)) is not null) || StyleSystems(item).Count > 0 ? ["idle"] : [];
             case EExportType.Glider:
                 return GliderTrails(item).Any(t => Shown(t.System) is not null) ? ["trail"] : [];
             case EExportType.Sprite:
@@ -275,6 +275,37 @@ public static class Effects
             default:
                 return [];
         }
+    }
+
+    /// <summary>The systems behind OwnEffectNames.</summary>
+    public static List<UObject> OwnSystems(UObject item, EExportType type)
+    {
+        IEnumerable<UObject?> systems = type switch
+        {
+            EExportType.Pickaxe when item.GetOrDefault<UObject?>("WeaponDefinition") is { } weapon =>
+                PickaxeEffects.Select(e => Shown(weapon.GetDataListItem<FSoftObjectPath>(e.Property)))
+                    .Concat(PickaxeImpacts(weapon).Select(i => Shown(i.System))),
+            EExportType.Backpack or EExportType.Outfit =>
+                (type is EExportType.Backpack ? item.GetOrDefault("CharacterParts", Array.Empty<UObject>()) : OutfitParts(item))
+                .Select(p => Shown(p.GetOrDefault<FSoftObjectPath>(PartEffect))).Concat(StyleSystems(item)),
+            EExportType.Glider => GliderTrails(item).Select(t => Shown(t.System)),
+            EExportType.Sprite => [Shown(item.GetDataListItem<FSoftObjectPath>(SpriteEffect))],
+            EExportType.Item => WeaponComponents(item.GetOrDefault<UObject?>("WeaponActorClass") ?? item.GetDataListItem<UObject?>("WeaponActorClass"))
+                .Select(c => c.Component.GetOrDefault<UObject?>("Asset")),
+            _ => []
+        };
+        return systems.OfType<UObject>().DistinctBy(s => s.GetPathName()).ToList();
+    }
+
+    /// <summary>What the export can't replay: GPU emitters have no script, so their particles come out still (niagara_gpu).</summary>
+    public static string? GpuNote(List<UObject> systems)
+    {
+        var emitters = systems.SelectMany(Emitters).ToList();
+        var gpu = emitters.Count(e => e.Sim == "GPU");
+        if (gpu == 0) return null;
+        return gpu == emitters.Count
+            ? "GPU-driven: particles come out still, without motion."
+            : $"{gpu} of {emitters.Count} emitters GPU-driven: those come out still.";
     }
 
     /// <summary>Whether a name is set and isn't None.</summary>

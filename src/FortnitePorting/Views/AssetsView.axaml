@@ -16,6 +16,7 @@
              xmlns:loading="clr-namespace:FortnitePorting.Controls.Loading"
              xmlns:converters="clr-namespace:FortnitePorting.Converters"
              xmlns:assetControls="clr-namespace:FortnitePorting.Controls.Assets"
+             xmlns:mp="clr-namespace:FortnitePorting.Views.MaterialPorter"
              d:DesignHeight="720" d:DesignWidth="1280"
              x:Class="FortnitePorting.Views.AssetsView"
              x:DataType="viewModels:AssetsViewModel">
@@ -362,10 +363,11 @@
                                                                    HorizontalAlignment="Center"
                                                                    Classes="BodyStrongTextBlockStyle" />
 
+                                                        <mp:StyleSwitch Grid.Row="2" IsVisible="{Binding IsSwitch}" />     <!-- MP: a switch instead of a list (ShowsList below) -->
                                                         <DropDownButton Grid.Row="2" Margin="{ext:Space 1, 0}"
                                                                         HorizontalAlignment="Stretch"
                                                                         CornerRadius="12"
-                                                                        IsVisible="{Binding !MultiSelect}">
+                                                                        IsVisible="{Binding ShowsList}">
                                                             <DropDownButton.Flyout>
                                                                 <Flyout>
                                                                     <Panel>     <!-- MP: a search and a tile grid when there are many options (a car's wheel sets) -->

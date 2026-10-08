@@ -4,9 +4,25 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace FortnitePorting.Models.Assets;
 
-/// <summary>A channel with many options (a car's wheel sets) picked from a searchable tile grid in its pop-up instead of a list.</summary>
+/// <summary>
+/// Two other ways to pick: a searchable tile grid for many options (a car's wheel sets), and a switch for a channel that is
+/// one option to take or leave (an item's effects: option 0 off, option 1 on).
+/// </summary>
 public partial class AssetStyleInfo
 {
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ShowsList))] private bool _isSwitch;
+    [ObservableProperty] private string _switchNote = string.Empty;
+
+    public bool ShowsList => !MultiSelect && !IsSwitch;
+
+    public bool SwitchOn
+    {
+        get => SelectedStyleIndex == 1;
+        set => SelectedStyleIndex = value ? 1 : 0;
+    }
+
+    public string SwitchLabel => StyleDatas.Count > 1 ? StyleDatas[1].StyleName : string.Empty;
+
     [ObservableProperty] private bool _isPicker;
     [ObservableProperty] private string _pickerSearch = string.Empty;
 
@@ -27,7 +43,13 @@ public partial class AssetStyleInfo
 
     partial void OnIsPickerChanged(bool value) => RefreshPicker();
     partial void OnPickerSearchChanged(string value) => RefreshPicker();
-    partial void OnSelectedStyleIndexChanged(int value) => OnPropertyChanged(nameof(PickerSelection));
+    partial void OnMultiSelectChanged(bool value) => OnPropertyChanged(nameof(ShowsList));
+
+    partial void OnSelectedStyleIndexChanged(int value)
+    {
+        OnPropertyChanged(nameof(PickerSelection));
+        OnPropertyChanged(nameof(SwitchOn));
+    }
 
     // a list clearing its selection (its items or pop-up going away) must not unpick a channel that needs a pick:
     // the export would read StyleDatas[-1]

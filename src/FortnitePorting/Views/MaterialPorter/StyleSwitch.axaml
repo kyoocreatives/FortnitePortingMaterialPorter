@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ext="clr-namespace:FortnitePorting.Extensions;assembly=FortnitePorting"
+             xmlns:assets="clr-namespace:FortnitePorting.Models.Assets"
+             x:Class="FortnitePorting.Views.MaterialPorter.StyleSwitch"
+             x:DataType="assets:AssetStyleInfo">
+    <StackPanel Margin="{ext:Space 1, 0}" Spacing="2">
+        <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Text="{Binding SwitchLabel}" VerticalAlignment="Center"
+                       Classes="CaptionTextBlockStyle" TextTrimming="CharacterEllipsis" />
+            <ToggleSwitch Grid.Column="1" IsChecked="{Binding SwitchOn}" OnContent="" OffContent="" MinWidth="0" />
+        </Grid>
+        <TextBlock Text="{Binding SwitchNote}" IsVisible="{Binding SwitchNote, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Classes="CaptionTextBlockStyle TextFillColorSecondaryBrush" TextWrapping="Wrap" />
+    </StackPanel>
+</UserControl>

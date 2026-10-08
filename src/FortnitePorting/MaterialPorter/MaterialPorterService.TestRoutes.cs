@@ -422,7 +422,7 @@ public partial class MaterialPorterService
                 }
                 var page = info.StyleInfos.Select(c => new
                 {
-                    c.ChannelName, options = c.StyleDatas.Count, c.IsPicker, selected = c.SelectedStyle.StyleName,
+                    c.ChannelName, options = c.StyleDatas.Count, c.IsPicker, c.IsSwitch, c.SwitchNote, selected = c.SelectedStyle.StyleName,
                     images = c.StyleDatas.Count(d => d.StyleDisplayImage is not null), first = c.StyleDatas.Take(6).Select(d => d.StyleName),
                 }).ToList();
                 if (query["export"] != "1") return JToken.FromObject(new { page });

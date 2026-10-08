@@ -125,9 +125,8 @@ public partial class AssetInfo
         });
     }
 
-    // An item's Effects: without (as FP exports it), or with its own effects (Effects.OwnEffectNames: a pickaxe's trail, swing
-    // and idle effects, a back bling's or outfit's idle effect, a glider's, weapon's or sprite's trails), which the export
-    // puts on the item and the plugin plays on its sockets.
+    // An item's Effects switch: off as FP exports it, on with its own effects (Effects.OwnEffectNames), which the plugin
+    // plays on the item's sockets. The note says which of them are GPU-driven.
     private void AddEffectStyles()
     {
         var item = Asset.CreationData.Object;
@@ -139,8 +138,14 @@ public partial class AssetInfo
             {
                 var names = Effects.OwnEffectNames(item, type);
                 if (names.Count == 0) return;
-                var options = new List<EffectsStyleData> { new("None", false), new("Its " + string.Join(", ", names), true) };
-                var info = new AssetStyleInfo("Effects", options) { SelectedStyleIndex = 0 };
+                var label = string.Join(", ", names);
+                var options = new List<EffectsStyleData> { new("None", false), new(char.ToUpper(label[0]) + label[1..], true) };
+                var info = new AssetStyleInfo("Effects", options)
+                {
+                    SelectedStyleIndex = 0,
+                    IsSwitch = true,
+                    SwitchNote = Effects.GpuNote(Effects.OwnSystems(item, type)) ?? string.Empty
+                };
                 await Dispatcher.UIThread.InvokeAsync(() => StyleInfos.Add(info));
             }
             catch (Exception e)
