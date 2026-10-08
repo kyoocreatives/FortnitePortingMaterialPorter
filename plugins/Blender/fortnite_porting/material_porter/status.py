@@ -1,10 +1,9 @@
-"""Material Porter fork: what an import does, told to the FP app's status log.
+"""What an import does, sent to the FP app's status log.
 
-The plugin's log lines (FP's Log, the exact materials' notes) and an import's
-begin, end and summary go to the app's bridge ("log" route), where they show
-in its log drawer under the status line, as Material Porter's app shows an
-import. Sent from a background thread in batches: the import never waits on
-it, and nothing is sent when the app isn't there to listen.
+The plugin's log lines (FP's Log, the exact materials' notes) and an import's begin, end and
+summary go to the app's bridge ("log" route) and show in its log drawer under the status line.
+They are sent from a background thread in batches, so the import never waits on them, and nothing
+is sent when the app isn't listening.
 """
 import http.client
 import json
@@ -17,18 +16,18 @@ import urllib.parse
 
 URL = os.environ.get("MATERIAL_PORTER_BRIDGE", "http://localhost:24320")
 
-BATCH_SECONDS = 0.3     # lines gathered this long go in one request
+BATCH_SECONDS = 0.3     # seconds of lines gathered into one request
 BATCH_LINES = 30        # past this, a batch keeps its first and last lines and counts the rest
 MAX_QUERY = 6000        # characters of lines per request
 
-_ANSI = re.compile(r"\x1b\[[0-9;]*m")    # the console colours FP's Log prints
+_ANSI = re.compile(r"\x1b\[[0-9;]*m")    # console colours printed by FP's Log
 _queue = queue.Queue()
 _thread = None
 _lock = threading.Lock()
 
 
 def post(line, state=None):
-    """Tell the app a line (and/or an import's "begin"/"end")."""
+    """Send the app a line (and/or an import's "begin"/"end")."""
     global _thread
     if line is not None:
         line = _ANSI.sub("", str(line))
@@ -79,8 +78,8 @@ def _run():
 
 
 def _batches(items):
-    """(state, lines) requests: a state change sends what came before it; a
-    long run of lines keeps its first and last ones and counts the rest."""
+    """(state, lines) requests: a state change sends what came before it, and a long run of
+    lines keeps its first and last ones and counts the rest."""
     out, lines = [], []
 
     def flush(state=None):

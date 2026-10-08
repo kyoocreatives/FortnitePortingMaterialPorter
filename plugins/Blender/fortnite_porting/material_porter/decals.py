@@ -1,22 +1,19 @@
-"""A level's decals (Exports[0]["Decals"], the Material Porter fork's map reader): each a quad in the
-decal's own Y-Z plane, projected along its X onto the meshes under it, with the decal material.
+"""A level's decals (Exports[0]["Decals"]): each a quad in the decal's own Y-Z plane, projected
+along its X onto the meshes under it, with the decal material.
 
-UE draws a deferred decal by projecting its material through a box (DecalSize are the box's half extents,
-times the component's scale) onto whatever the box holds. Eevee has no such projection, so the quad is
-bent onto the surfaces instead: the quad is a grid, and each of its vertices is moved along the decal's
-X (both ways, within the box's depth) onto the surface met - the nearest one that faces the decal's
-origin side, else the nearest - and lifted off it by the normal; a vertex that meets none stays on the
-plane. The surfaces are the scene's meshes as they are when the decals are placed (so: after the
-meshes): a ray per vertex and direction, against each mesh's own BVH (scene.ray_cast walks all the
-scene's objects for every ray: 15 ms each on an island's 30,000, 60,000 rays).
+UE projects a deferred decal's material through a box (DecalSize is the half extents, times the
+component's scale) onto whatever the box holds. Eevee has no such projection, so the quad is a grid
+bent onto the surfaces: each vertex moves along the decal's X (both ways, within the box depth) onto
+the nearest surface that faces the decal's origin side, else the nearest, and is lifted off it along
+the normal. A vertex that meets nothing stays on the plane. The surfaces are the scene's meshes when
+the decals are placed (after the meshes), hit with one ray per vertex and direction against each
+mesh's own BVH (scene.ray_cast walks every object per ray: 15 ms each on an island's 30,000 objects).
 
-UVs: the decal's texture runs along its Z (U, left to right) and its Y (V, rows down: the image's top at
--Y), the box's -1..1 mapped to 0..1 - seen from the decal's origin side, looking along its X, the image
-is upright and unmirrored, its right along +Z. (From the Cristaline island's own logo decals, the only
-textured ones there: DecalLogo's 1280x731 logo sits on boxes whose Z is 1.65 times their Y, and with
-roll 90 on both flanks of a trailer, and on a hood, it reads upright, undistorted, not mirrored. Y for
-U, Z for V - the other way round - turns every one of them on its side and stretches it.) In Blender's
-frame (the import mirrors UE's Y: FP's make_vector / make_euler) the grid's V runs along +Y.
+UVs: the texture runs along the decal's Z (U, left to right) and Y (V, rows down, image top at -Y),
+the box's -1..1 mapped to 0..1. Seen from the origin side looking along X, the image is upright and
+unmirrored, its right along +Z. This was checked on the Cristaline island's logo decals (1280x731
+logo on boxes with Z 1.65 times Y, roll 90): Y for U and Z for V turns them on their side. In
+Blender's frame (the import mirrors UE's Y) the grid's V runs along +Y.
 """
 import time
 
@@ -28,19 +25,19 @@ from mathutils.bvhtree import BVHTree
 from ..logger import Log
 
 KEY = "mp_decal"                # on a decal object: the decal material's name
-KEY_SORT = "mp_decal_sort"      # its SortOrder (UE draws a higher one over a lower)
-KEY_BOX = "mp_decal_box"        # its box's half extents, UE cm (X is the projection depth)
-KEY_HITS = "mp_decal_hits"      # how many of its vertices found a surface
-KEY_FACING = "mp_decal_facing"  # (and how many of those on a surface that faces the decal's origin side)
-KEY_VERTS = "mp_decal_verts"    # of how many
+KEY_SORT = "mp_decal_sort"      # SortOrder (UE draws a higher one over a lower)
+KEY_BOX = "mp_decal_box"        # box half extents, UE cm (X is the projection depth)
+KEY_HITS = "mp_decal_hits"      # vertices that found a surface
+KEY_FACING = "mp_decal_facing"  # of those, on a surface facing the decal's origin side
+KEY_VERTS = "mp_decal_verts"    # total vertices
 KEY_FADE = "mp_decal_fade_screen_size"
 
 LIFT = 1.0                      # cm off the surface...
-LIFT_SORT = 0.2                 # ...and a SortOrder's 2 mm more per step (z-fighting between layers)
-CELL = 100.0                    # cm: a grid cell this wide or less (and at least MIN_CELLS across)
+LIFT_SORT = 0.2                 # ...plus 2 mm per SortOrder step (avoids z-fighting between layers)
+CELL = 100.0                    # cm: grid cell width (MIN_CELLS..MAX_CELLS across)
 MIN_CELLS, MAX_CELLS = 8, 32
-MARGIN = 2.0                    # cm: how far from a decal's box a mesh's bounds still count
-MAX_PASSES = 4                  # faces turned away a ray goes past, looking for one that faces the decal
+MARGIN = 2.0                    # cm: how far outside a decal's box a mesh's bounds still count
+MAX_PASSES = 4                  # max back-facing hits a ray skips looking for a face toward the decal
 
 
 def _log(message):
@@ -48,8 +45,8 @@ def _log(message):
 
 
 class _Surfaces:
-    """The scene's meshes as ray targets: their world bounds (to find those under a decal), a BVH built
-    for each when first needed (in its object space; cached: a road is under many decals)."""
+    """The scene's meshes as ray targets: world bounds to find those under a decal, and a BVH per
+    mesh built on first use (in object space, cached because a road is under many decals)."""
 
     def __init__(self, scene):
         self.depsgraph = bpy.context.evaluated_depsgraph_get()
@@ -62,7 +59,7 @@ class _Surfaces:
         for i, o in enumerate(self.objects):
             try:
                 corners[i] = o.bound_box
-            except (ValueError, TypeError):     # (no bounds: an empty mesh)
+            except (ValueError, TypeError):     # empty mesh has no bounds
                 keep[i] = False
             mats[i] = o.matrix_world
         world = np.einsum("nij,nkj->nki", mats[:, :3, :3], corners) + mats[:, None, :3, 3]
@@ -86,7 +83,7 @@ class _Surfaces:
                     m = o.matrix_world.copy()
                     got = (BVHTree.FromObject(o, self.depsgraph), m, m.inverted_safe(), m.to_3x3().inverted_safe().transposed())
                     self.built += 1
-            except Exception:       # (no evaluated mesh: a surface to skip)
+            except Exception:       # no evaluated mesh: skip this surface
                 pass
             self.bvh[i] = got
         return got
@@ -97,8 +94,8 @@ def _segments(extent_cm):
 
 
 def _slab(origins, direction, depth, low, high):
-    """Which (origin, box) pairs a segment from each origin along +-direction (up to depth) can meet:
-    the slab test, on arrays (origins n x 3, boxes m x 3) -> n x m bool."""
+    """Slab test: which boxes (m x 3 bounds) a segment from each origin (n x 3) along +-direction,
+    up to depth, can meet. Returns n x m bool."""
     p = origins[:, None, :]
     lo, hi = low[None, :, :], high[None, :, :]
     d = np.where(np.abs(direction) < 1e-9, 1e-9, direction)[None, None, :]
@@ -108,14 +105,13 @@ def _slab(origins, direction, depth, low, high):
 
 
 def _project(surfaces, indices, origins, direction, depth, pad):
-    """Per origin, the surface a decal paints there, along +-direction within depth: (distance from the
-    origin or inf, hit point, outward normal, whether it faces the decal's origin side). One ray per
-    origin and direction against the meshes it can reach.
+    """Per origin, the surface a decal paints there along +-direction within depth: (distance or inf,
+    hit point, outward normal, faces the decal's origin side). One ray per origin and direction
+    against the meshes it can reach.
 
-    The surface is the nearest one that faces the decal's origin side (its outward normal against the
-    projection: what a viewer standing where the decal is looks at), else the nearest of any: a decal
-    inside a hollow box (a trailer's logo, its plane inside the wall) goes on the wall's outer face,
-    not the inner face a ray meets first. A ray that meets a face turned away goes on past it."""
+    The surface is the nearest one facing the decal's origin side, else the nearest of any. So a
+    decal inside a hollow box (a trailer logo, its plane inside the wall) lands on the wall's outer
+    face, not the inner face a ray meets first. A ray that meets a back-facing face goes on past it."""
     n = len(origins)
     front = np.full(n, np.inf)
     anyhit = np.full(n, np.inf)
@@ -141,7 +137,7 @@ def _project(surfaces, indices, origins, direction, depth, pad):
                 continue
             local_ray = local_ray / scale
             limit = depth * scale
-            step = 1e-4 * scale         # (to get past a face a ray went through)
+            step = 1e-4 * scale         # to get past a face the ray went through
             for r in rows:
                 o = Vector(origins[r])
                 start = inv @ o
@@ -175,8 +171,8 @@ def _project(surfaces, indices, origins, direction, depth, pad):
 
 
 def _kind(mat):
-    """How a decal's material was made: "exact" (translated from its graph), "fallback" (an island
-    material without an editor graph: its textures and values) or "FP" (FortnitePorting's own shader)."""
+    """How the material was made: "exact" (translated from its graph), "fallback" (island material
+    without an editor graph: its textures and values) or "FP" (FortnitePorting's own shader)."""
     from . import build
     if mat is None:
         return "none"
@@ -186,9 +182,9 @@ def _kind(mat):
 
 
 def _material(context, obj, entry):
-    """The decal's material onto its object's slot: FP's material import, which builds the exact one
-    (hook.build_exact: its graph's translation, or the fallback for a graph-less island material) and
-    falls back to FP's own shader when that can't be done; one material per hash for all the decals."""
+    """Put the decal's material on the object. FP's material import builds the exact one
+    (hook.build_exact, or the fallback for a graph-less island material), else FP's own shader.
+    One material per hash is shared by all decals."""
     mesh = obj.data
     placeholder = bpy.data.materials.new(entry.get("Name") or "Decal")
     mesh.materials.append(placeholder)
@@ -204,8 +200,7 @@ def _material(context, obj, entry):
 
 
 def _is_stain(entry):
-    """Whether the decal material's blend is UE's Stain (the entry's DecalBlendMode, when the app gives it:
-    a name, or EDecalBlendMode's number - Translucent 0, Stain 1)."""
+    """Whether the blend is UE's Stain: DecalBlendMode is a name or EDecalBlendMode's number (Translucent 0, Stain 1)."""
     mode = entry.get("DecalBlendMode")
     if isinstance(mode, str):
         return mode.endswith("Stain")
@@ -213,9 +208,9 @@ def _is_stain(entry):
 
 
 def _stain(mat):
-    """A Stain decal multiplies what it lies on by its colour: the material's surface becomes a Transparent
-    BSDF tinted by its base colour (white to it by the opacity) - Eevee's multiply. Only where the surface
-    is one Principled BSDF (a built material's groups hide theirs); True when done."""
+    """A Stain decal multiplies what it lies on by its colour: the surface becomes a Transparent BSDF
+    tinted by the base colour (fading to white with opacity), which is Eevee's multiply. Only works
+    when the surface is one Principled BSDF (built materials' groups hide theirs). True when done."""
     tree = mat.node_tree
     out = next((n for n in tree.nodes if n.bl_idname == 'ShaderNodeOutputMaterial' and n.is_active_output), None)
     if out is None or not out.inputs['Surface'].links:
@@ -244,9 +239,8 @@ def _stain(mat):
 
 
 def _finish_material(mat, entry, done):
-    """What a decal material needs on top of the import's (once per material): drawn from either side
-    (the quad is lifted onto surfaces facing every way), a Stain decal's multiply. Otherwise how it blends
-    is the import's: a translucent decal material is drawn blended by the builder."""
+    """Once per material: draw it from both sides (the quad lands on surfaces facing any way) and
+    apply a Stain decal's multiply. Blending otherwise comes from the import."""
     if mat is None or mat.name in done:
         return
     done.add(mat.name)
@@ -264,14 +258,14 @@ def _one(context, entry, surfaces, done, stats):
     scale = float(context.scale)
     size = entry.get("DecalSize") or {"X": 128.0, "Y": 256.0, "Z": 256.0}
     sc3 = entry.get("Scale") or {"X": 1.0, "Y": 1.0, "Z": 1.0}
-    # the box's half extents (UE cm), signed as the scale is (a mirrored decal mirrors its texture)
+    # box half extents (UE cm), signed like the scale (a mirrored decal mirrors its texture)
     half = [float(size[k]) * float(sc3[k]) for k in "XYZ"]
     sort_order = int(entry.get("SortOrder") or 0)
     location = make_vector(entry["Location"], unreal_coords_correction=True) * scale
     rotation = make_euler(entry["Rotation"]).to_matrix()
     world = Matrix.Translation(location) @ rotation.to_4x4()
 
-    # the grid on the decal's plane: UE's local Y runs along Blender's local -Y
+    # grid on the decal's plane; UE's local Y is Blender's local -Y
     nu, nv = _segments(2 * abs(half[1])), _segments(2 * abs(half[2]))
     ty = np.linspace(-1.0, 1.0, nu + 1)
     tz = np.linspace(-1.0, 1.0, nv + 1)
@@ -282,10 +276,10 @@ def _one(context, entry, surfaces, done, stats):
     local = local.reshape(-1, 3)
     w3 = np.array(world.to_3x3())
     origins = local @ w3.T + np.array(location)
-    axis = np.array(rotation @ Vector((1.0, 0.0, 0.0)))     # the projection direction (UE's local X)
+    axis = np.array(rotation @ Vector((1.0, 0.0, 0.0)))     # projection direction (UE's local X)
     depth = abs(half[0]) * scale
 
-    # which meshes the box can reach: its world bounds
+    # meshes the box can reach, by world bounds
     corners = np.array([[sx, sy, sz] for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)], float)
     extent = np.array([depth, abs(half[1]) * scale, abs(half[2]) * scale])
     box = (corners * extent) @ w3.T + np.array(location)
@@ -296,7 +290,7 @@ def _one(context, entry, surfaces, done, stats):
     hit = np.isfinite(best)
     lift = (LIFT + LIFT_SORT * sort_order) * scale
     placed = np.where(hit[:, None], point + normal * lift, origins)
-    # back into the object's space (the object sits at the decal's centre)
+    # back to object space (the object sits at the decal's centre)
     inverse = np.array(world.inverted_safe())
     verts = placed @ inverse[:3, :3].T + inverse[:3, 3]
 
@@ -305,7 +299,7 @@ def _one(context, entry, surfaces, done, stats):
     faces = [(iu * (nv + 1) + iv, (iu + 1) * (nv + 1) + iv, (iu + 1) * (nv + 1) + iv + 1, iu * (nv + 1) + iv + 1)
              for iu in range(nu) for iv in range(nv)]
     mesh.from_pydata(verts.tolist(), [], faces)
-    # (a quad's winding makes its normal UE's -X: toward the decal's origin side)
+    # the winding makes the normal UE's -X, toward the decal's origin side
     uv = mesh.uv_layers.new(name="UV0")
     u = (gz.reshape(-1) + 1.0) * 0.5
     v = (1.0 - gy.reshape(-1)) * 0.5
@@ -335,7 +329,7 @@ def _one(context, entry, surfaces, done, stats):
         from .effects import bake_tangents
         bake_tangents(mesh)
     except Exception:
-        # (no half-made decal left in the scene)
+        # leave no half-made decal in the scene
         bpy.data.objects.remove(obj)
         bpy.data.meshes.remove(mesh)
         raise

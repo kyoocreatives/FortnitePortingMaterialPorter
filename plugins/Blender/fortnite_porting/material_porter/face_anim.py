@@ -1,17 +1,15 @@
-"""Material Porter fork: a LEGO figure's face, animated by an emote.
+"""A LEGO figure's face, animated by an emote.
 
-A LEGO emote's sequences carry the face rig's curves, named for the face material's
-parameters (mouthpose, mouthu, browleftv, teethupperscaleu, eyelefthighlightscale...):
-as the animation plays UE sets each on the face's material instance. The exact face
-material has those parameters as inputs of its group node ("MouthPose"), so each
-curve becomes keys on that input - stepped where UE's keys are constant (the poses),
-linear elsewhere - in an action per section, laid on the material's NLA where the
-body's strips are.
+A LEGO emote's sequences carry the face rig's curves, named after the face material's parameters
+(mouthpose, mouthu, browleftv, teethupperscaleu, eyelefthighlightscale...); UE sets each on the
+face's material instance as the animation plays. The exact face material has those parameters as
+inputs of its group node ("MouthPose"), so each curve becomes keys on that input (stepped where
+UE's keys are constant, i.e. the poses, linear elsewhere) in one action per section, laid on the
+material's NLA where the body's strips are.
 
-The character accents (a mustache, a beard) have no curve: the face rig moves them
-with the mouth, by the registration each mouth pose has. The figure's face material
-holds that table ("mp_face_rig", from the app); the accents are keyed every frame
-from the mouth's curves.
+The character accents (mustache, beard) have no curve: the face rig moves them with the mouth,
+using a registration table per mouth pose. The face material holds that table ("mp_face_rig", from
+the app), and the accents are keyed every frame from the mouth's curves.
 """
 import json
 
@@ -26,7 +24,7 @@ def _meshes(armature):
 
 
 def face_materials(armature):
-    """The exact face materials of an armature's meshes: (material, {parameter (lower case): input})."""
+    """The exact face materials of the armature's meshes: (material, {lower-case parameter: input})."""
     found = {}
     for o in _meshes(armature):
         for slot in o.material_slots:
@@ -36,7 +34,7 @@ def face_materials(armature):
             for n in mat.node_tree.nodes:
                 if n.type != 'GROUP':
                     continue
-                # the exact material's parameters are its group node's inputs, by their UE names
+                # the exact material's parameters are its group node's inputs, named as in UE
                 inputs = {i.name.lower(): i for i in n.inputs if i.type == 'VALUE'}
                 if "mouthpose" in inputs or "eyeleftpose" in inputs or "browleftpose" in inputs:
                     found[mat.name] = (mat, inputs)
@@ -77,7 +75,7 @@ def _keys(fc, points, interpolations):
 
 
 def clear(armature):
-    """Takes an earlier emote's face animation off the armature's faces."""
+    """Remove an earlier emote's face animation from the armature's faces."""
     for mat, _ in face_materials(armature):
         ad = mat.node_tree.animation_data
         if ad is None:
@@ -88,12 +86,12 @@ def clear(armature):
 
 
 def apply(armature, sections):
-    """sections: the body's, in order: dicts of name, dto (the .ueanim's curves), frame (the
-    strip's start), repeat, range (the action's frame range) and modes (the section's
-    MPCurveModes). Returns the number of face materials animated."""
+    """sections: the body's, in order, as dicts of name, dto (the .ueanim curves), frame (strip
+    start), repeat, range (action frame range) and modes (the section's MPCurveModes).
+    Returns the number of face materials animated."""
     clear(armature)
-    # the face's prints are placed from the rest pose (PreSkinnedPosition), for a figure
-    # imported before its importer kept it
+    # Place the face prints from the rest pose (PreSkinnedPosition), for a figure imported before
+    # the importer kept it
     for o in _meshes(armature):
         o.add_rest_position_attribute = True
     animated = 0
@@ -117,7 +115,7 @@ def apply(armature, sections):
                 _keys(_fcurve(action, tree, socket), [(k.frame, k.value) for k in keys],
                       ['CONSTANT' if _mode(modes, name, i) == 'C' else 'LINEAR' for i in range(len(keys))])
 
-            # the character accents, where the rig puts them for the mouth's pose, every frame
+            # character accents, where the rig puts them for the mouth pose, every frame
             if rig and "mouthpose" in curves and curves["mouthpose"].keys:
                 k = rig["k"]
                 start, end = int(sec["range"][0]), int(sec["range"][1])

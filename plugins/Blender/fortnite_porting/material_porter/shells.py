@@ -1,19 +1,19 @@
-"""Material Porter fork: shell fur (UE's ShellMesh plugin), as Blender draws it.
+"""Shell fur (UE's ShellMesh plugin), as Blender draws it.
 
-The game draws a furry part's mesh as Count layers: layer 0 the mesh itself, with its slot's
-base-layer material, layers 1 to Count - 1 copies of it at the mesh, with its slot's shell
-material. The ShellMesh deformer gives each copy's vertices their layer (normalized, layer /
-(Count - 1): 1 at the tip) and offset (along the normal, the asset's depth times that): the shell material's own
-World Position Offset moves them - by a share of that offset rising from root to tip, a lean along
-its flow map (combed fur), all scaled by its length map (fur ending where the map does) - and its
-fur pattern, thickness and colour read the layer. The base layer's shrinks in under the fur.
+The game draws a furry part's mesh as Count layers: layer 0 is the mesh itself with its slot's
+base-layer material, layers 1 to Count - 1 are copies of it with its slot's shell material. The
+ShellMesh deformer gives each copy's vertices a layer (normalized, layer / (Count - 1), 1 at the
+tip) and an offset (along the normal, the asset's depth times that). The shell material's own
+World Position Offset moves them: by a share of that offset rising from root to tip, a lean along
+its flow map (combed fur), all scaled by its length map (fur ends where the map does). Its fur
+pattern, thickness and colour read the layer. The base layer's shrinks in under the fur.
 
-Here a Geometry Nodes modifier makes the copies from the deformed mesh (after its armature: the
-fur follows the pose), each point tagged with what the shell material reads (SHELL_LAYER,
-SHELL_LAYER_N, SHELL_COUNT, SHELL_OFFSET, SHELL_VECTOR), on the faces whose material has a shell
-material; the materials' World Position Offset is Blender's displacement (built with "moves").
-Its Shells input sets how many are drawn (fewer: lighter, coarser fur); its Length scales the
-depth.
+Here a Geometry Nodes modifier makes the copies from the deformed mesh (after its armature, so the
+fur follows the pose) on the faces whose material has a shell material, tagging each point with
+what the shell material reads (SHELL_LAYER, SHELL_LAYER_N, SHELL_COUNT, SHELL_OFFSET,
+SHELL_VECTOR). The materials' World Position Offset is Blender's displacement (built with
+"moves"). The Shells input sets how many layers are drawn (fewer: lighter, coarser fur) and
+Length scales the depth.
 """
 import bpy
 
@@ -28,8 +28,8 @@ def _log(message):
 
 
 def _styled(context, data):
-    """The material a style puts in this one's place (its VariantMaterials swap the fur's materials
-    too: Pastel Punisher Dylan's FurShells for FurShells_Razor), else this one."""
+    """The material a style puts in this one's place (VariantMaterials swap the fur's materials
+    too, e.g. Pastel Punisher Dylan's FurShells for FurShells_Razor), else this one."""
     for swap in getattr(context, "override_materials", None) or []:
         if swap.get("MaterialNameToSwap") == data.get("Name") and swap.get("Material"):
             return dict(swap["Material"], Slot=data.get("Slot", 0))
@@ -37,19 +37,19 @@ def _styled(context, data):
 
 
 def prepare(context, mesh_object, shells, meta):
-    """A part's shells as it's imported (ExportContext.ShellFur): its slots take their base-layer
-    materials, its shell materials are built, and what apply needs is kept on the context."""
+    """A part's shells at import (ExportContext.ShellFur): its slots take their base-layer materials,
+    its shell materials are built, and what apply needs is kept on the context."""
     if not shells or mesh_object is None:
         return
     slots = mesh_object.material_slots
-    # each slot's own material (the game's name), before a base-layer material takes its place
+    # each slot's own material (the game's name), before a base-layer material replaces it
     own = {i: (s.material.get("OriginalName") or s.material.name.removeprefix("MP ")).split(".")[0]
            for i, s in enumerate(slots) if s.material is not None}
     for data in shells.get("BaseMaterials") or []:
         data = _styled(context, data)
         slot = data.get("Slot", 0)
         if slot < len(slots) and slots[slot].material is not None:
-            data["MPMoves"] = True      # (its World Position Offset: in under the fur)
+            data["MPMoves"] = True      # World Position Offset: shrinks in under the fur
             context.import_material(slots[slot], data, meta)
     pairs = context.__dict__.setdefault(KEY, [])
     for data in shells.get("Materials") or []:
@@ -57,17 +57,17 @@ def prepare(context, mesh_object, shells, meta):
         slot = data.get("Slot", 0)
         if slot >= len(slots) or slots[slot].material is None:
             continue
-        # a slot whose "shell material" is its own (Crash's eyes and nose on his furry head's
+        # a slot whose "shell material" is its own (Crash's eyes and nose on his furry head
         # mesh): a plain material the game draws no fur with
         if data.get("Name") in (own.get(slot), slots[slot].material.get("OriginalName")):
             continue
         base = slots[slot].material
-        # FP builds a material into a slot: a slot of its own for the time it takes
+        # FP builds a material into a slot, so give it a slot of its own while it does
         placeholder = bpy.data.materials.new("MP shell placeholder")
         mesh_object.data.materials.append(placeholder)
         index = len(mesh_object.data.materials) - 1
-        data["MPMoves"] = True          # (its World Position Offset places the layers)
-        data["MPShell"] = True          # (it all scatters light, as fur: build.assemble)
+        data["MPMoves"] = True          # World Position Offset places the layers
+        data["MPShell"] = True          # it scatters light throughout, as fur (build.assemble)
         context.import_material(mesh_object.material_slots[index], data, meta)
         shell = mesh_object.material_slots[index].material
         mesh_object.data.materials.pop(index=index)
@@ -75,7 +75,7 @@ def prepare(context, mesh_object, shells, meta):
             bpy.data.materials.remove(placeholder)
         if shell is None or shell == base:
             continue
-        # a material that doesn't move its layers (FP's own, or no offset translated): pushed out here
+        # a material that doesn't move its layers (FP's own, or no offset translated) is pushed out here
         moves = any(out.inputs["Displacement"].is_linked for out in shell.node_tree.nodes
                     if out.bl_idname == "ShaderNodeOutputMaterial") and shell.displacement_method != 'BUMP'
         if not shells.get("CastShadows"):
@@ -85,8 +85,8 @@ def prepare(context, mesh_object, shells, meta):
 
 
 def no_shadow(mat):
-    """The material casts no shadow (the game's shells don't: bCastShadows): seen through by
-    shadow rays (Eevee's shadow maps too), drawn as it was for every other ray."""
+    """The material casts no shadow (the game's shells don't: bCastShadows): shadow rays (and
+    Eevee's shadow maps) see through it, other rays see it as before."""
     if mat.get("mp_no_shadow"):
         return
     tree = mat.node_tree
@@ -107,13 +107,13 @@ def no_shadow(mat):
         tree.links.new(clear.outputs[0], mix.inputs[2])
         tree.links.new(mix.outputs[0], sock)
     if hasattr(mat, "use_transparent_shadow"):
-        mat.use_transparent_shadow = True      # (Eevee reads the shadow ray's transparency only so)
+        mat.use_transparent_shadow = True      # the only way Eevee reads shadow-ray transparency
     mat["mp_no_shadow"] = 1
 
 
 def apply(context, objects):
-    """The shell modifier on each of these meshes whose materials have shells (an outfit's joined
-    mesh, else each part)."""
+    """Add the shell modifier to each of these meshes whose materials have shells (an outfit's
+    joined mesh, else each part)."""
     pairs = context.__dict__.get(KEY) or []
     if not pairs:
         return
@@ -121,7 +121,7 @@ def apply(context, objects):
         try:
             if o is None or o.type != 'MESH':
                 continue
-        except ReferenceError:      # (a part joined into the body is gone)
+        except ReferenceError:      # a part joined into the body is gone
             continue
         mats = {m for m in o.data.materials if m is not None}
         mine = [p for p in pairs if p["base"] in mats]
@@ -132,15 +132,15 @@ def apply(context, objects):
         mod.node_group = shell_group(o.name, mine)
         from ..processing.utils import set_geo_nodes_param
         set_geo_nodes_param(mod, "Shells", count, getattr(context, "version_profile", None))
-        # the shell materials in the mesh's slots (no face of its own uses them): there to be
-        # picked and edited like the others (Set Material reuses the slot)
+        # put the shell materials in the mesh's slots (no face uses them) so they can be picked
+        # and edited like the others (Set Material reuses the slot)
         for p in mine:
             if p["shell"] not in o.data.materials[:]:
                 o.data.materials.append(p["shell"])
         _log("%s: shell fur, %d shells over %s" % (o.name, count, ", ".join(p["base"].name for p in mine)))
-        # Cycles counts each shell a ray crosses (in and out, camera and shadow rays alike, through
-        # overlapping parts - a wrist under a furry cuff) as a transparent bounce; past its limit
-        # (8 by default) the fur, and what it shadows, goes black
+        # Cycles counts each shell a ray crosses (in and out, camera and shadow rays, through
+        # overlapping parts such as a wrist under a furry cuff) as a transparent bounce. Past the
+        # limit (8 by default) the fur, and what it shadows, goes black
         scene = bpy.context.scene
         need = min(16 * count, 1024)
         if scene is not None and hasattr(scene, "cycles") and scene.cycles.transparent_max_bounces < need:
@@ -149,10 +149,10 @@ def apply(context, objects):
 
 
 def shell_group(name, pairs):
-    """The modifier's node group: per base material, its faces copied Shells times as instances
-    (cheap to join), each copy's layer stored, realized, its points tagged with their layer and
-    offset (along the normal) and given the shell material - pushed out here only where the
-    material doesn't move them itself; the mesh itself as it was."""
+    """The modifier's node group. Per base material, its faces are copied Shells times as instances
+    (cheap to join), each copy's layer stored, then realized; the points are tagged with their layer
+    and offset (along the normal) and given the shell material, and pushed out here only where the
+    material doesn't move them itself. The mesh itself is kept."""
     t = bpy.data.node_groups.new("MP Shell Fur " + name, 'GeometryNodeTree')
     t.interface.new_socket("Geometry", in_out='INPUT', socket_type='NodeSocketGeometry')
     shells = t.interface.new_socket("Shells", in_out='INPUT', socket_type='NodeSocketInt')
@@ -188,7 +188,7 @@ def shell_group(name, pairs):
         L.new(gi.outputs["Geometry"], sep.inputs["Geometry"]); L.new(sel.outputs[0], sep.inputs["Selection"])
         inst = node("GeometryNodeGeometryToInstance", -820)
         L.new(sep.outputs["Selection"], inst.inputs[0])
-        # layers 1 to Shells - 1 (layer 0: the mesh itself, the base layer)
+        # layers 1 to Shells - 1 (layer 0 is the mesh itself, the base layer)
         copies = node("ShaderNodeMath", -820, -200, operation='SUBTRACT')
         copies.inputs[1].default_value = 1.0
         L.new(gi.outputs["Shells"], copies.inputs[0])
@@ -197,7 +197,7 @@ def shell_group(name, pairs):
         index = node("ShaderNodeMath", -640, -200, operation='ADD')
         index.inputs[1].default_value = 1.0
         L.new(dup.outputs["Duplicate Index"], index.inputs[0])
-        # the copy's layer, on its instance: realized, on each of its points
+        # the copy's layer, stored on its instance; realized onto each point
         geo = store(dup.outputs["Geometry"], -460, SHELL_LAYER, index.outputs[0], domain='INSTANCE')
         real = node("GeometryNodeRealizeInstances", -280)
         L.new(geo, real.inputs[0])
@@ -211,7 +211,7 @@ def shell_group(name, pairs):
         L.new(last.outputs[0], span.inputs[0])
         frac = node("ShaderNodeMath", 80, -200, operation='DIVIDE')
         L.new(layer.outputs["Attribute"], frac.inputs[0]); L.new(span.outputs[0], frac.inputs[1])
-        # the whole depth along the normal, and this layer's share of it
+        # full depth along the normal, and this layer's share of it
         depth = node("ShaderNodeMath", -100, -520, operation='MULTIPLY')
         depth.inputs[1].default_value = p["depth"]
         L.new(gi.outputs["Length"], depth.inputs[0])
@@ -227,9 +227,9 @@ def shell_group(name, pairs):
         if not p.get("moves"):
             shift = offset.outputs[0]
         else:
-            # a hair inside the mesh: a layer its material doesn't move (no fur there: Crash's eyes)
-            # lies just behind the mesh, not on it - at the very same depth Eevee drew the layer
-            # over the mesh (black where it's see-through)
+            # a hair inside the mesh: a layer its material doesn't move (no fur there, e.g. Crash's
+            # eyes) lies just behind the mesh; at exactly the same depth Eevee drew the layer over
+            # the mesh (black where it's see-through)
             tuck = node("ShaderNodeVectorMath", 620, -560, operation='SCALE')
             tuck.inputs["Scale"].default_value = -p.get("tuck", 0.0002)
             L.new(normal.outputs[0], tuck.inputs[0])

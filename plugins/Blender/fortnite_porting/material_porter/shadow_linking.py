@@ -1,20 +1,20 @@
-"""A light inside a blueprint (a street lamp's spot in its lantern, a car's headlights) is shadowed by the
-blueprint's own meshes in Blender: the housing around it blocks it whole, and the lamp lights nothing. The
-game draws the same geometry, but its lamps are authored with that in mind (the spot sits where the glass
-is, the shadow map is coarse). Blender's shadow linking settles it: each such light gets a blocker
-collection holding the actor's own meshes, excluded - they alone cast no shadow from it, everything else
-still does (a collection of excluded objects only leaves the rest included).
+"""A light inside a blueprint (a street lamp's spot in its lantern, a car's headlights) is shadowed by
+the blueprint's own meshes in Blender: the housing around it blocks it completely and the lamp lights
+nothing. The game draws the same geometry, but its lamps are authored for that (the spot sits where the
+glass is, the shadow map is coarse). Shadow linking fixes it: each such light gets a blocker collection
+holding the actor's own meshes, excluded, so only they cast no shadow from it and everything else
+still does (a collection of excluded objects leaves the rest included).
 
-The import marks meshes and lights with the actor they came from (mp_actor: the map reader's actor name,
-placement.after_import and mesh_context.create_light); link_housings pairs them after a level import.
-Cycles and Eevee both honour light linking (Blender 4.2 on).
+The import marks meshes and lights with the actor they came from (mp_actor, the map reader's actor
+name; see placement.after_import and mesh_context.create_light), and link_housings pairs them after a
+level import. Cycles and Eevee both honour light linking (Blender 4.2 on).
 """
 import bpy
 
 from ..logger import Log
 
 KEY = "mp_actor"                    # on a mesh or light object: the actor it came from
-PREFIX = "Shadow Linking "          # the blocker collections, one per actor
+PREFIX = "Shadow Linking "          # blocker collections, one per actor
 
 
 def link_housings(context):
@@ -41,7 +41,7 @@ def link_housings(context):
             coll = bpy.data.collections.new(PREFIX + str(light[KEY]))
             for o in housing:
                 coll.objects.link(o)
-            for member in coll.collection_objects:      # (no lookup by name on this collection)
+            for member in coll.collection_objects:      # no lookup by name on this collection
                 member.light_linking.link_state = 'EXCLUDE'
             made[light[KEY]] = coll
         light.light_linking.blocker_collection = coll

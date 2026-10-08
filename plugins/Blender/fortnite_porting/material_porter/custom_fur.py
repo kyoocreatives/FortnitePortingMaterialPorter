@@ -1,26 +1,24 @@
-"""Material Porter fork: shell fur on any faces, by hand (the Shell Fur panel).
+"""Shell fur on any faces, by hand (the Shell Fur panel).
 
-The faces selected in Edit Mode are marked (a face attribute, FUR); a Geometry Nodes modifier
-copies them Shells times, each copy pushed out along the normal by its share of Length (and down
-by Gravity, more at the tip), and gives each copy its face's material's fur twin: the material
-itself, cut into strands (MP Fur Strands: a Voronoi cell per strand on the mesh's UVs, thinner
-toward the tip, some shorter) and darker at the root. Everything the strands need comes from the
-modifier as attributes, so its inputs are the only controls: Shells, Length, Gravity, Density,
-Thickness, Length Variation, Root Shadow.
+Faces selected in Edit Mode are marked with a face attribute (FUR). A Geometry Nodes modifier
+copies them Shells times, pushes each copy out along the normal by its share of Length (and down
+by Gravity, more at the tip) and gives it the fur twin of its face's material: the same material
+cut into strands (MP Fur Strands) and darker at the root. The strands read everything from
+modifier attributes, so the modifier inputs are the only controls.
 """
 import bpy
 
 from . import shells as game_shells
 
-FUR = "mp_fur"                      # the face attribute marking fur faces
+FUR = "mp_fur"                      # face attribute marking fur faces
 MODIFIER = "Custom Shell Fur"
-STRANDS = "MP Fur Strands"          # the shader group cutting a layer into strands
-TWIN = "mp_fur_twin_of"             # on a fur twin material: the material it is the twin of
-LAYER = "mp_shell_layer_n"          # a layer's height, 0 at the root, 1 at the tip
+STRANDS = "MP Fur Strands"          # shader group that cuts a layer into strands
+TWIN = "mp_fur_twin_of"             # on a fur twin material: the material it twins
+LAYER = "mp_shell_layer_n"          # layer height, 0 at the root, 1 at the tip
 ATTRS = {"Density": "mp_fur_density", "Thickness": "mp_fur_thickness", "Root Shadow": "mp_fur_shadow",
          "Length Variation": "mp_fur_vary", "Clumping": "mp_fur_clump", "Clump Size": "mp_fur_clump_size"}
-STRANDS_REV = 2                     # MP Fur Strands' revision (2: clumping): an older one is rebuilt
-ROOT = "mp_fur_root"                # where a layer's point sits on the surface (meshes without UVs)
+STRANDS_REV = 2                     # MP Fur Strands revision (2: clumping); an older one is rebuilt
+ROOT = "mp_fur_root"                # surface point of a layer's vertex (meshes without UVs)
 
 INPUTS = (  # name, kind, default, min, max, description
     ("Shells", 'NodeSocketInt', 16, 1, 64, "How many layers above the surface"),
@@ -43,15 +41,15 @@ def _log(message):
 
 # ------------------------------------------------------------------ the strands (shader)
 def strands_group():
-    """MP Fur Strands: (Vector: the surface coordinate) -> Alpha (strand or not), Shade (root dark).
-    A Voronoi cell per strand; strands in a clump (a larger cell) lean to its centre toward the tip."""
+    """MP Fur Strands: Vector (surface coordinate) -> Alpha (strand or not), Shade (root darkening).
+    One Voronoi cell per strand; strands in a clump (a larger cell) lean toward its centre at the tip."""
     t = bpy.data.node_groups.get(STRANDS)
     if t is not None and t.get("mp_rev", 1) >= STRANDS_REV:
         return t
     if t is None:
         t = bpy.data.node_groups.new(STRANDS, 'ShaderNodeTree')
     else:
-        # (an older one, rebuilt in place: the materials using it keep it)
+        # rebuilt in place so materials using it keep it
         t.nodes.clear()
         t.interface.clear()
     t["mp_rev"] = STRANDS_REV
@@ -88,15 +86,15 @@ def strands_group():
     density, thickness = attr(ATTRS["Density"], -350), attr(ATTRS["Thickness"], -500)
     vary, shadow = attr(ATTRS["Length Variation"], -650), attr(ATTRS["Root Shadow"], -800)
     clump, clump_size = attr(ATTRS["Clumping"], -950), attr(ATTRS["Clump Size"], -1100)
-    # the coordinate in strands (one a unit), and its clump's centre (a cell Clump Size strands across)
+    # coordinate in strand units, and the centre of its clump (a cell Clump Size strands across)
     p = vmath('SCALE', gi.outputs["Vector"], None, -1000, 0, scale=density)
     inv = math('DIVIDE', 1.0, clump_size, -1000, -150)
     pc = vmath('SCALE', p, None, -850, -100, scale=inv)
     cl = N.new("ShaderNodeTexVoronoi"); cl.voronoi_dimensions = '3D'; cl.feature = 'F1'; cl.location = (-700, -100)
     L.new(pc, cl.inputs["Vector"])
     centre = vmath('SCALE', cl.outputs["Position"], None, -550, -100, scale=clump_size)
-    # toward the tip a strand from root s sits at s + (centre - s) * k: the root under p is
-    # (p - centre * k) / (1 - k) - looked up there, its cross-section shrinks by 1 - k
+    # Toward the tip a strand rooted at s sits at s + (centre - s) * k, so the root under p is
+    # (p - centre * k) / (1 - k). Look it up there; the cross-section shrinks by 1 - k.
     k = math('MINIMUM', math('MULTIPLY', clump, n, -700, -300), 0.9, -550, -300)
     pull = vmath('SCALE', centre, None, -400, -100, scale=k)
     q0 = vmath('SUBTRACT', p, pull, -250, 0)
@@ -105,12 +103,12 @@ def strands_group():
     cell = N.new("ShaderNodeTexVoronoi"); cell.voronoi_dimensions = '3D'; cell.feature = 'F1'
     cell.location = (50, 0)
     L.new(q, cell.inputs["Vector"])
-    # the strand's radius: Thickness (of half a cell) at the root, a fifth of it at the tip
+    # radius: Thickness (of half a cell) at the root, a fifth of that at the tip
     taper = math('MULTIPLY', n, 0.8, 50, -250)
     keep = math('SUBTRACT', 1.0, taper, 200, -250)
     radius = math('MULTIPLY', math('MULTIPLY', thickness, 0.5, 200, -400), keep, 350, -300)
     inside = math('LESS_THAN', cell.outputs["Distance"], radius, 500, -100)
-    # some strands shorter: those whose random value is under the variation end early
+    # strands whose random value is under the variation end early
     rand = N.new("ShaderNodeSeparateColor"); rand.location = (250, 150)
     L.new(cell.outputs["Color"], rand.inputs[0])
     reach = math('SUBTRACT', 1.0, math('MULTIPLY', rand.outputs[0], vary, 400, 200), 550, 200)
@@ -123,8 +121,8 @@ def strands_group():
 
 
 def _twin(mat, use_uv):
-    """The fur twin of a material: a copy whose surface is cut into strands (MP Fur Strands) and
-    darkened at the root; seen through by shadow rays like the game's shells."""
+    """The fur twin of a material: a copy cut into strands (MP Fur Strands), darker at the root,
+    and see-through to shadow rays like the game's shells."""
     name = (mat.name if mat else "Fur") + " (fur)"
     twin = next((m for m in bpy.data.materials if m.get(TWIN) == (mat.name if mat else "") and m.get("mp_fur_uv") == use_uv), None)
     if twin is not None:
@@ -172,8 +170,8 @@ def _twin(mat, use_uv):
 
 # ------------------------------------------------------------------ the layers (geometry nodes)
 def _fur_group(obj, pairs, use_uv):
-    """The object's modifier group: its fur faces copied Shells times, pushed out, each copy given
-    its material's twin and the attributes the strands read; the mesh itself as it was."""
+    """The modifier group: fur faces copied Shells times and pushed out, each copy given its
+    material's twin and the attributes the strands read. The mesh itself is kept."""
     name = "MP Custom Fur " + obj.name
     old = bpy.data.node_groups.get(name)
     if old is not None:
@@ -209,7 +207,7 @@ def _fur_group(obj, pairs, use_uv):
     if not use_uv:
         pos = node("GeometryNodeInputPosition", -250)
         geo = store(geo, ROOT, pos.outputs[0], 'FLOAT_VECTOR')
-    # the surface's normal before the copies move
+    # normal before the copies move
     nrm = node("GeometryNodeInputNormal", -250)
     geo = store(geo, "mp_fur_normal", nrm.outputs[0], 'FLOAT_VECTOR')
     inst = node("GeometryNodeGeometryToInstance")
@@ -225,7 +223,7 @@ def _fur_group(obj, pairs, use_uv):
     layer.inputs["Name"].default_value = "mp_fur_layer"
     n = node("ShaderNodeMath", -250, operation='DIVIDE')
     L.new(layer.outputs["Attribute"], n.inputs[0]); L.new(gi.outputs["Shells"], n.inputs[1])
-    # the offset: normal * Length * n, down by Gravity * Length * n^2
+    # offset: normal * Length * n, down by Gravity * Length * n^2
     normal = node("GeometryNodeInputNamedAttribute", -400, data_type='FLOAT_VECTOR')
     normal.inputs["Name"].default_value = "mp_fur_normal"
     reach = node("ShaderNodeMath", -400, operation='MULTIPLY')
@@ -241,8 +239,8 @@ def _fur_group(obj, pairs, use_uv):
     L.new(droop.outputs[0], neg.inputs[0]); L.new(neg.outputs[0], down.inputs["Z"])
     offset = node("ShaderNodeVectorMath", -400, operation='ADD')
     L.new(up.outputs[0], offset.inputs[0]); L.new(down.outputs[0], offset.inputs[1])
-    # the flow: a noise field's direction along the surface, leaning the fur most at the tips
-    # (sampled at the rest position where the mesh has one: the pattern stays put as it poses)
+    # Flow: a noise field's direction along the surface, leaning the fur most at the tips.
+    # Sampled at the rest position when the mesh has one, so the pattern stays put when posed.
     pos = node("GeometryNodeInputPosition", -850)
     rest = node("GeometryNodeInputNamedAttribute", -1000, data_type='FLOAT_VECTOR')
     rest.inputs["Name"].default_value = "rest_position"
@@ -260,7 +258,7 @@ def _fur_group(obj, pairs, use_uv):
     L.new(normal.outputs["Attribute"], off_normal.inputs[0]); L.new(along.outputs["Value"], off_normal.inputs["Scale"])
     flat = node("ShaderNodeVectorMath", -850, operation='SUBTRACT')
     L.new(centred.outputs[0], flat.inputs[0]); L.new(off_normal.outputs[0], flat.inputs[1])
-    # (Length * n * n: the lean grows toward the tip; the noise's +-0.5 doubled)
+    # Length * n * n, so the lean grows toward the tip; times 2 because the noise is centred at +-0.5
     bend = node("ShaderNodeMath", -1000, operation='MULTIPLY')
     L.new(sq.outputs[0], bend.inputs[0]); L.new(gi.outputs["Flow Strength"], bend.inputs[1])
     twice = node("ShaderNodeMath", -1150, operation='MULTIPLY'); twice.inputs[1].default_value = 2.0
@@ -306,7 +304,7 @@ def add_fur(obj):
         marked[i] = True
     attr.data.foreach_set("value", marked)
     use_uv = me.uv_layers.active.name if me.uv_layers.active else ""
-    # each material on a fur face, and its twin
+    # each material used by a fur face, with its twin
     slots = {me.polygons[i].material_index for i in range(len(me.polygons)) if marked[i]}
     pairs = []
     for i in sorted(slots):
@@ -315,7 +313,7 @@ def add_fur(obj):
             continue
         twin = _twin(base, use_uv)
         if twin.name not in [m.name for m in me.materials if m]:
-            me.materials.append(twin)     # (in the slots, to edit; no face of the mesh's own uses it)
+            me.materials.append(twin)     # in a slot so it can be edited; no face of the mesh uses it
         pairs.append((base, twin))
     mod = obj.modifiers.get(MODIFIER)
     keep = {}
@@ -332,7 +330,7 @@ def add_fur(obj):
                 set_geo_nodes_param(mod, name, value)
             except Exception as e:
                 _log("custom fur: kept value of %s not restored (%s)" % (name, e))
-    # the strands are see-through layers: Cycles counts each as a transparent bounce
+    # each layer is see-through, so Cycles counts it as a transparent bounce
     scene = bpy.context.scene
     if hasattr(scene, "cycles"):
         scene.cycles.transparent_max_bounces = max(scene.cycles.transparent_max_bounces, 4 * 64)
@@ -352,7 +350,7 @@ def _get_input(mod, identifier):
 
 
 def remove_fur(obj):
-    """The object's custom fur gone: its modifier, group, face marks and the twin slots."""
+    """Remove the modifier, group, face marks and twin slots."""
     mod = obj.modifiers.get(MODIFIER)
     if mod is not None:
         group = mod.node_group
@@ -371,7 +369,7 @@ def remove_fur(obj):
 
 
 def draw_inputs(layout, obj):
-    """The modifier's inputs, as sliders."""
+    """Draw the modifier inputs as sliders."""
     mod = obj.modifiers.get(MODIFIER)
     if mod is None or mod.node_group is None:
         return False

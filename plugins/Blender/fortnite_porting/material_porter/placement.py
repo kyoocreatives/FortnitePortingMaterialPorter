@@ -1,5 +1,5 @@
-"""Material Porter fork: what Material Porter's map reader adds to a placed mesh
-(the fork's MaterialPorterMesh fields), applied once FP has made its object."""
+"""What the map reader adds to a placed mesh (the MaterialPorterMesh fields),
+applied once FP has made its object."""
 import bpy
 from mathutils import Matrix
 
@@ -7,10 +7,10 @@ from .meshes import spline_bend, white_colors
 
 
 def after_import(mesh, obj, mesh_obj, scale):
-    """A spline mesh's bend (UE's slice transform, on a copy of the mesh),
-    white vertex colours where the mesh has none (what UE reads there), and
-    the component's custom primitive data / an instance's custom data as
-    the object properties the exact materials read (mp_cpd<i>, mp_pic<i>)."""
+    """Apply a spline mesh's bend (UE's slice transform, on a copy of the mesh), white vertex
+    colours where the mesh has none (what UE reads there), and the component's custom primitive
+    data / an instance's custom data as the object properties the exact materials read
+    (mp_cpd<i>, mp_pic<i>)."""
     if obj is not None and (bone := mesh.get("MPParentBone")):
         follow_bone(obj, bone)
     target = mesh_obj if mesh_obj is not None else obj
@@ -24,26 +24,26 @@ def after_import(mesh, obj, mesh_obj, scale):
     if bpy.app.version >= (5, 0, 0):
         white_colors(target.data)
     if (names := mesh.get("MPLayerNames")) is not None:
-        # a landscape's weight layers, by the LayerName its materials sample (and marked as a
-        # landscape, an unpainted one's empty table too: its materials are built per set of
-        # painted layers, hook.build_exact)
+        # a landscape's weight layers, by the LayerName its materials sample. An unpainted
+        # landscape is marked too, with an empty table: its materials are built per set of
+        # painted layers (hook.build_exact)
         for attribute in target.data.color_attributes:
             if attribute.name in names:
                 attribute.name = names[attribute.name]
         target["mp_landscape"] = 1.0
-    # the actor this mesh came from (a lamp's housing and its light share one: shadow_linking)
+    # the actor this mesh came from (a lamp's housing and its light share one; see shadow_linking)
     if actor := mesh.get("MPActor"):
         target["mp_actor"] = str(actor)
     if cpd := mesh.get("MPPrimitiveData"):
         target["mp_cpd"] = 1.0
-        # (how many: an index past them reads the material parameter's default, as in UE)
+        # the count: an index past it reads the material parameter's default, as in UE
         target["mp_cpd_n"] = float(len(cpd))
         for j, x in enumerate(cpd):
             target["mp_cpd%d" % j] = float(x)
     # a component that casts no shadow in the game (a lamp's housing around its light)
     if mesh.get("MPCastShadow") is False:
         target.visible_shadow = False
-    # seen only through its shadow (a tree's shadow proxy: the tree casts none itself)
+    # seen only through its shadow (a tree's shadow proxy; the tree casts none itself)
     if mesh.get("MPShadowOnly"):
         target.visible_camera = target.visible_diffuse = target.visible_glossy = False
         target.visible_transmission = target.visible_volume_scatter = False
@@ -55,12 +55,12 @@ def after_import(mesh, obj, mesh_obj, scale):
             target["mp_pic%d" % j] = float(x)
 
 
-_UVS = {}       # material name -> (its session id, the UV maps its trees read)
+_UVS = {}       # material name -> (session id, UV maps its trees read)
 
 
 def uvs_read(material):
-    """The UV maps (by name) an exact material's trees read, through nested groups too; walked
-    once per material (a name, its id: a material built again under the same name is walked again)."""
+    """The UV map names an exact material's trees read, including nested groups. Walked once per
+    (name, id), so a material rebuilt under the same name is walked again."""
     name = material.name
     hit = _UVS.get(name)
     if hit is not None and hit[0] == material.session_uid:
@@ -84,10 +84,10 @@ def uvs_read(material):
 
 
 def ensure_uvs(mesh, material):
-    """UE binds a texture coordinate a mesh doesn't have to the mesh's last UV channel (the vertex
-    factory fills the remaining streams with it): each UV map the material reads that the mesh lacks
-    becomes a copy of the mesh's last one (Blender samples one texel from a missing map). A mesh with
-    no UV map gets none; a mesh's data is shared by its instances, so one that has the map is left."""
+    """UE binds a texture coordinate the mesh lacks to its last UV channel (the vertex factory fills
+    the remaining streams with it). So each UV map the material reads that the mesh lacks becomes a
+    copy of the mesh's last one (Blender samples one texel from a missing map). A mesh with no UV map
+    gets none, and mesh data is shared by its instances, so one that has the map is left alone."""
     layers = mesh.uv_layers
     count = len(layers)
     if not count:
@@ -101,7 +101,7 @@ def ensure_uvs(mesh, material):
     for name in missing:
         try:
             layer = layers.new(name=name, do_init=False)
-        except RuntimeError:        # (Blender's limit of eight UV maps)
+        except RuntimeError:        # Blender's limit of eight UV maps
             return
         if layer is None:
             return
@@ -117,7 +117,7 @@ def ensure_slot_uvs(slot, material):
 
 def follow_bone(obj, bone):
     """A weapon's mod follows its attach bone: the object FP parented to the weapon's armature
-    (placed in the armature's space) is parented to the bone instead, where it is."""
+    (placed in armature space) is parented to the bone instead, staying where it is."""
     armature = obj.parent
     if armature is None or armature.type != 'ARMATURE':
         return
@@ -134,8 +134,7 @@ def follow_bone(obj, bone):
 
 
 def after_world(objects):
-    """A world import's water surfaces measured: the depth under each
-    (Material Porter's water.bake_water), which their materials read."""
+    """Measure the depth under each water surface of a world import (water.bake_water), read by their materials."""
     if bpy.app.version < (5, 0, 0):
         return
     try:

@@ -1,11 +1,10 @@
-"""Material Porter fork: a wrap over the selected objects' materials, changed or taken off.
+"""Change or remove the wrap over the selected objects' materials.
 
-A wrap is picked on a weapon's or a vehicle's page in the app and comes with the export
-(a material's MPWrap: the values the wrap's material sets, which the game lays over the asset's
-own material). A built material keeps what it was built with under its wrap (hook.KEY_OVERLAY),
-so each exact material of the selected objects can be built again with another wrap, or none
-(the panel's Remove Wrap), and take the old one's slots. FP's own materials (not exact) are left
-as they are.
+A wrap is picked on a weapon's or vehicle's page in the app and comes with the export (a material's
+MPWrap: the values the wrap's material sets, which the game lays over the asset's own material). A
+built material keeps what it was built with under its wrap (hook.KEY_OVERLAY), so each exact
+material of the selected objects can be rebuilt with another wrap, or none (the panel's Remove
+Wrap), and take the old one's slots. FP's own (non-exact) materials are left alone.
 """
 import json
 
@@ -13,8 +12,8 @@ from . import build, hook
 
 
 def targets(context):
-    """The selected mesh objects, and the meshes under what else is selected (a weapon's
-    armature, a vehicle's empty)."""
+    """The selected mesh objects, plus the meshes under other selected objects (a weapon's armature,
+    a vehicle's empty)."""
     found, seen = [], set()
 
     def add(o):
@@ -32,8 +31,8 @@ def targets(context):
 
 
 def lay(job_context, objects, wrap):
-    """Each exact material of the objects built with the wrap over it (None: without one).
-    (materials changed, objects touched, materials that aren't exact)."""
+    """Rebuild each exact material of the objects with the wrap over it (None: without one).
+    Returns (materials changed, objects touched, materials that aren't exact)."""
     rebuilt, touched, skipped = {}, set(), set()
     for o in objects:
         for slot in o.material_slots:

@@ -1,17 +1,18 @@
-"""A level's placed Niagara effects (Exports[0]["Effects"], the Material Porter fork's map reader): each
-system's own effect export, fetched from the app and replayed where the level places it.
+"""A level's placed Niagara effects (Exports[0]["Effects"]): each system's own effect export,
+fetched from the app and replayed where the level places it.
 
-An entry is {"Name", "Location", "Rotation", "Scale", "System", "Parameters"}. For each one the app's
-bridge is asked for the system's Effect export (the Effects tab's: fork-export-asset?type=Effect),
-once per system and import, and that export is imported as the tab imports it (the same context,
-effects.make / effects.finish / effect_replay.play), under an empty "Effect <system>" at the entry's
-transform: the replay sees the effect where it stands (a world-space emitter's particles are in the
-world's frame, as in the game), and the entry's user parameters are set on the effect's root before it
-plays (its "User.<name>" properties, which Replay Effect reads again).
+An entry is {"Name", "Location", "Rotation", "Scale", "System", "Parameters"}. For each one the
+app's bridge is asked for the system's Effect export (the Effects tab's fork-export-asset?type=Effect),
+once per system and import. That export is imported as the tab imports it (same context,
+effects.make / effects.finish / effect_replay.play) under an empty "Effect <system>" at the entry's
+transform, so the replay sees the effect where it stands (a world-space emitter's particles are in
+the world's frame, as in the game). The entry's user parameters are set on the effect's root before
+it plays, as "User.<name>" properties that Replay Effect reads again.
 
-A system the replay can't draw (no emitter it plays: GPU emitters it can't approximate) is logged and
-counted and nothing of it is imported; one that plays nothing under its parameters stays, hidden, as
-the effects tab leaves it, for the user to set and replay. A bridge that fails logs and skips.
+A system the replay can't draw (no emitter it plays, e.g. GPU emitters it can't approximate) is
+logged and counted and nothing of it is imported. One that plays nothing under its parameters
+stays hidden, as the effects tab leaves it, for the user to set and replay. A failing bridge logs
+and skips.
 """
 import http.client
 import json
@@ -25,10 +26,10 @@ import bpy
 from . import effects, hook
 from .app_client import AppError
 
-CONNECT_TIMEOUT = 3.0       # seconds: an app that's there answers at once
-READ_TIMEOUT = 900.0        # an effect's export can take the app a while (its materials, its scripts)
+CONNECT_TIMEOUT = 3.0       # seconds: a running app answers at once
+READ_TIMEOUT = 900.0        # an effect's export can take the app a while (materials, scripts)
 
-_PLACED = {}                # the import context's class -> the class that puts an effect under a placement
+_PLACED = {}                # import context class -> subclass that puts an effect under a placement
 
 
 def _name(path):
@@ -37,8 +38,8 @@ def _name(path):
 
 
 def _fetch(system):
-    """The system's Effect export (the bridge's JSON text), or an AppError: down is True on it when the app
-    isn't answering at all."""
+    """The system's Effect export (the bridge's JSON text), or an AppError whose `down` is True
+    when the app isn't answering at all."""
     parts = urllib.parse.urlsplit(hook.URL)
     connection = http.client.HTTPConnection(parts.hostname or "localhost", parts.port or 80, timeout=CONNECT_TIMEOUT)
     try:
@@ -67,11 +68,11 @@ def _fetch(system):
 
 
 def _placed_class(base):
-    """The import context's class with its collection the level's and its effect's root under a placement:
-    the effect is imported as its tab imports it, in place."""
+    """The import context's class with the level's collection and the effect's root under a
+    placement, so the effect is imported in place as its tab imports it."""
     if base not in _PLACED:
         class Placed(base):
-            # (import_mesh_data makes the context's own collection: the level's takes its place)
+            # import_mesh_data makes the context's own collection; the level's takes its place
             collection = property(lambda self: self.mp_collection, lambda self, value: None)
 
             def import_model(self, mesh, parent=None, *args, **kwargs):
@@ -81,10 +82,10 @@ def _placed_class(base):
 
 
 def _user_parameters(entry):
-    """The entry's user parameters as the effect's root properties ("User.<name>": a number, a bool, or floats)."""
+    """Set the entry's user parameters as root properties ("User.<name>": a number, a bool or floats)."""
     found = {}
     for name, value in (entry.get("Parameters") or {}).items():
-        if isinstance(value, dict):         # (a colour or a vector the exporter spelled by its parts)
+        if isinstance(value, dict):         # a colour or vector the exporter split into parts
             value = [value[k] for k in ("X", "Y", "Z", "W") if k in value] or [value[k] for k in ("R", "G", "B", "A") if k in value]
         if isinstance(value, (list, tuple)):
             value = [float(v) for v in value]
@@ -96,7 +97,7 @@ def _user_parameters(entry):
 
 
 def _place(context, entry, name):
-    """The empty an effect goes under: at the entry's transform (the level's, as a mesh's), in the level's collection."""
+    """The empty an effect goes under: at the entry's transform (as for a level mesh), in the level's collection."""
     from ..processing.utils import make_euler, make_vector
     place = bpy.data.objects.new("Effect " + name, None)
     place.empty_display_type = 'PLAIN_AXES'
@@ -111,8 +112,8 @@ def _place(context, entry, name):
 
 
 def _import(context, job, payload, entry, name):
-    """One placed effect: its export imported under its placement. Returns (the placement, the effect's
-    root, what the replay drew: the number of particle objects), or raises."""
+    """One placed effect: its export imported under its placement. Returns (placement, effect root,
+    number of particle objects the replay drew), or raises."""
     export = payload["Exports"][0]
     root_mesh = export["Meshes"][0]
     params = _user_parameters(entry)
@@ -120,8 +121,8 @@ def _import(context, job, payload, entry, name):
         fx = root_mesh.setdefault("MPEffect", {})
         fx["User"] = dict(fx.get("User") or {}, **params)
     place = _place(context, entry, name)
-    # the effect's own context (its settings the level's: the same scale, the same materials), its
-    # materials built in the level's job (the app's answers, what the level built already)
+    # the effect's own context shares the level's settings (scale, materials); its materials are
+    # built in the level's job (the app's answers, what the level already built)
     settings = dict(context.options)
     settings["ImportIntoCollection"] = False
     sub = _placed_class(type(context))({"Settings": settings, "AssetsRoot": context.assets_root})
@@ -131,7 +132,7 @@ def _import(context, job, payload, entry, name):
     try:
         sub.run(export)
     except Exception:
-        # what it made so far goes with it
+        # remove what it made so far
         for o in [o for o in bpy.data.objects if o.name not in known]:
             bpy.data.objects.remove(o, do_unlink=True)
         bpy.data.objects.remove(place, do_unlink=True)
@@ -142,23 +143,23 @@ def _import(context, job, payload, entry, name):
     roots = [o for o in made if o.get(effects.KEY) == "System" and o.parent is place]
     root = roots[0] if roots else None
     drew = sum(1 for o in made if o.get(effects.KEY) == "Particles")
-    # (a world-space emitter's particles stand where the replay put them, not under the effect: they follow the
-    # placement now, as they are)
+    # a world-space emitter's particles stay where the replay put them, not under the effect; they
+    # follow the placement now as they are
     inverse = place.matrix_basis.inverted_safe()
     for o in made:
         if o.get(effects.KEY) == "Particles" and o.parent is None:
             o.parent = place
             o.matrix_parent_inverse = inverse
     if root is not None:
-        # a played piece is out of sight already (its particles draw it): what's left in sight is what the replay
-        # didn't play (an emitter that spawned nothing, a mesh its particles don't draw), laid out in a row to pick
-        # from - out of sight too, at the effect
+        # a played piece is already hidden (its particles draw it); what stays visible is what the
+        # replay didn't play (an emitter that spawned nothing, a mesh its particles don't draw), laid
+        # out in a row to pick from. Hide that too, at the effect
         for node in root.children:
             node.location = (0.0, 0.0, 0.0)
             for piece in node.children:
                 if piece.type in ('MESH', 'LIGHT') and piece.get(effects.KEY) != "Particles" and not piece.hide_render:
                     piece.hide_render = piece.hide_viewport = True
-    # the user parameters the system doesn't take (effect_replay drops them from the root)
+    # user parameters the system doesn't take (effect_replay drops them from the root)
     if root is not None and params:
         have = {k.lower() for k in root.keys()}
         ignored = [k for k in params if k.lower() not in have]
@@ -168,14 +169,14 @@ def _import(context, job, payload, entry, name):
 
 
 def import_effects(context, effects_list):
-    """Place `effects_list` (the payload's list, may be None) into the import's collection."""
-    if not effects_list or getattr(context, "mp_place", None) is not None:      # (an effect's own context places nothing)
+    """Place `effects_list` (the payload's list, may be None) in the import's collection."""
+    if not effects_list or getattr(context, "mp_place", None) is not None:      # an effect's own context places nothing
         return
     job = hook._session(context)
     t0 = time.perf_counter()
-    cache = {}              # system path -> its export's text, or the error (an AppError) it came with
+    cache = {}              # system path -> export text, or the AppError it failed with
     played, undrawn, silent, skipped, failed, particles = 0, {}, {}, {}, {}, 0
-    seconds = {}            # per system: what its placements took
+    seconds = {}            # per system: seconds its placements took
     down = job["down"]
     for entry in effects_list:
         system = entry.get("System")
@@ -205,7 +206,7 @@ def import_effects(context, effects_list):
             payload = json.loads(text)
             fx = ((payload.get("Exports") or [{}])[0].get("Meshes") or [{}])[0].get("MPEffect") or {}
             if not fx.get("Exports"):
-                # no emitter the replay plays (GPU emitters it can't approximate): nothing of it is imported
+                # no emitter the replay plays (GPU emitters it can't approximate): import nothing
                 if name not in undrawn:
                     hook._log("Effect %s: not drawn (no emitter the replay plays: GPU only, or none)" % name)
                 undrawn[name] = undrawn.get(name, 0) + 1

@@ -1,10 +1,10 @@
-"""Material Porter fork: a Niagara system's stateless emitters (UE 5.4's lightweight emitters), played.
+"""A Niagara system's stateless emitters (UE 5.4's lightweight emitters), played.
 
 A stateless emitter has no script: its modules are settings (a lifetime range, a colour curve, a
-cone of velocities), and a particle's state at any age follows from them and from the particle's
-random numbers alone. The same is worked out here, module by module, for the modules the game's
-effects use. The engine's own random numbers aren't reproduced: each particle gets its values
-from the same ranges and curves, not the same draw.
+cone of velocities), and a particle's state at any age follows from them and the particle's random
+numbers alone. That is worked out here module by module, for the modules the game's effects use.
+The engine's random numbers aren't reproduced: each particle gets values from the same ranges and
+curves, but not the same draw.
 
 An emitter made here looks like a scripted one to what plays it (niagara.Emitter's name, layout,
 data and tick).
@@ -13,7 +13,7 @@ import numpy as np
 
 from .niagara_vm import F
 
-RANDOMS = 64        # a particle's own random numbers, one slot per use
+RANDOMS = 64        # per-particle random numbers, one slot per use
 
 # what a stateless emitter gives its renderers
 ATTRIBUTES = [("Position", "Vector3f"), ("Velocity", "Vector3f"), ("Color", "LinearColor"), ("SpriteSize", "Vector2f"),
@@ -37,8 +37,8 @@ def _vector(value, width):
 
 
 def _bound(setting, system, width):
-    """The value a distribution bound to a variable of the system takes (its data set's, else a user
-    parameter's), as `width` floats; None where the system has no such value."""
+    """The value of a distribution bound to a system variable (data set value, else user parameter)
+    as `width` floats; None if the system has no such value."""
     if system is None:
         return None
     name = str(((setting.get("ParameterBinding") or {}).get("Name")) or "")
@@ -54,7 +54,7 @@ def _bound(setting, system, width):
 
 
 class Distribution:
-    """A module's setting: a constant, a range a particle draws from, or a curve over its life."""
+    """A module's setting: a constant, a range each particle draws from, or a curve over its life."""
 
     def __init__(self, setting, usual, width, system=None):
         setting = setting or {}
@@ -66,7 +66,7 @@ class Distribution:
         values = setting.get("Values")
         bound = _bound(setting, system, width) if mode == "Binding" else None
         if bound is not None:
-            # a value of the system's (System.BurstDelay, a User. parameter) as it is now
+            # a system value (System.BurstDelay, a User. parameter) as it is now
             self.low = self.high = bound
         elif "Min" in setting or "Max" in setting:
             low, high = _vector(setting.get("Min"), width), _vector(setting.get("Max"), width)
@@ -88,8 +88,8 @@ class Distribution:
         return self.curve is None and np.array_equal(self.low, self.high)
 
     def at(self, age, random):
-        """The setting for each particle (particles x width): age their normalized ages, random their
-        draws for it (particles x width; a uniform range uses the first for every channel)."""
+        """The setting per particle (particles x width). age: normalized ages; random: the draws for
+        it (particles x width; a uniform range uses the first for every channel)."""
         if self.curve is not None:
             span = max(self.end - self.start, 1e-9)
             x = np.clip((age - self.start) / span, 0.0, 1.0) * (len(self.curve) - 1)
@@ -140,16 +140,16 @@ class Emitter:
         state = self.emitter_state = props.get("EmitterState") or {}
         self.loops = str(state.get("LoopBehavior", "Infinite")).split("::")[-1]
         self._timing()
-        self.timed = False      # the timing read again once the system's scripts have run (a bound delay)
+        self.timed = False      # whether timing was re-read after the system's scripts ran (bound delay)
         self.count = int(state.get("LoopCount", 1))
         self.spawns = [s for s in props.get("SpawnInfos") or [] if s.get("bEnabled", True)]
-        self.birth = np.zeros(0)                        # each particle's time of birth
+        self.birth = np.zeros(0)                        # birth time per particle
         self.random = np.zeros((0, RANDOMS))
-        self.left = 0.0                                 # a rate's fraction of a particle carried over
+        self.left = 0.0                                 # fraction of a particle carried over by a rate
 
     def _timing(self, system=None):
-        """Its loop's duration and delay: settings, or values of the system they are bound to
-        (Monster Smash's ground burst waits System.BurstDelay, set by the system's own script)."""
+        """The loop's duration and delay: settings, or values of the system they are bound to
+        (Monster Smash's ground burst waits for System.BurstDelay, set by the system's script)."""
         state = self.emitter_state
         self.duration = float(Distribution(state.get("LoopDuration"), 1.0, 1, system).low[0]) or 1.0
         self.delay = float(Distribution(state.get("LoopDelay"), 0.0, 1, system).low[0]) if state.get("bLoopDelayEnabled") else 0.0
@@ -159,7 +159,7 @@ class Emitter:
 
     @property
     def pending(self):
-        """Whether it has particles yet to spawn."""
+        """Whether it still has particles to spawn."""
         if self.system.asked != 0:      # the game stopped the effect
             return False
         if self.loops == "Infinite":
@@ -168,7 +168,7 @@ class Emitter:
         return bool(self.spawns) and self.age <= loops * (self.duration + self.delay)
 
     def _born(self, since, until):
-        """The birth times of the particles spawned in (since, until]."""
+        """Birth times of the particles spawned in (since, until]."""
         times = []
         period = self.duration + self.delay
         first, last = int(since // period), int(until // period)
@@ -212,7 +212,7 @@ class Emitter:
         return d.at(age, self.random[:, slot:slot + width])
 
     def _state(self):
-        """Every live particle's attributes at the emitter's age."""
+        """Attributes of every live particle at the emitter's age."""
         has = self.modules.__contains__
         n = len(self.birth)
         if not n:
@@ -226,7 +226,7 @@ class Emitter:
             self.birth, self.random = self.birth[alive], self.random[alive]
             return self._state()
         life = age / lifetime
-        # where it started, and how fast
+        # start position and speed
         position = self._setting("InitializeParticle", "InitialPositionDistribution", 0.0, 3, life, 1)
         if has("ShapeLocation"):
             position = position + self._shape()
@@ -300,12 +300,12 @@ class Emitter:
         self.data.floats[f0:f0 + nf, :len(values)] = np.asarray(values, F).T
 
     def _curve_scale(self, module):
-        """A scale module's own factor over its curve (its ScaleCurveRange: floats as bytes)."""
+        """A scale module's factor over its curve (ScaleCurveRange: floats as bytes)."""
         raw = ((self.modules.get(module) or {}).get("ScaleCurveRange") or {}).get("DefaultValue")
         return float(np.frombuffer(bytes(raw[:4]), F)[0]) if raw and len(raw) >= 4 else 1.0
 
     def _shape(self):
-        """Where in its shape each particle starts (relative to the shape's place)."""
+        """Where in its shape each particle starts, relative to the shape's position."""
         shape = self.modules["ShapeLocation"]
         kind = str(shape.get("ShapePrimitive", "Sphere")).split("::")[-1]
         n = len(self.birth)
@@ -335,7 +335,7 @@ class Emitter:
         return local + Distribution(shape.get("TransformOffset"), 0.0, 3).low
 
     def _velocity(self, position, life):
-        """Each particle's first velocity: straight, within a cone, or away from a point."""
+        """Each particle's initial velocity: straight, within a cone, or away from a point."""
         module = self.modules["AddVelocity"]
         kind = str(module.get("VelocityType", "Linear")).split("::")[-1]
         n = len(self.birth)
@@ -356,7 +356,7 @@ class Emitter:
             origin = _vector(module.get("PointOrigin"), 3)
             away = position - (origin if origin is not None else 0.0)
             length = np.linalg.norm(away, axis=1, keepdims=True)
-            away = np.where(length > 1e-6, away, r[:, 1:4] - 0.5)       # a particle on the point itself: any way
+            away = np.where(length > 1e-6, away, r[:, 1:4] - 0.5)       # a particle on the point itself: any direction
             return away / np.maximum(np.linalg.norm(away, axis=1, keepdims=True), 1e-9) * speed * scale("PointVelocityScale")
         return Distribution(module.get("LinearVelocityDistribution"), (0.0, 0.0, 100.0), 3).at(life, r[:, :3]) * scale("LinearVelocityScale")
 

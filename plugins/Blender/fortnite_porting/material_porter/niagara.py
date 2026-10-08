@@ -1,19 +1,19 @@
-"""Material Porter fork: a Niagara system replayed from its cooked asset.
+"""A Niagara system replayed from its cooked asset.
 
-What the engine does around the scripts, redone here: a system keeps one instance of a data set
-its two scripts (spawn once, update every tick) write the emitters' state into (age, loops,
-execution state, how many particles to spawn); each CPU emitter then runs its update script over
-its particles and its spawn script over the new ones (niagara_vm runs the scripts). The scripts
-read the engine's values (time step, the owner's transform, particle counts) from constant
-blocks laid out as the engine's structs, their own parameters from a store the asset cooks with
-each script, and their curves from data interfaces.
+This redoes what the engine does around the scripts. A system keeps one instance of a data set
+that its two scripts (spawn once, update every tick) write the emitters' state into (age, loops,
+execution state, particles to spawn). Each CPU emitter then runs its update script over its
+particles and its spawn script over the new ones (niagara_vm runs the scripts). The scripts read
+the engine's values (time step, owner transform, particle counts) from constant blocks laid out
+as the engine's structs, their own parameters from a store the asset cooks with each script, and
+their curves from data interfaces.
 
-The asset comes as the app exports it: the package's exports, each {name, type, outer, props},
-in the package's order (a reference's ObjectPath ends in the export's index).
+The asset comes as the app exports it: the package's exports, each {name, type, outer, props}, in
+package order (a reference's ObjectPath ends in the export's index).
 
-GPU emitters keep no script to run (a compiled shader only): niagara_gpu stands in for them from
-what the asset keeps (spawn counts, curves, renderers). Stateless emitters have no script either,
-only settings: niagara_stateless works their particles out.
+GPU emitters keep no script to run (only a compiled shader), so niagara_gpu stands in for them
+from what the asset keeps (spawn counts, curves, renderers). Stateless emitters have only
+settings, and niagara_stateless works their particles out.
 """
 import base64
 import struct
@@ -30,10 +30,10 @@ TYPES = {
     "LinearColor": (4, 0), "Quat4f": (4, 0), "Matrix44f": (16, 0), "NiagaraMatrix": (16, 0),
     "NiagaraID": (0, 2), "NiagaraSpawnInfo": (2, 2), "NiagaraRandInfo": (0, 3),
 }
-# half-precision attributes (an emitter's compressed ones): their own rows, after the floats
+# half-precision (compressed) attributes: own rows, after the floats
 HALVES = {"NiagaraHalf": 1, "NiagaraHalfVector2": 2, "NiagaraHalfVector3": 3, "NiagaraHalfVector4": 4}
 ACTIVE, INACTIVE, INACTIVE_CLEAR, COMPLETE, DISABLED = range(5)      # ENiagaraExecutionState
-QUALITY = 3     # the quality level replayed at (Engine.QualityLevel: 0 low to 4 cinematic)
+QUALITY = 3     # quality level replayed at (Engine.QualityLevel: 0 low to 4 cinematic)
 
 # the engine's constant blocks (FNiagaraGlobalParameters, ...SystemParameters, ...OwnerParameters, ...EmitterParameters)
 GLOBAL_SIZE, SYSTEM_SIZE, OWNER_SIZE, EMITTER_SIZE = 32, 64, 512, 32
@@ -54,7 +54,7 @@ def components(typedef):
     name = type_name(typedef)
     if name in TYPES:
         return TYPES[name]
-    # (UnderlyingType: 1 a class, 2 a struct, 3 an enum; older assets leave it out)
+    # UnderlyingType: 1 a class, 2 a struct, 3 an enum (older assets leave it out)
     if typedef.get("UnderlyingType") == 3 or (typedef.get("UnderlyingType") != 2 and name and name.startswith("E") and name[1:2].isupper()):
         return (0, 1)       # an enum
     raise Unsupported("type %s in a data set" % name)
@@ -79,7 +79,7 @@ class Layout:
             self.vars[v["Name"]] = (kind, self.floats, self.ints, nf, ni)
             self.floats += nf
             self.ints += ni
-        # a half attribute reads as floats: its rows come after the float rows (the VM's half
+        # a half attribute reads as floats; its rows come after the float rows (the VM's half
         # reads and writes count from there)
         for name, kind, at, n in half:
             self.vars[name] = (kind, self.floats + at, 0, n, 0)
@@ -166,8 +166,8 @@ def _rich(curve, x):
 
 
 class Curve:
-    """A curve data interface, sampled the way the engine's CPU scripts do: from its baked table
-    (one made from the curve's keys here, where the asset keeps none)."""
+    """A curve data interface, sampled like the engine's CPU scripts do: from its baked table
+    (built from the curve's keys when the asset keeps none)."""
 
     OUTPUTS = {"NiagaraDataInterfaceCurve": ["Curve"], "NiagaraDataInterfaceVector2DCurve": ["XCurve", "YCurve"],
                "NiagaraDataInterfaceVectorCurve": ["XCurve", "YCurve", "ZCurve"],
@@ -207,7 +207,7 @@ class Curve:
 
 
 class Array:
-    """An array data interface: the asset's values (one a script may add to or change while it plays)."""
+    """An array data interface: the asset's values, which a script may add to or change while it plays."""
 
     def __init__(self, system, kind, props):
         listed = next((v for k, v in props.items() if k.endswith("Data") and isinstance(v, list)), [])
@@ -221,13 +221,13 @@ class Array:
                 rows.append([-1 if item else 0])
             else:
                 rows.append([item])
-        # an empty one (a script fills it as it plays) is as wide as its type says, whatever asks first
+        # an empty array (a script fills it while playing) is as wide as its type says, whatever asks first
         width = next((w for suffix, w in (("Float2", 2), ("Float3", 3), ("Position", 3), ("Float4", 4), ("Color", 4), ("Quat", 4),
                                           ("NiagaraID", 2), ("Matrix", 16)) if kind.endswith(suffix)), 1)
         self.rows = np.array(rows, I if self.ints else F).reshape(len(rows), -1) if rows else np.zeros((0, width), I if self.ints else F)
-        # what reading an empty one gives (the engine's GetDefaultValue): white for a colour (a variant's
-        # colour array the game fills: Cerberus's flames are white x their material's colours, not black),
-        # the identity for a quaternion or a matrix, else zeros
+        # what reading an empty array gives (the engine's GetDefaultValue): white for a colour (a
+        # variant colour array the game fills; Cerberus's flames are white x their material colours,
+        # not black), identity for a quaternion or matrix, else zeros
         self.default = (1.0, 1.0, 1.0, 1.0) if kind.endswith("Color") else (0.0, 0.0, 0.0, 1.0) if kind.endswith("Quat") else \
             tuple(np.eye(4, dtype=float).ravel()) if kind.endswith("Matrix") else None
 
@@ -296,12 +296,12 @@ class Array:
 
 
 class ParticleRead:
-    """Another emitter's particles, read by a script (the emitter as it stands when the script runs)."""
+    """Another emitter's particles, read by a script (as the emitter stands when the script runs)."""
 
     def __init__(self, system, kind, props):
-        # the emitter it names (older assets: on the interface itself); none named: the script's own
+        # the emitter it names (older assets: on the interface itself); if none, the script's own
         self.system, self.source = system, props.get("EmitterName") or (props.get("EmitterBinding") or {}).get("EmitterName")
-        self.caller = None      # the emitter whose script is being bound (Script sets it)
+        self.caller = None      # emitter whose script is being bound (Script sets it)
 
     def function(self, name, specifiers, inputs, outputs):
         attribute = _specifiers(specifiers).get("Attribute")
@@ -370,7 +370,7 @@ class RendererInfo:
         if name == "GetNumMeshes":
             return lambda count, args: [np.full(count, len(self.props.get("Meshes") or []), I)]
         if name == "GetMeshLocalBounds" and outputs == 9 and self.props.get("MPBounds"):
-            # a mesh's bounds with the renderer's scale of it (the app works them out): min, max, size
+            # a mesh's bounds with the renderer's scale applied (the app computes them): min, max, size
             boxes = np.array(self.props["MPBounds"], F).reshape(-1, 6)
             rows = np.concatenate([boxes, boxes[:, 3:] - boxes[:, :3]], axis=1)
 
@@ -410,9 +410,9 @@ def _multiply(a, b):
 
 
 class Skeleton:
-    """A skeletal mesh's bones and sockets (or an actor's sockets), as the replay was told they
-    stand (System.place: the character's pose). Without a character every one sits at the
-    character's origin, unturned."""
+    """A skeletal mesh's bones and sockets (or an actor's sockets), as the replay was told they stand
+    (System.place: the character's pose). Without a character each sits at the character's origin,
+    unrotated."""
 
     def __init__(self, system, kind, props):
         self.system = system
@@ -425,7 +425,7 @@ class Skeleton:
         self.cached = None
 
     def held(self, pose, index):
-        """A bone's or socket's (position, rotation) in a pose; a socket without its own name there: the one the game points it at."""
+        """A bone's or socket's (position, rotation) in a pose. A socket not named there uses the one the game points it at."""
         name = self.names[index].lower()
         at = index - len(self.bones)
         found = pose.get(name)
@@ -434,7 +434,7 @@ class Skeleton:
         return found
 
     def tables(self):
-        """The bones' positions and rotations now and a tick ago: in the character's space, and in the world."""
+        """The bones' positions and rotations now and a tick ago, in character space and in world space."""
         system = self.system
         if self.cached is not None and self.cached[0] == system.ticks:
             return self.cached[1]
@@ -466,13 +466,13 @@ class Skeleton:
                 return [np.full(count, v, F) for v in (*m[3, :3], *q, *scale)][:outputs]
             return component
         if outputs == 1:
-            # a filtered bone's or socket's index: bones first, then sockets
+            # index of a filtered bone or socket: bones first, then sockets
             first = len(self.bones) if name == "GetFilteredSocket" else 0
             return lambda count, args: [(first + np.broadcast_to(vm.it(args[-1]), (count,))).astype(I)]
         if outputs in (10, 13):
             interpolated = name.endswith("Interpolated")
             world = self.reader or "WS" in name
-            takes_flag = name == "GetFilteredSocketTransform" and not self.reader      # its last input: whether in the world
+            takes_flag = name == "GetFilteredSocketTransform" and not self.reader      # last input: whether in world space
             sockets_only = "Socket" in name and not self.reader
 
             def transform(count, args):
@@ -496,7 +496,7 @@ class Skeleton:
 
 
 class Camera:
-    """The camera, where a script asks: the scene's as the replay was told (System.camera), still."""
+    """The camera a script asks for: the scene's, as the replay was told (System.camera), held still."""
 
     def __init__(self, system, kind, props):
         self.system = system
@@ -508,15 +508,15 @@ class Camera:
             raise Unsupported("Camera.%s" % name)
 
         def properties(count, args):
-            # position, forward, up, right, then what is left (a view offset): zeros
+            # position, forward, up, right, then the rest (a view offset): zeros
             flat = [v for vector in self.system.camera for v in vector]
             return ([np.full(count, v, F) for v in flat] + [np.zeros(count, F)] * outputs)[:outputs]
         return properties
 
 
 class VectorField:
-    """A vector field (a grid of vectors over a box), sampled as the engine's CPU scripts do:
-    between the eight cells around a position, the grid repeating along the axes it tiles on."""
+    """A vector field (a grid of vectors over a box), sampled like the engine's CPU scripts do:
+    between the eight cells around a position, repeating along the axes it tiles on."""
 
     def __init__(self, system, kind, props):
         path = str((props.get("Field") or {}).get("ObjectPath") or "").rpartition(".")[0]
@@ -556,7 +556,7 @@ class VectorField:
 
 
 class PlatformSet:
-    """A set of platforms and quality levels: whether it holds here (the highest quality)."""
+    """A set of platforms and quality levels: whether it holds here (at the highest quality)."""
 
     def __init__(self, system, kind, props):
         self.active = bool(int((props.get("Platforms") or {}).get("QualityLevelMask", -1)) >> QUALITY & 1)
@@ -566,7 +566,7 @@ class PlatformSet:
 
 
 class Distribution:
-    """A weighted distribution array (Value, Weight entries): its alias table, as the asset built it
+    """A weighted distribution array (Value, Weight entries). Uses the alias table the asset built
     (per entry: probability, alias, value, weight), which a script draws from with two random numbers."""
 
     def __init__(self, system, kind, props):
@@ -589,8 +589,8 @@ class Distribution:
 
 
 class Nothing:
-    """A data interface with nothing to answer here (sound, a world to collide with, a data channel
-    written for the game to read): its functions give zeros."""
+    """A data interface with nothing to answer here (sound, world collision, a data channel written
+    for the game to read): its functions give zeros."""
 
     def __init__(self, system, kind, props):
         pass
@@ -600,10 +600,10 @@ class Nothing:
 
 
 class NoMesh:
-    """A static mesh to sample (its surface, its vertices, its sockets). None comes with the effect:
-    the engine samples the mesh of the component the effect is on. Its functions answer as the
-    engine's do with no mesh: counts 0, positions 0 - the particles start at the effect's origin -
-    a socket's rotation none and its scale 1, a colour white."""
+    """A static mesh to sample (surface, vertices, sockets). None comes with the effect: the engine
+    samples the mesh of the component the effect is on. The functions answer like the engine's with
+    no mesh: counts 0, positions 0 (particles start at the effect's origin), socket rotation none
+    and scale 1, colour white."""
 
     def __init__(self, system, kind, props):
         self.system = system
@@ -641,7 +641,7 @@ INTERFACES["NiagaraDataInterfaceArrayDistributionInt"] = Distribution
 
 
 def _matrix_to_quaternion(count, args):
-    """The engine's FQuat(FMatrix): a rotation matrix (16 floats, rows first) as a quaternion."""
+    """The engine's FQuat(FMatrix): a rotation matrix (16 floats, rows first) to a quaternion."""
     m = np.stack([np.broadcast_to(vm.fl(a), (count,)) for a in args[-16:]], axis=1).astype(np.float64).reshape(count, 4, 4)
     q = np.zeros((count, 4))
     trace = m[:, 0, 0] + m[:, 1, 1] + m[:, 2, 2]
@@ -677,7 +677,7 @@ class Script:
     """A compiled script with its parameters and the functions it calls."""
 
     def __init__(self, system, props, cooked, emitter=None, lenient=False):
-        """lenient (the system's own scripts, which hold every emitter's emitter-level modules):
+        """lenient (for the system's own scripts, which hold every emitter's emitter-level modules):
         what can't be answered here (a grid a GPU emitter simulates on, a data channel, a mesh to
         sample) answers zeros instead of stopping the whole system."""
         data = props.get("CachedScriptVM") or {}
@@ -734,7 +734,7 @@ class Ids:
 
 
 class Handler:
-    """An emitter's answer to another's events: particles spawned per event, and a script run on those or on all."""
+    """An emitter's answer to another's events: particles spawned per event, and a script run on them or on all."""
 
     def __init__(self, system, emitter, handle, props):
         self.script = system.script(props["Script"], handle["Id"])
@@ -747,7 +747,7 @@ class Handler:
         self.source = None
 
     def events(self):
-        """The source's events as they stand: (buffer, how many to answer)."""
+        """The source's events as they stand: (buffer, number to answer)."""
         buffer = self.source.events.get(self.event) if self.source is not None else None
         if buffer is None:
             return None, 0
@@ -755,7 +755,7 @@ class Handler:
 
 
 class Emitter:
-    """A CPU emitter of a system: its particles, and the scripts that make and move them."""
+    """A CPU emitter of a system: its particles and the scripts that create and move them."""
 
     def __init__(self, system, index, handle, export, version):
         self.system, self.index, self.name, self.id = system, index, handle["Name"], handle["Id"]
@@ -772,7 +772,7 @@ class Emitter:
         self.previous = None
         self.ids = Ids()
         self.infos = [n for n, v in system.layout.vars.items() if v[0] == "NiagaraSpawnInfo" and n.startswith(self.name + ".")]
-        # the events its update script sends (name: buffer, and the most per tick); its spawn script's go nowhere
+        # events its update script sends (name: buffer, max per tick); its spawn script's events go nowhere
         self.events, self.sends = {}, []
         for g in version["UpdateScriptProps"].get("EventGenerators") or []:
             buffer = Layout(g["DataSetCompiledData"]["Variables"]).buffer()
@@ -782,7 +782,7 @@ class Emitter:
         self.handlers = [Handler(system, self, handle, h) for h in version.get("EventHandlerScriptProps") or []]
 
     def fill(self):
-        """The emitter's constant block, as it stands before a tick."""
+        """The emitter's constant block as it stands before a tick."""
         struct.pack_into("<iiffii", self.block, 0, self.data.count, self.spawned, 1.0, self.age, self.seed, self.instance_seed)
 
     def tick(self, dt):
@@ -800,7 +800,7 @@ class Emitter:
                     spawns.append((count, float(system.data.floats[f0, 0]), float(system.data.floats[f0 + 1, 0]), int(system.data.ints[i0 + 1, 0])))
             for h in self.handlers:
                 # an event spawns its Spawn Number of particles whatever the handler's script then
-                # runs on (the spawned ones, or every particle)
+                # runs on (the spawned ones or every particle)
                 events, count = h.events()
                 for j in range(count):
                     n = h.number if h.least >= h.number else int(system.rng.integers(h.least, h.number + 1))
@@ -862,7 +862,7 @@ class Emitter:
 
         for s in spawns:
             spawn(*s)
-        # an event's particles are spawned mid-tick, then the handler's script runs on them with the event to read
+        # an event's particles are spawned mid-tick, then the handler's script runs on them reading the event
         ran = []
         for h, events, j, n in answers:
             start = alive
@@ -896,25 +896,26 @@ class Emitter:
 class System:
     """A Niagara system, ticked. exports: the package's exports; fields: the vector fields they
     sample, by package (both as the app exports them). user: {parameter name: floats} over the
-    asset's own. sockets: the sockets a trail's filtered sockets stand for. strict: an emitter's script failing raises (tests) instead of leaving the emitter out."""
+    asset's own. sockets: the sockets a trail's filtered sockets stand for. strict: an emitter's
+    script failure raises (tests) instead of leaving the emitter out."""
 
     def __init__(self, exports, seed=1, user=None, strict=False, fields=None, sockets=None):
         self.exports, self.strict = exports, strict
-        # the sockets the game points a trail at (a pickaxe's first and second): what its filtered sockets,
-        # in their order, stand for where the character has none of their own names
+        # the sockets the game points a trail at (a pickaxe's first and second): what its filtered
+        # sockets, in order, stand for where the character has none of their own names
         self.sockets = [str(s).lower() for s in sockets or []]
-        self.fields = fields or {}  # the vector fields its scripts sample, by package
-        self.interfaces = {}        # export index: its data interface (one for all the scripts that call it)
-        # the character the effect sits on: the bones and sockets its scripts read (lower case), and where each
-        # stands now and a tick ago (name: (position, quaternion) in the character's space; place() tells)
+        self.fields = fields or {}  # vector fields its scripts sample, by package
+        self.interfaces = {}        # export index -> data interface (shared by all scripts that call it)
+        # the character the effect sits on: the bones and sockets its scripts read (lower case) and
+        # where each stands now and a tick ago (name: (position, quaternion) in character space; see place())
         self.reads, self.pose, self.pose_before = set(), {}, {}
         self.component = self.component_before = np.eye(4)
         self.placed, self.dt = None, 1.0 / 60.0
-        # where a script that asks finds the camera: position, forward, up, right (UE's axes, cm)
+        # the camera a script asks for: position, forward, up, right (UE's axes, cm)
         self.camera = ((-500.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 0.0, 1.0), (0.0, 1.0, 0.0))
-        self.fov = 80.0     # its field of view, degrees (the game's default)
+        self.fov = 80.0     # field of view, degrees (the game's default)
         self.asset = next(e for e in exports if e["type"] == "NiagaraSystem")
-        # the user-defined structs its data sets hold (the app lays each out: floats, ints)
+        # user-defined structs its data sets hold (the app lays each out: floats, ints)
         for e in exports:
             if e["type"] == "MPStruct":
                 TYPES[e["name"]] = (int(e["props"]["Floats"]), int(e["props"]["Ints"]))
@@ -927,8 +928,8 @@ class System:
         self.data, self.next = self.layout.buffer(1), self.layout.buffer(1)
         self.user = Store(compiled.get("InstanceParamStore") or {})
         # the parameter collections its scripts read (NPC.FortniteNPC.FortniteActiveTimeOfDay: which
-        # time of day's tint a smoke takes): each one's own values, as the app sends them. A script's
-        # cooked store holds placeholders for these (every time of day at once), not the values.
+        # time of day's tint a smoke takes), with the values the app sends. A script's cooked store
+        # holds placeholders for these (every time of day at once), not the values.
         self.shared = Store({})
         for e in exports:
             if e["type"] == "MPCollection":
@@ -942,33 +943,33 @@ class System:
         self.cooked = {(k["Key"]["EmitterHandleId"], k["Key"]["ScriptUsage"].split("::")[-1], k["Key"].get("ScriptUsageId") or NO_ID): k["Value"]
                        for k in props.get("ScriptRuntimeCookedDataMap") or []}
         self.age, self.ticks, self.state = 0.0, 0, ACTIVE
-        self.asked = ACTIVE     # what the game asks of it (Engine.Owner.ExecutionState): deactivate() asks it to stop
+        self.asked = ACTIVE     # what the game asks of it (Engine.Owner.ExecutionState); deactivate() asks it to stop
         self.globals, self.block, self.owner = bytearray(GLOBAL_SIZE), bytearray(SYSTEM_SIZE), bytearray(OWNER_SIZE)
         for at in range(0, 384, 64):
             self.owner[at:at + 64] = IDENTITY
         struct.pack_into("<4f", self.owner, 384, 0, 0, 0, 1)                         # rotation
         struct.pack_into("<4f4f4f4f", self.owner, 432, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1, 1, 0)    # axes, scale
         self.previous = None
-        self.unanswered = set()     # what its own scripts ask that answers zeros here ("Grid2DCollection.SetNumCells")
+        self.unanswered = set()     # what its scripts ask for that answers zeros here ("Grid2DCollection.SetNumCells")
         self.meshless = False       # whether a script samples a static mesh (none here: NoMesh)
         self.spawn = self.script(props["SystemSpawnScript"], None)
         self.update = self.script(props["SystemUpdateScript"], None)
         self.spawn_inputs = Layout(compiled["SpawnInstanceParamsDataSetCompiledData"]["Variables"])
         self.update_inputs = Layout(compiled["UpdateInstanceParamsDataSetCompiledData"]["Variables"])
         self.handles = props.get("EmitterHandles") or []
-        for h in self.handles:     # (an older build's dump names the handle's guid "ID": 28.00)
+        for h in self.handles:     # an older build's dump (28.00) names the handle's guid "ID"
             if isinstance(h, dict) and "Id" not in h and "ID" in h:
                 h["Id"] = h["ID"]
         self.emitters, self.skipped = [], []        # skipped: (emitter name, why)
-        self.approximate = []                       # the stateless emitters: played from their settings, the engine's random draws apart
-        self.gpu = []                               # the GPU emitters among them: their motion a stand-in (niagara_gpu)
+        self.approximate = []                       # stateless emitters: played from their settings, apart from the engine's random draws
+        self.gpu = []                               # GPU emitters among them: their motion is a stand-in (niagara_gpu)
         for index, handle in enumerate(self.handles):
             if not handle.get("bIsEnabled", True):
                 continue
             if "Stateless" in str(handle.get("EmitterMode")):
-                # no script: its modules' settings, worked out (niagara_stateless)
+                # no script: the module settings are worked out (niagara_stateless)
                 export = self.export(handle.get("StatelessEmitter"))
-                if export is None:      # (one the cook left out: not for this platform)
+                if export is None:      # the cook left it out: not for this platform
                     continue
                 try:
                     from . import niagara_stateless
@@ -986,7 +987,7 @@ class System:
             wanted = handle["VersionedInstance"].get("Version")
             version = next((v for v in versions if (v.get("Version") or {}).get("VersionGuid") == wanted), versions[0])
             if "GPU" in str(version.get("SimTarget")):
-                # no script to run (a compiled shader): what the asset keeps of it, the motion a stand-in (niagara_gpu)
+                # no script to run (a compiled shader): use what the asset keeps; the motion is a stand-in (niagara_gpu)
                 try:
                     from . import niagara_gpu
                     self.emitters.append(niagara_gpu.Emitter(self, index, handle, export, version))
@@ -1006,7 +1007,7 @@ class System:
                 h.source = next((o for o in self.emitters if o.id == h.source_id), None)
 
     def unresolved(self):
-        """The bones and sockets its scripts read that the character's pose doesn't have."""
+        """Bones and sockets its scripts read that the character's pose lacks."""
         names = set()
         for interface in self.interfaces.values():
             if isinstance(interface, Skeleton):
@@ -1015,14 +1016,14 @@ class System:
         return sorted(names)
 
     def _read(self):
-        """The parameter collections' values its scripts read, by name."""
+        """Values of the parameter collections its scripts read, by name."""
         scripts = [self.spawn, self.update] + [s for e in self.emitters for s in
                                                (getattr(e, "spawn", None), getattr(e, "update", None), *[h.script for h in getattr(e, "handlers", ())]) if s is not None]
         return {name for s in scripts for name in s.store.offsets if name in self.shared.offsets}
 
     def users(self):
-        """What the game sets of it that a number or a few say: its user parameters, and the
-        parameter collections' values its scripts read: [(name, type, value)]."""
+        """What the game sets, as a number or a few: the user parameters and the parameter
+        collections' values its scripts read. Returns [(name, type, value)]."""
         found = []
         read = self._read()
         for store in (self.user, self.shared):
@@ -1040,9 +1041,9 @@ class System:
         return found
 
     def set_user(self, name, value):
-        """A user parameter's (or a parameter collection's) value over the asset's own (a number, a bool, or floats)."""
+        """Override a user parameter's (or parameter collection's) asset value (a number, a bool or floats)."""
         name = name if name.startswith(("User.", "NPC.")) else "User." + name
-        # (UE's names don't mind case)
+        # UE's names are case-insensitive
         name = next((n for n in list(self.user.offsets) + list(self.shared.offsets) if n.lower() == name.lower()), name)
         store = self.user if name in self.user.offsets else self.shared if name in self.shared.offsets else None
         if store is None:
@@ -1058,9 +1059,10 @@ class System:
             store.put(name, "<%df" % nf, *[float(v) for v in (values + [0.0] * nf)[:nf]])
 
     def place(self, owner=None, component=None, pose=None):
-        """Where the effect stands for the next tick: its owner's transform and its character's (4x4,
-        UE's: rows the axes then the origin, cm), and the character's pose ({bone or socket name,
-        lower case: (position, quaternion)} in the character's space). What was told last becomes a tick ago's."""
+        """Where the effect stands for the next tick: the owner's transform and the character's (4x4,
+        UE's: rows the axes then the origin, cm), and the character's pose ({lower-case bone or
+        socket name: (position, quaternion)} in character space). What was told last becomes the
+        previous tick's."""
         self.component_before, self.pose_before = self.component, self.pose
         if component is not None:
             self.component = np.asarray(component, np.float64).reshape(4, 4)
@@ -1070,11 +1072,11 @@ class System:
             self.placed = np.asarray(owner, np.float64).reshape(4, 4)
 
     def deactivate(self):
-        """The game stops the effect (a timed notify ends): its emitters spawn no more, its particles play out."""
+        """The game stops the effect (a timed notify ends): emitters spawn no more and particles play out."""
         self.asked = INACTIVE
 
     def _owner(self, dt):
-        """The owner's constant block, from where it was placed (its velocity: from where it was)."""
+        """The owner's constant block from where it was placed (velocity from where it was before)."""
         m = self.placed
         if m is None:
             return
@@ -1093,7 +1095,7 @@ class System:
             struct.pack_into("<3f", self.owner, at, *v)
 
     def export(self, ref):
-        """The export a reference points at, when it is in this package."""
+        """The export a reference points at, if it is in this package."""
         if not ref or not ref.get("ObjectPath"):
             return None
         path, _, index = ref["ObjectPath"].rpartition(".")
@@ -1102,7 +1104,7 @@ class System:
         return self.exports[int(index)]
 
     def interface(self, ref):
-        """The data interface a reference points at, or None where there is no running it."""
+        """The data interface a reference points at, or None if it can't run."""
         export = self.export(ref)
         if export is None or export["type"] not in INTERFACES:
             return None
@@ -1126,7 +1128,7 @@ class System:
                       lenient=handle is None)
 
     def read(self, name):
-        """A system data set variable's values (its floats, else its ints), or None."""
+        """A system data set variable's values (floats, else ints), or None."""
         v = self.layout.vars.get(name)
         if v is None:
             return None
@@ -1134,7 +1136,7 @@ class System:
         return self.data.floats[f0:f0 + nf, 0] if nf else self.data.ints[i0:i0 + ni, 0]
 
     def bind(self, store):
-        """A script's parameters that name a system data set variable or a user parameter take its value."""
+        """Script parameters that name a system data set variable or a user parameter take its value."""
         for name, (offset, tname) in store.offsets.items():
             v = self.layout.vars.get(name)
             if v is not None:
@@ -1149,7 +1151,7 @@ class System:
                 store.data[offset:offset + len(raw)] = raw
 
     def _inputs(self, layout, prefix):
-        """The engine's values a system script reads per instance, as the asset binds them."""
+        """The engine values a system script reads per instance, as the asset binds them."""
         buffer = layout.buffer(1)
         buffer.count = 1
 

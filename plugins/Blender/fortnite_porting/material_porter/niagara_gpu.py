@@ -1,12 +1,12 @@
-"""Material Porter fork: a Niagara system's GPU emitters, approximated.
+"""A Niagara system's GPU emitters, approximated.
 
-A GPU emitter's particles are simulated by a compute shader the cook keeps only compiled: no
-script to run, no module settings. What the asset does keep is used: how many particles it spawns
-(its spawn info, which the system's own scripts work out on the CPU), its renderers and materials,
-and the curves its modules sample (by name: a sprite scale curve, float curves feeding the dynamic
-material parameter, a colour curve). Where its particles go is not kept, so they don't move: a
-still crowd around the emitter, each at its own point of its life (the curves' values there), as
-many as would be alive at once - the effect's look, without motion that would be made up.
+A GPU emitter's particles are simulated by a compute shader that the cook keeps only compiled, so
+there is no script to run and no module settings. What the asset does keep is used: how many
+particles it spawns (the spawn info, which the system's scripts work out on the CPU), its renderers
+and materials, and the curves its modules sample (by name: sprite scale, float curves feeding the
+dynamic material parameter, colour). Where the particles go is not kept, so they don't move: a still
+crowd around the emitter, as many as would be alive at once, each at its own point of its life (the
+curve values there). That gives the effect's look without invented motion.
 
 An emitter made here looks like a scripted one to what plays it (niagara.Emitter's name, layout,
 data and tick), as niagara_stateless's do.
@@ -17,12 +17,12 @@ from .niagara_vm import F
 from .niagara_stateless import ATTRIBUTES
 
 RANDOMS = 16
-LIFETIME = 1.25             # s: a particle's life, a stand-in (how many are alive at once: spawned per second x it)
-SIZE = (4.0, 9.0)           # cm: a sprite's width (its length along its velocity half again)
-SPREAD = (0.1, 0.22)        # of its fixed bounds' reach: how far from the emitter its particles stand
-AGES = (0.2, 0.8)           # the points of their lives they stand at (not newborn, not fading)
-RATE = 12.0                 # /s: what it spawns when the system's scripts never ask it to (its trigger
-                            # something the replay doesn't feed: Eternal Wanderer's hair globs)
+LIFETIME = 1.25             # s: particle life, a stand-in (number alive at once = spawned per second x this)
+SIZE = (4.0, 9.0)           # cm: sprite width (length along its velocity is half again)
+SPREAD = (0.1, 0.22)        # fraction of the fixed bounds' reach: how far from the emitter particles stand
+AGES = (0.2, 0.8)           # points of their lives the particles stand at (not newborn, not fading)
+RATE = 12.0                 # /s: spawn rate when the system's scripts never ask it to (its trigger is
+                            # something the replay doesn't feed, e.g. Eternal Wanderer's hair globs)
 
 
 def _sample(curve, x):
@@ -36,7 +36,7 @@ def _sample(curve, x):
 
 
 class Emitter:
-    """A GPU emitter of a system, its particles worked out from what the asset keeps."""
+    """A GPU emitter of a system; its particles are worked out from what the asset keeps."""
 
     def __init__(self, system, index, handle, export, version):
         from . import niagara
@@ -53,7 +53,7 @@ class Emitter:
         lo, hi = bounds.get("Min") or {}, bounds.get("Max") or {}
         reach = min(abs(float(lo.get(k, -100.0))) for k in "XYZ") if lo else 100.0
         self.reach = max(min(reach, min(float(hi.get(k, 100.0)) for k in "XYZ") if hi else reach), 10.0)
-        # the curves its modules sample, by what they're named after
+        # the curves its modules sample, keyed by what they are named after
         self.curves = {}
         for key, cooked in system.cooked.items():
             if key[0] != handle["Id"]:
@@ -65,7 +65,7 @@ class Emitter:
         self.birth = np.zeros(0)
         self.random = np.zeros((0, RANDOMS))
         self.asked = False          # whether the system's scripts ever spawned it
-        self.guessed = False        # whether its spawn rate is the stand-in's (RATE)
+        self.guessed = False        # whether the spawn rate is the stand-in RATE
         self.left = 0.0
 
     def fill(self):
@@ -105,7 +105,7 @@ class Emitter:
         if born:
             self.birth = np.concatenate([self.birth, np.full(born, self.age)])
             self.spawned += born
-        # as many as would be alive: those born within a life's length
+        # as many as would be alive: those born within one lifetime
         self.birth = self.birth[self.age - self.birth < LIFETIME]
         n = len(self.birth)
         if n > len(self.random):
@@ -116,11 +116,10 @@ class Emitter:
         if not n:
             self.data.count = 0
             return
-        r = self.random[:n]         # each one's own, kept: the same particle stands still from frame to frame
+        r = self.random[:n]         # per-particle values, kept so a particle stands still between frames
         life = AGES[0] + (AGES[1] - AGES[0]) * r[:, 0]
-        # a point of a shell's upper half around the emitter (most effects rise: smoke, sparks, a
-        # head's hair from its neck's socket), facing away from it (what a velocity-aligned sprite
-        # lines up with)
+        # a point on the upper half of a shell around the emitter (most effects rise: smoke, sparks,
+        # hair from a neck socket), facing away from it (what a velocity-aligned sprite lines up with)
         z = r[:, 1]
         angle = r[:, 2] * 2 * np.pi
         ring = np.sqrt(np.maximum(0.0, 1.0 - z * z))

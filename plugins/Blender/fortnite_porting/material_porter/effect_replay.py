@@ -1,20 +1,20 @@
-"""Material Porter fork: a particle effect's CPU emitters, played in Blender.
+"""A particle effect's CPU emitters, played in Blender.
 
-The emitters' scripts are run over the scene's frame range (niagara.py), and what each frame
-holds is kept: a mesh of points per drawn piece, every frame's particles in it, each point with
-its frame and its particle's values. A geometry nodes modifier keeps the current frame's points
-and puts the piece (the sprite's plane, the mesh renderer's mesh) on each: turned to the camera
-or along its velocity as the renderer says, sized, and carrying the particle's colour and
-material values as instance attributes, which the exact materials read.
+The emitters' scripts are run over the scene's frame range (niagara.py) and each frame's result is
+kept: a mesh of points per drawn piece holding every frame's particles, each point with its frame
+and its particle's values. A geometry nodes modifier keeps the current frame's points and puts the
+piece (the sprite's plane, the mesh renderer's mesh) on each: turned to the camera or along its
+velocity as the renderer says, sized, and carrying the particle's colour and material values as
+instance attributes, which the exact materials read.
 
-The replay is the engine's at 60 ticks a second or so (a whole number of ticks per frame). It
-stops where the system completes; an effect that never does fills the scene's frame range.
+The replay runs at the engine's 60 ticks a second or so (a whole number of ticks per frame). It
+stops where the system completes; an effect that never completes fills the scene's frame range.
 
-What the replay takes is kept with the effect (a text in the file), so it can be replayed: over
-another frame range (from the empty's Start Frame), with other user parameters (its User.* properties), or on
-a character - an effect under an armature reads its bones and sockets frame by frame (a
-contrail's hands and feet, a pickaxe's trail sockets), and one that moves (its own animation, or
-its parent's) leaves its world-space particles where they were spawned, as a trail.
+What the replay takes is kept with the effect (a text in the file), so it can be replayed over
+another frame range (from the empty's Start Frame), with other user parameters (its User.*
+properties), or on a character. An effect under an armature reads its bones and sockets frame by
+frame (a contrail's hands and feet, a pickaxe's trail sockets), and one that moves (its own
+animation, or its parent's) leaves its world-space particles where they were spawned, as a trail.
 """
 import re
 import base64
@@ -29,9 +29,9 @@ from . import effects, niagara
 GROUP = "MP Effect Particles"
 RIBBONS = "MP Effect Ribbons"
 GROUP_VERSION = 9
-# a decal's turn where the emitter sets none: the engine's FRotator(-90, 0, 90), projecting straight down (x, y, z, w)
+# a decal's turn when the emitter sets none: the engine's FRotator(-90, 0, 90), projecting straight down (x, y, z, w)
 DECAL_DOWN = (-0.5, 0.5, 0.5, 0.5)
-# how a particle's piece is turned (the modifier's Turn): as the renderer says
+# how a particle's piece is turned (the modifier's Turn), as the renderer says
 TURN_OWN, TURN_CAMERA, TURN_CAMERA_VELOCITY, TURN_FACING, TURN_MESH_VELOCITY, TURN_MESH_CAMERA, TURN_FACING_ALIGNED = range(7)
 FACINGS = "What a ribbon's width runs across: 0: the view (it faces the camera); 1: each particle's facing; " \
           "2: along each particle's side vector (a trail between two sockets)"
@@ -39,21 +39,21 @@ TURNS = "0: the particle's own rotation (a mesh); 1: a sprite facing the camera;
         "along its velocity (or its own vector); 3: a sprite facing the particle's own direction; 4: a mesh, its X axis along the velocity; " \
         "5: a mesh, its X axis to the camera; 6: a sprite facing its own direction, its length along its own vector"
 MOST_POINTS = 2_000_000     # over all frames, per effect
-KEY_PROGRAM = "mp_effect_program"   # on an effect's empty: the text that keeps what its replay takes
-KEY_SCALE = "mp_effect_scale"       # and the import's scale (Blender units per UE unit)
+KEY_PROGRAM = "mp_effect_program"   # on an effect's empty: the text holding what its replay takes
+KEY_SCALE = "mp_effect_scale"       # and the import scale (Blender units per UE unit)
 KEY_ROOT = "mp_effect_root"         # on a particles object: its effect's empty
-KEY_SOCKETS = "mp_effect_sockets"   # on a pickaxe's trail's empty: the two sockets it runs between ("a,b")
-# on an animation's effect's empty: the frames after its Start Frame it is played again on (each of its notifies;
-# the first is 0), and for each how many frames a timed notify keeps it going (0: it plays out by itself)
+KEY_SOCKETS = "mp_effect_sockets"   # on a pickaxe trail's empty: the two sockets it runs between ("a,b")
+# on an animation effect's empty: the frames after Start Frame it is played again on (one per notify;
+# the first is 0), and per play how many frames a timed notify keeps it going (0: it plays out by itself)
 KEY_REPEATS, KEY_LENGTHS = "mp_effect_repeats", "mp_effect_lengths"
-KEY_START = "Start Frame"           # on an effect's empty: the scene frame its replay starts on (the user's to set)
-KEY_LOOP = "Loop"                   # on an effect's empty: whether the replay starts over after its last frame (the user's to set)
-LIGHTS_MAX = 32                     # a light renderer's lights at most (one a particle alive at once)
+KEY_START = "Start Frame"           # on an effect's empty: the scene frame its replay starts on (user-set)
+KEY_LOOP = "Loop"                   # on an effect's empty: whether the replay restarts after its last frame (user-set)
+LIGHTS_MAX = 32                     # max lights per light renderer (one per particle alive at once)
 
 
 def store(root, exports, fields, scale, sockets=None):
-    """Keep what the effect's replay takes with the effect (a text in the file), to replay it again.
-    sockets: the skeleton's sockets ({name, lower case: its bone and place on it}), for an armature without them."""
+    """Keep what the effect's replay takes with the effect (a text in the file), so it can be replayed.
+    sockets: the skeleton's sockets ({lower-case name: its bone and place on it}), for an armature without them."""
     packed = base64.b64encode(zlib.compress(json.dumps({"Exports": exports, "Fields": fields or {}, "Sockets": sockets or {}}).encode("utf-8"))).decode("ascii")
     text = bpy.data.texts.new(root.name + " replay")
     text.use_fake_user = True
@@ -63,7 +63,7 @@ def store(root, exports, fields, scale, sockets=None):
 
 
 def program(root):
-    """What the effect's replay takes, as stored with it: (exports, fields, the skeleton's sockets), or None."""
+    """What the effect's replay takes, as stored with it: (exports, fields, skeleton sockets), or None."""
     text = bpy.data.texts.get(str(root.get(KEY_PROGRAM) or ""))
     if text is None:
         return None
@@ -72,7 +72,7 @@ def program(root):
 
 
 def _ue(matrix, scale):
-    """A Blender transform as UE's matrix: its rows the axes then the origin, Y the other way, UE's units."""
+    """A Blender transform as UE's matrix: rows are the axes then the origin, Y flipped, UE units."""
     flip = np.diag([1.0, -1.0, 1.0, 1.0])
     m = flip @ np.array(matrix, np.float64) @ flip
     m[:3, 3] /= scale
@@ -80,8 +80,8 @@ def _ue(matrix, scale):
 
 
 def roots(objects):
-    """The effects among the objects: each one's empty, from itself, a piece or its particles; with
-    none, the effects on the objects (a pickaxe's own, a character's contrail)."""
+    """The effects among the objects: each one's empty, found from the empty, a piece or its particles.
+    With none, the effects on the objects (a pickaxe's own, a character's contrail)."""
     found = []
     for obj in objects:
         at = obj.get(KEY_ROOT) if obj.get(effects.KEY) == "Particles" else obj
@@ -105,7 +105,7 @@ def attach(root, rig):
 
 
 def rig_of(root):
-    """The armature the effect is on: the nearest among its parents, or None."""
+    """The armature the effect is on (the nearest parent), or None."""
     parent = root.parent
     while parent is not None:
         if parent.type == 'ARMATURE':
@@ -115,8 +115,8 @@ def rig_of(root):
 
 
 def holder_of(root):
-    """What the effect reads bones and sockets of: the armature it is on, else the mesh it is on (a
-    static mesh's sockets), or None."""
+    """What the effect reads bones and sockets from: its armature, else the mesh it is on (a static
+    mesh's sockets), or None."""
     rig = rig_of(root)
     if rig is None and root.parent is not None and root.parent.type == 'MESH':
         return root.parent
@@ -142,10 +142,10 @@ def _animated(root):
 
 
 def _plain_world(obj):
-    """An object's world matrix worked out from the transforms it carries, or None where that isn't what the scene
-    would give (a parent on a bone or a vertex, a constraint, an animation or a driver up the chain). An object's
-    matrix_world is what the last evaluation made of it: an object made since has none, and evaluating a scene of
-    tens of thousands of objects once for each effect a level places costs most of a second a time."""
+    """An object's world matrix computed from its own transforms, or None where that wouldn't match the
+    scene's (a parent on a bone or vertex, a constraint, an animation or a driver up the chain).
+    matrix_world is stale for objects made since the last evaluation, and evaluating a scene of tens of
+    thousands of objects once per placed effect costs most of a second each time."""
     chain = []
     at = obj
     while at is not None:
@@ -162,18 +162,18 @@ def _plain_world(obj):
 
 
 class Stand:
-    """Where the effect and its character stand, frame by frame: the effect's empty's transform,
-    the armature's, and the bones and sockets the effect's scripts read."""
+    """Where the effect and its character stand, frame by frame: the effect empty's transform, the
+    armature's, and the bones and sockets the effect's scripts read."""
 
     def __init__(self, scene, root, rig, reads, scale, sockets=None):
         self.scene, self.root, self.rig, self.scale = scene, root, rig, scale
-        self.seen = {}      # frame: its stand (an effect played several times asks for a frame again)
+        self.seen = {}      # frame -> its stand (an effect played several times asks for a frame again)
         self.animated = _animated(root)
         self.still = None if self.animated else False       # unmoving: one frame's stand serves them all
-        self.bones = {}     # name read: (pose bone, where on it: a socket the armature doesn't have, else None)
+        self.bones = {}     # name read -> (pose bone, place on it for a socket the armature lacks, else None)
         if rig is not None:
             by_name = {b.name.lower(): b for b in rig.pose.bones} if rig.type == 'ARMATURE' else {}
-            # (each read in the game's frame of its bone: a reoriented bone's isn't)
+            # each is read in the game's frame of its bone (a reoriented bone's isn't)
             for name in reads:
                 socket = (sockets or {}).get(name)
                 if name in by_name:
@@ -186,14 +186,14 @@ class Stand:
                     self.bones[name] = (None, effects.socket_matrix(socket, scale))
 
     def at(self, frame):
-        """(the owner's matrix, the character's, its pose) on a scene frame, in UE's terms."""
+        """(owner matrix, character matrix, pose) on a scene frame, in UE terms."""
         if self.still:
             return self.still
         if frame in self.seen:
             return self.seen[frame]
         if self.still is None:
             self.scene.frame_set(frame)
-        # (a still effect with no bones to read: where its objects stand by their own transforms, the scene unevaluated)
+        # a still effect with no bones to read: use its objects' own transforms, without evaluating the scene
         world = _plain_world(self.root) if self.still is False and self.rig is None and not self.bones else None
         if world is None:
             bpy.context.view_layer.update()
@@ -212,7 +212,7 @@ class Stand:
 
 
 def _between(a, b, t):
-    """The stand a fraction of the way from one frame's to the next's."""
+    """The stand a fraction of the way between two frames' stands."""
     if t >= 1.0:
         return b
     pose = {}
@@ -228,8 +228,8 @@ def replay(system, fps, frames, stand=None, first=1, last=None, watch=()):
     """The system ticked through the frames: {emitter name: [(floats, ints) per frame]}. stand: where
     the effect and its character are on each scene frame (a Stand), for an effect that moves or sits
     on a character; without one it stays at its origin. last: the scene frame the game stops the
-    effect on (it spawns no more from there). watch: system, emitter and user variables whose values
-    each frame are kept as system.history ({name: [floats per frame]})."""
+    effect on (it spawns no more from there). watch: system, emitter and user variables whose
+    per-frame values are kept as system.history ({name: [floats per frame]})."""
     ticks = max(1, round(60.0 / fps))
     dt = 1.0 / (fps * ticks)
     props = system.props
@@ -260,7 +260,7 @@ def replay(system, fps, frames, stand=None, first=1, last=None, watch=()):
             values.append(_variable(system, name))
         if system.done or total > MOST_POINTS:
             break
-    # the frames after the last particle hold nothing to play
+    # frames after the last particle have nothing to play
     kept = max([i + 1 for frames in tracks.values() for i, f in enumerate(frames) if f[0].shape[1]] or [0])
     for frames in list(tracks.values()) + list(system.history.values()):
         del frames[kept:]
@@ -268,8 +268,8 @@ def replay(system, fps, frames, stand=None, first=1, last=None, watch=()):
 
 
 def _variable(system, name):
-    """A system's, an emitter's ("<emitter>.X") or a user variable's value now, as floats (a bool as
-    0 or 1); None where the system has no such variable."""
+    """A system, emitter ("<emitter>.X") or user variable's current value as floats (a bool as 0 or 1);
+    None if the system has no such variable."""
     v = system.read(name)
     if v is None and name in system.user.offsets:
         floats, _ = niagara.TYPES.get(system.user.offsets[name][1], (0, 1))
@@ -283,15 +283,15 @@ def _variable(system, name):
     return v.astype(np.float64).copy()
 
 
-# a material parameter's value type in a renderer's binding: its components
+# a material parameter's value type in a renderer binding: its component count
 BOUND_WIDTHS = {"NiagaraFloat": 1, "NiagaraBool": 1, "NiagaraInt32": 1, "Vector2f": 2, "Vector3f": 3, "NiagaraPosition": 3,
                 "Vector4f": 4, "LinearColor": 4}
 
 
 def bindings(renderer, emitter):
-    """A renderer's material parameters bound to values of the system (MaterialParameters'
-    AttributeBindings to a System., an emitter's or a User. float or vector): [(parameter, variable,
-    components)]. A curve exposed as a texture is the app's to resolve, and a texture isn't a value."""
+    """A renderer's material parameters bound to system values (MaterialParameters AttributeBindings
+    to a System., emitter or User. float or vector): [(parameter, variable, components)]. A curve
+    exposed as a texture is resolved by the app, and a texture isn't a value."""
     out = []
     for b in (renderer.get("MaterialParameters") or {}).get("AttributeBindings") or []:
         var = b.get("ResolvedNiagaraVariable") or b.get("NiagaraVariable") or {}
@@ -307,12 +307,12 @@ def bindings(renderer, emitter):
 
 
 def _bind(piece, carriers, bound, history, start, loop):
-    """A renderer's bound material parameters: each one's value over the replay (keyed where it
-    changes) on the piece and what draws it as mp_bind_<parameter>, which an Attribute node hands
-    the parameter's input on the piece's material - its own copy, as other pieces may draw the same
-    material with other values. Returns the parameters bound."""
+    """Key a renderer's bound material parameters over the replay (where they change) on the piece and
+    what draws it, as mp_bind_<parameter>. An Attribute node feeds that to the parameter's input on
+    the piece's material, which is its own copy since other pieces may draw the same material with
+    other values. Returns the parameters bound."""
     done = []
-    # (the particles draw the piece's mesh, with the mesh's materials: the piece gets a mesh of its own)
+    # the particles draw the piece's mesh with its materials, so the piece gets a mesh of its own
     if piece.data is not None and piece.data.users > 1:
         piece.data = piece.data.copy()
     for slot in piece.material_slots:
@@ -351,21 +351,21 @@ def _bind(piece, carriers, bound, history, start, loop):
 
 
 class Track:
-    """An emitter's particles over the frames, an attribute at a time."""
+    """An emitter's particles over the frames, one attribute at a time."""
 
     def __init__(self, emitter, frames):
         self.layout, self.frames = emitter.layout, frames
         self.counts = np.array([f[0].shape[1] for f in frames], np.int64)
         self.total = int(self.counts.sum())
         self.frame = np.repeat(np.arange(len(frames), dtype=np.int32), self.counts)
-        # which play of the effect each particle is of (an animation can play one several times)
+        # which play of the effect each particle belongs to (an animation can play it several times)
         self.run = np.concatenate([f[2] if len(f) > 2 else np.zeros(f[0].shape[1], np.int32) for f in frames]) if frames else np.zeros(0, np.int32)
 
     def has(self, name):
         return name in self.layout.vars
 
     def get(self, name, default):
-        """The attribute over all frames (particles x components); the default where the emitter has none."""
+        """The attribute over all frames (particles x components); the default if the emitter has none."""
         v = self.layout.vars.get(name)
         if v is None:
             return np.tile(np.asarray(default, np.float32), (self.total, 1))
@@ -382,8 +382,8 @@ def bound(renderer, binding, default):
 
 def _ribbon_runs(frame, ribbon, order, position):
     """The points of every frame's ribbons in the order each ribbon runs through them: (the sort,
-    each point's index in its ribbon, its ribbon's point count, its distance along it, its
-    ribbon's length), in UE's units."""
+    point index in its ribbon, ribbon point count, distance along the ribbon, ribbon length),
+    in UE units."""
     n = len(frame)
     if not n:
         empty = np.zeros(0, np.float32)
@@ -395,7 +395,7 @@ def _ribbon_runs(frame, ribbon, order, position):
     step = np.zeros(n)
     step[1:] = np.linalg.norm(p[1:] - p[:-1], axis=1)
     step[first] = 0.0
-    run = np.cumsum(first) - 1                      # which ribbon each sorted point is of
+    run = np.cumsum(first) - 1                      # ribbon each sorted point belongs to
     along = np.cumsum(step)
     start = along[first][run]
     along = along - start
@@ -408,9 +408,9 @@ def _ribbon_runs(frame, ribbon, order, position):
 
 def _ribbon_uv(track, renderer, which, runs, pick):
     """A ribbon's UV set (0 or 1) at every point: (U, V at one edge, V at the other). U runs from the
-    ribbon's first point in link order (the youngest, without one): over the whole ribbon (by
-    its length, or evenly a point), or tiled every Tiling Length; then the renderer's scale and
-    offset, and the emitter's own U and V range where it gives them."""
+    ribbon's first point in link order (the youngest if there is no link order) over the whole ribbon
+    (by length, or evenly per point) or tiled every Tiling Length, then the renderer's scale and
+    offset, and the emitter's own U and V range if it gives one."""
     sort, index, count, along, length = runs
     settings = renderer.get("UV%dSettings" % which) or {}
     mode = str(settings.get("DistributionMode", "ScaledUsingRibbonSegmentLength"))
@@ -448,9 +448,9 @@ def _attribute(mesh, name, kind, values):
 
 def points(name, track, renderer, kind, scale, keep=None):
     """A mesh of points: every frame's particles, with what the piece's instances (a ribbon's curve)
-    and materials take of each."""
+    and materials take from each."""
     pick = (lambda a: a[keep]) if keep is not None else (lambda a: a)
-    flip = np.array([1.0, -1.0, 1.0], np.float32)       # UE's Y runs the other way
+    flip = np.array([1.0, -1.0, 1.0], np.float32)       # UE's Y is flipped
     position = pick(track.get(bound(renderer, "PositionBinding", "Position"), (0, 0, 0))) * flip * scale
     mesh = bpy.data.meshes.new(name)
     mesh.vertices.add(len(position))
@@ -458,34 +458,34 @@ def points(name, track, renderer, kind, scale, keep=None):
     _attribute(mesh, "mp_frame", 'INT', pick(track.frame))
     _attribute(mesh, "mp_velocity", 'FLOAT_VECTOR', pick(track.get(bound(renderer, "VelocityBinding", "Velocity"), (0, 0, 0))) * flip)
     if kind == "Ribbon":
-        # a ribbon runs through its particles in link order (their age where they have none), one ribbon per ID
+        # a ribbon runs through its particles in link order (by age if none), one ribbon per ID
         _attribute(mesh, "mp_width", 'FLOAT', pick(track.get(bound(renderer, "RibbonWidthBinding", "RibbonWidth"), (1,))) * scale)
         order = bound(renderer, "RibbonLinkOrderBinding", "RibbonLinkOrder")
         _attribute(mesh, "mp_order", 'FLOAT', pick(track.get(order if track.has(order) else bound(renderer, "NormalizedAgeBinding", "NormalizedAge"), (0,))))
         ribbon = pick(track.get(bound(renderer, "RibbonIdBinding", "RibbonID"), (0,)))[:, 0].astype(np.int64)
-        _attribute(mesh, "mp_ribbon", 'INT', (ribbon % 100003 + pick(track.run) * 100003).astype(np.int32))      # each play's ribbons its own
+        _attribute(mesh, "mp_ribbon", 'INT', (ribbon % 100003 + pick(track.run) * 100003).astype(np.int32))      # each play gets its own ribbons
         _attribute(mesh, "mp_facing", 'FLOAT_VECTOR', pick(track.get(bound(renderer, "RibbonFacingBinding", "RibbonFacing"), (0, 0, 1))) * flip)
-        # its two UV sets, as the renderer lays each along the ribbon: (U, V at one edge, V at the other) a point
+        # two UV sets as the renderer lays them along the ribbon: per point (U, V at one edge, V at the other)
         groups = _ribbon_runs(pick(track.frame), (ribbon % 100003 + pick(track.run) * 100003),
                               pick(track.get(order if track.has(order) else bound(renderer, "NormalizedAgeBinding", "NormalizedAge"), (0,)))[:, 0], position / scale)
         for i in (0, 1):
             _attribute(mesh, "mp_uv%d" % i, 'FLOAT_VECTOR', _ribbon_uv(track, renderer, i, groups, pick))
     elif kind == "Sprite":
         size = pick(track.get(bound(renderer, "SpriteSizeBinding", "SpriteSize"), (50, 50)))
-        _attribute(mesh, "mp_size", 'FLOAT_VECTOR', np.concatenate([size, np.zeros((len(size), 1), np.float32)], axis=1))   # in UE's units, for the materials
+        _attribute(mesh, "mp_size", 'FLOAT_VECTOR', np.concatenate([size, np.zeros((len(size), 1), np.float32)], axis=1))   # UE units, for the materials
         size = size * scale
         _attribute(mesh, "mp_facing", 'FLOAT_VECTOR', pick(track.get(bound(renderer, "SpriteFacingBinding", "SpriteFacing"), (1, 0, 0))) * flip)
         _attribute(mesh, "mp_scale", 'FLOAT_VECTOR', np.concatenate([size, np.ones((len(size), 1), np.float32)], axis=1))
         _attribute(mesh, "mp_spin", 'FLOAT', -np.radians(pick(track.get(bound(renderer, "SpriteRotationBinding", "SpriteRotation"), (0,)))))
-        # what its length runs along: the emitter's own vector (Custom Alignment), else its velocity
+        # what the length runs along: the emitter's own vector (Custom Alignment), else the velocity
         custom = bound(renderer, "SpriteAlignmentBinding", "SpriteAlignment")
         if "CustomAlignment" in str(renderer.get("Alignment")) and track.has(custom):
             _attribute(mesh, "mp_align", 'FLOAT_VECTOR', pick(track.get(custom, (0, 0, 1))) * flip)
         else:
             _attribute(mesh, "mp_align", 'FLOAT_VECTOR', pick(track.get(bound(renderer, "VelocityBinding", "Velocity"), (0, 0, 0))) * flip)
     elif kind == "Decal":
-        # its box's half size (UE's units) over the 1 m quad; turned as it projects (the engine's own
-        # turn where the emitter sets none: straight down)
+        # its box's half size (UE units) over the 1 m quad, turned as it projects (the engine's own
+        # turn when the emitter sets none: straight down)
         _attribute(mesh, "mp_scale", 'FLOAT_VECTOR', pick(track.get(bound(renderer, "DecalSizeBinding", "DecalSize"), (50, 50, 50))) * 2.0 * scale)
         q = pick(track.get(bound(renderer, "DecalOrientationBinding", "DecalOrientation"), DECAL_DOWN)).astype(np.float32)
         _attribute(mesh, "mp_decal_fade", 'FLOAT', pick(track.get(bound(renderer, "DecalFadeBinding", "DecalFade"), (1,))))
@@ -510,25 +510,25 @@ def points(name, track, renderer, kind, scale, keep=None):
             _attribute(mesh, "mp_dynamic%d" % i, 'FLOAT_COLOR', pick(track.get(attribute, (1, 1, 1, 1))))
     _attribute(mesh, "mp_dynamic", 'FLOAT_COLOR', np.tile(np.array(flags, np.float32), (len(position), 1)))
     _attribute(mesh, "mp_subimage", 'FLOAT', pick(track.get(bound(renderer, "SubImageIndexBinding", "SubImageIndex"), (0,))))
-    # its own random number (the materials' Particle Random: the same for a particle's whole life)
+    # a random number per particle (the materials' Particle Random: constant over its life)
     _attribute(mesh, "mp_random", 'FLOAT', pick(track.get(bound(renderer, "MaterialRandomBinding", "MaterialRandom"), (0,))))
     if kind != "Ribbon":
-        # how far it is drawn towards the camera from where it is (a glow out in front of what it sits in)
+        # how far it is drawn toward the camera from its position (a glow in front of what it sits in)
         _attribute(mesh, "mp_camera_offset", 'FLOAT', pick(track.get(bound(renderer, "CameraOffsetBinding", "CameraOffset"), (0,))) * scale)
     _attribute(mesh, "mp_age", 'FLOAT', pick(track.get(bound(renderer, "NormalizedAgeBinding", "NormalizedAge"), (0,))))
     return mesh
 
 
 def _keys(target, path, index, frames, values, loop):
-    """An animation curve of a property over the replay's frames (held from one to the next); looped,
-    it starts over after the last one."""
+    """An animation curve of a property over the replay's frames (each value held until the next);
+    looped, it restarts after the last one."""
     ad = target.animation_data or target.animation_data_create()
     if ad.action is None:
         ad.action = bpy.data.actions.new("%s replay" % target.name)
     curve = ad.action.fcurve_ensure_for_datablock(target, path, index=index)
     frames, values = list(frames), list(values)
     if loop and frames:
-        frames.append(frames[-1] + 1)     # back to the first value one frame on: a period of the whole replay
+        frames.append(frames[-1] + 1)     # back to the first value one frame on: one period of the whole replay
         values.append(values[0])
     curve.keyframe_points.add(len(frames))
     curve.keyframe_points.foreach_set("co", np.stack([np.asarray(frames, np.float32), np.asarray(values, np.float32)], axis=1).ravel())
@@ -539,10 +539,10 @@ def _keys(target, path, index, frames, values, loop):
 
 
 def _lights(piece, track, renderer, keep, scale, start, loop, parent, root):
-    """A light renderer's particles as point lights, one a particle alive at once (up to LIGHTS_MAX),
-    keyed frame by frame: where each is, its colour (Color, alpha scaling it if the renderer says,
-    plus ColorAdd) and its reach (LightRadius x RadiusScale). Its power gives what UE's light gives
-    a surface: a third of the way out for a light with an exponent falloff, anywhere for an inverse
+    """A light renderer's particles as point lights, one per particle alive at once (up to LIGHTS_MAX),
+    keyed frame by frame: position, colour (Color, scaled by alpha if the renderer says so, plus
+    ColorAdd) and reach (LightRadius x RadiusScale). The power matches what UE's light gives a
+    surface: at a third of the way out for a light with an exponent falloff, anywhere for an inverse
     square one (UE's particle light colour is per cm², Blender's watts per m²). Returns the lights."""
     flip = np.array([1.0, -1.0, 1.0], np.float32)
     frame = track.frame if keep is None else track.frame[keep]
@@ -565,7 +565,7 @@ def _lights(piece, track, renderer, keep, scale, start, loop, parent, root):
     strength = rgb.max(axis=1)
     power = np.where(enabled, strength * falloff, 0.0)
     tint = rgb / np.maximum(strength, 1e-6)[:, None]
-    # each frame's particles, in order: the n-th alive is the n-th light's
+    # each frame's particles in order: the n-th alive particle drives the n-th light
     order = np.argsort(frame, kind="stable")
     first = np.searchsorted(frame[order], np.arange(len(track.frames)))
     counts = np.bincount(frame, minlength=len(track.frames))
@@ -597,7 +597,7 @@ def _lights(piece, track, renderer, keep, scale, start, loop, parent, root):
 
 
 def group():
-    """The node group that plays a points mesh: the current frame's points, the piece on each."""
+    """The node group that plays a points mesh: the current frame's points with the piece on each."""
     g = bpy.data.node_groups.get(GROUP)
     if g is not None and g.get("mp_version") == GROUP_VERSION:
         return g
@@ -645,7 +645,7 @@ def group():
         return n.outputs[0]
 
     inputs, outputs = node("NodeGroupInput"), nodes.new("NodeGroupOutput")
-    # the frame of the replay the scene is on
+    # the replay frame the scene is on
     time = node("GeometryNodeInputSceneTime")
     index = math_('SUBTRACT', time.outputs["Frame"], inputs.outputs["Start Frame"])
     looped = math_('FLOORED_MODULO', index, inputs.outputs["Frames"])
@@ -661,7 +661,7 @@ def group():
     links.new(inputs.outputs["Geometry"], current.inputs["Geometry"])
     links.new(other.outputs[0], current.inputs["Selection"])
 
-    # the piece, with the renderer's own rotation and scale
+    # the piece, with the renderer's rotation and scale
     piece = node("GeometryNodeObjectInfo", transform_space='ORIGINAL')
     links.new(inputs.outputs["Piece"], piece.inputs["Object"])
     placed = node("GeometryNodeTransform")
@@ -669,8 +669,8 @@ def group():
     links.new(inputs.outputs["Piece Offset"], placed.inputs["Translation"])
     links.new(inputs.outputs["Piece Rotation"], placed.inputs["Rotation"])
     links.new(inputs.outputs["Piece Scale"], placed.inputs["Scale"])
-    # UE turns a particle mesh's normals by its scale, not by the scale's inverse (a sphere flattened into a
-    # card keeps a round one's falloff): the normals that come out so once the piece is scaled
+    # UE transforms a particle mesh's normals by its scale, not the inverse (a sphere flattened into a
+    # card keeps a round one's falloff): these are the normals that result once the piece is scaled
     squared = node("ShaderNodeVectorMath", operation='MULTIPLY')
     links.new(inputs.outputs["Piece Scale"], squared.inputs[0])
     links.new(inputs.outputs["Piece Scale"], squared.inputs[1])
@@ -690,7 +690,7 @@ def group():
     links.new(camera.outputs["Location"], toward.inputs[0])
     links.new(node("GeometryNodeInputPosition").outputs[0], toward.inputs[1])
     velocity = attribute("mp_velocity", 'FLOAT_VECTOR')
-    along = attribute("mp_align", 'FLOAT_VECTOR')      # what a sprite's length runs along: its velocity, or the emitter's own vector
+    along = attribute("mp_align", 'FLOAT_VECTOR')      # what a sprite's length runs along: its velocity, or the emitter's vector
     own = attribute("mp_rotation", 'QUATERNION')
     spin = node("FunctionNodeAxisAngleToRotation")
     spin.inputs["Axis"].default_value = (0.0, 0.0, 1.0)
@@ -713,7 +713,7 @@ def group():
         return n.outputs[0]
 
     def mesh_facing(direction):
-        # the mesh's X axis along the direction, its Z as far up as that leaves, then the particle's own rotation
+        # mesh X along the direction, Z as far up as that allows, then the particle's own rotation
         n = node("FunctionNodeRotateRotation", rotation_space='LOCAL')
         links.new(aligned('Z', (0.0, 0.0, 1.0), aligned('X', direction), 'X'), n.inputs[0])
         links.new(own, n.inputs[1])
@@ -722,11 +722,11 @@ def group():
     turns = [
         own,
         spun(camera.outputs["Rotation"]),                                   # a sprite: the camera's plane, spun
-        aligned('Z', toward.outputs[0], aligned('Y', along), 'Y'),          # its length along the velocity, its face to the camera
-        spun(aligned('Z', attribute("mp_facing", 'FLOAT_VECTOR'))),         # its face to the particle's own direction
+        aligned('Z', toward.outputs[0], aligned('Y', along), 'Y'),          # length along the velocity, face to the camera
+        spun(aligned('Z', attribute("mp_facing", 'FLOAT_VECTOR'))),         # face along the particle's own direction
         mesh_facing(velocity),
         mesh_facing(toward.outputs[0]),
-        aligned('Y', along, aligned('Z', attribute("mp_facing", 'FLOAT_VECTOR')), 'Z'),     # its face to its own direction, its length along its own vector
+        aligned('Y', along, aligned('Z', attribute("mp_facing", 'FLOAT_VECTOR')), 'Z'),     # face along its own direction, length along its own vector
     ]
     rotation = node("GeometryNodeIndexSwitch", data_type='ROTATION')
     while len(rotation.index_switch_items) < len(turns):
@@ -735,7 +735,7 @@ def group():
     for i, turn in enumerate(turns):
         links.new(turn, rotation.inputs[i + 1])
 
-    # each particle drawn towards the camera by its camera offset
+    # each particle is drawn toward the camera by its camera offset
     nearer = node("ShaderNodeVectorMath", operation='NORMALIZE')
     links.new(toward.outputs[0], nearer.inputs[0])
     by = node("ShaderNodeVectorMath", operation='SCALE')
@@ -749,8 +749,8 @@ def group():
     links.new(shaded.outputs[0], instances.inputs["Instance"])
     links.new(rotation.outputs[0], instances.inputs["Rotation"])
     links.new(attribute("mp_scale", 'FLOAT_VECTOR'), instances.inputs["Scale"])
-    # the depth bias: each instance scaled about the camera, so it moves along its own view rays (it
-    # looks the same, only nearer)
+    # depth bias: each instance is scaled about the camera so it moves along its own view rays
+    # (it looks the same, only nearer)
     gap = node("ShaderNodeVectorMath", operation='DISTANCE')
     links.new(node("GeometryNodeInputPosition").outputs[0], gap.inputs[0])
     links.new(camera.outputs["Location"], gap.inputs[1])
@@ -767,7 +767,7 @@ def group():
 
 def ribbons():
     """The node group that plays a ribbon's points mesh: the current frame's points strung into
-    ribbons (one per ribbon ID, in link order), as wide as each particle says, turned to the camera."""
+    ribbons (one per ribbon ID, in link order), as wide as each particle says, facing the camera."""
     g = bpy.data.node_groups.get(RIBBONS)
     if g is not None and g.get("mp_version") == GROUP_VERSION:
         return g
@@ -851,7 +851,7 @@ def ribbons():
     width = attribute("mp_width", 'FLOAT')
     links.new(width, wide.inputs["Radius"])
 
-    # the ribbon's width runs across what it faces: the camera, or the particles' own facing
+    # the ribbon's width runs across what it faces: the camera, or the particles' facing
     camera = node("GeometryNodeObjectInfo", transform_space='RELATIVE')
     links.new(node("GeometryNodeInputActiveCamera").outputs[0], camera.inputs["Object"])
     toward = vector('SUBTRACT', camera.outputs["Location"], node("GeometryNodeInputPosition").outputs[0])
@@ -873,7 +873,7 @@ def ribbons():
         turned.mode = 'FREE'
     links.new(side, turned.inputs["Normal"])
 
-    # what is swept along it: a plane a unit wide; several, turned about the ribbon; a tube a unit across
+    # the profile swept along it: a plane a unit wide, several planes turned about the ribbon, or a tube a unit across
     line = node("GeometryNodeCurvePrimitiveLine")
     line.inputs["Start"].default_value = (-0.5, 0.0, 0.0)
     line.inputs["End"].default_value = (0.5, 0.0, 0.0)
@@ -881,7 +881,7 @@ def ribbons():
     links.new(inputs.outputs["Sides"], spots.inputs["Count"])
     half = node("ShaderNodeValue")
     half.outputs[0].default_value = 3.141592653589793
-    turn = node("ShaderNodeMath", operation='MULTIPLY')         # each plane: half a turn over the count on from the last
+    turn = node("ShaderNodeMath", operation='MULTIPLY')         # each plane: half a turn over the count, on from the last
     links.new(node("GeometryNodeInputIndex").outputs[0], turn.inputs[0])
     links.new(math_('DIVIDE', half.outputs[0], inputs.outputs["Sides"]), turn.inputs[1])
     about = node("ShaderNodeCombineXYZ")
@@ -913,8 +913,8 @@ def ribbons():
     links.new(across.outputs[0], ribbon.inputs["Profile Curve"])
     if "Scale" in ribbon.inputs:        # Blender 5: the profile's scale is the node's own input, not the curve's radius
         links.new(width, ribbon.inputs["Scale"])
-    # its two UV sets: U as each point carries it (the renderer's way of laying it along the ribbon),
-    # V across, between the two edges' values
+    # two UV sets: U as each point carries it (the renderer's way of laying it along the ribbon),
+    # V across, between the two edge values
     mapped = ribbon
     for name, carried in (("UV0", "mp_uv0"), ("UV1", "mp_uv1")):
         parts = node("ShaderNodeSeparateXYZ")
@@ -934,7 +934,7 @@ def ribbons():
     material = node("GeometryNodeSetMaterial")
     links.new(mapped.outputs[0], material.inputs[0])
     links.new(inputs.outputs["Material"], material.inputs["Material"])
-    # the depth bias: each vertex along its own view ray, nearer by it
+    # depth bias: each vertex moves nearer along its own view ray
     eye = node("GeometryNodeObjectInfo", transform_space='RELATIVE')
     links.new(node("GeometryNodeInputActiveCamera").outputs[0], eye.inputs["Object"])
     to_eye = vector('NORMALIZE', vector('SUBTRACT', eye.outputs["Location"], node("GeometryNodeInputPosition").outputs[0]))
@@ -956,12 +956,12 @@ def _set(modifier, tree, name, value):
 
 DEPTH_BIAS = ("Metres the particles are drawn nearer the camera, along their view rays (they look the same). "
               "Under Cycles, a renderer drawn after others: UE and EEVEE draw blended layers in order, Cycles by depth")
-DRAW_STEP = 0.03        # m: each renderer drawn after another one nearer by this under Cycles
+DRAW_STEP = 0.03        # m: under Cycles each renderer is drawn this much nearer than the one before
 
 
 def bias_by_order(obj, modifier, tree, scene):
-    """The player's Depth Bias: its draw order x DRAW_STEP while the scene renders with Cycles (a driver on
-    the scene's ["mp_fx_cycles"], which the plugin keeps), 0 under EEVEE."""
+    """The player's Depth Bias: draw order x DRAW_STEP while the scene renders with Cycles (a driver on
+    the scene's ["mp_fx_cycles"], which the plugin maintains), 0 under EEVEE."""
     identifier = next((i.identifier for i in tree.interface.items_tree if i.item_type == 'SOCKET' and i.in_out == 'INPUT'
                        and i.name == "Depth Bias"), None)
     order = int(obj.get("mp_draw_order", 0))
@@ -984,8 +984,8 @@ def bias_by_order(obj, modifier, tree, scene):
 
 
 def _camera(scene, root, scale, world):
-    """The scene camera as a script sees it: its position, forward, up and right in UE's axes and
-    units, in the world or in the effect's own space. None without a camera."""
+    """The scene camera as a script sees it: position, forward, up and right in UE axes and units,
+    in world space or the effect's own space. None without a camera."""
     if scene.camera is None:
         return None
     camera, there = _plain_world(scene.camera), _plain_world(root)
@@ -999,7 +999,7 @@ def _camera(scene, root, scale, world):
 
 
 def clear(root):
-    """Take an effect's played particles away, its pieces back in sight: as it was imported."""
+    """Remove an effect's played particles and show its pieces again, as imported."""
     for obj in [o for o in bpy.data.objects if o.get(effects.KEY) == "Particles" and o.get(KEY_ROOT) == root]:
         data = obj.data
         actions = [a.action for a in (obj.animation_data, getattr(data, "animation_data", None)) if a is not None and a.action is not None]
@@ -1016,8 +1016,8 @@ def clear(root):
 
 
 def _enabled(system, emitter, renderer):
-    """Whether a renderer draws: its Renderer Enabled binding's value (a system's, an emitter's or a
-    user's bool) as the replay left it; one bound to nothing draws."""
+    """Whether a renderer draws: its Renderer Enabled binding's value (a system, emitter or user bool)
+    as the replay left it. A renderer bound to nothing draws."""
     binding = renderer.get("RendererEnabledBinding") or {}
     name = str(binding.get("DataSetName") or (binding.get("ParamMapVariable") or {}).get("Name") or "")
     if not name or name == "None":
@@ -1032,26 +1032,26 @@ def _enabled(system, emitter, renderer):
     return int(np.asarray(value).view(np.int32)[0]) != 0
 
 
-# user parameters the game sets in its front end (the lobby, the locker): on for an import
+# user parameters the game sets in its front end (lobby, locker); on for an import
 FRONT_END = {"user.bisfrontend", "user.bisfrontendpreview"}
 
 
 def _user(root, system):
-    """The system's user parameters, and the parameter collections' values it reads (the time of
-    day), as the effect's empty's properties (made from the assets' own values the first time), and
-    those told to the system."""
+    """Put the system's user parameters and the parameter collection values it reads (the time of day)
+    on the effect's empty as properties (first made from the asset's own values), and tell the
+    system about them."""
     for name, kind, value in system.users():
         if name not in root:
-            # shown as in the lobby and the locker (what the shop's and the locker's pictures show):
-            # some effects play only there (Eternal Wanderer's hair globs)
+            # shown as in the lobby and locker (as in the shop and locker pictures); some effects
+            # play only there (Eternal Wanderer's hair globs)
             if name.lower() in FRONT_END:
                 value = True
             root[name] = value
-    # UE's names don't mind case (a glider's bisFullyDeployed is the bIsFullyDeployed the game sets)
+    # UE's names are case-insensitive (a glider's bisFullyDeployed is the bIsFullyDeployed the game sets)
     spelled = {n.lower(): n for n in list(system.user.offsets) + list(system.shared.offsets)}
     for name in [k for k in root.keys() if k.startswith(("User.", "NPC."))]:
         own = spelled.get(name.lower())
-        if own is None:     # one the export set that this system doesn't take
+        if own is None:     # set by the export but not taken by this system
             del root[name]
             continue
         if own != name:
@@ -1063,7 +1063,7 @@ def _user(root, system):
 
 
 def _together(runs, names):
-    """Several plays of an effect as one: each frame holds every play's particles on it."""
+    """Several plays of an effect as one: each frame holds all plays' particles."""
     length = max([offset + len(track) for offset, tracks in runs for track in tracks.values()] or [0])
     merged = {}
     for name in names:
@@ -1083,23 +1083,23 @@ def _together(runs, names):
 
 
 def _title(root):
-    """An effect as the log names it: a pickaxe's own with what it is."""
+    """An effect as the log names it: a pickaxe's own, with what it is."""
     role = root.get(effects.KEY_ROLE)
     return "%s (%s)" % (root.name, role) if role else root.name
 
 
 def play(root):
-    """Replay the effect under the root (its emitters' empties, their pieces) over the scene's frame
-    range, and make its pieces play. An effect under an armature reads that character's bones and
-    sockets; one that moves leaves its world-space particles where they were spawned. Yields what to
-    tell the user."""
+    """Replay the effect under the root (emitter empties and their pieces) over the scene's frame
+    range and make its pieces play. An effect under an armature reads that character's bones and
+    sockets; one that moves leaves its world-space particles where they were spawned. Yields
+    messages for the user."""
     stored = program(root)
     if stored is None:
         yield "%s: nothing to replay it from" % root.name
         return
     exports, fields, table = stored
     scale = float(root.get(KEY_SCALE, 0.01))
-    drawn_order = {}        # per piece (its layers: Fire, Fire001...), the players in the order they're made
+    drawn_order = {}        # per piece (its layers: Fire, Fire001...): the players in creation order
     scene = bpy.context.scene
     clear(root)
     sockets = [s for s in str(root.get(KEY_SOCKETS) or "").split(",") if s]
@@ -1107,12 +1107,12 @@ def play(root):
     _user(root, system)
     rig = holder_of(root)
     fps = scene.render.fps / scene.render.fps_base
-    # the scene frame the effect starts on: the frame range's first, until its Start Frame property says another
+    # scene frame the effect starts on: the range's first, unless its Start Frame property says otherwise
     if KEY_START not in root:
         root[KEY_START] = scene.frame_start
     start = int(root[KEY_START])
     frames = max(1, scene.frame_end - start + 1)
-    # looping, but for one timed by an animation or played on a swing or an event
+    # loops, except one timed by an animation or played on a swing or an event
     if KEY_LOOP not in root:
         root[KEY_LOOP] = not root.get(KEY_REPEATS) and root.get(effects.KEY_ROLE) not in ("trail", "swing", "event", "impact")
     loop = bool(root[KEY_LOOP])
@@ -1121,10 +1121,10 @@ def play(root):
     if camera is not None:
         system.camera = camera
     now = scene.frame_current
-    # each play of it (an animation's notifies; else the one): its own run of the system, from its frame
+    # each play (one per animation notify, else the single one): its own run of the system, from its frame
     repeats = [int(x) for x in root.get(KEY_REPEATS) or [0]]
     lengths = [int(x) for x in root.get(KEY_LENGTHS) or []]
-    # the variables the renderers' materials are bound to: kept over the (first) replay
+    # variables the renderers' materials are bound to, kept over the (first) replay
     watch = set()
     for node in root.children:
         emitter = next((e for e in system.emitters if e.name == node.get(effects.KEY_EMITTER)), None)
@@ -1158,7 +1158,7 @@ def play(root):
         if not track.total:
             continue
         if track.has("Color") and float(track.get("Color", (1, 1, 1, 1))[:, 3].max()) <= 1e-4:
-            clear_ones.append(emitter.name)     # drawn, but see-through all along (an alpha the game raises)
+            clear_ones.append(emitter.name)     # drawn, but see-through all along (the game raises the alpha)
         drawn = 0
         for piece in list(node.children):
             kind = piece.get(effects.KEY)
@@ -1166,7 +1166,7 @@ def play(root):
             if kind not in ("Sprite", "Mesh", "Ribbon", "Decal", "Light") or renderer is None or piece.type not in ('MESH', 'LIGHT') or piece.get(effects.KEY_SKIP):
                 continue
             if not _enabled(system, emitter, renderer):
-                # a renderer the system switches off (a variant's: System.IsGold): its piece out of sight
+                # a renderer the system switches off (a variant's, e.g. System.IsGold): hide its piece
                 piece.hide_render = piece.hide_viewport = True
                 continue
             keep = None
@@ -1175,13 +1175,13 @@ def play(root):
             elif kind == "Mesh" and int(piece.get("mp_mesh_index", 0)) > 0:
                 continue        # without a mesh index every particle draws the first mesh
             # an emitter with several renderers says which draws each particle: the particle's
-            # visibility tag is the renderer's (without the attribute, every renderer draws it)
+            # visibility tag is the renderer's (without the attribute every renderer draws it)
             tag = bound(renderer, "RendererVisibilityTagBinding", "VisibilityTag")
             if track.has(tag):
                 mine = track.get(tag, (0,))[:, 0].astype(np.int64) == int(renderer.get("RendererVisibility", 0))
                 keep = mine if keep is None else keep & mine
             if keep is not None and not keep.any():
-                piece.hide_render = piece.hide_viewport = True      # none of this replay's particles are its
+                piece.hide_render = piece.hide_viewport = True      # none of this replay's particles belong to it
                 continue
             if kind == "Light":
                 made = _lights(piece, track, renderer, keep, scale, start, loop, node if stand is None or emitter.local else None, root)
@@ -1191,13 +1191,13 @@ def play(root):
             tree = ribbons() if kind == "Ribbon" else group()
             data = points(piece.name + " particles", track, renderer, kind, scale, keep)
             obj = bpy.data.objects.new(piece.name + " particles", data)
-            # a moving effect's world-space particles stay where they were spawned: not under the effect
+            # a moving effect's world-space particles stay where spawned, not under the effect
             if stand is None or emitter.local:
                 obj.parent = node
             obj[effects.KEY] = "Particles"
             obj[KEY_ROOT] = root
             obj.visible_shadow = False
-            # layers of one piece (a mesh's shells, a sprite's copies) drawn in the renderers' order
+            # layers of one piece (a mesh's shells, a sprite's copies) are drawn in renderer order
             layer = re.sub(r"[\d.]+", "", piece.name)
             obj["mp_draw_order"] = drawn_order.get(layer, 0)
             drawn_order[layer] = obj["mp_draw_order"] + 1
@@ -1212,8 +1212,8 @@ def play(root):
             tied = bindings(renderer, emitter)
             if tied:
                 bound_params.update(_bind(piece, (piece, obj), tied, system.history, start, loop))
-            # what's drawn, selected in the viewport, shows the piece's materials (the same ones: an edit
-            # there is what the particles draw; the points themselves draw nothing)
+            # the drawn piece, when selected in the viewport, shows the piece's materials (the same ones:
+            # an edit there changes what the particles draw; the points themselves draw nothing)
             for slot in piece.material_slots:
                 data.materials.append(slot.material)
             if kind == "Ribbon":
@@ -1232,23 +1232,23 @@ def play(root):
                 lengthwise = any(x in str(renderer.get("Alignment")) for x in ("VelocityAligned", "CustomAlignment"))
                 turn = (TURN_FACING_ALIGNED if lengthwise else TURN_FACING) if "CustomFacing" in str(renderer.get("FacingMode")) else \
                     TURN_CAMERA_VELOCITY if lengthwise else TURN_CAMERA
-                # its pivot (in UV space: 0.5, 0.5 its middle; V runs down) is where the particle is
+                # the pivot (UV space: 0.5, 0.5 is the middle; V runs down) is at the particle
                 pivot = renderer.get("PivotInUVSpace") or {}
                 _set(modifier, tree, "Piece Offset", (0.5 - float(pivot.get("X", 0.5)), float(pivot.get("Y", 0.5)) - 0.5, 0.0))
-                for constraint in list(piece.constraints):      # the still piece's turn to the camera: the modifier's now
+                for constraint in list(piece.constraints):      # the still piece's turn to the camera is the modifier's now
                     piece.constraints.remove(constraint)
             else:
                 facing = str(renderer.get("FacingMode"))
                 turn = TURN_MESH_VELOCITY if "Velocity" in facing else TURN_MESH_CAMERA if "Camera" in facing else TURN_OWN
                 _set(modifier, tree, "Piece Rotation", piece.rotation_euler)
                 _set(modifier, tree, "Piece Scale", piece.scale)
-                # the renderer's pivot offset of this mesh (UE's units and axes, in the mesh's space)
+                # the renderer's pivot offset for this mesh (UE units and axes, in mesh space)
                 listed = renderer.get("Meshes") or []
                 at = int(piece.get("mp_mesh_index", 0))
                 offset = (listed[at].get("PivotOffset") if at < len(listed) else None) or {}
                 _set(modifier, tree, "Piece Offset", (float(offset.get("X", 0.0)) * scale, -float(offset.get("Y", 0.0)) * scale, float(offset.get("Z", 0.0)) * scale))
             _set(modifier, tree, "Turn", turn)
-            # the piece itself: what the particles draw, out of sight
+            # the piece itself, which the particles draw, is hidden
             piece.hide_render = True
             piece.hide_viewport = True
             drawn += 1
@@ -1257,10 +1257,10 @@ def play(root):
             played.append(emitter.name)
             most = max(most, int(track.counts.max()))
             length = max(length, len(track.frames))
-    # an effect on something (a character's contrail, a pickaxe's own): what isn't played is put out of sight
+    # an effect on something (a character's contrail, a pickaxe's own): hide what isn't played
     worn = rig is not None or bool(root.get(effects.KEY_ROLE))
     if played or worn:
-        # the emitters left as pieces: in a row beside the effect, 2 m apart
+        # emitters left as pieces: in a row beside the effect, 2 m apart
         left = [node for node in root.children if node.get(effects.KEY_EMITTER) and node.get(effects.KEY_EMITTER) not in played]
         for at, node in enumerate(left):
             node.location = (0.0, 0.0, 0.0) if worn else (0.0, -200.0 * (at + 1) * scale, 0.0)
@@ -1276,8 +1276,8 @@ def play(root):
     if bound_params:
         yield "%s: material parameters from the effect's values: %s" % (root.name, ", ".join(sorted(bound_params)[:8]))
     if clear_ones:
-        # their colour's alpha stays 0 (Salvador's flames wait on User.Dissolve Progress): the user parameters
-        # at 0 are the likely switch
+        # their colour alpha stays 0 (Salvador's flames wait on User.Dissolve Progress), so user
+        # parameters at 0 are the likely switch
         zero = [name for name, kind, value in system.users() if name.startswith("User.") and kind in ("NiagaraFloat", "NiagaraBool", "NiagaraInt32")
                 and not (value if not hasattr(value, "__len__") else any(value))]
         yield "%s: %s drawn see-through all along (their colour's alpha 0: waiting on something the game sets%s)" % (
@@ -1292,7 +1292,7 @@ def play(root):
             root.name, ", ".join(gpu), "; %s spawned at a stand-in rate: what makes the game spawn it isn't in the replay" % ", ".join(guessed) if guessed else "")
     idle = [e.name for e in system.emitters if e.name not in played and not sum(f[0].shape[1] for f in tracks.get(e.name) or [])]
     if idle:
-        # the user parameters the game sets that are still off here (a burst's count, a switch): the likely wait
+        # user parameters the game sets that are still off here (a burst count, a switch) are the likely wait
         off = [name for name, kind, value in system.users() if name.startswith("User.") and not (value if not hasattr(value, "__len__") else any(value))]
         yield "%s: %s spawned nothing in the replay (waiting on something the game sets%s, or on an emitter left out): %s" % (
             root.name, ", ".join(idle), ": its %s at 0 - set on the effect's empty, then Replay Effect" % ", ".join(off[:4]) if off else "",

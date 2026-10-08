@@ -1,14 +1,14 @@
-"""Material Porter fork: Niagara's script VM (the VectorVM), in numpy.
+"""Niagara's script VM (the VectorVM), in numpy.
 
 A CPU emitter keeps its compiled scripts in the cooked asset (CachedScriptVM.ByteCode): a flat
-program over registers, each register one value per particle. It reads particle attributes from
-a data set (inputdata), constants from a table (the engine's and the script's parameters, then
+program over registers, each holding one value per particle. It reads particle attributes from a
+data set (inputdata) and constants from a table (the engine's and the script's parameters, then
 the script's literals), computes, and writes the attributes back (outputdata) at the places
-acquireindex hands out: a particle the script marks dead gets no place, which is how particles
+acquireindex hands out. A particle the script marks dead gets no place, which is how particles
 die. One numpy array per register runs a script over every particle at once, as the engine does.
 
-Registers and constants are untyped 32 bits; an operation says how it reads them. A register is
-kept here as a float32 or int32 array (or numpy scalar) and viewed as the other when needed.
+Registers and constants are untyped 32 bits and each operation says how it reads them. A register
+is kept here as a float32 or int32 array (or numpy scalar) and viewed as the other when needed.
 """
 import numpy as np
 
@@ -52,9 +52,8 @@ def _select(m, a, b):
     return np.where(m != 0, a, b)
 
 
-# The engine's VM guards what would give an infinity or a NaN: a division by (nearly) nothing, a root
-# or a power of nothing, a logarithm of nothing give 0 (its "safe" kernels), not an infinity that
-# then spreads over a particle's position.
+# The engine's VM guards against infinities and NaNs: division by (nearly) zero, roots or powers
+# of zero and logarithms of zero give 0 (its "safe" kernels), so no infinity reaches a position.
 SMALL = F(1e-8)
 
 
@@ -193,7 +192,7 @@ def decode(code, functions):
             if index >= len(functions):
                 raise Unsupported("external function %d of %d" % (index, len(functions)))
             inputs, outputs = functions[index]
-            # an input: a register when its top bit is set, else a constant
+            # an input is a register when its top bit is set, else a constant
             src = [(not v & 0x8000, v & 0x7fff) for v in (u16() for _ in range(inputs))]
             program.append((name, index, src, [u16() for _ in range(outputs)]))
         elif name == "exec_index":
@@ -245,7 +244,7 @@ def run(program, registers, count, constants, sets, functions, rng, ids=None):
     table = bytes(constants) + b"\0" * (-len(constants) % 4)
     cf, ci = np.frombuffer(table, F), np.frombuffer(table, I)
     r = [None] * max(registers, 1)
-    places = {}     # acquireindex's register: (mask or None for all, how many)
+    places = {}     # acquireindex register -> (mask or None for all, count)
 
     def value(operand, kind):
         constant, at = operand
@@ -267,7 +266,7 @@ def run(program, registers, count, constants, sets, functions, rng, ids=None):
                 rows = b.source.ints if name == "inputdata_int32" else b.source.floats
                 row = ins[2] + (b.source.half_base if name == "inputdata_half" else 0)
                 v = rows[row, b.source_start:b.source_start + count]
-                if len(v) < count:          # one instance read by all (an event's payload)
+                if len(v) < count:          # one instance read by all (an event payload)
                     v = rows[row, b.source_start]
                 r[ins[3]] = v.copy() if b.source is b.target else v     # a spawn script reads where it writes
             elif name in ("inputdata_noadvance_float", "inputdata_noadvance_int32", "inputdata_noadvance_half"):
@@ -282,7 +281,7 @@ def run(program, registers, count, constants, sets, functions, rng, ids=None):
                 if mask is not None and np.ndim(v):
                     v = v[mask]
                 row = ins[4]
-                if name == "outputdata_half":       # kept at half precision, as the engine's buffer keeps it
+                if name == "outputdata_half":       # kept at half precision, like the engine's buffer
                     row += b.target.half_base
                     v = np.asarray(v, F).astype(np.float16).astype(F)
                 rows[row, b.target_start:b.target_start + n] = v
@@ -314,7 +313,7 @@ def run(program, registers, count, constants, sets, functions, rng, ids=None):
                     if register != 0xffff:
                         r[register] = v
             elif name == "acquire_id":
-                # a persistent ID per new particle: (index, acquire tag)
+                # persistent ID per new particle: (index, acquire tag)
                 start = ids.take(count) if ids is not None else 0
                 r[ins[2]] = np.arange(start, start + count, dtype=I)
                 r[ins[3]] = np.full(count, ids.tag if ids is not None else 0, I)

@@ -1,30 +1,30 @@
-"""Material Porter fork: a particle effect (a Niagara system) in Blender.
+"""A particle effect (a Niagara system) in Blender.
 
 The app's export (ExportContext.Effects) is a tree: the system, an empty per emitter, and under
-each what its renderers draw. A mesh renderer's meshes come as meshes; a sprite or ribbon
-renderer has no mesh, only a material: a 1 m plane is made for it here (facing the scene camera
-when the sprite does and there is one).
+each what its renderers draw. A mesh renderer's meshes come as meshes. A sprite or ribbon renderer
+has no mesh, only a material, so a 1 m plane is made for it (facing the scene camera when the
+sprite does and there is one).
 
-A CPU emitter's particles are then played (effect_replay: its scripts run over the scene's
-frames, and each drawn piece instanced on the particles, frame by frame). A GPU emitter keeps no
-script to run: its pieces stay as they are, laid out in a row to pick from.
+A CPU emitter's particles are then played (effect_replay runs its scripts over the scene's frames
+and instances each drawn piece on the particles). A GPU emitter keeps no script to run: its pieces
+stay as they are, laid out in a row to pick from.
 
 Every drawn piece carries the values a particle system gives its particles, which the exact
 materials read (env.particle_color...): mp_particle = 1 with mp_particle_color (RGBA), mp_dynamic
-(four flags: which Dynamic Parameters are set) with mp_dynamic0..3, mp_subimage (a flipbook's
-frame), mp_age. On a still piece they are the object's properties, to set by hand; on a played
-one, each particle's own (its instance's attributes).
+(four flags: which Dynamic Parameters are set) with mp_dynamic0..3, mp_subimage (flipbook frame)
+and mp_age. On a still piece they are object properties to set by hand; on a played one they are
+per-particle instance attributes.
 """
 import bpy
 from mathutils import Matrix
 
 KEY = "mp_effect"           # on an effect's objects: "System", "Emitter (GPU)", "Sprite", "Mesh"...
-KEY_EMITTER = "mp_emitter"  # on an emitter's empty: the emitter's name
-KEY_RENDERER = "mp_renderer"    # on a drawn piece: its renderer's name in the asset
-KEY_ROLE = "mp_effect_role"     # on an item's own effect's empty: "trail", "swing", "idle" or "event"
-KEY_SKIP = "mp_effect_skip"     # on a piece that isn't drawn: FP's importer hides its material (an anime outline's shell)
-KEY_BONE = "mp_effect_bone"     # on an effect put on a bone: the bone
-KEY_OFFSET = "mp_effect_offset"     # and its offset there in the game's frame (16 floats)
+KEY_EMITTER = "mp_emitter"  # on an emitter's empty: its name
+KEY_RENDERER = "mp_renderer"    # on a drawn piece: the renderer's name in the asset
+KEY_ROLE = "mp_effect_role"     # on an item effect's empty: "trail", "swing", "idle" or "event"
+KEY_SKIP = "mp_effect_skip"     # on a piece that isn't drawn: FP's importer hides its material (e.g. an anime outline shell)
+KEY_BONE = "mp_effect_bone"     # on an effect put on a bone: the bone name
+KEY_OFFSET = "mp_effect_offset"     # and its offset there, in the game's frame (16 floats)
 
 
 def particle_values(obj):
@@ -36,14 +36,14 @@ def particle_values(obj):
 
 
 def make(context, mesh, name):
-    """The object for an empty node of an export: an effect's sprite or ribbon as a plane with
-    its material, its system and emitters as tagged empties; else a plain empty."""
+    """The object for an empty node of an export: a sprite or ribbon as a plane with its material,
+    a system or emitter as a tagged empty, else a plain empty."""
     fx = mesh.get("MPEffect") or {}
     kind = fx.get("Kind")
     if kind == "Decal":
         return _decal(context, fx, name)
     if kind == "Light":
-        # a light renderer's piece: a point light (a played one's particles each get their own)
+        # a light renderer's piece: a point light (a played one gives each particle its own)
         light = bpy.data.lights.new(name, 'POINT')
         light.energy, light.shadow_soft_size = 5.0, 0.05
         obj = bpy.data.objects.new(name, light)
@@ -61,8 +61,8 @@ def make(context, mesh, name):
             obj[KEY] = "System"
         return obj
 
-    # a 1 m quad in the object's XY plane (a ribbon: 1 m wide, 4 m long), UVs over the whole texture
-    # (a flipbook's sub-image is the material's to pick: mp_subimage)
+    # 1 m quad in the object's XY plane (a ribbon: 1 m wide, 4 m long), UVs over the whole texture;
+    # the material picks a flipbook sub-image from mp_subimage
     length = 4.0 if kind == "Ribbon" else 1.0
     data = bpy.data.meshes.new(name)
     data.from_pydata([(-0.5, -length / 2, 0.0), (0.5, -length / 2, 0.0), (0.5, length / 2, 0.0), (-0.5, length / 2, 0.0)], [], [(0, 1, 2, 3)])
@@ -91,11 +91,11 @@ def make(context, mesh, name):
 
 
 def _decal(context, fx, name):
-    """A decal renderer's piece: a 1 m quad across the decal's projection (its local YZ plane: a decal
-    projects along its X), with the decal's material. The scene it projects onto isn't here: the
-    quad stands for the patch it covers (flat ground under a ground decal)."""
+    """A decal renderer's piece: a 1 m quad in the decal's local YZ plane (it projects along X),
+    with the decal's material. The scene it projects onto isn't here, so the quad stands for
+    the patch it covers (flat ground under a ground decal)."""
     data = bpy.data.meshes.new(name)
-    # facing back along the projection (a ground decal's quad faces up)
+    # faces back along the projection (a ground decal's quad faces up)
     data.from_pydata([(0.0, -0.5, -0.5), (0.0, -0.5, 0.5), (0.0, 0.5, 0.5), (0.0, 0.5, -0.5)], [], [(0, 1, 2, 3)])
     uv = data.uv_layers.new(name="UV0")
     for loop, (x, y) in zip(uv.data, ((0.0, 0.0), (0.0, 1.0), (1.0, 1.0), (1.0, 0.0))):
@@ -103,11 +103,11 @@ def _decal(context, fx, name):
     obj = bpy.data.objects.new(name, data)
     obj[KEY] = "Decal"
     obj[KEY_RENDERER] = fx.get("Renderer") or ""
-    obj["mp_decal_fade"] = 1.0      # its material's Decal Lifetime Opacity (a played decal's: its particle's)
+    obj["mp_decal_fade"] = 1.0      # the material's Decal Lifetime Opacity (a played decal uses its particle's)
     data.materials.append(bpy.data.materials.new(name))
     context.import_material(obj.material_slots[0], fx["Material"], {})
     if obj.material_slots[0].material is not None:
-        obj.material_slots[0].material.use_backface_culling = False     # a decal has no side: seen from anywhere
+        obj.material_slots[0].material.use_backface_culling = False     # a decal has no back side
     particle_values(obj)
     bake_tangents(data)
     obj.visible_shadow = False
@@ -115,13 +115,13 @@ def _decal(context, fx, name):
 
 
 def bake_tangents(mesh):
-    """The mesh's UV tangents as its "mp_tangent" corner attribute: Cycles works out a displacement
-    without tangents (strips thickened along theirs came out flat); the materials read this there."""
+    """Store the mesh's UV tangents as the "mp_tangent" corner attribute. Cycles evaluates displacement
+    without tangents (strips thickened along them come out flat), so materials read this instead."""
     if not mesh.uv_layers or "mp_tangent" in mesh.attributes:
         return
     try:
         mesh.calc_tangents(uvmap=mesh.uv_layers[0].name)
-    except RuntimeError:        # (an n-gon: no tangents)
+    except RuntimeError:        # n-gon: no tangents
         return
     values = [0.0] * (len(mesh.loops) * 3)
     mesh.loops.foreach_get("tangent", values)
@@ -130,7 +130,7 @@ def bake_tangents(mesh):
 
 
 def tag_mesh(obj, fx):
-    """An effect's mesh (a mesh renderer's): its particle values."""
+    """An effect's mesh renderer piece: gets the particle values."""
     obj[KEY] = "Mesh"
     obj[KEY_RENDERER] = fx.get("Renderer") or ""
     obj["mp_mesh_index"] = int(fx.get("Index") or 0)
@@ -141,11 +141,10 @@ def tag_mesh(obj, fx):
 
 
 def ue_rest(bone):
-    """A bone's rest frame as the game has it (armature space). FP's bone reorientation (always on with
-    the Tasty rig) turns a bone's rest to point down its children, and the Tasty rig moves some heads,
-    tails and rolls: both leave the original on the bone (orig_quat with post_quat; orig_head,
-    orig_tail, orig_roll), from which the game's frame - the one its sockets and effects are placed
-    in - is rebuilt."""
+    """A bone's rest frame as the game has it (armature space). FP's bone reorientation (always on
+    with the Tasty rig) turns a bone's rest to point down its children, and the Tasty rig moves some
+    heads, tails and rolls. Both keep the original on the bone (orig_quat with post_quat, orig_head,
+    orig_tail, orig_roll), and the game's frame, which sockets and effects use, is rebuilt from it."""
     from mathutils import Quaternion, Vector
     keys = bone.keys()
     if any(k in keys for k in ("orig_head", "orig_tail", "orig_roll")):
@@ -156,21 +155,21 @@ def ue_rest(bone):
     else:
         frame = bone.matrix_local.copy()
     if "orig_quat" in keys and "post_quat" in keys:
-        # (reoriented: rest = original @ post, with post = orig_quat @ post_quat; not: post is identity)
+        # reoriented: rest = original @ post, with post = orig_quat @ post_quat (else post is identity)
         post = Quaternion(bone["orig_quat"]) @ Quaternion(bone["post_quat"])
         frame = frame @ post.to_matrix().to_4x4().inverted()
     return frame
 
 
 def ue_offset(bone):
-    """From a bone's frame as it is in Blender to the game's (its local space): identity for a bone
-    the import left as the game has it."""
+    """Matrix from a bone's Blender frame to the game's (local space); identity for a bone the
+    import left as the game has it."""
     return bone.matrix_local.inverted() @ ue_rest(bone)
 
 
 def on_bone(obj, bone, offset=None):
-    """Put an object on a bone (a socket) of the armature it is under: at the bone, following it, with
-    the offset the game gives it there (a Blender matrix). False where the armature has no such bone."""
+    """Put an object on a bone (a socket) of the armature it is under, following it, with the
+    offset the game gives it there (a Blender matrix). False if the armature has no such bone."""
     armature = obj.parent
     if armature is None or armature.type != 'ARMATURE':
         return False
@@ -182,16 +181,16 @@ def on_bone(obj, bone, offset=None):
     obj.matrix_parent_inverse = Matrix.Identity(4)
     if offset is None:
         offset = Matrix.Identity(4)
-    # (a bone's children hang from its tail; the offset is in the game's frame of the bone)
+    # a bone's children hang from its tail; the offset is in the game's frame of the bone
     obj.matrix_basis = Matrix.Translation((0.0, -rest.length, 0.0)) @ ue_offset(rest) @ offset
-    # where it is put, for settle(): FP's later steps reshape the bones (a head shortened, Tasty's arms)
+    # remember where it is put, for settle(): FP's later steps reshape the bones
     obj[KEY_BONE] = rest.name
     obj[KEY_OFFSET] = [v for row in offset for v in row]
     return True
 
 
 def socket_matrix(socket, scale):
-    """Where a skeleton's socket sits on its bone, as a Blender matrix (socket: Location, Rotation, Scale as the app exports them)."""
+    """A skeleton socket's matrix on its bone (socket: Location, Rotation, Scale as the app exports them)."""
     from ..processing.utils import make_euler, make_vector
     return Matrix.Translation(make_vector(socket.get("Location"), unreal_coords_correction=True) * scale) \
         @ make_euler(socket.get("Rotation")).to_matrix().to_4x4() @ Matrix.Diagonal((*make_vector(socket.get("Scale")), 1.0))
@@ -211,14 +210,14 @@ def lacks_bones(entries, rig, sockets=None):
 
 def from_animation(context, entries, rig, sockets=None, skeleton=None):
     """The effects an animation plays (its Niagara notifies): each on the animated armature, on its
-    socket with its offsets, replayed from each of its notifies' frames (a timed one kept going
-    until its end). skeleton: the game's whole skeleton under the armature, where there is one."""
+    socket with its offsets, replayed from each notify's frame (a timed one runs until its end).
+    skeleton: the game's whole skeleton under the armature, if there is one."""
     from ..processing.utils import time_to_frame
-    if not hasattr(context, "collection"):      # (an animation import makes no collection of its own)
+    if not hasattr(context, "collection"):      # an animation import makes no collection of its own
         context.collection = rig.users_collection[0] if rig.users_collection else bpy.context.scene.collection
     for entry in entries:
-        # on the animated armature; on the game's whole skeleton (animated alike) where there is one: it has
-        # every bone an effect may sit on or read
+        # on the animated armature, or on the game's whole skeleton (animated alike) if there is one,
+        # since it has every bone an effect may sit on or read
         context.mp_selected_armature = skeleton if skeleton is not None else rig
         mesh = entry.get("Effect") or {}
         fx = mesh.get("MPEffect")
@@ -228,7 +227,7 @@ def from_animation(context, entries, rig, sockets=None, skeleton=None):
         fx["Bone"] = entry.get("SocketName")
         fx["Table"] = sockets or {}
         fx["Offset"] = socket_matrix({"Location": entry.get("LocationOffset"), "Rotation": entry.get("RotationOffset"), "Scale": entry.get("Scale")}, context.scale)
-        # its notifies' frames (the animation's: 30 a second), earliest first
+        # notify frames (animation time, 30 fps), earliest first
         plays = sorted(zip(entry.get("Times") or [0.0], entry.get("Durations") or [0.0]))
         fx["Start"] = time_to_frame(plays[0][0])
         fx["Repeats"] = [time_to_frame(t) - fx["Start"] for t, _ in plays]
@@ -241,8 +240,7 @@ PICKAXE_ROLES = ("trail", "swing", "idle", "impact")
 
 def _hold(rig):
     """The pickaxe the armature is to swing, put in its hand (on weapon_r, else hand_r, as the game
-    holds it) when the scene has one pickaxe not held yet: its topmost object. None if there is
-    none, or several."""
+    holds it) when the scene has exactly one unheld pickaxe (its topmost object), else None."""
     tops = set()
     for o in bpy.context.scene.objects:
         if o.get(KEY) == "System" and o.get(KEY_ROLE) in PICKAXE_ROLES:
@@ -259,17 +257,17 @@ def _hold(rig):
     axe = loose[0]
     axe.parent, axe.parent_type, axe.parent_bone = rig, 'BONE', hand.name
     axe.matrix_parent_inverse = Matrix.Identity(4)
-    # (a bone child sits at the bone's tail: back to its head, where the hand grips, in the game's frame)
+    # a bone child sits at the bone's tail: move back to its head, where the hand grips (game frame)
     axe.matrix_basis = Matrix.Translation((0.0, -hand.length, 0.0)) @ ue_offset(hand)
     return axe
 
 
 def swing(windows, rig, hits=()):
-    """A swing animation's trail windows ([on, off] times) and hits (times) given to the effects of
-    the pickaxe the armature holds (put in its hand first when the scene has one that isn't held):
-    its trail and swing effects play in each window, its hit effects at each hit; all replayed on
-    it (its idle effect too: it moves now). Without a held pickaxe: every pickaxe's in the scene,
-    where they are."""
+    """Give a swing animation's trail windows ([on, off] times) and hits (times) to the effects of
+    the pickaxe the armature holds (put in its hand first if the scene has one unheld). Trail and
+    swing effects play in each window, hit effects at each hit, and all are replayed on it (the
+    idle effect too, as it moves now). Without a held pickaxe, every pickaxe's effects in the
+    scene are used where they are."""
     from . import effect_replay
     from .hook import _log
     from ..processing.utils import time_to_frame
@@ -299,8 +297,7 @@ def swing(windows, rig, hits=()):
         _log("the swing's %d trail window(s) given to %s%s" % (len(frames), ", ".join(o.name for o in trails),
                                                             "" if held else " (no pickaxe held: every pickaxe trail in the scene)"))
     impacts = under(("impact",)) if held else [o for o in everywhere if o.get(KEY_ROLE) == "impact"]
-    # one hit effect a pickaxe: the one for the Default surface (the others - a weak point's, water's -
-    # wait for Replay Effect)
+    # one hit effect per pickaxe: the Default surface's (the others wait for Replay Effect)
     plain = [o for o in impacts if "Default" in str(o.get("mp_effect_surfaces", "Default")).split(",")]
     impacts = plain or impacts[:1]
     if hits and impacts:
@@ -315,18 +312,18 @@ def swing(windows, rig, hits=()):
         replay(root)
 
 
-ANIMATION_ROLES = ("trail", "swing", "event", "impact")     # played by an animation: its own replay
+ANIMATION_ROLES = ("trail", "swing", "event", "impact")     # played by an animation (its own replay)
 
 
 def on_character(rig):
-    """The effects on an armature that aren't an animation's (an outfit's idle ones, a held item's)."""
+    """The armature's effects that aren't an animation's (outfit idle, held item)."""
     return [o for o in rig.children_recursive if o.get(KEY) == "System" and o.get(KEY_ROLE) not in ANIMATION_ROLES]
 
 
 def follow(rig, roots):
-    """An animation put on the armature: its effects that were already there ('roots': an outfit's
-    idle ones) replayed on the moving bones over the scene's frames - they were played on the pose the
-    character had then and stayed there."""
+    """An animation put on the armature: the effects already there ('roots': an outfit's idle ones)
+    are replayed on the moving bones over the scene's frames, since they were first played on the
+    pose the character had then."""
     from . import effect_replay
     from .hook import _log
     done = []
@@ -344,10 +341,10 @@ def follow(rig, roots):
 
 
 def settle(context):
-    """A character's effects, once FP is done with its skeleton (its parts merged, its bones
-    reoriented and reshaped, Tasty's rig made): each put back on its bone - a child hangs from its
-    bone's tail, and FP shortens some bones after the effects are placed (Exalted Ice King's eyes
-    sank to the neck) - then played, reading the bones as they now stand (Tasty's lowered arms)."""
+    """A character's effects, once FP is done with its skeleton (parts merged, bones reoriented and
+    reshaped, Tasty's rig made): each is put back on its bone, then played reading the bones as
+    they now stand. Needed because a child hangs from its bone's tail and FP shortens some bones
+    after the effects are placed (Exalted Ice King's eyes sank to the neck)."""
     from . import effect_replay
     from .hook import _log
     roots, context.mp_deferred_effects = getattr(context, "mp_deferred_effects", None) or [], None
@@ -373,16 +370,16 @@ def _not_replayed(root, e):
     _log("%s: not replayed (%s: %s, at %s:%d)" % (root.name, type(e).__name__, e, os.path.basename(at.filename), at.lineno))
 
 
-FX_CYCLES = "mp_fx_cycles"      # scene: 1 while it renders with Cycles (effect materials read it)
-TRANSPARENT_BOUNCES = 64        # Cycles: see-through surfaces a ray passes before it stops (8 by default)
+FX_CYCLES = "mp_fx_cycles"      # scene: 1 while rendering with Cycles (effect materials read it)
+TRANSPARENT_BOUNCES = 64        # Cycles: see-through surfaces a ray passes before stopping (default 8)
 FX_CAM_POS, FX_CAM_FWD = "mp_fx_cam_pos", "mp_fx_cam_fwd"
 _ENGINE_OWNER = object()
 
 
 def sync_engine(*_):
-    """Each scene with effects: ["mp_fx_cycles"] 1 when it renders with Cycles, else 0. Their soft
-    particles (DepthFade) cast a ray behind the pixel: EEVEE's reads the screen's depth, Cycles' hits
-    the other particles too and faded them all, so under Cycles they don't fade."""
+    """Set ["mp_fx_cycles"] on each scene with effects: 1 when rendering with Cycles, else 0. Soft
+    particles (DepthFade) cast a ray behind the pixel; EEVEE's reads the screen depth, Cycles' also
+    hits the other particles and fades them all, so under Cycles they don't fade."""
     for sc in bpy.data.scenes:
         if FX_CYCLES in sc:
             want = int(sc.render.engine == 'CYCLES')
@@ -392,14 +389,14 @@ def sync_engine(*_):
             if want and _keep_camera(sc):
                 changed = True
             if changed:
-                sc.update_tag()         # (a Python write to a custom property tags nothing)
+                sc.update_tag()         # a Python write to a custom property tags nothing
 
 
 def _keep_camera(sc):
-    """Under Cycles: the scene camera's position and direction (world) in ["mp_fx_cam_pos"] and
-    ["mp_fx_cam_fwd"]. Cycles works out a displacement once per mesh, without a camera: effect
-    materials whose vertices turn to the camera (strips thickened towards it) read these. True if
-    they changed."""
+    """Under Cycles: store the scene camera's world position and direction in ["mp_fx_cam_pos"] and
+    ["mp_fx_cam_fwd"]. Cycles evaluates displacement once per mesh without a camera, so effect
+    materials that turn vertices toward the camera (strips thickened toward it) read these.
+    True if they changed."""
     cam = sc.camera
     if cam is None:
         return False
@@ -433,7 +430,7 @@ def _on_render(*_):
 def register():
     bpy.app.handlers.load_post.append(_on_load)
     bpy.app.handlers.render_pre.append(_on_render)
-    bpy.app.handlers.frame_change_post.append(_on_render)      # (an animated camera: each frame's)
+    bpy.app.handlers.frame_change_post.append(_on_render)      # for an animated camera
     _watch_engine()
 
 
@@ -446,7 +443,7 @@ def unregister():
 
 
 def finish(context, mesh, root):
-    """Once a system's tree is imported: its CPU emitters replayed, their pieces played on the particles."""
+    """Once a system's tree is imported: replay its CPU emitters and play their pieces on the particles."""
     fx = mesh.get("MPEffect") or {}
     if fx.get("Kind") != "System":
         return
@@ -455,13 +452,13 @@ def finish(context, mesh, root):
     scene = bpy.context.scene
     if FX_CYCLES not in scene:
         scene[FX_CYCLES] = int(scene.render.engine == 'CYCLES')
-    # Cycles stops a ray after 8 see-through surfaces by default (black where more particles overlap)
+    # Cycles stops a ray after 8 see-through surfaces by default, giving black where more particles overlap
     cycles = getattr(scene, "cycles", None)
     if cycles is not None and cycles.transparent_max_bounces < TRANSPARENT_BOUNCES:
         cycles.transparent_max_bounces = TRANSPARENT_BOUNCES
         _log("Cycles' transparent bounces raised to %d for effects (overlapping particles)" % TRANSPARENT_BOUNCES)
-    # what FP's importer hides on a character (an anime outline's shell: its material draws ink lines
-    # from the scene's depth, which a Blender material can't read) isn't drawn as a white shell here
+    # Keep what FP's importer hides on a character hidden, not drawn as a white shell (e.g. an anime
+    # outline shell: its material draws ink lines from scene depth, which Blender can't read)
     hidden = list(getattr(context, "full_vertex_crunch_materials", None) or ())
     for node in root.children:
         for piece in node.children:
@@ -469,19 +466,19 @@ def finish(context, mesh, root):
                 piece[KEY_SKIP] = True
                 piece.hide_render = piece.hide_viewport = True
                 _log("%s: %s not drawn (an outline shell: its lines come from the scene's depth)" % (root.name, piece.name))
-    # a contrail, an animation's effect: on the armature selected when it was sent
+    # a contrail or animation effect goes on the armature selected when it was sent
     rig = getattr(context, "mp_selected_armature", None)
     if fx.get("Attach") and rig is not None:
         effect_replay.attach(root, rig)
-    # a pickaxe's own effect, an animation's: on its socket
+    # a pickaxe's own effect or an animation's goes on its socket
     bone, offset = mesh.get("MPParentBone") or fx.get("Bone"), fx.get("Offset")
-    if offset is None and fx.get("Place"):      # where an item's own effect sits on its socket
+    if offset is None and fx.get("Place"):      # where an item's effect sits on its socket
         offset = socket_matrix(fx["Place"], context.scale)
     if not bone and offset is not None:
         root.matrix_basis = offset
     table = {k.lower(): v for k, v in (fx.get("Table") or {}).items()}
     if bone and not on_bone(root, bone, offset):
-        # a socket the armature doesn't have: on the socket's bone, where the skeleton puts it
+        # socket missing on the armature: use the socket's bone, where the skeleton puts it
         socket = table.get(bone.lower())
         there = socket_matrix(socket, context.scale) @ (offset if offset is not None else Matrix.Identity(4)) if socket is not None else None
         placed = socket is not None and on_bone(root, socket["Bone"], there)
@@ -500,7 +497,7 @@ def finish(context, mesh, root):
         root[effect_replay.KEY_REPEATS] = [int(x) for x in fx["Repeats"]]
         root[effect_replay.KEY_LENGTHS] = [int(x) for x in fx.get("Lengths") or []]
     if not fx.get("Exports"):
-        # nothing of it can be played (GPU emitters only): on something, its still pieces are put out of sight
+        # nothing can be played (GPU emitters only): its still pieces are put out of sight
         if root.parent is not None:
             for node in root.children:
                 for piece in node.children:
@@ -509,15 +506,15 @@ def finish(context, mesh, root):
         return
     try:
         effect_replay.store(root, fx["Exports"], fx.get("Fields"), context.scale, table)
-        if fx.get("Sockets"):       # the two sockets a pickaxe's trail runs between
+        if fx.get("Sockets"):       # the two sockets a pickaxe trail runs between
             root[effect_replay.KEY_SOCKETS] = ",".join(fx["Sockets"])
         for name, value in (fx.get("User") or {}).items():
             root[name] = value
-        if fx.get("Surfaces"):     # a hit effect's surfaces (Default: what a swing hits here)
+        if fx.get("Surfaces"):     # a hit effect's surfaces (Default is what a swing hits here)
             root["mp_effect_surfaces"] = ",".join(fx["Surfaces"])
         if fx.get("Role") in ("event", "impact"):
-            # one the game plays on an event (a weapon's reload, its level up) or where a swing hits: it
-            # waits for a swing animation's hits or Replay Effect
+            # the game plays it on an event (weapon reload, level up) or where a swing hits,
+            # so it waits for a swing animation's hits or Replay Effect
             for node in root.children:
                 for piece in node.children:
                     piece.hide_render = piece.hide_viewport = True
