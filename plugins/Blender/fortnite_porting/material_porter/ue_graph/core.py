@@ -326,6 +326,9 @@ CUSTOM_HASHES = {
     "ee5dcc61": "custom_sign",              # sign(x)
     "4da71b15": "custom_length",            # length(x)
     "bce084b5": "custom_atan2",             # return (atan2(y,x));
+    "dd5fa5b0": "custom_acos",              # return acos(a);  (RotateVector, engine)
+    "41a47d1f": "custom_rgb_to_hsv",        # RGBtoHSV (engine)
+    "8fb148eb": "custom_cube_corner",       # Center + float3(-Size / 2)  (MF_ProjectUV_WiryPerk)
     "e200a58e": "custom_bounds_min",        # GetPrimitiveData(Parameters).LocalObjectBoundsMin.xyz
     "a48f54dd": "custom_bounds_max",        # ... LocalObjectBoundsMax.xyz
     "8ae85b7f": "custom_bounds_extent",     # ... InstanceLocalBoundsExtent.xyz

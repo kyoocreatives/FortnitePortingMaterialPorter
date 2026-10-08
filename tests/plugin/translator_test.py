@@ -1000,6 +1000,25 @@ check("smoothstep snippet", snippet("2e04637e", {"varA": lambda g: scalar(g, 0.2
                                                 "varMax": lambda g: scalar(g, 1.0)}), 0.25 * 0.25 * (3 - 0.5))
 check("atan2 snippet", snippet("bce084b5", {"x": lambda g: scalar(g, -1.0), "y": lambda g: scalar(g, 1.0)},
                                "CMOT_Float1"), math.atan2(1.0, -1.0))
+check("acos snippet", snippet("dd5fa5b0", {"a": lambda g: scalar(g, 0.3)}, "CMOT_Float1"), math.acos(0.3))
+check("cube corner snippet", snippet("8fb148eb", {"Center": lambda g: vector(g, (1.0, 2.0, 3.0)),
+                                                 "Size": lambda g: scalar(g, 4.0)}), (-1.0, 0.0, 1.0))
+
+
+def hsv_ref(c):
+    # RGBtoHSV's HLSL, read in Python
+    r, g, b = c
+    lerp = lambda x, y, t: x + (y - x) * t
+    s1 = 1.0 if g >= b else 0.0
+    p = (lerp(b, g, s1), lerp(g, b, s1), lerp(-1.0, 0.0, s1), lerp(2 / 3, -1 / 3, s1))
+    s2 = 1.0 if r >= p[0] else 0.0
+    q = (lerp(p[0], r, s2), p[1], lerp(p[3], p[2], s2), lerp(r, p[0], s2))
+    d = q[0] - min(q[3], q[1])
+    return abs(q[2] + (q[3] - q[1]) / (6 * d + 1e-7)), d / (q[0] + 1e-7), q[0]
+
+
+for rgb in ((0.9, 0.2, 0.4), (0.1, 0.8, 0.3), (0.2, 0.3, 0.7), (0.5, 0.5, 0.5)):
+    check("rgb to hsv %s" % (rgb,), snippet("41a47d1f", {"c": lambda g, v=rgb: vector(g, v)}), hsv_ref(rgb))
 check("eye adaptation inverse snippet", snippet("190f0d13", {"LightValue": lambda g: scalar(g, 4.0),
                                                             "Alpha": lambda g: scalar(g, 1.0),
                                                             "Adaptation": lambda g: scalar(g, 2.0)}), 2.0)

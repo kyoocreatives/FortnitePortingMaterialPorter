@@ -373,6 +373,34 @@ class CustomMixin:
         v = self._in(ins, "x")
         return self.math('ABSOLUTE', v) if v.w == 1 else self.vmath('LENGTH', self.as3(v))
 
+    def custom_acos(self, ins, p):
+        return self.math('ARCCOSINE', self.mask(self._in(ins, "a"), [0]))
+
+    def custom_cube_corner(self, ins, p):
+        # Center + float3(-Size / 2): a box's lower corner
+        half = self.math('MULTIPLY', self.mask(self._in(ins, "Size"), [0]), self.const(0.5))
+        return self.vmath('SUBTRACT', self.as3(self._in(ins, "Center")), self.combine([half, half, half]), out_w=3)
+
+    def custom_rgb_to_hsv(self, ins, p):
+        # the branchless conversion (K = 0, -1/3, 2/3, -1): two compare-and-swaps, then
+        # H = |q.z + (q.w - q.y) / (6d + 1e-7)|, S = d / (q.x + 1e-7), V = q.x, d = q.x - min(q.w, q.y)
+        r, g, b = self.comps(self.as3(self._in(ins, "c")))
+
+        def step(edge, x):      # x >= edge
+            return self.math('SUBTRACT', self.const(1.0), self.math('LESS_THAN', x, edge))
+        s1 = step(b, g)
+        px, py = self.lerp(b, g, s1), self.lerp(g, b, s1)
+        pz, pw = self.lerp(self.const(-1.0), self.const(0.0), s1), self.lerp(self.const(2.0 / 3.0), self.const(-1.0 / 3.0), s1)
+        s2 = step(px, r)
+        qx, qy = self.lerp(px, r, s2), py
+        qz, qw = self.lerp(pw, pz, s2), self.lerp(r, px, s2)
+        d = self.math('SUBTRACT', qx, self.math('MINIMUM', qw, qy))
+        e = self.const(1e-7)
+        h = self.math('ABSOLUTE', self.math('ADD', qz, self.math('DIVIDE', self.math('SUBTRACT', qw, qy),
+                                                                 self.math('ADD', self.math('MULTIPLY', d, self.const(6.0)), e))))
+        s = self.math('DIVIDE', d, self.math('ADD', qx, e))
+        return self.combine([h, s, qx])
+
     def custom_atan2(self, ins, p):
         return self.math('ARCTAN2', self.mask(self._in(ins, "y"), [0]), self.mask(self._in(ins, "x"), [0]))
 
