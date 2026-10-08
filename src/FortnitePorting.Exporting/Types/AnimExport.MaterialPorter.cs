@@ -11,26 +11,26 @@ using FortnitePorting.Exporting.Extensions;
 
 namespace FortnitePorting.Exporting.Types;
 
-// Material Porter fork: the effects an animation's notifies play, a skeleton's sockets, LEGO face curves.
+// Effects played by animation notifies, skeleton sockets, LEGO face curves.
 public partial class AnimExport
 {
     public readonly List<MaterialPorter.ExportAnimEffect> MPEffects = new();
-    // effects sit on sockets an armature in Blender may not have
+    // Blender's armature may lack the sockets effects sit on
     public readonly Dictionary<string, MaterialPorter.ExportSocket> MPSockets = new(StringComparer.OrdinalIgnoreCase);
-    // when a swing turns the held pickaxe's trails on and off: [on, off] times
+    // pickaxe trail [on, off] times per swing
     public List<float[]> MPTrails = [];
-    // when its swings hit (for the pickaxe's hit effects)
+    // swing hit times (for pickaxe hit effects)
     public List<float> MPHits = [];
     private readonly List<float> _trailsOn = [], _trailsOff = [];
     private readonly HashSet<FAnimNotifyEvent> _effectNotifies = [];
     private readonly Dictionary<string, MaterialPorter.ExportAnimEffect> _effects = [];
 
-    // a LEGO emote's montage names no skeleton; its sequences do
+    // a LEGO emote montage names no skeleton; its sequences do
     private static USkeleton? MontageSkeleton(UAnimMontage montage) =>
         montage.Skeleton.Load<USkeleton>()
         ?? montage.CompositeSections.Select(section => section.LinkedSequence.Load<UAnimSequence>()?.Skeleton.Load<USkeleton>()).FirstOrDefault(s => s is not null);
 
-    // a montage's effect notifies; a section's own count from the section's start
+    // a montage's effect notifies; a section's own notifies count from the section start
     private void ReadMontageEffects(UAnimMontage montage, USkeleton? skeleton)
     {
         SkeletonSockets(skeleton);
@@ -41,7 +41,7 @@ public partial class AnimExport
                 EffectNotify(notify, section.Time);
     }
 
-    // a plain sequence's effect notifies (a montage's are read with it)
+    // a plain sequence's effect notifies (montages are read above)
     private void ReadSequenceEffects(UObject asset)
     {
         if (asset is not UAnimSequenceBase sequence || asset is UAnimMontage) return;
@@ -50,7 +50,7 @@ public partial class AnimExport
             EffectNotify(notify, 0);
     }
 
-    // a LEGO emote animates the figure's face material with its curves; their keys' interpolation goes along
+    // a LEGO emote animates the face material with curves; keep their key interpolation
     private void ReadFaceCurveModes()
     {
         foreach (var section in Sections)
@@ -76,8 +76,7 @@ public partial class AnimExport
         }
     }
 
-    // A notify that plays a Niagara system becomes an effect on its socket at its time; swing hits and trail
-    // switches are recorded as times.
+    // A notify playing a Niagara system becomes an effect on its socket at its time; swing hits and trail switches are recorded as times.
     private void EffectNotify(FAnimNotifyEvent notify, float sectionTime)
     {
         if (!_effectNotifies.Add(notify)) return;
@@ -122,8 +121,7 @@ public partial class AnimExport
         }
     }
 
-    // a sequence's float curves' key interpolation, one letter per key (C constant, Q cubic, L linear), or one
-    // letter when all keys agree
+    // Float curve key interpolation, one letter per key (C constant, Q cubic, L linear), or one letter if all agree
     private static Dictionary<string, string>? CurveModes(UAnimSequence? sequence)
     {
         if (sequence?.CompressedCurveData?.FloatCurves is not { Length: > 0 } curves) return null;

@@ -18,28 +18,21 @@ using Newtonsoft.Json.Linq;
 namespace FortnitePorting.Exporting.Context;
 
 /// <summary>
-/// Material Porter fork: a particle effect (a Niagara system) as what it is made of. Each enabled
-/// emitter becomes an empty, and under it what its renderers draw: a mesh renderer's meshes with
-/// the materials it puts on them, a sprite or ribbon renderer's material on a plane the plugin
-/// makes. A renderer's own material parameters ride on the material (MPValues). A CPU emitter
-/// keeps its compiled scripts, which the plugin runs to play its particles (the system's node
-/// carries what that takes: Effects.Program); a GPU emitter keeps only a compiled shader, and
-/// stays the pieces it draws.
+/// Niagara systems as nodes: each enabled emitter becomes an empty holding what its renderers draw
+/// (meshes with materials; sprite/ribbon materials on a plane the plugin makes). Renderer material
+/// parameters ride on the material (MPValues). CPU emitters keep their compiled scripts for the
+/// plugin to run (Effects.Program); GPU emitters only keep the pieces they draw.
 /// </summary>
 public partial class ExportContext
 {
-    /// <summary>Whether an item's export takes its own effects along (the Effects pick of its page).</summary>
+    /// <summary>Whether the item's export takes its own effects along (the Effects pick).</summary>
     public bool EffectsPick;
 
-    /// <summary>
-    /// What the picked styles do to the item's effects: a system a style swaps for another (a part's
-    /// NS_Empty for the style's own effect: VariantParticles) and the user parameters a style sets on a
-    /// system (its colours and floats: VariantParticleParams), by system path.
-    /// </summary>
+    /// <summary>Picked styles' effect changes by system path: swapped systems (VariantParticles) and user parameters (VariantParticleParams).</summary>
     public readonly Dictionary<string, FSoftObjectPath> EffectSwaps = new(StringComparer.OrdinalIgnoreCase);
     public readonly Dictionary<string, Dictionary<string, object>> EffectUser = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>A picked style's effect swaps and user parameters (EffectSwaps, EffectUser).</summary>
+    /// <summary>Adds a picked style's effect swaps and user parameters.</summary>
     public void AddEffectStyle(FStructFallback style)
     {
         foreach (var swap in style.GetOrDefault("VariantParticles", Array.Empty<FStructFallback>()))
@@ -58,7 +51,7 @@ public partial class ExportContext
                     var name = p.GetOrDefault<FName>("ParamName").Text;
                     if (!Effects.Named(new FName(name))) continue;
                     if (!name.StartsWith("User.", StringComparison.OrdinalIgnoreCase)) name = "User." + name;
-                    // (the values are engine structs: read as JSON)
+                    // engine structs: read as JSON
                     var value = JObject.FromObject(p)["Value"];
                     values[name] = value switch
                     {
@@ -70,16 +63,13 @@ public partial class ExportContext
         }
     }
 
-    /// <summary>A system path as the picked styles swap it.</summary>
+    /// <summary>A system path after the picked styles' swaps.</summary>
     private FSoftObjectPath Swapped(FSoftObjectPath path) =>
         EffectSwaps.TryGetValue(path.AssetPathName.Text, out var swapped) ? swapped : path;
 
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<ExportMesh, Dictionary<string, ExportSocket>> _meshSockets = new();
 
-    /// <summary>
-    /// A mesh's sockets, kept for the effects put on it: a skeletal mesh's own and its skeleton's, each
-    /// on its bone; a static mesh's, on the mesh itself (no bone).
-    /// </summary>
+    /// <summary>Keeps a mesh's sockets for its effects: skeletal (own and skeleton's, on bones) or static (no bone).</summary>
     private void MeshSockets(ExportMesh export, UObject mesh)
     {
         var table = new Dictionary<string, ExportSocket>();
@@ -111,17 +101,13 @@ public partial class ExportContext
         if (table.Count > 0) _meshSockets.AddOrUpdate(export, table);
     }
 
-    /// <summary>
-    /// One of an item's own effects, under its mesh: the effect (Effect) with what it is ("trail",
-    /// "swing", "idle", "event": Role), the socket it sits on (MPParentBone) and where it sits there
-    /// (Place). In Blender it is on the item's armature and reads its bones and sockets.
-    /// </summary>
+    /// <summary>Adds one of an item's own effects under its mesh, with its role ("trail", "swing", "idle", "event"), socket (MPParentBone) and placement.</summary>
     private MaterialPorterMesh? OwnEffect(ExportMesh mesh, UObject? system, string role, string? socket, FTransform? place = null)
     {
         if (system is null || Effect(system) is not MaterialPorterMesh effect) return null;
         var node = effect.MPEffect ??= new Dictionary<string, object> { ["Kind"] = "System" };
         node["Role"] = role;
-        // the user parameters the picked styles set on it (its colours): the replay's, over the asset's own
+        // picked styles' user parameters override the asset's own
         if (EffectUser.TryGetValue(system.GetPathName(), out var user))
             node["User"] = node.TryGetValue("User", out var had) && had is Dictionary<string, object> own
                 ? own.Concat(user).GroupBy(p => p.Key).ToDictionary(g => g.Key, g => g.Last().Value) : new Dictionary<string, object>(user);
@@ -134,10 +120,8 @@ public partial class ExportContext
     }
 
     /// <summary>
-    /// A pickaxe's own effects (its weapon definition's trail, swing and idle effects): the swing's and
-    /// the idle's on their sockets, the trail told the two sockets it runs between. Its hit effects
-    /// ("impact": what a swing leaves where it hits, a system a surface) sit at its trail's far socket
-    /// (the head, where it hits), unplayed until a swing's hits or Replay Effect.
+    /// A pickaxe's trail, swing and idle effects on their sockets (the trail gets the two sockets it runs between).
+    /// Hit effects ("impact", per surface) sit at the trail's far socket (the head) and stay unplayed until a hit or Replay Effect.
     /// </summary>
     public void PickaxeEffects(UObject weaponDefinition, List<ExportMesh> meshes)
     {
@@ -176,7 +160,7 @@ public partial class ExportContext
         }
     }
 
-    /// <summary>A character part's idle effect (a back bling's glow, an outfit's aura), on its socket of the part's mesh.</summary>
+    /// <summary>A character part's idle effect (e.g. back bling glow), on its socket of the part's mesh.</summary>
     public void PartEffects(UObject part, ExportMesh mesh)
     {
         try
@@ -191,10 +175,7 @@ public partial class ExportContext
         }
     }
 
-    /// <summary>
-    /// A sprite's own effect (its definition's NiagaraSystem: a fire sprite's flames), playing on the bone
-    /// the game's held sprite puts it on (BP_Weapon_Extractable's ExtractableFX: spine_4_bind).
-    /// </summary>
+    /// <summary>A sprite's own NiagaraSystem, on the bone the game's held sprite uses (BP_Weapon_Extractable's ExtractableFX: spine_4_bind).</summary>
     public void SpriteEffects(UObject sprite, ExportMesh mesh)
     {
         try
@@ -208,10 +189,7 @@ public partial class ExportContext
         }
     }
 
-    /// <summary>
-    /// A glider's trails, each on its socket, played as the locker shows them once the glider is out
-    /// (the glider needn't fly): front end, fully deployed (a speed line's opacity waits for it).
-    /// </summary>
+    /// <summary>A glider's trails on their sockets, set as the locker shows them: front end, fully deployed (speed line opacity waits for it).</summary>
     public void GliderEffects(UObject glider, ExportMesh mesh)
     {
         foreach (var (path, socket, offset) in Effects.GliderTrails(glider))
@@ -229,11 +207,7 @@ public partial class ExportContext
         }
     }
 
-    /// <summary>
-    /// A weapon's own effects: its actor class's Niagara components, each on the socket it is attached
-    /// to. One that plays by itself is "idle"; one the game plays on an event (a reload, a level up)
-    /// is "event": it comes along unplayed, for Replay Effect.
-    /// </summary>
+    /// <summary>A weapon actor's Niagara components on their sockets: "idle" if autoplay, else "event" (unplayed, for Replay Effect).</summary>
     public void WeaponEffects(UObject actorClass, ExportMesh mesh)
     {
         foreach (var (component, socket, auto) in Effects.WeaponComponents(actorClass))
@@ -272,7 +246,7 @@ public partial class ExportContext
         var at = 0;
         foreach (var emitter in emitters)
         {
-            // laid out in a row, 2 m apart: a palette to pick from (in the game they all sit at the system's origin)
+            // laid out in a row, 2 m apart, to pick from (in game they share the system origin)
             var node = new MaterialPorterMesh
             {
                 Name = emitter.Name, IsEmpty = true,
@@ -296,7 +270,7 @@ public partial class ExportContext
         return root;
     }
 
-    /// <summary>A renderer's material parameters (scalars, vectors, textures it sets on its materials), or null.</summary>
+    /// <summary>A renderer's material parameters (scalars, vectors, textures), or null.</summary>
     private static ParamSet? RendererValues(UObject system, UObject renderer)
     {
         if (!renderer.TryGetValue(out FStructFallback parameters, "MaterialParameters")) return null;
@@ -311,12 +285,11 @@ public partial class ExportContext
         foreach (var p in parameters.GetOrDefault("TextureParameters", Array.Empty<FStructFallback>()))
             if (p.GetOrDefault<UTexture?>("Texture") is { } texture)
                 values.Textures[p.GetOrDefault<FName>("MaterialParameterName").Text] = texture.GetPathName();
-        // a texture parameter bound to a curve of the system's, exposed as a texture (a colour ramp), or
-        // to a user parameter's texture (its own, until the game sets another); a value bound to the
-        // system's variables is the plugin's (the replay has them: effect_replay.bindings)
+        // A texture parameter bound to a system curve becomes a texture (colour ramp); one bound to a user
+        // parameter takes its texture. Values bound to system variables are left to the plugin (effect_replay.bindings).
         foreach (var p in parameters.GetOrDefault("AttributeBindings", Array.Empty<FStructFallback>()))
         {
-            // (the variables are Niagara structs: read as JSON)
+            // Niagara structs: read as JSON
             var binding = JObject.FromObject(p);
             var variable = (string?)binding["ResolvedNiagaraVariable"]?["Name"] ?? (string?)binding["NiagaraVariable"]?["Name"];
             var parameter = p.GetOrDefault<FName>("MaterialParameterName").Text;
@@ -328,7 +301,7 @@ public partial class ExportContext
         return values.Scalars.Count + values.Vectors.Count + values.Textures.Count > 0 ? values : null;
     }
 
-    /// <summary>A sprite's, ribbon's or decal's material: the user parameter's it binds (its own, until the game sets another), else its own.</summary>
+    /// <summary>A sprite, ribbon or decal material: the bound user parameter's, else its own.</summary>
     private static UMaterialInterface? RendererMaterial(UObject system, UObject renderer)
     {
         var bound = renderer.Properties.FirstOrDefault(p => p.Name.Text == "MaterialUserParamBinding")?.Tag?.GenericValue;
@@ -338,8 +311,7 @@ public partial class ExportContext
 
     private ExportMaterial? EffectMaterial(UMaterialInterface? material, int slot, ParamSet? values)
     {
-        // an instance the system keeps inside itself (a renderer's own, with its parameters): the asset it
-        // is an instance of, with the instance's values over it
+        // an instance embedded in the system: use its parent asset with the instance's values on top
         while (material is UMaterialInstanceConstant { Parent: UMaterialInterface parent } inner && inner.GetPathName().Contains(':'))
         {
             values ??= new ParamSet();
@@ -377,7 +349,7 @@ public partial class ExportContext
                         MPEffect = new Dictionary<string, object> { ["Kind"] = "Mesh", ["Renderer"] = renderer.Name, ["Index"] = index },
                     };
                     // each slot: the renderer's override, else the mesh's own, with the renderer's parameters
-                    // (a mesh whose own slot holds no material still has the slot: the override's)
+                    // (slots with no mesh material still count if overridden)
                     foreach (var slot in mesh.Materials.Select(m => m.Slot).Concat(Enumerable.Range(0, overrides.Length)).Distinct())
                     {
                         var material = slot < overrides.Length
@@ -402,7 +374,7 @@ public partial class ExportContext
                 if (EffectMaterial(RendererMaterial(system, renderer), 0, values) is not { } material) break;
                 var sub = renderer.GetOrDefault("SubImageSize", new FVector2D(1, 1));
                 var ribbon = renderer.ExportType.Contains("Ribbon");
-                // a flipbook: each particle shows one sub-image, which the material picks (the plugin's env.uv)
+                // flipbook: each particle shows one sub-image, picked by the material (the plugin's env.uv)
                 if (ribbon)
                     material = new MaterialPorterMaterial(material)
                     {
@@ -434,7 +406,7 @@ public partial class ExportContext
             }
             case "NiagaraLightRendererProperties":
             {
-                // a point light a particle: the plugin makes the lights (no material)
+                // light per particle; the plugin makes the lights (no material)
                 yield return new MaterialPorterMesh
                 {
                     Name = $"{emitter.Name} light",
@@ -445,8 +417,8 @@ public partial class ExportContext
             }
             case "NiagaraDecalRendererProperties":
             {
-                // a decal a particle: the plugin draws it as a quad across its projection (a decal lies on
-                // the scene it projects onto, which isn't here: a ground decal lies flat)
+                // The plugin draws a decal as a quad across its projection; the scene it projects onto isn't
+                // exported, so a ground decal lies flat.
                 if (EffectMaterial(RendererMaterial(system, renderer), 0, values) is not { } material) break;
                 yield return new MaterialPorterMesh
                 {

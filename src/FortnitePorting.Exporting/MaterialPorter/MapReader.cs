@@ -16,17 +16,12 @@ using Newtonsoft.Json.Linq;
 namespace FortnitePorting.Exporting.MaterialPorter;
 
 /// <summary>
-/// Maps (FortnitePorting's map export, but every material exact): a level's
-/// actors, their components' meshes placed where the level puts them.
-/// A placed Blueprint keeps only what it changes in the level; the rest
-/// (its mesh, its materials, its components' offsets) comes from its
-/// class's templates, read up the template chain. World Partition maps
-/// are their persistent level plus their _Generated_ cells (and, asked,
-/// the cells external data layers add); level instances and streamed
-/// sublevels are read in place. A building's texture data (its wall/floor
-/// skin) goes onto its materials as FortnitePorting does it: layer i's
-/// textures as Diffuse/Normals/SpecularMasks (suffixed past the first),
-/// its override material on slot 0.
+/// Maps (FortnitePorting's map export, but every material exact): a level's actors, their components' meshes placed where the level
+/// puts them. A placed Blueprint keeps only what it changes in the level; the rest (mesh, materials, component offsets) comes from
+/// its class's templates up the template chain. World Partition maps are their persistent level plus their _Generated_ cells (and,
+/// if asked, the cells external data layers add); level instances and streamed sublevels are read in place. A building's texture
+/// data (wall/floor skin) goes onto its materials as FortnitePorting does it: layer i's textures as Diffuse/Normals/SpecularMasks
+/// (suffixed past the first), its override material on slot 0.
 /// </summary>
 
 public sealed class MapReader
@@ -113,7 +108,7 @@ public sealed class MapReader
         if (level == null) return;
         var world = exports.OfType<UWorld>().FirstOrDefault();
 
-        // components by their actor (names are unique within a level)
+        // components by actor (names are unique within a level)
         var byActor = new Dictionary<string, List<UObject>>(StringComparer.Ordinal);
         var levelOwned = new Dictionary<string, UObject>(StringComparer.Ordinal);
         foreach (var e in exports)
@@ -199,7 +194,7 @@ public sealed class MapReader
 
     /// <summary>Devices: nothing of theirs is placed (they play when someone interacts).</summary>
     static readonly string[] SkipActorPrefixes = { "Device_", "VerseDevice_" };
-    /// <summary>Blueprint devices: their meshes and lights stay out too, but their particle systems play on their own (a mushroom bouncer's light beams).</summary>
+    /// <summary>Blueprint devices: meshes and lights stay out too, but their particle systems play on their own (a mushroom bouncer's light beams).</summary>
     static readonly string[] EffectsOnlyPrefixes = { "BP_Device_" };
 
     async Task ActorAsync(UObject actor, LevelContext ctx, int depth, CancellationToken ct)
@@ -208,8 +203,8 @@ public sealed class MapReader
         if (type == "LODActor" || type.Contains("HLOD", StringComparison.Ordinal)) { scan.Skip("HLOD actors"); return; }
         if (actor is global::CUE4Parse.UE4.Assets.Exports.Actor.ALandscapeProxy lp && lp.LandscapeComponents is { Length: > 0 })
         {
-            // World Partition keeps its landscape in streaming proxies; a classic map, in the landscape actor
-            // (whose spline meshes - its roads - the component loop below still places)
+            // World Partition keeps its landscape in streaming proxies; a classic map in the landscape actor
+            // (its spline meshes, i.e. roads, are still placed by the component loop below)
             if (!options.Landscape) scan.Skip("landscape");
             else
             {
@@ -225,10 +220,10 @@ public sealed class MapReader
                 });
             }
         }
-        // a landscape spline actor holds the roads' shape; Fortnite's own World Partition cooks their meshes
-        // into LandscapeSplineMeshesActors (spline meshes and control-point meshes), placed like any other. A UEFN
-        // island keeps them on the spline actor itself (its spline mesh and control-point mesh components, attached to
-        // its LandscapeSplinesComponent): those are read below like any actor's. Shape-only: nothing to place.
+        // A landscape spline actor holds the roads' shape. Fortnite's World Partition cooks the road meshes into
+        // LandscapeSplineMeshesActors (spline and control-point meshes), placed like any other. A UEFN island keeps them on the spline
+        // actor itself (spline mesh and control-point mesh components attached to its LandscapeSplinesComponent), read below like
+        // any actor's. Shape-only: nothing to place.
         else if (type == "LandscapeSplineActor" && !ctx.Components(actor.Name).Any(c => c.ExportType.Contains("MeshComponent", StringComparison.Ordinal)))
         {
             scan.Skip("landscape spline shapes (their meshes come separately)");
@@ -236,7 +231,7 @@ public sealed class MapReader
         }
         if (SkipActorPrefixes.Any(p => type.StartsWith(p, StringComparison.Ordinal) || actor.Name.StartsWith(p, StringComparison.Ordinal))) { scan.Skip("devices"); return; }
         if (Prop(actor, "bHidden", false)) { scan.Skip("hidden actors"); return; }
-        // a zipline's cable is laid between its poles when the game runs (its saved root sits at the origin)
+        // a zipline's cable is laid between its poles at run time (its saved root sits at the origin)
         if (type.Contains("ZipLine_Spline", StringComparison.OrdinalIgnoreCase)) { scan.Skip("ziplines (laid when the game runs)"); return; }
 
         var comps = ctx.Components(actor.Name);
@@ -251,7 +246,7 @@ public sealed class MapReader
             return;
         }
 
-        // level instances and a foundation's extra worlds: those levels, placed here
+        // level instances and a foundation's extra worlds: those levels are placed here
         if (depth < 4)
         {
             var worlds = new List<string>();
@@ -267,9 +262,9 @@ public sealed class MapReader
             }
         }
 
-        // a water body: its surface mesh (WaterInfoMeshComponent: the ocean's, a lake's outline, a river's ribbon at
-        // its real height) or a custom body's own mesh (pools, waterfalls), wearing the body's WaterMaterial; its other
-        // components (hidden lake plane, river spline meshes, the dilated copy) are the game's runtime helpers
+        // a water body: its surface mesh (WaterInfoMeshComponent: the ocean's, a lake's outline, a river's ribbon at its real height) or
+        // a custom body's own mesh (pools, waterfalls), with the body's WaterMaterial; its other components (hidden lake plane, river
+        // spline meshes, the dilated copy) are runtime helpers
         var waterBody = comps.FirstOrDefault(x => x.ExportType.Contains("WaterBody", StringComparison.Ordinal)
                                                   && !x.ExportType.Contains("Mesh", StringComparison.Ordinal));
         if (waterBody != null && !options.Water) { scan.Skip("water bodies"); return; }
@@ -300,7 +295,7 @@ public sealed class MapReader
                 Effect(c, actor, ctx, root);
                 continue;
             }
-            // a shadow proxy: hidden and out of the main pass, but the shadow of its actor (a palm tree casts none itself)
+            // a shadow proxy: hidden and out of the main pass, but it casts its actor's shadow (a palm tree casts none itself)
             var shadowProxy = ctype.StartsWith("ShadowProxy", StringComparison.Ordinal);
             if (!waterSurface && (ctype.Contains("Landscape", StringComparison.Ordinal)
                 || ctype.Contains("Water", StringComparison.Ordinal))) continue;
@@ -312,9 +307,9 @@ public sealed class MapReader
                 scan.Skip("spline meshes shaped at runtime (ziplines...)");
                 continue;
             }
-            // (a water body's surface mesh is hidden: the game draws the water from it at run time)
+            // a water body's surface mesh is hidden: the game draws the water from it at run time
             if (!waterSurface && !shadowProxy && (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false))) continue;
-            // drawn only into the terrain's runtime virtual texture (a dirt track the landscape shows), never on its own
+            // drawn only into the terrain's runtime virtual texture (a dirt track on the landscape), never on its own
             if (!shadowProxy && !Prop(c, "bRenderInMainPass", true)
                 || (Prop(c, "VirtualTextureRenderPassType", new FName()).Text?.EndsWith("Never", StringComparison.Ordinal) == true
                     && Prop(c, "RuntimeVirtualTextures", Array.Empty<FPackageIndex>()).Length > 0))
@@ -369,8 +364,8 @@ public sealed class MapReader
                 if (!options.Instances) { scan.Skip("instanced meshes", data.Length); continue; }
                 var floats = Prop(c, "NumCustomDataFloats", 0);
                 var custom = floats > 0 && owner.PerInstanceSMCustomData is { } cd && cd.Length >= data.Length * floats ? cd : null;
-                // a building ISM stands in for building actors (TemplateActorClass): each instance's floats are
-                // its building's custom primitive data (36 of them; texture data tints at 30/31/35)
+                // a building ISM stands in for building actors (TemplateActorClass): each instance's floats are its building's
+                // custom primitive data (36 of them; texture data tints at 30/31/35)
                 var perInstanceCpd = custom != null && ctype.Contains("BuildingInstancedStaticMesh", StringComparison.Ordinal);
                 for (var i = 0; i < data.Length; i++)
                 {
@@ -390,15 +385,13 @@ public sealed class MapReader
     }
 
     /// <summary>
-    /// A spline mesh component's bend: SplineParams member by member (the
-    /// level's, its templates', else the engine's defaults: a straight 100 cm
-    /// along X), its forward axis, up direction and boundary. Null when
-    /// nothing stores it.
+    /// A spline mesh component's bend: SplineParams member by member (the level's, its templates', else the engine's defaults: a
+    /// straight 100 cm along X), its forward axis, up direction and boundary. Null when nothing stores it.
     /// </summary>
     Dictionary<string, object> Spline(UObject c)
     {
         var structs = Chain(c).Select(x => x.TryGetValue(out FStructFallback s, "SplineParams") ? s : null).Where(s => s != null).ToList();
-        // none stored: the Blueprint shapes it when the game runs (a zipline's cable)
+        // none stored: the Blueprint shapes it at run time (a zipline's cable)
         if (structs.Count == 0) return null;
         T Member<T>(string name, T fallback)
         {
@@ -451,12 +444,11 @@ public sealed class MapReader
     }
 
     /// <summary>
-    /// A point, spot or rect light: its world matrix and the values the engine reads (the level's own over its
-    /// templates', else the engine's defaults: white, 6500 K, 1000 cm of reach, a 44 degree spot, a 64 cm rect,
-    /// 8 candelas, the brightness a light is placed with). Fortnite's lights state no units unless they leave the
-    /// project's default (a street lamp: 20, a floodlight: 8), and those figures are candelas: Unitless would make them
-    /// 1/625 as bright. Hidden lights (bVisible, bHiddenInGame, bAffectsWorld) place nothing; lights of no brightness (a
-    /// car's headlights, which its Blueprint turns on when it drives) are placed at 0.
+    /// A point, spot or rect light: its world matrix and the values the engine reads (the level's own over its templates', else the
+    /// engine's defaults: white, 6500 K, 1000 cm reach, 44 degree spot, 64 cm rect, 8 candelas). Fortnite's lights state no units
+    /// unless they leave the project's default (a street lamp: 20, a floodlight: 8); those figures are candelas, and Unitless would
+    /// make them 1/625 as bright. Hidden lights (bVisible, bHiddenInGame, bAffectsWorld) place nothing; lights of no brightness
+    /// (a car's headlights, which its Blueprint turns on when driving) are placed at 0.
     /// </summary>
     void Light(UObject c, string kind, UObject actor, LevelContext ctx, UObject root)
     {
@@ -466,7 +458,7 @@ public sealed class MapReader
             return;
         }
         var intensity = Prop(c, "Intensity", Prop(c, "Brightness", 8f));
-        // (a light of no brightness stays: a car's headlights, which its Blueprint turns on when it drives, are lights at 0)
+        // a light of no brightness stays (a car's headlights are lights at 0)
         if (intensity < 0 || !float.IsFinite(intensity))
         {
             scan.Skip("lights of negative brightness");
@@ -502,9 +494,9 @@ public sealed class MapReader
     // ------------------------------------------------------------ decals and particle systems
 
     /// <summary>
-    /// A decal: its world matrix (it projects along its X axis) and what the engine reads of it (DecalSize, the half extents
-    /// before the component's scale: UE's 128, 256, 256 unless stored; SortOrder; FadeScreenSize), wearing DecalMaterial (a
-    /// dynamic instance's values over its parent). Hidden decals and decals without a material place nothing.
+    /// A decal: its world matrix (it projects along its X axis) and what the engine reads of it (DecalSize, the half extents before the
+    /// component's scale: UE's 128, 256, 256 unless stored; SortOrder; FadeScreenSize), with DecalMaterial (a dynamic instance's
+    /// values over its parent). Hidden decals and decals without a material place nothing.
     /// </summary>
     void Decal(UObject c, UObject actor, LevelContext ctx, UObject root)
     {
@@ -530,10 +522,7 @@ public sealed class MapReader
         });
     }
 
-    /// <summary>
-    /// A particle system (NiagaraComponent): its world matrix, its system's path and the user parameters its overrides set.
-    /// Hidden components and components without a system place nothing.
-    /// </summary>
+    /// <summary>A particle system (NiagaraComponent): its world matrix, system path and the user parameters its overrides set. Hidden components and ones without a system place nothing.</summary>
     void Effect(UObject c, UObject actor, LevelContext ctx, UObject root)
     {
         if (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false))
@@ -565,16 +554,16 @@ public sealed class MapReader
     }
 
     /// <summary>
-    /// A Niagara component's user parameter overrides: its OverrideParameters store (the level's, else its template's) is
-    /// a byte block (ParameterData) and where each named parameter sits in it (SortedParameterOffsets: Offset, Name, TypeDef).
-    /// Floats, ints, bools, vectors and colours are read; a store that names no parameters (or types read elsewhere) gives none.
+    /// A Niagara component's user parameter overrides: its OverrideParameters store (the level's, else its template's) is a byte block
+    /// (ParameterData) plus where each named parameter sits in it (SortedParameterOffsets: Offset, Name, TypeDef). Floats, ints, bools,
+    /// vectors and colours are read; a store naming no parameters (or types read elsewhere) gives none.
     /// </summary>
     Dictionary<string, object> UserParameters(UObject c)
     {
         var found = new Dictionary<string, object>(StringComparer.Ordinal);
         foreach (var x in Chain(c))
         {
-            // (read through the export's JSON, as a dynamic instance's values are: the struct's arrays come as plain tokens)
+            // read through the export's JSON, as a dynamic instance's values are (the struct's arrays come as plain tokens)
             if (JObject.Parse(JsonConvert.SerializeObject(x, Ser))["Properties"]?["OverrideParameters"] is not JObject store) continue;
             if (store["SortedParameterOffsets"] is not JArray offsets || offsets.Count == 0) continue;
             if (store["ParameterData"] is not JArray bytes || bytes.Count == 0) continue;
@@ -582,7 +571,7 @@ public sealed class MapReader
             foreach (var entry in offsets)
             {
                 var name = (string)entry["Name"];
-                // (named as the system names them: the store says "User.x", the plugin sets "User." + name)
+                // named as the system names them: the store says "User.x", the plugin sets "User." + name
                 if (name != null && name.StartsWith("User.", StringComparison.Ordinal)) name = name[5..];
                 var offset = (int?)entry["Offset"] ?? -1;
                 var typeName = (string)entry["TypeDef"]?["ClassStructOrEnum"]?["ObjectName"] ?? "";
@@ -628,10 +617,7 @@ public sealed class MapReader
         return r.Select(kv => (kv.Key, kv.Value));
     }
 
-    /// <summary>
-    /// A material reference: an asset's path, or (a dynamic instance the level
-    /// made) its parent asset's path and the values it sets over it.
-    /// </summary>
+    /// <summary>A material reference: an asset's path, or (a dynamic instance the level made) its parent's path and the values it sets over it.</summary>
     (string Path, ParamSet Params) Material(FPackageIndex idx)
     {
         ParamSet ps = null;
@@ -680,9 +666,8 @@ public sealed class MapReader
     static readonly int[] TintIndex = [30, 31, 35];
 
     /// <summary>
-    /// A colour as the materials' packed HSV float: the bits of
-    /// hue degrees (12) | saturation * 1023 (10) | value * 1023 (10), which
-    /// MF_ColorTint_Unpack reads back with asuint. HSV of the linear colour.
+    /// A colour as the materials' packed HSV float: the bits of hue degrees (12) | saturation * 1023 (10) | value * 1023 (10),
+    /// which MF_ColorTint_Unpack reads back with asuint. HSV of the linear colour.
     /// </summary>
     static float PackedHsv(FColor c)
     {
@@ -699,9 +684,8 @@ public sealed class MapReader
     }
 
     /// <summary>
-    /// A building's texture data (by layer index, the level's over its class's):
-    /// its textures as parameters, the first override material among them,
-    /// and each layer's tint as custom primitive data (index, packed float).
+    /// A building's texture data (by layer index, the level's over its class's): its textures as parameters, the first override
+    /// material among them, and each layer's tint as custom primitive data (index, packed float).
     /// </summary>
     (ParamSet Skin, string Material, Dictionary<int, float> Tints) TextureData(UObject actor)
     {
@@ -764,7 +748,7 @@ public sealed class MapReader
     Matrix4x4 Local(UObject c)
     {
         var l = Prop(c, "RelativeLocation", new FVector(0, 0, 0));
-        // (a DecalActor's decal faces down unless the level stores another rotation: ADecalActor's constructor sets its pitch to -90)
+        // a DecalActor's decal faces down unless the level stores another rotation (ADecalActor's constructor sets pitch to -90)
         var r = Prop(c, "RelativeRotation", c.Outer?.Class?.Name.Text == "DecalActor" && c.ExportType.EndsWith("DecalComponent", StringComparison.Ordinal) ? new FRotator(-90, 0, 0) : new FRotator(0, 0, 0));
         var s = Prop(c, "RelativeScale3D", new FVector(1, 1, 1));
         var q = r.Quaternion();

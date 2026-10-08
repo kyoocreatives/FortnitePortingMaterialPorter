@@ -14,29 +14,23 @@ using CUE4Parse.UE4.Objects.UObject;
 namespace FortnitePorting.Exporting.MaterialPorter;
 
 /// <summary>
-/// Material Porter fork: Rocket Racing (DelMar) tracks. A track actor (DelMarTrack_BP, the UEFN
-/// RocketRacingTrack / BP_FortDelMarTrack) holds its road as a spline (MainSpline), a style per
-/// spline point (TrackSplinePointData: a gameplay tag) and a palette (TrackPalette_V2: style tag ->
-/// segment actor classes, each one road piece: a spline mesh about 2048 cm long). The game lays the
-/// pieces along the spline when it builds the track. A level that saved them places them itself
-/// (the map reader's spline meshes); for a track whose level holds none, they are laid here as the
-/// track lays them: each span between two points cut into pieces of about the piece's length, each
-/// piece a spline mesh over its stretch of the curve, turned to the spline's up (its rotation
-/// channel; the rotation-minimal frames where a point asks for stable roll) and widened by its scale.
-/// Not laid: the transition pieces between styles, end caps, the out-of-bounds tube; nor the per-piece
-/// custom primitive data the track's Blueprint sets (its road UVs).
+/// Rocket Racing (DelMar) tracks. A track actor (DelMarTrack_BP) holds its road as a spline (MainSpline), a style per spline point
+/// (TrackSplinePointData, a gameplay tag) and a palette (TrackPalette_V2: style tag -> segment actor classes, each a spline mesh
+/// road piece about 2048 cm long). A level that saved the pieces places them through the map reader's spline meshes. For a track
+/// whose level holds none, they are laid here as the game does: each span between two points is cut into pieces of about the
+/// piece's length, each a spline mesh over its stretch of the curve, turned to the spline's up (rotation channel, or
+/// rotation-minimal frames where a point asks for stable roll) and widened by its scale.
+/// Not laid: transition pieces between styles, end caps, the out-of-bounds tube, and the per-piece custom primitive data (road UVs).
 /// </summary>
 public static class DelMarTracks
 {
     /// <summary>A track actor's property naming its per-point styles (DelMarTrackBase, FortDelMarTrackBase).</summary>
     private const string PointDataProperty = "TrackSplinePointData";
 
-    /// <summary>Tests: a track to lay from an object path (a class default, say) along these points (UE cm), or null.</summary>
+    /// <summary>Tests: a track to lay from an object path along these points (UE cm), or null.</summary>
     public static (string Actor, Vector3[] Points)? TestTrack;
 
-    /// <summary>
-    /// The road pieces of the tracks a level holds whose pieces it didn't save (none when it did, or holds no track).
-    /// </summary>
+    /// <summary>The road pieces of the tracks a level holds whose pieces it didn't save (none if it did, or holds no track).</summary>
     public static List<MapMesh> Place(IFileProvider provider, string levelPackage, Action<string, int> skip)
     {
         var placed = new List<MapMesh>();
@@ -44,7 +38,7 @@ public static class DelMarTracks
         try
         {
             var package = provider.LoadPackage(levelPackage);
-            // a track's point data is its own subobject: its name is in the level's name table (no exports read otherwise)
+            // a track's point data is its own subobject; its name is in the level's name table (no exports are read otherwise)
             if (!package.NameMap.Any(n => n.Name?.Contains("TrackPointData", StringComparison.Ordinal) == true)) return placed;
             var exports = package.GetExports().ToList();
             var level = exports.FirstOrDefault(e => e.ExportType == "Level");
@@ -56,7 +50,7 @@ public static class DelMarTracks
             Failures.Note("Rocket Racing track levels", levelPackage, e);
             return placed;
         }
-        // the level saved its tracks' pieces (segment actors, DelMarTrackSegmentBase): the map reader placed them
+        // the level saved its tracks' pieces (DelMarTrackSegmentBase actors): the map reader placed them
         if (actors.Any(a => Chain(a).Any(x => x.Properties.Any(p => p.Name.Text == "MaterialLayerComponent"))))
         {
             skip("Rocket Racing tracks (their road pieces are in the level)", 1);
@@ -93,7 +87,7 @@ public static class DelMarTracks
         var segments = new Dictionary<string, Segment?>(StringComparer.OrdinalIgnoreCase);
         for (var span = 0; span < curve.Spans; span++)
         {
-            // a span wears its first point's style (the last point's, past the styles listed)
+            // a span wears its first point's style (the last point's, past the listed styles)
             var style = styles.Count == 0 ? null : styles[Math.Min(span, styles.Count - 1)];
             var tag = style?.GetOrDefault<FGameplayTag>("TrackTypeTag").TagName.Text ?? "";
             var classPath = style?.GetOrDefault<FSoftObjectPath>("SegmentClass").AssetPathName.Text is { Length: > 0 } own && own != "None"
@@ -143,7 +137,7 @@ public static class DelMarTracks
         return map;
     }
 
-    /// <summary>A road piece: its spline mesh's mesh, materials and length (its class default's).</summary>
+    /// <summary>A road piece: its spline mesh's mesh, materials and length (from its class default).</summary>
     private sealed class Segment
     {
         public string Mesh = "";
@@ -216,8 +210,8 @@ public static class DelMarTracks
     }
 
     /// <summary>
-    /// A track spline in its component's space: its points' positions and Hermite tangents, rotations and scales
-    /// (UE's SplineCurves, else the 5.6 spline's Bezier handles), and the rotation-minimal frames' normals.
+    /// A track spline in its component's space: point positions, Hermite tangents, rotations and scales (UE's SplineCurves, else the
+    /// 5.6 spline's Bezier handles), and the rotation-minimal frames' normals.
     /// </summary>
     public sealed class TrackCurve
     {
@@ -249,7 +243,7 @@ public static class DelMarTracks
                 curve.Rotations.Add(ToQuat(p.GetOrDefault("OutVal", new FQuat(0, 0, 0, 1))));
             foreach (var p in curves?.GetOrDefault<FStructFallback?>("Scale")?.GetOrDefault("Points", Array.Empty<FStructFallback>()) ?? [])
                 curve.Scales.Add(ToVector(p.GetOrDefault("OutVal", new FVector(1, 1, 1))));
-            // UE 5.6's spline: per point its arrive handle, value and leave handle (a cubic Bezier's: a third of the tangent)
+            // UE 5.6 spline: per point the arrive handle, value and leave handle (cubic Bezier: a third of the tangent)
             var spline56 = Chain(spline).Select(x => x.TryGetValue(out FSpline s, "Spline") ? s : default).FirstOrDefault(s => s.Position != null);
             if (curve.Points.Count < 2 && spline56.Position is { PointCount: >= 2 } position)
             {
@@ -302,7 +296,7 @@ public static class DelMarTracks
             return (6 * t2 - 6 * t) * p0 + (3 * t2 - 4 * t + 1) * t0 + (-6 * t2 + 6 * t) * p1 + (3 * t2 - 2 * t) * t1;
         }
 
-        /// <summary>The spline's up at a place: its rotation channel's (UE turns DefaultUpVector by it), or the stable frame's normal.</summary>
+        /// <summary>The spline's up at a place: from the rotation channel (UE turns DefaultUpVector by it), or the stable frame's normal.</summary>
         public Vector3 Up(int span, float t, bool stable)
         {
             var key = span + t;
@@ -354,9 +348,8 @@ public static class DelMarTracks
         }
 
         /// <summary>
-        /// A piece over the span's stretch [a, b] as the map reader's spline mesh bend: the stretch's Hermite
-        /// (positions and tangents scaled to it), its up as the spline mesh's up direction, the end's roll
-        /// to the spline's up there, the spline's scale as the piece's.
+        /// A piece over the span's stretch [a, b] as a map-reader spline mesh bend: the stretch's Hermite (positions and tangents scaled
+        /// to it), its up as the spline mesh's up direction, the end's roll to the spline's up there, the spline's scale as the piece's.
         /// </summary>
         public Dictionary<string, object> Piece(int span, float a, float b, bool stable)
         {
@@ -365,7 +358,7 @@ public static class DelMarTracks
             var t0 = Derivative(span, a) * (b - a);
             var t1 = Derivative(span, b) * (b - a);
             var up = Up(span, a, stable);
-            // the up its start has (no roll there), the roll its end needs to reach the spline's up
+            // the up at the start (no roll there), and the roll the end needs to reach the spline's up
             var fwd = t1.LengthSquared() > 1e-6f ? Vector3.Normalize(t1) : Vector3.Normalize(p1 - p0);
             var bx = Vector3.Cross(up, fwd);
             var roll = 0f;

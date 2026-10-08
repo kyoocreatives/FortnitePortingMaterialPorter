@@ -12,8 +12,7 @@ namespace FortnitePorting.Exporting.Context;
 
 public partial class ExportContext
 {
-    // Material Porter fork: a downloaded build's export has its packages fetched beside it (MaterialPorter.Prefetch):
-    // the asset's, and a map's streaming levels and partition cells, which it doesn't import
+    // For downloaded builds, fetches the asset's packages plus a map's streaming levels and partition cells (MaterialPorter.Prefetch)
     public void StartPrefetch(UObject asset)
     {
         if (!MaterialPorter.Prefetch.Enabled) return;

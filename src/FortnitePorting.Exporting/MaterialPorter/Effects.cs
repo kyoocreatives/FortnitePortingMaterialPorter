@@ -16,19 +16,18 @@ using Newtonsoft.Json.Linq;
 namespace FortnitePorting.Exporting.MaterialPorter;
 
 /// <summary>
-/// Material Porter fork: a Niagara system's emitters as the cooked asset keeps them. A system
-/// lists emitter handles; a handle is a standard emitter (one of its versions: CPU or GPU
-/// simulated, its renderers) or a stateless one (UE 5.4's lightweight emitters: plain settings).
+/// A Niagara system's emitters as the cooked asset keeps them. A system lists emitter handles; a handle is a standard emitter
+/// (one of its versions: CPU or GPU simulated, with renderers) or a stateless one (UE 5.4's lightweight emitters: plain settings).
 /// </summary>
 public static class Effects
 {
     public const string ContrailClass = "AthenaSkyDiveContrailItemDefinition";
-    /// <summary>A contrail item's effect (older ones name only a Cascade effect: none to replay).</summary>
+    /// <summary>A contrail item's effect (older ones name only a Cascade effect: nothing to replay).</summary>
     public const string ContrailEffect = "NiagaraContrailEffect";
 
     /// <summary>
-    /// A pickaxe's own effects, as its weapon definition's data names them: the property, what it is
-    /// called, and the property naming the socket it sits on (the trail runs between two sockets instead).
+    /// A pickaxe's own effects as its weapon definition names them: the property, its label, and the property naming the socket it
+    /// sits on (the trail runs between two sockets instead).
     /// </summary>
     public static readonly (string Property, string Name, string? Socket)[] PickaxeEffects =
     [
@@ -38,7 +37,7 @@ public static class Effects
     ];
     public const string TrailFirstSocket = "AnimTrailsFirstSocketName", TrailSecondSocket = "AnimTrailsSecondSocketName";
 
-    /// <summary>Which of its own effects a pickaxe's weapon definition has: "trail", "swing", "idle".</summary>
+    /// <summary>Which own effects a pickaxe's weapon definition has: "trail", "swing", "idle".</summary>
     public static List<string> PickaxeEffectNames(UObject weaponDefinition) =>
         PickaxeEffects.Where(e => Named(weaponDefinition.GetDataListItem<FSoftObjectPath>(e.Property).AssetPathName)).Select(e => e.Name)
             .Concat(PickaxeImpacts(weaponDefinition).Count > 0 ? ["impact"] : []).ToList();
@@ -63,10 +62,9 @@ public static class Effects
     public const string PartEffect = "IdleEffectNiagara", PartSocket = "IdleFXSocketName";
 
     /// <summary>
-    /// The Niagara systems the Effects tab lists: the asset registry's (nearly all islands') and the
-    /// game's own by file name (NS_...), which the cooked registry mostly leaves out. (package path as
-    /// the game mounts it, object name), each package once; a package's editor data (.o.uasset) and
-    /// the engine's own templates and examples (/Niagara/: not cooked to play) are left out.
+    /// The Niagara systems the Effects tab lists: the asset registry's (nearly all islands') and the game's own found by file name
+    /// (NS_...), which the cooked registry mostly omits. (package path as mounted, object name), each package once. Editor data
+    /// (.o.uasset) and the engine's templates and examples (/Niagara/, not cooked to play) are left out.
     /// </summary>
     public static List<(string Package, string Name)> ListedSystems(global::CUE4Parse.FileProvider.IFileProvider provider,
         IEnumerable<(string Package, string Name)> registry)
@@ -85,10 +83,7 @@ public static class Effects
         return found.Values.ToList();
     }
 
-    /// <summary>
-    /// A package's path as the game mounts it from its file's: FortniteGame/Content/X is /Game/X, a
-    /// plugin's .../Name/Content/X is /Name/X.
-    /// </summary>
+    /// <summary>A package's mounted path from its file's: FortniteGame/Content/X is /Game/X, a plugin's .../Name/Content/X is /Name/X.</summary>
     public static string MountPath(string file)
     {
         var at = file.IndexOf("/Content/", StringComparison.OrdinalIgnoreCase);
@@ -100,9 +95,8 @@ public static class Effects
     }
 
     /// <summary>
-    /// A system as its package's export map tells it, without reading it: the class of the object of
-    /// its name, its emitters, how many run on the GPU (a GPU emitter has a GPUComputeScript: it isn't
-    /// replayed) and what its renderers draw.
+    /// A system as its package's export map tells it, without reading it: the class of the object of its name, its emitters, how many
+    /// run on the GPU (a GPUComputeScript: not replayed) and what its renderers draw.
     /// </summary>
     public sealed record Outline(string? Class, int Emitters, int Gpu, string[] Draws) : Unloaded.IOutline
     {
@@ -155,8 +149,8 @@ public static class Effects
     private static readonly ConditionalWeakTable<UObject, StrongBox<bool>> _plays = new();
 
     /// <summary>
-    /// The system a soft path names, where it shows something: many parts name a blank system
-    /// (NS_Blank_Body, NS_Empty: no emitter) to switch their base part's effect off.
+    /// The system a soft path names, if it shows something: many parts name a blank system (NS_Blank_Body, NS_Empty) to switch off
+    /// their base part's effect.
     /// </summary>
     public static UObject? Shown(FSoftObjectPath path)
     {
@@ -171,7 +165,7 @@ public static class Effects
         }
     }
 
-    /// <summary>Whether a style of the item swaps one of its effects for one that shows something (a part's NS_Empty for an aura).</summary>
+    /// <summary>Whether a style of the item swaps one of its effects for one that shows something (NS_Empty for an aura).</summary>
     public static bool StyleEffects(UObject item)
     {
         try
@@ -193,7 +187,7 @@ public static class Effects
         catch (Exception e)
         {
             Failures.Note("item effect styles", item.Name, e);
-            // an item whose styles don't read: as if it had none
+            // an item whose styles don't read is treated as having none
         }
         return false;
     }
@@ -207,7 +201,7 @@ public static class Effects
         return parts;
     }
 
-    /// <summary>A glider's trail effects: (system, socket, offset), from its trail definitions or its older trail properties.</summary>
+    /// <summary>A glider's trail effects: (system, socket, offset), from its trail definitions or older trail properties.</summary>
     public static List<(FSoftObjectPath System, FName Socket, FTransform? Offset)> GliderTrails(UObject glider)
     {
         var trails = new List<(FSoftObjectPath, FName, FTransform?)>();
@@ -226,8 +220,8 @@ public static class Effects
     }
 
     /// <summary>
-    /// A weapon actor class's Niagara components, its own and its parent classes': (component, socket
-    /// on the weapon it is attached to, whether it plays by itself rather than on an event of the game's).
+    /// A weapon actor class's Niagara components, its own and its parents': (component, socket on the weapon, whether it plays by
+    /// itself rather than on a game event).
     /// </summary>
     public static List<(UObject Component, string? Socket, bool Auto)> WeaponComponents(UObject? actorClass)
     {
@@ -256,9 +250,8 @@ public static class Effects
     public const string SpriteEffectBone = "spine_4_bind";
 
     /// <summary>
-    /// What of its own effects an item of a tab can be exported with ("trail", "swing", "idle",
-    /// "event effects"): a pickaxe's weapon definition's, a back bling's or an outfit's parts' idle
-    /// effects, a glider's trails, a weapon's actor class's Niagara components.
+    /// Which own effects an item of a tab can be exported with ("trail", "swing", "idle", "event effects"): a pickaxe's weapon
+    /// definition's, a back bling's or outfit part's idle effects, a glider's trails, a weapon actor class's Niagara components.
     /// </summary>
     public static List<string> OwnEffectNames(UObject item, EExportType type)
     {
@@ -284,7 +277,7 @@ public static class Effects
         }
     }
 
-    /// <summary>Whether a name names something (it is set, and isn't None).</summary>
+    /// <summary>Whether a name is set and isn't None.</summary>
     public static bool Named(FName name) => name.Text is { Length: > 0 } text && text != "None";
 
     /// <summary>An enabled emitter: its name, how it is simulated (CPU, GPU, Stateless) and its enabled renderers.</summary>
@@ -316,12 +309,10 @@ public static class Effects
     }
 
     /// <summary>
-    /// The texture a curve of the system becomes where it is exposed to materials (a renderer binds
-    /// a material's texture parameter to it: Voyager Unleashed's head flames take their colours from
-    /// the system's colour curve, not from their material's own ramp), by the parameter the system's
-    /// scripts know the curve by (System.X, Emitter.X, User.X). Its cooked texture is written to
-    /// <see cref="FigureRecipe.GeneratedDir"/>, named for its content; the generated texture's path,
-    /// or null where the variable names no such curve.
+    /// The texture a system curve becomes where it is exposed to materials (a renderer binds a material texture parameter to it; e.g.
+    /// Voyager Unleashed's head flames take their colours from the system's colour curve, not the material's ramp), by the parameter
+    /// the system's scripts know the curve by (System.X, Emitter.X, User.X). The cooked texture is written to
+    /// <see cref="FigureRecipe.GeneratedDir"/>, named for its content; returns its path, or null if the variable names no such curve.
     /// </summary>
     public static string? ExposedCurve(UObject system, string variable)
     {
@@ -343,7 +334,7 @@ public static class Effects
             return null;
         var data = global::CUE4Parse_Conversion.Textures.TextureEncoder.Encode(decoded,
             global::CUE4Parse_Conversion.Options.ETextureFormat.Png, true, out var ext);
-        // linear: the curve's own values (HDR where they go past 1)
+        // linear: the curve's own values (HDR where they exceed 1)
         var name = "Curve_" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(data))[..12] + "_Lin";
         var file = System.IO.Path.Combine(dir, name + "." + ext.Trim('.').ToLowerInvariant());
         if (!System.IO.File.Exists(file)) System.IO.File.WriteAllBytes(file, data);
@@ -351,9 +342,8 @@ public static class Effects
     }
 
     /// <summary>
-    /// A user parameter's own object (User.X: a texture, a material, a mesh) as the system's user
-    /// store holds it - what the effect has until the game sets another (Renzo's hair layers are
-    /// materials a mesh renderer takes from user parameters); null where it holds none.
+    /// A user parameter's object (User.X: texture, material, mesh) as the system's user store holds it, i.e. what the effect has
+    /// until the game sets another (Renzo's hair layers are materials a mesh renderer takes from user parameters); null if none.
     /// </summary>
     public static UObject? UserObject(UObject system, string variable)
     {
@@ -368,7 +358,7 @@ public static class Effects
         return at >= 0 && at < objects.Length ? objects[at].Load() : null;
     }
 
-    /// <summary>The user parameter a renderer's property binds (a MaterialUserParamBinding, an override's UserParamBinding), or null.</summary>
+    /// <summary>The user parameter a renderer's property binds (MaterialUserParamBinding, an override's UserParamBinding), or null.</summary>
     public static string? UserBinding(object? binding)
     {
         if (binding is null) return null;
@@ -382,9 +372,8 @@ public static class Effects
         ["ExperimentalContextData", "StatScopes", "CompileTags", "ShaderScriptParametersMetadata", "SimulationStageMetaData"];
 
     /// <summary>
-    /// What a replay of the system is made from: its package's exports (name, type, outer,
-    /// properties) in the package's order, which holds each CPU emitter's compiled scripts, their
-    /// parameters and curves. The plugin runs them (material_porter/niagara.py).
+    /// What a replay of the system is made from: its package's exports (name, type, outer, properties) in package order, which holds
+    /// each CPU emitter's compiled scripts, parameters and curves. The plugin runs them (material_porter/niagara.py).
     /// </summary>
     public static JArray Program(UObject system)
     {
@@ -400,8 +389,8 @@ public static class Effects
             if (export.ExportType == "NiagaraMeshRendererProperties" && MeshBounds(export) is { } bounds) props["MPBounds"] = bounds;
             exports.Add(new JObject { ["name"] = export.Name, ["type"] = export.ExportType, ["outer"] = export.Outer?.Name.Text, ["props"] = props });
         }
-        // the parameter collections its scripts read (the game's time of day, wind): each one's own
-        // values (its default instance's store). A script's cooked store only holds placeholders.
+        // the parameter collections its scripts read (time of day, wind): each one's values from its default instance's store
+        // (a script's cooked store only holds placeholders)
         var collections = new Dictionary<string, UObject>();
         foreach (var export in system.Owner!.GetExports())
             if (export.ExportType == "NiagaraScript")
@@ -423,8 +412,8 @@ public static class Effects
                 Serilog.Log.Warning("[Material Porter] {System}: the parameter collection {Collection} wasn't read ({Error})", system.Name, collection.Name, e.Message);
             }
         }
-        // the user-defined structs its data sets hold (a Fortnite module's bone data): how many
-        // floats and ints each is laid out as, which the asset itself doesn't say
+        // the user-defined structs its data sets hold (a Fortnite module's bone data): how many floats and ints each is laid out as,
+        // which the asset itself doesn't say
         var structs = new Dictionary<string, FPackageIndex>();
         foreach (var export in system.Owner!.GetExports())
             foreach (var p in export.Properties)
@@ -446,8 +435,8 @@ public static class Effects
     }
 
     /// <summary>
-    /// A mesh renderer's meshes' bounds, each with the renderer's scale of it (what a script's
-    /// GetMeshLocalBounds reads): min then max, six numbers a mesh.
+    /// A mesh renderer's mesh bounds, each with the renderer's scale (what a script's GetMeshLocalBounds reads): min then max, six
+    /// numbers a mesh.
     /// </summary>
     private static JArray? MeshBounds(UObject renderer)
     {
@@ -470,7 +459,7 @@ public static class Effects
         }
     }
 
-    /// <summary>The user-defined structs named by the type definitions (FNiagaraTypeDefinition.ClassStructOrEnum) under a value.</summary>
+    /// <summary>The user-defined structs named by type definitions (FNiagaraTypeDefinition.ClassStructOrEnum) under a value.</summary>
     private static void FindStructs(object? value, Dictionary<string, FPackageIndex> found, int depth)
     {
         if (depth > 12) return;
@@ -491,10 +480,10 @@ public static class Effects
                 FindStructs(inner, found, depth + 1);
                 break;
             case FScriptStruct { StructType: global::CUE4Parse.UE4.Objects.Niagara.FNiagaraVariableBase variable }:
-                FindStructs(variable.TypeDef, found, depth + 1);        // (a data set's variable: its name and type)
+                FindStructs(variable.TypeDef, found, depth + 1); // a data set's variable: name and type
                 break;
             case UScriptArray array:
-                // (arrays of numbers - bytecode, parameter data - hold no type definition)
+                // arrays of numbers (bytecode, parameter data) hold no type definition
                 if (array.InnerType is "StructProperty")
                     foreach (var item in array.Properties)
                         FindStructs(item.GenericValue, found, depth + 1);
@@ -502,7 +491,7 @@ public static class Effects
         }
     }
 
-    /// <summary>A struct as a Niagara data set lays it out: its fields' floats, then ints (a vector: three floats, as Niagara narrows it).</summary>
+    /// <summary>A struct as a Niagara data set lays it out: its fields' floats, then ints (a vector is three floats, as Niagara narrows it).</summary>
     private static (int Floats, int Ints) Components(UStruct type, int depth)
     {
         int floats = 0, ints = 0;
@@ -538,8 +527,8 @@ public static class Effects
     }
 
     /// <summary>
-    /// The vector fields the system's scripts sample (a vector field data interface's Field), by
-    /// package: its grid size, bounds and vectors (four half floats a cell, as the asset keeps them).
+    /// The vector fields the system's scripts sample (a vector field data interface's Field), by package: grid size, bounds and
+    /// vectors (four half floats a cell, as the asset keeps them).
     /// </summary>
     public static JObject Fields(UObject system)
     {

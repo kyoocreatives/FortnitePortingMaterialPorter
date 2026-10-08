@@ -14,12 +14,7 @@ using CUE4Parse.UE4.Objects.UObject;
 
 namespace FortnitePorting.Exporting.MaterialPorter;
 
-/// <summary>
-/// Material Porter fork: which assets take a wrap. A wrap shows through a material's customization
-/// mask ("CustomizationMask (_CM)": where the wrap goes, and its accent areas), so an asset takes
-/// wraps when one of its materials sets that mask: weapons and the vehicles the game wraps do, a
-/// potion or the battle bus don't.
-/// </summary>
+/// <summary>Which assets take a wrap: those with a material that sets the customization mask (weapons and wrapped vehicles).</summary>
 public static class Wraps
 {
     public const string Mask = "CustomizationMask (_CM)";
@@ -39,7 +34,7 @@ public static class Wraps
         _ => []
     };
 
-    /// <summary>Whether a weapon item or a vehicle takes wraps: a material of its meshes, or one its actor class puts on them, has the mask.</summary>
+    /// <summary>Whether a weapon item or vehicle takes wraps: one of its materials, or one its actor class applies, has the mask.</summary>
     public static bool Supports(IFileProvider provider, UObject item, EExportType type)
     {
         try
@@ -56,7 +51,7 @@ public static class Wraps
                             materials.AddRange(MaterialsOf(mesh));
                 }
             }
-            // the actor class's mesh components: their meshes' materials, and the ones they override
+            // the actor class's mesh components: their meshes' materials and overrides
             if (item.TryGetValue(out UBlueprintGeneratedClass actor, type is EExportType.Vehicle ? "VehicleActorClass" : "WeaponActorClass")
                 && actor.Owner is { } package)
             {

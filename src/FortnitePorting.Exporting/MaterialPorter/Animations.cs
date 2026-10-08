@@ -12,17 +12,14 @@ using CUE4Parse.UE4.Objects.UObject;
 namespace FortnitePorting.Exporting.MaterialPorter;
 
 /// <summary>
-/// Material Porter fork: the Animations tab. The cooked asset registry lists few of the game's
-/// animations (2,248 sequences, mostly islands'), so they are found by path (an animation folder, an
-/// anim or montage in the name: 210,000 candidates of 2 million packages), each checked and outlined
-/// from its package's export and import maps without being read: its class, its skeleton, what it
-/// is for (<see cref="Kinds"/>, the tab's filters).
+/// The Animations tab. The asset registry lists few animations, so candidates are found by path (an animation folder, "anim" or
+/// "montage" in the name: 210,000 of 2 million packages) and outlined from their import/export maps without being read.
 /// </summary>
 public static partial class Animations
 {
     public static readonly string[] Classes = ["AnimSequence", "AnimMontage"];
 
-    /// <summary>What an animation is for, from its path and skeleton, the first that matches: the tab's filters.</summary>
+    /// <summary>What an animation is for, from its path and skeleton, first match wins: the tab's filters.</summary>
     public static readonly (string Kind, Regex Match)[] Kinds =
     [
         ("Gliders", new Regex("glider", RegexOptions.IgnoreCase)),
@@ -42,7 +39,7 @@ public static partial class Animations
 
     public sealed record Outline(string Package, string? Class, string? Skeleton, string Kind) : Unloaded.IOutline
     {
-        /// <summary>The item it belongs to, where one is found (<see cref="Assign"/>).</summary>
+        /// <summary>The item it belongs to, if found (<see cref="Assign"/>).</summary>
         public Owner? Owner { get; set; }
 
         public string Folder => Package[..Math.Max(0, Package.LastIndexOf('/'))];
@@ -52,17 +49,15 @@ public static partial class Animations
     }
 
     /// <summary>
-    /// An item animations belong to (a glider, a back bling, a pickaxe, an emote): its name and icon.
-    /// An animation is its item's when it moves the skeleton of the item's mesh (a skeleton only that
-    /// item's), or sits in the folder of the item's own animations (an emote's montage, a glider's
-    /// rider animations beside the glider's).
+    /// An item animations belong to (glider, back bling, pickaxe, emote). An animation is the item's when it moves the skeleton of the
+    /// item's mesh (a skeleton only that item uses) or sits in the folder of the item's own animations.
     /// </summary>
     public sealed record Owner(string Name, string? Icon);
 
-    // skeleton name -> its items, folder -> its items
+    // skeleton name -> items, folder -> items
     private static readonly ConcurrentDictionary<string, ConcurrentDictionary<Owner, byte>> _bySkeleton = new(StringComparer.OrdinalIgnoreCase);
     private static readonly ConcurrentDictionary<string, ConcurrentDictionary<Owner, byte>> _byFolder = new(StringComparer.OrdinalIgnoreCase);
-    private const int SharedMost = 3;       // a skeleton or folder of more items than this is no item's (the pickaxes' shared melee skeleton)
+    private const int SharedMost = 3; // more items than this on a skeleton or folder: it is no item's (pickaxes share a melee skeleton)
 
     public static void ClearOwners()
     {
@@ -74,7 +69,7 @@ public static partial class Animations
 
     public static void OwnFolder(string folder, Owner owner) => _byFolder.GetOrAdd(folder, _ => new ConcurrentDictionary<Owner, byte>())[owner] = 0;
 
-    /// <summary>The item a skeleton or folder is of: one, or a few that share it (their names together, the first's icon).</summary>
+    /// <summary>The item a skeleton or folder belongs to: one, or a few that share it (names joined, first icon).</summary>
     private static Owner? Of(ConcurrentDictionary<string, ConcurrentDictionary<Owner, byte>> map, string? key)
     {
         if (key is null || !map.TryGetValue(key, out var owners) || owners.IsEmpty || owners.Count > SharedMost) return null;
@@ -85,9 +80,8 @@ public static partial class Animations
     private static string Up(string folder) => folder[..Math.Max(0, folder.LastIndexOf('/'))];
 
     /// <summary>
-    /// Each animation's item: by its skeleton, else by its folder (or the folder above); then the
-    /// animations beside or under one found so (a glider's rider's, under the glider's own) take its
-    /// item too.
+    /// Each animation's item: by skeleton, else by folder (or the folder above); then animations beside or under one found that way
+    /// take its item too.
     /// </summary>
     public static void Assign(IReadOnlyList<Unloaded.IOutline> outlines)
     {
@@ -107,15 +101,12 @@ public static partial class Animations
                 if (beside.TryGetValue(folder, out var owner))
                 {
                     o.Owner = owner;
-                    break;         // (one shared by several items above stays none)
+                    break; // one shared by several items stays none
                 }
         }
     }
 
-    /// <summary>
-    /// An animation's name in the tab: its own (underscores as spaces: what a tile shows, under its
-    /// item's icon), then its item's, where it has one (what the search finds it by).
-    /// </summary>
+    /// <summary>An animation's name in the tab: its own (underscores as spaces), then its item's for search.</summary>
     public static string DisplayName(UObject animation)
     {
         var outline = Unloaded.Detail(animation) as Outline;
@@ -126,9 +117,8 @@ public static partial class Animations
     private static readonly string[] Prefixes = ["AM_", "AS_", "A_", "Anim_", "Emote_"];
 
     /// <summary>
-    /// An animation's name without what its folders already say (a tile shows a dozen letters):
-    /// "Maverick_Closed_GLIDER" in .../ParaGlide/Maverick is "Closed_GLIDER", "Emote_Prance_CLF" in
-    /// .../Emotes/Prance "CLF". The whole name stays the object's, which the search also finds.
+    /// An animation's name without what its folders already say: "Maverick_Closed_GLIDER" in .../ParaGlide/Maverick is "Closed_GLIDER".
+    /// The whole name stays the object's, which search also finds.
     /// </summary>
     private static string Short(string name, string folder)
     {
@@ -150,7 +140,7 @@ public static partial class Animations
 
     public static bool Owned(UObject animation) => (Unloaded.Detail(animation) as Outline)?.Owner is not null;
 
-    /// <summary>The packages that may be animations, by path: (package path as the game mounts it, object name).</summary>
+    /// <summary>The packages that may be animations, by path: (package path as mounted, object name).</summary>
     public static List<(string Package, string Name)> Candidates(IFileProvider provider, IEnumerable<(string Package, string Name)> registry)
     {
         var found = new Dictionary<string, (string, string)>(StringComparer.OrdinalIgnoreCase);
@@ -165,11 +155,11 @@ public static partial class Animations
         return found.Values.ToList();
     }
 
-    // the outlines of an earlier listing of the same files (reading 130,000 packages' maps takes over a minute)
+    // outlines from an earlier listing of the same files (reading 130,000 package maps takes over a minute)
     private static ConcurrentDictionary<string, Outline> _known = new(StringComparer.OrdinalIgnoreCase);
     private static string? _knownFile, _knownKey;
 
-    /// <summary>The outlines kept in the file from a listing of the same files (key: what says they are the same).</summary>
+    /// <summary>Outlines saved from a listing of the same files (key: what says they are the same).</summary>
     public static void Recall(string file, string key)
     {
         _knownFile = file;
@@ -193,7 +183,7 @@ public static partial class Animations
         }
     }
 
-    /// <summary>Keeps this listing's outlines for the next.</summary>
+    /// <summary>Keeps this listing's outlines for the next one.</summary>
     public static void Remember()
     {
         if (_knownFile is null || _knownKey is null) return;
@@ -207,11 +197,11 @@ public static partial class Animations
         catch (Exception e)
         {
             Serilog.Log.Warning("[Material Porter] animation listing cache not saved: {Error}", e.Message);
-            // (only the next listing is slower)
+            // only the next listing is slower
         }
     }
 
-    /// <summary>An animation's outline from its package's maps: its class, its skeleton (the import of that class), what it is for.</summary>
+    /// <summary>An animation's outline from its package's maps: class, skeleton (the import of that class), what it is for.</summary>
     public static async Task<Outline?> ReadOutline(IFileProvider provider, string package, string name)
     {
         if (_known.TryGetValue(package, out var known)) return known;
@@ -241,7 +231,7 @@ public static partial class Animations
         }
     }
 
-    /// <summary>The skeleton a package's mesh or animation imports (its package's import map: nothing is read).</summary>
+    /// <summary>The skeleton a package's mesh or animation imports, read from its import map.</summary>
     public static async Task<string?> SkeletonOf(IFileProvider provider, string package)
     {
         try
@@ -254,12 +244,12 @@ public static partial class Animations
         catch (Exception e)
         {
             Failures.Note("animation skeletons", package, e);
-            // (none found)
+            // none found
         }
         return null;
     }
 
-    /// <summary>What an animation is for, from its path and its skeleton's name.</summary>
+    /// <summary>What an animation is for, from its path and skeleton name.</summary>
     public static string KindOf(string package, string? skeleton)
     {
         var about = $"{package} {skeleton}";

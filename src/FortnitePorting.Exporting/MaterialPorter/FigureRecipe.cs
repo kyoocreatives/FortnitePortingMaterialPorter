@@ -11,27 +11,20 @@ using Newtonsoft.Json.Linq;
 namespace FortnitePorting.Exporting.MaterialPorter;
 
 /// <summary>
-/// A LEGO figure that exists only as a recipe: its CustomizableObjectInstance
-/// ("COI_Figure_X_Dataless") on the shared Mutable object CO_Figure_Recipe_Dataless.
-/// That program builds only the body's geometry; the game dresses it from the
-/// recipe's values, and so is it done here:
-///  - the body: the program's standard body mesh (a streamed constant, its stomach panel merged in), with
-///    MI_Figure_DecoratedPlastic_RecipeCOv2 (or the variant a "Body Material Type"
-///    names), its "Tex Color D" a 32x32 grid of the body's layout blocks (layout 11 of
-///    the program), each block the LUT colour of its part's "&lt;part&gt; Color" id
-///    (T_LUT_Default, 512 x 1: pixel N is colour id N), its "Tex Color M" the same grid of
-///    the blocks' surfaces (metal, glow, see-through), deco and normal from the recipe;
-///  - the head: the recipe's head mesh with its "Head Material", its base colour grid
-///    ("Tex Color-D") the LUT colour of the face material's "Color Head ID", its character
-///    accents placed as the face rig places them (the schema's accent registrations);
-///  - each accessory or replacement part ("&lt;X&gt; SKM"): its mesh with the recipe
-///    material, a 2x2 colour grid ("LU/RU/LL/RL Color &lt;X&gt;": the quadrants
-///    top left, top right, bottom left, bottom right), its surfaces' grid and its deco, mask and normal.
-/// A hand or leg replacement removes the body's own part (the program's remove masks).
-/// The skeleton body ("Body Selector" Skeleton) has its own layout (the program's layout 10,
-/// 7 blocks) that its mesh doesn't tie to parts (rigid on 5 bones, its UVs across the blocks);
-/// every skeleton recipe gives all its blocks the same values, which fill its whole grid.
-/// All parts are skinned to SK_Figure. Not done yet: cloth.
+/// A LEGO figure that exists only as a recipe: its CustomizableObjectInstance ("COI_Figure_X_Dataless") on the shared Mutable
+/// object CO_Figure_Recipe_Dataless. The program builds only the body geometry; the game dresses it from the recipe's values,
+/// and so does this:
+///  - body: the program's standard body mesh (a streamed constant, stomach panel merged in) with MI_Figure_DecoratedPlastic_RecipeCOv2
+///    (or the variant a "Body Material Type" names). "Tex Color D" is a 32x32 grid of the body's layout blocks (layout 11), each the
+///    LUT colour (T_LUT_Default, 512 x 1: pixel N is colour id N) of its part's "&lt;part&gt; Color" id; "Tex Color M" is the same
+///    grid of block surfaces (metal, glow, see-through); deco and normal come from the recipe.
+///  - head: the recipe's head mesh with its "Head Material"; base colour grid ("Tex Color-D") the LUT colour of the face material's
+///    "Color Head ID"; character accents placed as the face rig places them (the schema's accent registrations).
+///  - each accessory or replacement part ("&lt;X&gt; SKM"): its mesh with the recipe material, a 2x2 colour grid ("LU/RU/LL/RL Color
+///    &lt;X&gt;": top left, top right, bottom left, bottom right), its surface grid, and its deco, mask and normal.
+/// A hand or leg replacement removes the body's own part (the program's remove masks). The skeleton body ("Body Selector" Skeleton)
+/// has its own layout (layout 10, 7 blocks) that its mesh doesn't tie to parts (rigid on 5 bones, UVs across the blocks); every
+/// skeleton recipe gives all blocks the same values, which fill its whole grid. All parts are skinned to SK_Figure. Not done: cloth.
 /// </summary>
 public sealed class FigureRecipe
 {
@@ -45,14 +38,14 @@ public sealed class FigureRecipe
     const int StomachConstant = 37;
     /// <summary>The standard body's remove masks by replaced part (the program's constants 0..3).</summary>
     static readonly (string Part, int Constant)[] BodyMasks = [("Leg L", 0), ("Leg R", 1), ("Hand L", 2), ("Hand R", 3)];
-    /// <summary>Bumped when the bodies built here change: their shared files are named by it.</summary>
+    /// <summary>Bumped when the bodies built here change; their shared files are named by it.</summary>
     const int BodyRevision = 2;
 
     /// <summary>Generated textures' paths and folder (the app's MaterialService.GeneratedDir, which serves them).</summary>
     public const string GeneratedRoot = "/MaterialPorter/Generated/";
     public static string? GeneratedDir { get; set; }
 
-    /// <summary>The body's colour layout: each part's block on the 32x32 grid (layout 11 of the program, matched to the parts by their bones).</summary>
+    /// <summary>The body's colour layout: each part's block on the 32x32 grid (layout 11 of the program, matched to parts by bone).</summary>
     public static readonly (string Part, int X, int Y, int W, int H)[] BodyBlocks =
     [
         ("leg_lu", 20, 21, 12, 7), ("leg_ru", 20, 14, 12, 7), ("hand_l", 0, 18, 10, 4), ("torso", 20, 0, 12, 14),
@@ -181,11 +174,10 @@ public sealed class FigureRecipe
     }
 
     /// <summary>
-    /// A block's surface as the material reads "Tex Color M" (R metallic, G ink, B surface
-    /// type, A emissive): metallic its colour's (the LUT's alpha: 255 for the metallic colours,
-    /// as the bakes have it) unless its "Metal Enum" overrides it with its "Metal Value";
-    /// B its "Surface" (the see-through share in a transparent material) and A its "Glow".
-    /// A block's values are named "&lt;prefix&gt; Glow" (a body block) or "&lt;prefix&gt; Glow &lt;part&gt;" (a quadrant).
+    /// A block's surface as the material reads "Tex Color M" (R metallic, G ink, B surface type, A emissive): R is the colour's
+    /// metallic (the LUT's alpha: 255 for metallic colours) unless "Metal Enum" overrides it with "Metal Value"; B is "Surface"
+    /// (the see-through share in a transparent material); A is "Glow". Values are named "&lt;prefix&gt; Glow" (a body block) or
+    /// "&lt;prefix&gt; Glow &lt;part&gt;" (a quadrant).
     /// </summary>
     byte[] Surface(string prefix, string? part, double colour)
     {
@@ -208,8 +200,7 @@ public sealed class FigureRecipe
         await Shared(provider, CustomizableObject, bodyConstant);
         var parts = new List<Part>();
 
-        // the body: layout blocks in their parts' colours
-        // a hand or leg replacement takes the body's own part away
+        // the body: layout blocks in their parts' colours; a hand or leg replacement removes the body's own part
         var raw = _bodies[bodyConstant];
         var rawName = (bodyConstant == BodyConstant ? "FigureBody" : "FigureBodySkeleton") + "_r" + BodyRevision;
         if (bodyConstant == BodyConstant)
@@ -221,7 +212,7 @@ public sealed class FigureRecipe
                     rawName += "_No" + replaced.Replace(" ", "");
                 }
         var body = new Part { Name = "Body", Raw = raw, RawName = rawName, Material = MaterialFor(provider, Ints.GetValueOrDefault("Body Material Type")) };
-        // the skeleton body: its torso's values over the whole grid (its blocks all have the same)
+        // the skeleton body: its torso's values over the whole grid (all its blocks have the same)
         var layout = bodyConstant == BodyConstant ? BodyBlocks : [("torso", 0, 0, 32, 32)];
         body.Textures["Tex Color D"] = Grid("FigureBody", layout.Select(b => (b.X, b.Y, b.W, b.H, Colour(Floats.GetValueOrDefault(b.Part + " Color", 1)))));
         // the recipe's "Body Color M" is a placeholder the game fills, as it fills "Body Color D"
@@ -234,8 +225,8 @@ public sealed class FigureRecipe
         if (Floats.TryGetValue("Body Element Emissive Mult", out var eem)) body.Scalars["Element Emissive Mult"] = eem;
         parts.Add(body);
 
-        // the head: its face material, its base colour (a grid the game fills) the head's colour id:
-        // the face material's "Color Head ID", else the recipe's "Head Standard Color" (ColorID_24_...)
+        // the head: its face material's "Color Head ID" gives the base colour id (a grid the game fills), else the recipe's
+        // "Head Standard Color" (ColorID_24_...)
         if (Meshes.TryGetValue("Head SKM", out var head))
         {
             var face = Materials.GetValueOrDefault("Head Material");
@@ -243,8 +234,8 @@ public sealed class FigureRecipe
             var id = (face is null ? null : await ScalarAsync(provider, face, "Color Head ID"))
                      ?? (Ints.GetValueOrDefault("Head Standard Color") is { } std && std.Split('_') is { Length: > 1 } bits && int.TryParse(bits[1], out var n) ? n : 24);
             headPart.Textures["Tex Color-D"] = Grid("FigureHead", [(0, 0, 32, 32, Colour(id))]);
-            // an expression picked (the face rig's poses), and the character accents (a mustache, a
-            // beard) where the face rig places them for its mouth pose
+            // an expression picked (the face rig's poses), and the character accents (mustache, beard) where the face rig
+            // places them for its mouth pose
             foreach (var (k, v) in FaceScalars(FacePoses)) headPart.Scalars[k] = v;
             if (face is not null)
                 foreach (var (k, v) in await AccentScalarsAsync(provider, SchemaPath ?? ConventionSchema(), face, FacePoses.TryGetValue("Mouth", out var mouth) ? mouth : null))
@@ -254,8 +245,8 @@ public sealed class FigureRecipe
             parts.Add(headPart);
         }
 
-        // accessories and replacement parts, each where its mode switch has it (Extend: the recipe's
-        // material and colours; Override: its own override material)
+        // accessories and replacement parts, each where its mode switch has it (Extend: the recipe's material and colours;
+        // Override: its own override material)
         foreach (var (param, mesh) in Meshes)
         {
             if (!param.EndsWith(" SKM", StringComparison.OrdinalIgnoreCase) || param.Equals("Head SKM", StringComparison.OrdinalIgnoreCase)) continue;
@@ -299,25 +290,18 @@ public sealed class FigureRecipe
         }
         catch
         {
-            // a material that doesn't load: the fallback
+            // a material that doesn't load: use the fallback
         }
         return null;
     }
 
-    /// <summary>
-    /// The figure's AssembledMeshSchema (its data assets for the face rig): set by the caller,
-    /// else the convention /FigureCosmetics/AMS/AMS_&lt;figure folder&gt;.
-    /// </summary>
+    /// <summary>The figure's AssembledMeshSchema (its data assets for the face rig): set by the caller, else /FigureCosmetics/AMS/AMS_&lt;figure folder&gt;.</summary>
     public string? SchemaPath { get; set; }
 
     string? ConventionSchema() => Instance.Split('/').FirstOrDefault(x => x.StartsWith("Figure_", StringComparison.OrdinalIgnoreCase)) is { } folder
         ? $"/FigureCosmetics/AMS/AMS_{folder}.AMS_{folder}" : null;
 
-    /// <summary>
-    /// An expression: the face rig's pose of each feature ("Mouth", "Eyes", "Brows"), over the
-    /// face material's own. The rig's poses are its atlases' cells (DA_Figure_Face_Settings:
-    /// 46 mouths, 6 eyes, 12 brows).
-    /// </summary>
+    /// <summary>An expression: the face rig's pose of each feature ("Mouth", "Eyes", "Brows"), over the face material's own. Poses are atlas cells (DA_Figure_Face_Settings: 46 mouths, 6 eyes, 12 brows).</summary>
     public Dictionary<string, int> FacePoses { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The face material's pose parameters for an expression's picks.</summary>
@@ -342,13 +326,11 @@ public sealed class FigureRecipe
     const double RigToFaceUv = 0.0413;
 
     /// <summary>
-    /// What the face rig does with a figure's character accents: the schema's CharacterAcc data
-    /// names each accent's registration ("beard_bean", "beard" or None), its BeardRegistration
-    /// data gives that registration's transform and pose for each mouth pose. The accent sits at
-    /// the mouth plus the transform's x/z in face UV (V = MouthV + z * 0.0413 matches the baked
-    /// figures: -0.118 for a mustache's 1.993, -0.191 for a goatee's 0.215), unscaled.
-    /// The mouth pose is the face material's, or the one given (an expression picked).
-    /// Also for a cooked figure's face, whose baked values hold its own mouth pose's.
+    /// What the face rig does with a figure's character accents: the schema's CharacterAcc data names each accent's registration
+    /// ("beard_bean", "beard" or None), its BeardRegistration data gives that registration's transform and pose per mouth pose.
+    /// The accent sits at the mouth plus the transform's x/z in face UV (V = MouthV + z * 0.0413 matches the baked figures:
+    /// -0.118 for a mustache's 1.993, -0.191 for a goatee's 0.215), unscaled. The mouth pose is the face material's, or the one
+    /// given (a picked expression). Also used for a cooked figure's face, whose baked values hold its own mouth pose's.
     /// </summary>
     public static async Task<Dictionary<string, double>> AccentScalarsAsync(IFileProvider provider, string? schema, string face, int? mouthPose = null)
     {
@@ -369,9 +351,8 @@ public sealed class FigureRecipe
     }
 
     /// <summary>
-    /// The face rig's character-accent placement for every mouth pose, for a face animated later
-    /// (an emote's mouth curves move the accents with the mouth): JSON
-    /// {"k": rig units to face UV, "accents": {"1": [[x, z, accent pose] for each mouth pose], ...}},
+    /// The face rig's character-accent placement for every mouth pose, for a face animated later (an emote's mouth curves move the
+    /// accents with the mouth): JSON {"k": rig units to face UV, "accents": {"1": [[x, z, accent pose] per mouth pose], ...}},
     /// the accent at the mouth's U/V + (x, z) * k; null when the figure has no registered accent.
     /// </summary>
     public static async Task<string?> AccentRigAsync(IFileProvider provider, string? schema)
@@ -459,9 +440,8 @@ public sealed class FigureRecipe
     }
 
     /// <summary>
-    /// A 32x32 colour grid of blocks (x, y, w, h in pixels), written as a PNG 8 times
-    /// the size (the game samples it unfiltered: the blocks stay sharp when Blender
-    /// filters it). Returns its generated texture path (named _Lin when it holds data, not colour).
+    /// A 32x32 colour grid of blocks (x, y, w, h in pixels), written as a PNG 8 times the size (the game samples it unfiltered, so
+    /// blocks stay sharp when Blender filters it). Returns its generated texture path (named _Lin when it holds data, not colour).
     /// </summary>
     static string Grid(string kind, IEnumerable<(int X, int Y, int W, int H, byte[] Rgba)> blocks, bool linear = false)
     {

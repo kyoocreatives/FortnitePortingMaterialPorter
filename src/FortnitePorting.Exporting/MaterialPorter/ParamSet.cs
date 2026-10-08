@@ -21,7 +21,7 @@ public sealed class ParamSet
     public Dictionary<string, double> Scalars { get; set; } = new();
     public Dictionary<string, double[]> Vectors { get; set; } = new();
     public Dictionary<string, string> Textures { get; set; } = new();
-    /// <summary>Static switches (a weapon wrap's: the customization effects it turns on).</summary>
+    /// <summary>Static switches (a weapon wrap's customization effects).</summary>
     public Dictionary<string, bool> Switches { get; set; } = new();
     /// <summary>The option that set them, for the built material's name.</summary>
     public string Label { get; set; }
@@ -44,7 +44,7 @@ public sealed class ParamSet
         var s = string.Join(";", Scalars.OrderBy(k => k.Key).Select(k => k.Key + "=" + k.Value.ToString("R", CultureInfo.InvariantCulture)))
               + "|" + string.Join(";", Vectors.OrderBy(k => k.Key).Select(k => k.Key + "=" + string.Join(",", k.Value.Select(x => x.ToString("R", CultureInfo.InvariantCulture)))))
               + "|" + string.Join(";", Textures.OrderBy(k => k.Key).Select(k => k.Key + "=" + k.Value));
-        // (only when there are some: the keys of sets without switches stay what they were)
+        // only when present, so keys of sets without switches are unchanged
         if (Switches.Count > 0) s += "|" + string.Join(";", Switches.OrderBy(k => k.Key).Select(k => k.Key + "=" + (k.Value ? "1" : "0")));
         return Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(s)))[..8].ToLowerInvariant();
     }

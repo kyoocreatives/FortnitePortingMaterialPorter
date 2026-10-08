@@ -12,11 +12,8 @@ using Serilog;
 namespace FortnitePorting.Exporting.MaterialPorter;
 
 /// <summary>
-/// Material Porter fork: a build downloaded from its manifest reads each file's chunks from Epic's CDN as the
-/// export reaches it, one after the other. When an export starts, its packages - the roots and what they import,
-/// level by level (a map's cells, their meshes and blueprints, materials, textures), from the container headers
-/// already in memory - are read beside it, several at a time, with their bulk data: the export then finds their
-/// chunks cached.
+/// For a build downloaded from its manifest, reads the export's packages (roots plus their imports, with bulk data)
+/// from the CDN in parallel ahead of the export, so it finds their chunks cached.
 /// </summary>
 public static class Prefetch
 {
@@ -32,7 +29,7 @@ public static class Prefetch
     /// <summary>Starts fetching (the last export's fetch stops): the packages named, and what they import.</summary>
     public static void Start(AbstractVfsFileProvider provider, IEnumerable<string> packageNames)
     {
-        if (!Enabled || Environment.GetEnvironmentVariable("MATERIAL_PORTER_PREFETCH") == "0") return;     // (0: off, for timing)
+        if (!Enabled || Environment.GetEnvironmentVariable("MATERIAL_PORTER_PREFETCH") == "0") return; // 0: off, for timing
 
         var cancel = new CancellationTokenSource();
         Interlocked.Exchange(ref _running, cancel)?.Cancel();
@@ -45,7 +42,7 @@ public static class Prefetch
         var watch = Stopwatch.StartNew();
         try
         {
-            // the packages in the order the export needs them: the roots, then each level of their imports
+            // roots first, then each level of their imports
             var seen = new HashSet<FPackageId>();
             var order = new List<GameFile>();
             var level = roots.Select(FPackageId.FromName).Where(seen.Add).ToList();
@@ -74,7 +71,7 @@ public static class Prefetch
                     }
                     catch (Exception e) when (e is not OperationCanceledException)
                     {
-                        // (the export reads it again and says what's wrong)
+                        // the export reads it again and reports the error
                     }
                 });
             Log.Information("[Material Porter] prefetched {Fetched} files ({Packages} packages) in {Seconds:0.0} s",
@@ -90,7 +87,7 @@ public static class Prefetch
         }
     }
 
-    // a package's bulk data (mesh LODs, texture mips) sits in files of its own
+    // bulk data (mesh LODs, texture mips) is in separate files
     private static IEnumerable<GameFile> Bulk(AbstractVfsFileProvider provider, GameFile package)
     {
         var path = package.PathWithoutExtension;

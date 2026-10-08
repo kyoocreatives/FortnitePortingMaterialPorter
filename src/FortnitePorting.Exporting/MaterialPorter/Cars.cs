@@ -46,22 +46,22 @@ public sealed class CarPlan
     /// <summary>Body material index -> a decal's material.</summary>
     public Dictionary<int, string> BodyOverrides { get; } = [];
     public string? WheelMesh { get; set; }
-    /// <summary>The body when its tier names no skeletal mesh (a newer car's): the mesh Mutable builds it of.</summary>
+    /// <summary>The body when its tier names no skeletal mesh (newer cars): the mesh Mutable builds it from.</summary>
     public BuiltCarMesh? BuiltBody { get; set; }
-    /// <summary>The wheel when its item names no mesh: the mesh Mutable builds it of.</summary>
+    /// <summary>The wheel when its item names no mesh: the mesh Mutable builds it from.</summary>
     public BuiltCarMesh? BuiltWheel { get; set; }
     /// <summary>What Mutable couldn't follow while building a part (a surface's material, an error).</summary>
     public List<string> BuildNotes { get; } = [];
-    /// <summary>Each wheel's place in the body's space (UE, row vectors) and its label.</summary>
+    /// <summary>Each wheel's place in body space (UE, row vectors) and its label.</summary>
     public List<(string Label, Matrix4x4 Transform)> Wheels { get; } = [];
-    /// <summary>A material (by its asset name) -> the values Mutable gives it on this car.</summary>
+    /// <summary>Material (asset name) -> the values Mutable gives it on this car.</summary>
     public Dictionary<string, ParamSet> Params { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
-/// <summary>A car part Mutable builds: its surfaces' constant meshes as one mesh on a skeleton, a slot per surface.</summary>
+/// <summary>A car part Mutable builds: its surfaces' constant meshes as one skinned mesh, one slot per surface.</summary>
 public sealed class BuiltCarMesh
 {
-    /// <summary>The part's name, with a hash of what it's built of (the same parts, the same file).</summary>
+    /// <summary>The part's name plus a hash of what it's built from (same parts, same file).</summary>
     public string Name { get; init; } = "";
     public RawSkinnedMesh Mesh { get; init; } = new();
     public string Skeleton { get; init; } = "";
@@ -70,16 +70,10 @@ public sealed class BuiltCarMesh
 }
 
 /// <summary>
-/// Rocket Racing cars (FortVehicleCosmeticsItemDefinition_Body), as Material
-/// Porter assembles them: the tier (VCID_Body*) names the skeletal mesh,
-/// default material and wheels; a decal (CarSkin_*) swaps the body material
-/// for its own; wheels sit on the body's wheel sockets through the wheel's
-/// per-corner offset, turn and mirror; the colours come from the car's
-/// Mutable program (CO_VehicleCosmeticsRoot) run with the car's values. A
-/// newer car's tier (or wheel) names no mesh: the program builds it, of its
-/// constant meshes (BuiltCarMesh).
-/// A port of Material Porter's Vehicles.cs to the fork (its catalog and
-/// style types replaced by CarItem/CarChannel/CarPlan).
+/// Rocket Racing cars (FortVehicleCosmeticsItemDefinition_Body). The tier (VCID_Body*) names the skeletal mesh, default material
+/// and wheels; a decal (CarSkin_*) swaps the body material; wheels sit on the body's wheel sockets with a per-corner offset, turn
+/// and mirror; colours come from the car's Mutable program (CO_VehicleCosmeticsRoot). Newer cars name no mesh: the program
+/// builds it from constant meshes (BuiltCarMesh).
 /// </summary>
 public sealed class Cars(IFileProvider provider)
 {
@@ -92,7 +86,7 @@ public sealed class Cars(IFileProvider provider)
                                                        || t.Equals("Blank", StringComparison.OrdinalIgnoreCase)
                                                        || t.Equals("TBD", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>An item's title: its name, else its asset's (CarBody_UmbraGenesis -> Umbra Genesis, CarSkin_UmbraGenesis01 -> Umbra Genesis 01).</summary>
+    /// <summary>An item's title: its name, else its asset's (CarSkin_UmbraGenesis01 -> Umbra Genesis 01).</summary>
     public static string ItemTitle(string? itemName, string assetName)
     {
         if (!IsPlaceholder(itemName)) return itemName!.Trim();
@@ -101,24 +95,24 @@ public sealed class Cars(IFileProvider provider)
         return Regex.Replace(name, " +", " ").Trim();
     }
 
-    /// <summary>The registry's decal and wheel items (the app sets it once the game is mounted).</summary>
+    /// <summary>The registry's decal and wheel items (set by the app once the game is mounted).</summary>
     public static Func<Task<(List<CarItem> Skins, List<CarItem> Wheels)>>? Items;
 
-    /// <summary>The skeleton a wheel Mutable builds is on (every wheel's bones are the base wheel's).</summary>
+    /// <summary>The skeleton of Mutable-built wheels (every wheel's bones are the base wheel's).</summary>
     public const string WheelSkeleton = "/VehicleCosmetics/Wheels/SK_Wheel_Base_Skeleton.SK_Wheel_Base_Skeleton";
 
     private static readonly JsonSerializerSettings Ser = new() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore };
     private readonly Dictionary<string, Task<MutableProgram>> _programs = new(StringComparer.OrdinalIgnoreCase);
-    // a program's mesh data (its streamed files, read as needed): kept for the app's run
+    // a program's mesh data (streamed files, read as needed), kept for the app's run
     private static readonly Dictionary<(IFileProvider, string), Task<MutableMeshes>> _meshData = new();
 
     private sealed record Tier(string Name, string? Icon, string Vcid, List<string> Tags);
-    /// <summary>A decal; Locked*: the body and decal colours it fixes (no colour choice, as the game has it).</summary>
+    /// <summary>A decal; Locked*: the body and decal colours it fixes (no colour choice, as in the game).</summary>
     private sealed record Decal(string Name, string? Icon, string Tier, string Material, JObject? Color, string? Vcid,
                                 double[]? LockedBody, double[]? LockedSkin);
     private sealed record Painted(string Name, string? Icon, string Row);
 
-    // ------------------------------------------------------------ JSON helpers (Material Porter's)
+    // ------------------------------------------------------------ JSON helpers
     private static string? RefPath(JToken? r)
     {
         if (r is not JObject o) return null;
@@ -166,12 +160,12 @@ public sealed class Cars(IFileProvider provider)
 
     private static string Hex(double[] rgba)
     {
-        // linear -> sRGB, for the swatch shown
+        // linear -> sRGB, for the swatch
         static int S(double v) => (int)Math.Round(255 * Math.Clamp(v <= 0.0031308 ? v * 12.92 : 1.055 * Math.Pow(v, 1 / 2.4) - 0.055, 0, 1));
         return $"{S(rgba[0]):X2}{S(rgba[1]):X2}{S(rgba[2]):X2}";
     }
 
-    /// <summary>A colour picker for a Mutable colour: "Default" (its start) then the baked swatches.</summary>
+    /// <summary>A colour picker for a Mutable colour: "Default" (its start), then the baked swatches.</summary>
     private static CarChannel ColorChannel(string name, JObject? variant)
     {
         var ch = new CarChannel { Name = name };
@@ -199,7 +193,7 @@ public sealed class Cars(IFileProvider provider)
         var list = new List<Painted>();
         foreach (var o in variant?["GenericPropertyOptions"] ?? new JArray())
         {
-            // an option naming no row is the unpainted one (a body's "None" without its table row)
+            // an option naming no row is the unpainted one (a body's "None" has no table row)
             var row = (o["CosmeticProperties"] ?? new JArray()).Select(cp => (string?)cp["TableRow"]?["RowName"]).FirstOrDefault(r => r != null) ?? "None";
             if ((bool?)o["bIsDefault"] == true) dflt = list.Count;
             list.Add(new Painted(Text(o["VariantName"]) ?? row, RefPath(o["PreviewImage"]), row));
@@ -228,10 +222,9 @@ public sealed class Cars(IFileProvider provider)
     }
 
     /// <summary>
-    /// A component's surfaces (a body's, a wheel's) as one mesh on a skeleton, a slot per surface
-    /// name and material (a material parameter the values don't set: `unset`); null if it has none.
-    /// A surface on a constant already built is a second pass over it (a toon car's outline, an
-    /// overlay material): left out, as FortnitePorting leaves overlay materials out.
+    /// A component's surfaces (a body's, a wheel's) as one mesh on a skeleton, one slot per surface name and material
+    /// (a material parameter the values don't set: `unset`); null if none. A surface on an already built constant is a second
+    /// pass over it (toon outline, overlay material) and is left out, as FortnitePorting does.
     /// </summary>
     private async Task<BuiltCarMesh?> BuildAsync(MutableMeshes data, List<MutableProgram.MeshSurface> surfaces, string component,
                                                  string? skeletonPath, string name, string? unset)
@@ -242,7 +235,7 @@ public sealed class Cars(IFileProvider provider)
         var bones = skeleton.ReferenceSkeleton.FinalRefBoneInfo.Select(b => b.Name.Text).ToList();
         var slots = new List<(string Name, string Path)>();
         var parts = new List<(RawSkinnedMesh Mesh, int Slot)>();
-        lock (data)       // its files are read in place
+        lock (data) // its files are read in place
         {
             foreach (var s in mine)
             {
@@ -266,7 +259,7 @@ public sealed class Cars(IFileProvider provider)
         return built;
     }
 
-    /// <summary>A surface's values Mutable gives its material, kept for that material (the first surface's win).</summary>
+    /// <summary>A surface's values from Mutable, kept for its material (the first surface's win).</summary>
     private static void AddValues(CarPlan plan, string target, MutableProgram.Surface s, string label)
     {
         if (s.Vectors.Count + s.Scalars.Count == 0) return;
@@ -291,13 +284,13 @@ public sealed class Cars(IFileProvider provider)
         };
     }
 
-    /// <summary>An item definition's Mutable settings into the program's values (a name tried with the component's prefix).</summary>
+    /// <summary>An item definition's Mutable settings as program values (a name is tried with the component's prefix).</summary>
     private static void Put(MutableProgram mp, Dictionary<string, object> vals, JObject def, string prefix)
     {
         string? N(string? n) => n == null ? null : mp.Has(n) ? n : mp.Has(prefix + n) ? prefix + n : null;
         foreach (var g in new[] { def["BodyGroup"], def["WheelGroup"] })
             if (N((string?)g?["ParameterName"]) is { } gn && mp.EnumValue(gn, (string?)g!["ParameterValue"]) is { } gv) vals[gn] = gv;
-        // a newer item's group ("Dataless": its meshes are the item's own) names no parameter: the component's
+        // a newer item's group ("Dataless": its meshes are the item's own) names no parameter, so the component's is used
         if (def["CustomizableObjectGroup"] is { } cg && N((string?)cg["ParameterName"] ?? prefix.TrimEnd('_') + "COType") is { } cn
             && mp.EnumValue(cn, (string?)cg["ParameterValue"]) is { } cv) vals[cn] = cv;
         foreach (var a in def["AdditionalParametersInfos"] ?? new JArray())
@@ -319,8 +312,8 @@ public sealed class Cars(IFileProvider provider)
     }
 
     /// <summary>
-    /// An item definition's values for the painted row picked (AdditionalVariantInfos, by the row's
-    /// property tag): the Patty Wagon's unpainted row has its burger keep its own textures.
+    /// An item definition's values for the picked painted row (AdditionalVariantInfos, by the row's property tag); e.g. the Patty
+    /// Wagon's unpainted row keeps the burger's own textures.
     /// </summary>
     private static void PutVariant(MutableProgram mp, Dictionary<string, object> vals, JObject def, string prefix, string? paintedRow)
     {
@@ -345,10 +338,8 @@ public sealed class Cars(IFileProvider provider)
 
     // ------------------------------------------------------------ the car
     /// <summary>
-    /// A body item's channels (Tier, Body Color, Painted, Decal, Decal Color,
-    /// Wheels) and what the picks give (channel index -> option index; a
-    /// channel not picked takes its default). skins and wheels are the
-    /// registry's decal and wheel items.
+    /// A body item's channels (Tier, Body Color, Painted, Decal, Decal Color, Wheels) and what the picks give (channel index ->
+    /// option index; an unpicked channel takes its default). skins and wheels are the registry's decal and wheel items.
     /// </summary>
     public async Task<CarPlan> PlanAsync(string bodyPackage, string bodyName, IReadOnlyList<CarItem> skins, IReadOnlyList<CarItem> wheels,
                                          IReadOnlyDictionary<int, int>? picks = null)
@@ -381,9 +372,8 @@ public sealed class Cars(IFileProvider provider)
             tiers.Add(new Tier("Default", null, only, []));
         if (tiers.Count == 0) return plan;
 
-        // decals: CarSkin_* under /Skins/<Body>/ (in it, a tier's folder, or a folder of their own): a
-        // tier's folder's for that tier, the others for the tier they require by body item or by its
-        // tag (a single-tier body's when they name another body's neither)
+        // decals: CarSkin_* under /Skins/<Body>/ (in it, a tier's folder, or their own folder). A tier folder's decals go to that tier;
+        // the others to the tier they require by body item or tag (a single-tier body's when they name another body's)
         var decals = new List<Decal>();
         var bodyFolder = bodyPackage.Split('/').Reverse().Skip(1).FirstOrDefault();
         var bodySkins = $"/VehicleCosmetics/Mutable/Skins/{bodyFolder}/";
@@ -423,7 +413,7 @@ public sealed class Cars(IFileProvider provider)
         }
         var wheelItems = wheels.OrderBy(a => a.Title, StringComparer.OrdinalIgnoreCase).ToList();
 
-        // ---- channels, in a fixed order (the picks are by index into it)
+        // ---- channels, in a fixed order (picks are indexes into it)
         var tierCh = new CarChannel { Name = "Tier", Default = tierDefault };
         tierCh.Options.AddRange(tiers.Select(t => new CarOption { Name = t.Name, Icon = t.Icon }));
         plan.Channels.Add(tierCh);
@@ -457,7 +447,7 @@ public sealed class Cars(IFileProvider provider)
         var dp = Pick(decalCh, 0);
         var decal = dp > 0 && dp <= decals.Count ? decals[dp - 1] : null;
         var tierPick = Math.Clamp(Pick(tierCh, tierDefault), 0, tiers.Count - 1);
-        if (decal != null) tierPick = Math.Max(0, tiers.FindIndex(t => t.Vcid == decal.Tier));    // a decal fits its own tier's mesh
+        if (decal != null) tierPick = Math.Max(0, tiers.FindIndex(t => t.Vcid == decal.Tier)); // a decal fits its own tier's mesh
         var tier = tiers[tierPick];
         var vc = await PropsAsync(tier.Vcid);
         if (tierPick != tierDefault) plan.Styles.Add("Tier: " + tier.Name);
@@ -473,7 +463,7 @@ public sealed class Cars(IFileProvider provider)
         if (paintedCh != null)
         {
             var k = Math.Clamp(Pick(paintedCh, paintedDefault), 0, defaultPainted.Count - 1);
-            paintedRow = defaultPainted[k].Row;      // the row names match across tiers
+            paintedRow = defaultPainted[k].Row; // row names match across tiers
             if (k != paintedDefault) plan.Styles.Add("Painted: " + defaultPainted[k].Name);
         }
 
@@ -488,8 +478,8 @@ public sealed class Cars(IFileProvider provider)
             }
         }
 
-        // ---- the body, its material (the tier's, or the decal's); a tier naming no skeletal mesh
-        // is one Mutable builds (below)
+        // ---- the body and its material (the tier's, or the decal's); a tier with no skeletal mesh
+        // is built by Mutable (below)
         var mesh = RefPath(vc["SkeletalMeshInfo"]?["ParameterValue"]);
         plan.BodyMesh = mesh;
         var bodySlots = mesh == null ? [] : await SlotsAsync(mesh);
@@ -519,7 +509,7 @@ public sealed class Cars(IFileProvider provider)
         var wv = wheelVcid == null ? null : await PropsAsync(wheelVcid);
         var wheelMesh = wv == null ? null : RefPath(wv["WheelSkeletalMeshInfo"]?["ParameterValue"]) ?? RefPath(wv["WheelStaticMeshInfo"]?["ParameterValue"]);
         plan.WheelMesh = wheelMesh;
-        if (wv != null)     // a wheel naming no mesh is one Mutable builds (below)
+        if (wv != null) // a wheel with no mesh is built by Mutable (below)
         {
             var setups = (wv["WheelSetupInfos"] ?? new JArray()).ToDictionary(s => (string?)s["WheelLocation"] ?? "", s => s, StringComparer.OrdinalIgnoreCase);
             var sockets = await SocketsAsync(mesh, RefPath(vc["WheelAttachSkeletonReference"]));
@@ -548,7 +538,7 @@ public sealed class Cars(IFileProvider provider)
         if (coPath == null) return plan;
         MutableProgram mp;
         try { mp = await ProgramAsync(coPath); }
-        catch (Exception e) { Serilog.Log.Warning("[Material Porter] {Car}: Mutable program {Program} unreadable: {Error}", bodyName, coPath, e.Message); return plan; }      // no program: the materials keep their own values
+        catch (Exception e) { Serilog.Log.Warning("[Material Porter] {Car}: Mutable program {Program} unreadable: {Error}", bodyName, coPath, e.Message); return plan; } // no program: materials keep their own values
         var vals = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
         Put(mp, vals, vc, "Body_");
         if (wv != null) Put(mp, vals, wv, "Wheel_");
@@ -562,14 +552,14 @@ public sealed class Cars(IFileProvider provider)
             if ((string?)wv["PaintedDataTableParameterName"] is { } wheelParam && mp.EnumValue(wheelParam, wheelRow) is { } wpv) vals[wheelParam] = wpv;
             PutVariant(mp, vals, wv, "Wheel_", wheelRow);
         }
-        // the windows outside a mode (a mode's query picks its own)
+        // windows outside a mode (a mode's query picks its own)
         if ((vc["WindowQueryInfos"] ?? new JArray()).FirstOrDefault(w => !(w["VehicleTagQuery"]?["TagDictionary"] ?? new JArray()).Any())?["WindowInfo"] is { } window
             && (string?)window["WindowDataTableParameterName"] is { } windowParam && mp.EnumValue(windowParam, (string?)window["WindowRow"]?["RowName"]) is { } wnv)
             vals[windowParam] = wnv;
         if (decal?.Vcid != null)
         {
             var sp = await PropsAsync(decal.Vcid);
-            Put(mp, vals, sp, "Body_");     // the decal's own values (a body's skin switch: its trim, chassis and interior materials)
+            Put(mp, vals, sp, "Body_"); // the decal's own values (a body's skin switch: trim, chassis, interior materials)
             PutVariant(mp, vals, sp, "Body_", paintedRow);
             if ((string?)vc["SkinDataTableParameterName"] is { } skinTable && mp.EnumValue(skinTable, (string?)sp["SkinRowName"]) is { } sv)
                 vals[skinTable] = sv;
@@ -577,8 +567,8 @@ public sealed class Cars(IFileProvider provider)
         if (bodyMaterial != null && mp.Has("BodyMaterial")) vals["BodyMaterial"] = bodyMaterial;
         var label = string.Join(", ", plan.Styles.Select(x => x.Split(": ").Last()));
 
-        // ---- a body or wheel naming no mesh: the component (the item's ComponentIndex) Mutable builds
-        // of its surfaces' constant meshes, on the tier's skeleton (a wheel on the base wheel's)
+        // ---- a body or wheel with no mesh: the component (the item's ComponentIndex) Mutable builds
+        // from its surfaces' constant meshes, on the tier's skeleton (a wheel on the base wheel's)
         if (mesh == null || wv != null && wheelMesh == null)
         {
             try
@@ -617,8 +607,8 @@ public sealed class Cars(IFileProvider provider)
                 if (wi >= 0) target = wheelSlots[wi].Material;
             }
             if (target == null) continue;
-            // the surface's material must be the one the mesh has there (its own slot, the body
-            // material, or the same asset): another (a mode's glass) isn't this car's
+            // the surface's material must be the mesh's there (its own slot, the body material or the same asset);
+            // another (a mode's glass) isn't this car's
             if (s.Slot == null && !Same(s.Asset, target)) continue;
             AddValues(plan, target, s, label);
         }
@@ -626,8 +616,8 @@ public sealed class Cars(IFileProvider provider)
     }
 
     /// <summary>
-    /// A mesh's sockets (its own, else its skeleton's) in the mesh's space, UE units, row-vector
-    /// matrices; with no mesh (one Mutable builds), the skeleton's on its reference pose.
+    /// A mesh's sockets (its own, else its skeleton's) in mesh space, UE units, row-vector matrices; with no mesh (Mutable-built),
+    /// the skeleton's on its reference pose.
     /// </summary>
     private async Task<Dictionary<string, Matrix4x4>> SocketsAsync(string? meshPath, string? skeletonPath)
     {

@@ -14,13 +14,9 @@ using FortnitePorting.Exporting.Models;
 namespace FortnitePorting.Exporting.Context;
 
 /// <summary>
-/// Material Porter fork: Neon City's billboards (Asteria_NeonCity_SignFrame_E and its CP_ props). The
-/// blueprint builds them in its construction script - a screen stretched between TopLeft and
-/// BottomRight, a frame of corner and edge instances around it, struts behind - which FP doesn't run:
-/// they came out as an empty component. This is that script, ported (UserConstructionScript:
-/// InitializeVectorParams, AddInstances_Corner, AddInstances_Edges, ValidateSignPlaneTransform,
-/// AddStruts, ValidateMaterial_Override/_TwoSided, SetupMaterialParamsOnSignMesh). The fake glow
-/// card shows on Switch only, and is left out.
+/// Neon City billboards (Asteria_NeonCity_SignFrame_E and its CP_ props). The blueprint builds them in its
+/// construction script (screen between TopLeft and BottomRight, corner and edge frame instances, struts),
+/// which FP doesn't run. This ports that script (UserConstructionScript). The fake glow card is Switch-only and omitted.
 /// </summary>
 public partial class ExportContext
 {
@@ -36,7 +32,7 @@ public partial class ExportContext
         var root = chain.FirstOrDefault(c => c.Name == SignFrameClass);
         if (root is null) return null;
 
-        // the class's values: the nearest class's default (a CP_ prop sets its size and ad)
+        // values come from the nearest class default (a CP_ prop sets its size and ad)
         var defaults = chain.Select(c => c.ClassDefaultObject.TryLoad(out var cdo) ? cdo : null).OfType<UObject>().ToList();
         T Value<T>(string name, T fallback)
         {
@@ -48,7 +44,7 @@ public partial class ExportContext
         var templates = SignFrameTemplates(root);
         var topLeft = Value("TopLeft", FVector.ZeroVector);
         var bottomRight = Value("BottomRight", new FVector(512, 0, -512));
-        // InitializeVectorParams: the corners on the sign's plane (Y 0)
+        // InitializeVectorParams: corners on the sign plane (Y 0)
         var tl = new FVector(topLeft.X, 0, topLeft.Z);
         var br = new FVector(bottomRight.X, 0, bottomRight.Z);
         var width = br.X - tl.X;
@@ -66,7 +62,7 @@ public partial class ExportContext
             objects.Add(corners);
         }
 
-        // AddInstances_Edges: the 512-unit edge stretched between the corners (128 each)
+        // AddInstances_Edges: the 512-unit edge stretched between corners (128 each)
         if (Instanced(templates, "Frame_B_Long_HISM") is { } edges)
         {
             var side = (float) ((height - 256) / 512);
@@ -78,9 +74,9 @@ public partial class ExportContext
             objects.Add(edges);
         }
 
-        // ValidateSignPlaneTransform: the screen in the frame's middle, 23 units in (its X mirrored);
-        // ValidateMaterial_*, SetupMaterialParamsOnSignMesh: the ad in slot 0 (and slot 1 when two-sided,
-        // else the dummy back), the Lumen values on both, PIxelCellSize as custom primitive data 0
+        // ValidateSignPlaneTransform: screen centered in the frame, 23 units in (X mirrored).
+        // ValidateMaterial_*, SetupMaterialParamsOnSignMesh: ad in slot 0 (and slot 1 if two-sided, else the dummy back),
+        // Lumen values on both, PIxelCellSize as custom primitive data 0.
         if (templates.TryGetValue("MainSignBox", out var boxTemplate) && boxTemplate is UStaticMeshComponent boxComponent
             && MeshComponent(boxComponent) is { } box && width != 0 && height != 0)
         {
@@ -126,7 +122,7 @@ public partial class ExportContext
         return objects;
     }
 
-    /// <summary>The sign frame class's own component templates, by variable name (its SCS).</summary>
+    /// <summary>The class's own component templates by variable name (SCS).</summary>
     static Dictionary<string, UObject> SignFrameTemplates(UBlueprintGeneratedClass root)
     {
         var templates = new Dictionary<string, UObject>();
@@ -140,7 +136,7 @@ public partial class ExportContext
         return templates;
     }
 
-    /// <summary>An instanced frame part's mesh, its instances to add.</summary>
+    /// <summary>An instanced frame part's mesh; the caller adds instances.</summary>
     ExportMesh? Instanced(Dictionary<string, UObject> templates, string name)
     {
         if (!templates.TryGetValue(name, out var template) || template is not UStaticMeshComponent component) return null;

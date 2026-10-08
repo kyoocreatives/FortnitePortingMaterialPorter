@@ -7,18 +7,14 @@ using Newtonsoft.Json.Linq;
 namespace FortnitePorting.Exporting.MaterialPorter;
 
 /// <summary>
-/// A cooked Mutable program (a CustomizableObject's Model.Program), run far
-/// enough to say what each surface's material gets: the instance tree walked
-/// under a set of parameter values, each surface's material op resolved, its
-/// colour and scalar parameters evaluated; and which constant meshes a
-/// component is built of (MeshSurfaces; MutableMeshes decodes them). Images
-/// aren't built (textures stay the materials' own).
+/// A cooked Mutable program (a CustomizableObject's Model.Program), run far enough to say what each surface's material gets: the
+/// instance tree walked under a set of parameter values, each surface's material op resolved, its colour and scalar parameters
+/// evaluated; and which constant meshes a component is built of (MeshSurfaces; MutableMeshes decodes them). Images aren't built
+/// (textures stay the materials' own).
 ///
-/// The format, as read off Rocket Racing's CO_VehicleCosmeticsRoot (CUE4Parse
-/// keeps the bytecode but not the op table): a reference is
-/// (data type &lt;&lt; 24) | byte offset; an op is its type byte, then its
-/// arguments. A switch is (variable, default, count, (value, ref)*); a
-/// conditional (bool, yes, no).
+/// The format, as read off Rocket Racing's CO_VehicleCosmeticsRoot (CUE4Parse keeps the bytecode but not the op table): a reference
+/// is (data type &lt;&lt; 24) | byte offset; an op is its type byte, then its arguments. A switch is (variable, default, count,
+/// (value, ref)*); a conditional (bool, yes, no).
 ///   bool   3 int == const   4 and   5 or   6 not
 ///   int    8 parameter
 ///   scalar 11 constant   12 parameter   13 conditional   14 switch
@@ -124,9 +120,8 @@ public sealed class MutableProgram
     static int Off(uint r) => (int)(r & 0xFFFFFF);
 
     /// <summary>
-    /// Every surface the instance gets under these values: int (enum index),
-    /// double[4] (colour), double (scalar) or string (material path), by name;
-    /// unset parameters take their defaults.
+    /// Every surface the instance gets under these values: int (enum index), double[4] (colour), double (scalar) or string
+    /// (material path), by name; unset parameters take their defaults.
     /// </summary>
     public List<Surface> Evaluate(IReadOnlyDictionary<string, object> values)
     {
@@ -137,21 +132,18 @@ public sealed class MutableProgram
     }
 
     /// <summary>
-    /// A surface of a component's mesh: the constant mesh it's built from, its name
-    /// (the slot it fills) and its material (null if the program's op isn't one this reads).
+    /// A surface of a component's mesh: the constant mesh it's built from, its name (the slot it fills) and its material (null if the
+    /// program's op isn't one this reads).
     /// </summary>
     public sealed record MeshSurface(string Component, int Constant, string Name, Surface Material);
 
     /// <summary>
-    /// The surfaces each component the instance gets under these values is built of, at a
-    /// LOD (0 the most detailed). A component's mesh (119) leads, through conditionals (103),
-    /// switches (104), merges (107) and 115, to a surfaces op (105): the ids of four constant
-    /// lists, its surfaces' materials, names and ids, and a ref per LOD to an op (102) naming
-    /// the list of that LOD's surface meshes. A surface mesh is a constant mesh (70: constant,
-    /// skeleton, physics) under conditionals (73), switches (74), 94 (_, mesh) and 95 (mesh,
-    /// surface id); the id picks its material and name. Components are named as the model's
-    /// resources have them (ComponentNamesPerObjectComponent, by the add op's id). What this
-    /// can't follow goes to `problems`.
+    /// The surfaces each component the instance gets under these values is built of, at a LOD (0 the most detailed). A component's
+    /// mesh (119) leads, through conditionals (103), switches (104), merges (107) and 115, to a surfaces op (105): the ids of four
+    /// constant lists (surfaces' materials, names and ids) and a ref per LOD to an op (102) naming the list of that LOD's surface
+    /// meshes. A surface mesh is a constant mesh (70: constant, skeleton, physics) under conditionals (73), switches (74), 94 (_, mesh)
+    /// and 95 (mesh, surface id); the id picks its material and name. Components are named as the model's resources have them
+    /// (ComponentNamesPerObjectComponent, by the add op's id). What this can't follow goes to `problems`.
     /// </summary>
     public List<MeshSurface> MeshSurfaces(IReadOnlyDictionary<string, object> values, int lod = 0, List<string> problems = null)
     {
@@ -324,7 +316,7 @@ public sealed class MutableProgram
                         var vr = p.U(q + 5);
                         q += 9;
                         var dt = vr >> 24;
-                        if (dt == 0x14) { q += 4; continue; }     // an image (its layout index follows): the material's own
+                        if (dt == 0x14) { q += 4; continue; } // an image (its layout index follows): the material's own
                         if (name == null) continue;
                         try
                         {
@@ -356,7 +348,7 @@ public sealed class MutableProgram
                     component = outer;
                     return;
                 }
-                case 119: Components.Add((o, component)); return;       // a component's mesh
+                case 119: Components.Add((o, component)); return; // a component's mesh
                 case 121:
                 case 122:
                 {

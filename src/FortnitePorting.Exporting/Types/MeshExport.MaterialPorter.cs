@@ -14,10 +14,10 @@ using FortnitePorting.Shared.Extensions;
 
 namespace FortnitePorting.Exporting.Types;
 
-// Material Porter fork: the fork's export types and what its asset pages pick.
+// The fork's export types and what its asset pages pick.
 public partial class MeshExport
 {
-    // a level's decals and particle systems (world exports only; left out of the JSON otherwise)
+    // a level's decals and particle systems (world exports only; omitted from the JSON otherwise)
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public List<ExportDecal>? Decals;
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
@@ -26,10 +26,10 @@ public partial class MeshExport
     [Newtonsoft.Json.JsonIgnore] public Dictionary<int, int> CarPicks = [];
     [Newtonsoft.Json.JsonIgnore] public Dictionary<string, int> FacePicks = [];
 
-    // the owner's private overlay exports (FortnitePorting.Exporting.csproj imports it when it's there)
+    // private overlay exports, imported by FortnitePorting.Exporting.csproj when present
     partial void ExportOwner(UObject asset, EExportType exportType);
 
-    // the wrap, effects and weapon mods picked on the asset's page; a downloaded build's files fetched alongside
+    // wrap, effects and weapon mods picked on the asset page; also prefetches a downloaded build's files
     private void ReadPagePicks(UObject asset, ExportStyleBase[] styles)
     {
         Context.StartPrefetch(asset);
@@ -39,8 +39,7 @@ public partial class MeshExport
             .GroupBy(s => s.Slot).ToDictionary(g => g.Key, g => g.Last().Path!);
     }
 
-    // a car's channel picks, a LEGO figure's expression; and what the picked styles do to the item's effects,
-    // known before its parts' effects are exported
+    // car channel picks, LEGO figure expression, and picked styles' effect changes (needed before part effects are exported)
     private void ReadStylePicks(ExportStyleBase[] styles)
     {
         CarPicks = styles.OfType<MaterialPorter.ExportCarStyle>().ToDictionary(s => s.Channel, s => s.Option);
@@ -48,7 +47,7 @@ public partial class MeshExport
         foreach (var style in styles.OfType<ExportStructStyle>()) Context.AddEffectStyle(style.StyleData);
     }
 
-    // the picked wrap over every mesh of the export
+    // applies the picked wrap to every mesh of the export
     private void ApplyWrapPick()
     {
         if (Context.WrapPick is not { Length: > 0 } path) return;
@@ -63,8 +62,8 @@ public partial class MeshExport
         }
     }
 
-    // A prop whose parts sit off its pivot (a billboard's screen and frame) goes under an empty at the item's
-    // transform: added to each part, the transform would move their offsets without turning or scaling them.
+    // A prop whose parts sit off its pivot (e.g. a billboard) goes under an empty at the item's transform;
+    // applying it to each part would move their offsets without rotating or scaling them.
     private static bool GroupOffPivot(FStructFallback prop, FTransform transform, ref List<ExportObject> objects)
     {
         if (!objects.Any(o => o.Location != FVector.ZeroVector || o.Rotation.Pitch != 0 || o.Rotation.Yaw != 0 || o.Rotation.Roll != 0))
@@ -82,7 +81,7 @@ public partial class MeshExport
         return true;
     }
 
-    // the level's point, spot and rect lights, decals and particle systems
+    // the level's lights, decals and particle systems
     private void AddLevelExtras()
     {
         Lights.AddRange(Context.MaterialPorterLights);
@@ -90,7 +89,7 @@ public partial class MeshExport
         Effects = [.. Context.MaterialPorterEffects];
     }
 
-    // a sprite's second material slot (a fire sprite's flames) and its effects
+    // a sprite's second material slot and its effects
     private void AddSpriteExtras(UObject asset, ExportMesh? exportMesh)
     {
         if (asset.GetDataListItem<UMaterialInterface>("MaterialSlot2") is { } second)
@@ -98,7 +97,7 @@ public partial class MeshExport
         if (Context.EffectsPick && exportMesh is not null) Context.SpriteEffects(asset, exportMesh);
     }
 
-    // the fork's own export types; false for the others
+    // the fork's own export types; false for others
     private bool ExportForkType(UObject asset, EExportType exportType)
     {
         switch (exportType)
@@ -108,7 +107,7 @@ public partial class MeshExport
                 Type = EExportType.Vehicle;     // the plugins import it as a vehicle
                 return true;
             case EExportType.Effect:
-                // (an effect the tab lists unread is read now)
+                // an effect the tab lists unread is read now
                 Meshes.Add(Context.Effect(MaterialPorter.Unloaded.Read(asset, Context.Meta.Provider.Provider)));
                 return true;
             case EExportType.TimeOfDay:
@@ -119,7 +118,7 @@ public partial class MeshExport
                 if (asset.GetOrDefault<FSoftObjectPath>(MaterialPorter.Effects.ContrailEffect).TryLoad(out UObject? contrail))
                 {
                     var effect = Context.Effect(contrail);
-                    // as the locker shows it, attached to the armature selected in Blender
+                    // as the locker shows it, attached to the selected armature in Blender
                     if (effect is MaterialPorter.MaterialPorterMesh { MPEffect: { } node })
                     {
                         node["User"] = new Dictionary<string, object> { ["User.bIsFrontEnd"] = true, ["User.bIsFrontEndPreview"] = true };
@@ -134,7 +133,7 @@ public partial class MeshExport
                 Meshes.AddRange(Context.MaterialPorterCreature(asset));
                 return true;
             case EExportType.LegoProp:
-                // a building prop or set: the actor its item previews; a cave room: its level
+                // building prop or set: the actor its item previews; cave room: its level
                 if (MaterialPorter.Figures.PropActor(asset) is { } actorClass)
                 {
                     AddObjects(Context.Blueprint(actorClass));
@@ -147,7 +146,7 @@ public partial class MeshExport
                 }
                 return true;
             case EExportType.LegoOutfit:
-                // cooked (its Bake folder's meshes) or built from its recipe
+                // cooked (Bake folder meshes) or built from its recipe
                 Meshes.AddRange(Context.MaterialPorterFigure(asset, FacePicks));
                 return true;
             default:

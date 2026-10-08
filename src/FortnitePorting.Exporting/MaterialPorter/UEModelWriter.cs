@@ -9,22 +9,16 @@ using global::CUE4Parse_Conversion.Options;
 namespace FortnitePorting.Exporting.MaterialPorter;
 
 /// <summary>
-/// Writes a mesh as a UEFormat model, version 9 - the version the installed
-/// io_scene_ueformat (FortnitePorting's importer) reads. CUE4Parse's own
-/// writer has moved on to version 10, a different layout that importer
-/// rejects; this follows the importer's reader field for field
-/// (importer/classes.py, UEModel.from_archive), so armatures come out
-/// exactly as an FP import makes them.
-///
-/// Values are written in UE space (cm, UE's axes): from version 8
-/// (PreserveOriginalTransforms) the reader scales and mirrors them itself.
+/// Writes a mesh as a UEFormat model, version 9, the version the installed io_scene_ueformat (FortnitePorting's importer) reads.
+/// CUE4Parse's writer has moved on to version 10, a different layout that importer rejects; this follows the importer's reader
+/// field for field (importer/classes.py, UEModel.from_archive), so armatures come out exactly as an FP import makes them.
+/// Values are written in UE space (cm, UE's axes): from version 8 (PreserveOriginalTransforms) the reader scales and mirrors them.
 /// Only LOD 0 is written; the importer builds one LOD.
 /// </summary>
 public static class UEModelWriter
 {
     const byte Version = 9;
-    /// <summary>Bumped when what this writer puts in a file changes (cached exports are named by it). 2: a
-    /// Mutable-built mesh's 8-bit vertex colours read as B G R A (MutableMeshes.ColorIsBgra).</summary>
+    /// <summary>Bumped when what this writer puts in a file changes (cached exports are named by it). 2: Mutable-built meshes' 8-bit vertex colours read as B G R A (MutableMeshes.ColorIsBgra).</summary>
     public const int Revision = 2;
 
     sealed class Out
@@ -114,10 +108,7 @@ public static class UEModelWriter
         });
     }
 
-    /// <summary>
-    /// A skinned mesh from arrays (a Mutable mesh, which has no USkeletalMesh), on a
-    /// skeleton's bones; each section's material slot named (name, material path).
-    /// </summary>
+    /// <summary>A skinned mesh from arrays (a Mutable mesh, which has no USkeletalMesh) on a skeleton's bones; each section's material slot named (name, material path).</summary>
     public static void Write(string file, string objectName, RawSkinnedMesh mesh, USkeleton skeleton, IList<(string Name, string Path)> slots)
     {
         Save(file, objectName, o =>
@@ -219,10 +210,7 @@ public static class UEModelWriter
         Save(file, objectName, o => Lods<MeshVertex>(o, dto.LODs, dto.Materials, null));
     }
 
-    /// <summary>
-    /// A landscape's mesh (LandscapeMeshDto): its vertices scaled by the proxy's
-    /// scale, its weight layers renamed (asset name -> layer name).
-    /// </summary>
+    /// <summary>A landscape's mesh (LandscapeMeshDto): vertices scaled by the proxy's scale, weight layers renamed (asset name -> layer name).</summary>
     public static void Write(string file, string objectName, StaticMeshDto dto, System.Numerics.Vector3 scale, Func<string, string> colorName)
     {
         Save(file, objectName, o => Lods<MeshVertex>(o, dto.LODs, dto.Materials, null, scale, colorName));

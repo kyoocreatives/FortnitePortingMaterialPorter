@@ -24,15 +24,12 @@ using Serilog;
 namespace FortnitePorting.Exporting.Context;
 
 /// <summary>
-/// Material Porter fork: a level read by Material Porter's map reader. Each
-/// actor's components come from the level's own exports over their class's
-/// templates: attachments, overrides, dynamic material instances, texture
-/// data (textures and tints), custom primitive and per-instance data,
-/// level instances, spline meshes (bent in Blender), water bodies; HLODs,
-/// devices, hidden actors, ziplines and meshes drawn only into the terrain's
-/// virtual texture are left out. Landscapes and FP's HLOD export still go
-/// through FP's own actor export. A Rocket Racing track whose level didn't
-/// save its road pieces gets them laid along its spline (DelMarTracks).
+/// Material Porter's map reader. An actor's components come from the level's own exports over the class
+/// templates (attachments, overrides, dynamic material instances, texture data, custom primitive and
+/// per-instance data, level instances, spline meshes, water bodies). HLODs, devices, hidden actors,
+/// ziplines and meshes drawn only into the terrain's virtual texture are left out. Landscapes and FP's
+/// HLOD export still use FP's actor export. Rocket Racing tracks without saved road pieces get them
+/// laid along the spline (DelMarTracks).
 /// </summary>
 public partial class ExportContext
 {
@@ -41,13 +38,13 @@ public partial class ExportContext
 
     private readonly Dictionary<string, ExportMesh?> _mpMeshes = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The point, spot and rect lights the levels read so far: a world export puts them in its Lights (MeshExport).</summary>
+    /// <summary>Lights read so far; a world export puts them in its Lights (MeshExport).</summary>
     public readonly List<ExportLight> MaterialPorterLights = [];
 
-    /// <summary>The decals the levels read so far: a world export puts them in its Decals (MeshExport).</summary>
+    /// <summary>Decals read so far; a world export puts them in its Decals (MeshExport).</summary>
     public readonly List<ExportDecal> MaterialPorterDecals = [];
 
-    /// <summary>The particle systems the levels read so far: a world export puts them in its Effects (MeshExport).</summary>
+    /// <summary>Particle systems read so far; a world export puts them in its Effects (MeshExport).</summary>
     public readonly List<ExportEffect> MaterialPorterEffects = [];
 
     public List<ExportMesh>? MaterialPorterLevel(ULevel level)
@@ -55,8 +52,8 @@ public partial class ExportContext
         if (level.Owner?.Name is not { } package) return null;
 
         var meshes = new List<ExportMesh>();
-        // the Map page's Actors, Lights, Decals and Effects toggles: the level is read when any is on, and each
-        // kind is converted (and so exported) only when its own flag is
+        // Map page toggles (Actors, Lights, Decals, Effects): the level is read when any is on,
+        // each kind is exported only when its own flag is
         var actors = Meta.WorldFlags.HasFlag(EWorldFlags.Actors);
         var withLights = Meta.WorldFlags.HasFlag(EWorldFlags.Lights);
         var withDecals = Meta.WorldFlags.HasFlag(EWorldFlags.Decals);
@@ -70,7 +67,7 @@ public partial class ExportContext
             };
             var scan = new MapScan { Name = package, Key = package };
             var reader = new MapReader(new MapGame { Provider = FileProvider }, options, scan);
-            // a UEFN island's cells aren't in its runtime hash (FP never visits them): read them with it
+            // UEFN island cells aren't in the runtime hash (FP never visits them); read them too
             var levels = new List<string> { package };
             levels.AddRange(IslandCells(level, package));
             try
@@ -86,7 +83,7 @@ public partial class ExportContext
                 return meshes;
             }
 
-            // Rocket Racing tracks: the road pieces of the tracks whose level didn't save them (DelMarTracks)
+            // Rocket Racing tracks whose level didn't save their road pieces (DelMarTracks)
             var tracks = new List<MapMesh>();
             foreach (var read in levels)
             {
@@ -95,7 +92,7 @@ public partial class ExportContext
             }
             if (actors && DelMarTracks.TestTrack is { } test)
             {
-                // (once: a world's streamed levels come through here too)
+                // once: a world's streamed levels come through here too
                 DelMarTracks.TestTrack = null;
                 if (LoadMaterialPorterObject(test.Actor) is { } testActor) tracks.AddRange(DelMarTracks.Lay(FileProvider, testActor, package, test.Points));
             }
@@ -139,7 +136,7 @@ public partial class ExportContext
                 string.Join(", ", scan.Skipped.Select(kv => $"{kv.Value} {kv.Key}")));
         }
 
-        // the terrain and FP's HLODs, as FP exports them
+        // terrain and HLODs go through FP's own export
         foreach (var actorLazy in level.Actors)
         {
             if (CancellationToken.IsCancellationRequested) break;
@@ -150,7 +147,7 @@ public partial class ExportContext
             if (MaterialPorterActorFilter is { } only && !actor.Name.Contains(only, StringComparison.OrdinalIgnoreCase)) continue;
             if (actor is ALandscapeProxy proxy)
             {
-                // FP names a weight layer after its LayerInfo asset; the exact materials ask by LayerName
+                // FP names a weight layer after its LayerInfo asset; exact materials ask by LayerName
                 var names = LandscapeLayerNames(proxy);
                 foreach (var landscape in Actor(actor, loadTemplate: false).Where(x => x is not null))
                 {
@@ -172,10 +169,7 @@ public partial class ExportContext
         return meshes;
     }
 
-    /// <summary>
-    /// The _Generated_ cell levels beside a World Partition map whose runtime hash
-    /// lists none (UEFN islands); none for a cell, a classic map, or a map FP walks.
-    /// </summary>
+    /// <summary>The _Generated_ cell levels beside a World Partition map whose runtime hash lists none (UEFN islands).</summary>
     private List<string> IslandCells(ULevel level, string package)
     {
         if (package.Contains("/_Generated_/", StringComparison.OrdinalIgnoreCase)) return [];
@@ -203,7 +197,7 @@ public partial class ExportContext
         return cells;
     }
 
-    /// <summary>A landscape's weight layers: LayerInfo asset name -> the LayerName materials sample.</summary>
+    /// <summary>A landscape's weight layers: LayerInfo asset name -> LayerName that materials sample.</summary>
     private static Dictionary<string, string> LandscapeLayerNames(ALandscapeProxy proxy)
     {
         var names = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -219,24 +213,21 @@ public partial class ExportContext
                 if (asset is null || names.ContainsKey(asset)) continue;
                 try
                 {
-                    // the property, read as tagged (this CUE4Parse's LayerName field stays None)
+                    // read the tagged property; this CUE4Parse's LayerName field stays None
                     var layer = allocation.LayerInfo.Load()?.GetOrDefault<FName>("LayerName") ?? default;
                     if (!layer.IsNone && !string.IsNullOrEmpty(layer.Text)) names[asset] = layer.Text;
                 }
                 catch (Exception e)
                 {
                     MaterialPorter.Failures.Note("landscape layer infos", asset, e);
-                    // an unreadable layer info keeps FP's name
+                    // unreadable layer info keeps FP's name
                 }
             }
         }
         return names;
     }
 
-    /// <summary>
-    /// One light as FP's light record: where it stands (as the meshes are), its colour (as FP reads a light's: LightColor
-    /// as linear), and the values the engine read, in the units it read them in (the plugin converts).
-    /// </summary>
+    /// <summary>One light as FP's light record: transform like the meshes, LightColor as linear, other values in engine units (the plugin converts).</summary>
     private static ExportLight Light(MapLight l)
     {
         ExportLight export = l.Kind switch
@@ -264,7 +255,7 @@ public partial class ExportContext
         return export;
     }
 
-    /// <summary>A light's units from the name of UE's ELightUnits value (as the map reader names them); unset is candelas.</summary>
+    /// <summary>Light units from the name of UE's ELightUnits value; unset is candelas.</summary>
     private static string MaterialPorterLightUnits(string? name) =>
         name is null ? "Candelas"
         : name.Contains("Lumens", StringComparison.Ordinal) ? "Lumens"
@@ -273,11 +264,7 @@ public partial class ExportContext
         : name.Contains("Nits", StringComparison.Ordinal) ? "Nits"
         : "Candelas";
 
-    /// <summary>
-    /// One decal as the world export's record: the component's world transform (as the meshes'), the projection box, and its
-    /// material as a mesh slot's entry (Material over the asset, a dynamic instance's values as MPValues: SlotMaterial, as Placement
-    /// gives each slot). Null when the material can't be exported.
-    /// </summary>
+    /// <summary>One decal as the world export's record: world transform, projection box and material (via SlotMaterial, as Placement does). Null when the material can't be exported.</summary>
     private ExportDecal? Decal(MapDecal d)
     {
         if (LoadMaterialPorterObject(d.Material) is not UMaterialInterface mi || Material(mi, 0) is not { } material) return null;
@@ -293,7 +280,7 @@ public partial class ExportContext
         return export;
     }
 
-    /// <summary>One particle system as the world export's record: the component's world transform and its system's path and user parameters.</summary>
+    /// <summary>One particle system as the world export's record: world transform, system path and user parameters.</summary>
     private static ExportEffect Effect(MapEffect e)
     {
         var export = new ExportEffect { Name = e.Name, System = e.System, Parameters = e.Parameters };
@@ -301,7 +288,7 @@ public partial class ExportContext
         return export;
     }
 
-    /// <summary>A slot's material as the plugin reads it: the material in its slot, a dynamic instance's or a building's values (MPValues) over it.</summary>
+    /// <summary>A slot's material for the plugin: the slot's material with a dynamic instance's or building's values (MPValues) on top.</summary>
     private static ExportMaterial SlotMaterial(ExportMaterial material, int slot, ParamSet values)
     {
         var hasValues = values.Scalars.Count + values.Vectors.Count + values.Textures.Count > 0;
@@ -313,7 +300,7 @@ public partial class ExportContext
         };
     }
 
-    /// <summary>One placement as FP's mesh record: the mesh (exported once), where it stands, what its slots wear.</summary>
+    /// <summary>One placement as FP's mesh record: the mesh (exported once), its transform and slot materials.</summary>
     private ExportMesh? Placement(MapMesh m)
     {
         if (!_mpMeshes.TryGetValue(m.Mesh, out var template))
@@ -343,8 +330,7 @@ public partial class ExportContext
         export.Materials.AddRange(template.Materials);
         SetMaterialPorterTransform(export, m.World);
 
-        // each slot's material: a component's override, else the mesh's own; a dynamic instance's
-        // values and a building's texture data over it
+        // each slot: the component's override, else the mesh's own, with dynamic instance values and building texture data on top
         var slots = template.Materials.Select(x => x.Slot).Concat(m.Overrides.Keys).Distinct();
         foreach (var slot in slots)
         {
@@ -364,11 +350,7 @@ public partial class ExportContext
         return export;
     }
 
-    /// <summary>
-    /// A Rocket Racing car (Material Porter fork): its body with the tier's (or a decal's)
-    /// material, the picked wheels as children on the body's wheel sockets, and the values
-    /// the car's Mutable program gives each material. Picks: channel index -> option index.
-    /// </summary>
+    /// <summary>A Rocket Racing car: body with the tier's (or a decal's) material, picked wheels on the wheel sockets, and the Mutable values per material. Picks: channel index -> option index.</summary>
     public List<ExportMesh> MaterialPorterCar(UObject body, IReadOnlyDictionary<int, int> picks)
     {
         if (Cars.Items is null || body.Owner?.Name is not { } package) return [];
@@ -402,7 +384,7 @@ public partial class ExportContext
         return [export];
     }
 
-    /// <summary>A car part Mutable builds, written once as a UEFormat model on its skeleton, with its slots' materials.</summary>
+    /// <summary>A Mutable-built car part, written once as a UEFormat model on its skeleton, with slot materials.</summary>
     private ExportMesh? BuiltCarMesh(BuiltCarMesh built)
     {
         if (LoadMaterialPorterObject(built.Skeleton) is not global::CUE4Parse.UE4.Assets.Exports.Animation.USkeleton skeleton) return null;
@@ -417,18 +399,14 @@ public partial class ExportContext
         return export;
     }
 
-    /// <summary>
-    /// A LEGO figure: its cooked skeletal meshes (the schema's, or its Bake folder's) with
-    /// their baked materials; else its recipe (FigureRecipe): the shared Mutable object's
-    /// body and the recipe's cooked parts, dressed with its materials, colours and decos.
-    /// </summary>
+    /// <summary>A LEGO figure: cooked skeletal meshes (schema's or Bake folder's) with baked materials, else its FigureRecipe (shared Mutable body plus cooked parts with materials, colours, decos).</summary>
     public List<ExportMesh> MaterialPorterFigure(UObject item, IReadOnlyDictionary<string, int> face)
     {
         var meshes = Figures.BakedMeshes(FileProvider, item);
         if (meshes.Count > 0)
         {
             Log.Information("[Material Porter] figure {Item}: {Meshes}", item.Name, string.Join(", ", meshes.Select(m => m.Name)));
-            // parts, the first one the body: the plugin merges them onto its armature
+            // first part is the body; the plugin merges the rest onto its armature
             var cooked = meshes.Select(m => Mesh<ExportPart>(m)).OfType<ExportPart>().ToList();
             for (var i = 0; i < cooked.Count; i++) cooked[i].Type = i == 0 ? EFortCustomPartType.Body : EFortCustomPartType.MiscOrTail;
             FigureFace(item, cooked, face);
@@ -452,7 +430,7 @@ public partial class ExportContext
             var slots = 1;
             if (part.Raw is { } raw)
             {
-                // a body's geometry is the same for every recipe figure with it: one file each
+                // a body's geometry is shared by every recipe figure using it: one file each
                 var skeleton = FigureRecipe.SkeletonAsync(FileProvider).GetAwaiter().GetResult();
                 var bodyPath = $"/MaterialPorter/Figures/{part.RawName}.{part.RawName}";
                 var file = BuildExportPath(bodyPath, "uemodel");
@@ -462,7 +440,7 @@ public partial class ExportContext
             else
             {
                 if (part.Mesh is null || LoadMaterialPorterObject(part.Mesh) is not USkeletalMesh sk || Mesh<ExportPart>(sk) is not { } cooked) continue;
-                // parts: the plugin merges them onto the body's armature (the head as FP's heads)
+                // parts merge onto the body's armature (the head as FP's heads)
                 cooked.Type = part.Name == "Head" ? EFortCustomPartType.Head : EFortCustomPartType.MiscOrTail;
                 export = cooked;
                 slots = Math.Max(1, sk.Materials?.Length ?? 1);
@@ -491,11 +469,7 @@ public partial class ExportContext
         return exports;
     }
 
-    /// <summary>
-    /// A LEGO creature: its schema's skeletal meshes as parts (the first the body, whose armature takes
-    /// the others), each material with the textures the schema puts on it (its colour LUT); or its one
-    /// skeletal mesh with its override materials.
-    /// </summary>
+    /// <summary>A LEGO creature: the schema's skeletal meshes as parts (first is the body) with the schema's textures (colour LUT) per material, else its one skeletal mesh with override materials.</summary>
     public List<ExportMesh> MaterialPorterCreature(UObject item)
     {
         var meshes = Figures.BakedMeshes(FileProvider, item);
@@ -529,11 +503,7 @@ public partial class ExportContext
         return parts.Cast<ExportMesh>().ToList();
     }
 
-    /// <summary>
-    /// A cooked figure's face (its instance of M_Figure_RigDrivenFace): the expression picked (its poses,
-    /// its character accents moved where the face rig puts them for the mouth picked), and where the
-    /// rig puts those accents for every mouth pose, for an emote that animates the face.
-    /// </summary>
+    /// <summary>A cooked figure's face (M_Figure_RigDrivenFace instance): the picked expression with accents placed by the face rig for the picked mouth, plus accent positions for every mouth pose (for face-animating emotes).</summary>
     private void FigureFace(UObject item, List<ExportPart> parts, IReadOnlyDictionary<string, int> face)
     {
         var schema = Figures.Schema(item, FileProvider)?.GetPathName();
@@ -567,7 +537,7 @@ public partial class ExportContext
             }
     }
 
-    /// <summary>A car part's slots: a decal's material where it goes, Mutable's values over each material they touch.</summary>
+    /// <summary>A car part's slots: a decal's material where it goes, Mutable's values on top of the materials they touch.</summary>
     private void CarMaterials(ExportMesh mesh, CarPlan plan, Dictionary<int, string>? overrides)
     {
         var slots = mesh.Materials.GroupBy(m => m.Slot).ToDictionary(g => g.Key, g => g.First());
@@ -593,7 +563,7 @@ public partial class ExportContext
         }
     }
 
-    /// <summary>A UE world matrix (row vectors) as FP's location, rotation and scale; a mirror goes into X's scale.</summary>
+    /// <summary>A UE world matrix (row vectors) as FP's location, rotation and scale; a mirror goes into X scale.</summary>
     private static void SetMaterialPorterTransform(ExportObject export, Matrix4x4 world)
     {
         var mirrored = world.GetDeterminant() < 0;

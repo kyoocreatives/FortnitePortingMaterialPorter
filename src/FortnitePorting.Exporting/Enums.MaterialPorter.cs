@@ -2,7 +2,7 @@ using System.ComponentModel;
 
 namespace FortnitePorting;
 
-// Material Porter fork: the largest size textures are exported at, from their own smaller mips (pixels)
+// Largest texture size exported, taken from the smaller mips (pixels)
 public enum ETextureSizeCap
 {
     [Description("Full Size")]

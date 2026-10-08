@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace FortnitePorting.Exporting.Models;
 
-// Material Porter fork: spot and rect lights (FP exports point lights only), and how the engine reads a light.
+// Spot and rect lights (FP exports point lights only), and how the engine reads a light.
 public partial class ExportLightCollection
 {
     public List<ExportSpotLight> SpotLights = [];
@@ -17,7 +17,7 @@ public partial class ExportLightCollection
 
 public partial record ExportLight
 {
-    // the level actor it came from: in Blender that actor's own meshes don't shadow it; null on a prop's
+    // source level actor: its own meshes don't shadow it in Blender; null on a prop's
     public string? Actor;
     // UE's ELightUnits name (Candelas, Lumens, Unitless, EV, Nits); FP's own point lights are candelas
     public string IntensityUnits = "Candelas";

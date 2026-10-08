@@ -40,13 +40,10 @@ public sealed class MapMesh
     public (float MinX, float MinY, float MaxX, float MaxY)? Area { get; init; }
     /// <summary>
     /// False when the component casts no shadow in the game (CastShadow, UE's master flag, off; or both bCastDynamicShadow and
-    /// bCastStaticShadow off): a lamp's housing around its light.
+    /// bCastStaticShadow off), e.g. a lamp's housing.
     /// </summary>
     public bool CastShadow { get; init; } = true;
-    /// <summary>
-    /// Seen only through its shadow: a shadow proxy (ShadowProxyMeshComponent: hidden, not in the main pass), the
-    /// simple mesh a tree's shadow comes from while the tree itself casts none.
-    /// </summary>
+    /// <summary>Seen only through its shadow: a shadow proxy (ShadowProxyMeshComponent: hidden, not in the main pass), e.g. the simple mesh a tree's shadow comes from.</summary>
     public bool ShadowOnly { get; init; }
     /// <summary>Where it stands, for an area's test: its origin, a spline mesh's segment middle.</summary>
     public Vector3 Anchor
@@ -61,9 +58,9 @@ public sealed class MapMesh
 }
 
 /// <summary>
-/// A light a map places (point, spot or rect light component): where (UE space, row vectors, cm) and what the
-/// engine reads of it, as stored (the level's values over its templates'); units and colour are converted by the
-/// consumer (Unitless local lights are 1/625 candela per unit; spots and rects shine along their X axis).
+/// A light a map places (point, spot or rect light component): where (UE space, row vectors, cm) and what the engine reads of it, as
+/// stored (the level's values over its templates'). The consumer converts units and colour (Unitless local lights are 1/625 candela
+/// per unit; spots and rects shine along their X axis).
 /// </summary>
 public sealed class MapLight
 {
@@ -77,8 +74,8 @@ public sealed class MapLight
     /// <summary>"Candelas", "Lumens", "Unitless", "EV" or "Nits": what Intensity is in when the light falls off by the inverse square.</summary>
     public string Units { get; init; }
     /// <summary>
-    /// False: the older falloff (Intensity is a brightness, times (1 - (d / AttenuationRadius)^2)^FalloffExponent
-    /// out to the radius, whatever the units say); true: candelas and the like, falling off with the square of the distance.
+    /// False: the older falloff (Intensity is a brightness, times (1 - (d / AttenuationRadius)^2)^FalloffExponent out to the radius,
+    /// whatever the units say); true: candelas and the like, falling off with the square of the distance.
     /// </summary>
     public bool InverseSquared { get; init; } = true;
     public float FalloffExponent { get; init; } = 8f;
@@ -101,8 +98,8 @@ public sealed class MapLight
 }
 
 /// <summary>
-/// A decal a map places (a DecalComponent: a DecalActor's, a Blueprint's): its world matrix (UE space, row vectors, cm; the
-/// decal projects along its X axis) and what the engine reads of it. Its half extents are DecalSize times the matrix's scale.
+/// A decal a map places (a DecalComponent): its world matrix (UE space, row vectors, cm; it projects along its X axis) and what the
+/// engine reads of it. Its half extents are DecalSize times the matrix's scale.
 /// </summary>
 public sealed class MapDecal
 {
@@ -135,10 +132,7 @@ public sealed class MapEffect
 
 public sealed class MapOptions
 {
-    /// <summary>
-    /// Also the cells external data layers add (game modes' and events' content,
-    /// shipped in other plugins); without them, the map as its own cells have it.
-    /// </summary>
+    /// <summary>Also the cells external data layers add (game modes' and events' content, shipped in other plugins); without them, the map as its own cells have it.</summary>
     public bool DataLayers { get; set; }
     /// <summary>Instanced meshes: foliage, prop groups, scatter.</summary>
     public bool Instances { get; set; } = true;
@@ -182,7 +176,7 @@ public sealed class MapCell
 public readonly record struct MapProgress(int Stage, string What, int Done, int Total)
 {
     public const int Stages = 4;
-    // where each stage starts in the whole, by the time they usually take (Blender's placing is most of it)
+    // where each stage starts in the whole, by how long they usually take (Blender's placing is most of it)
     static readonly double[] Starts = { 0, 0.10, 0.25, 0.35, 1.0 };
     /// <summary>The whole export's share done, 0..1.</summary>
     public double Overall

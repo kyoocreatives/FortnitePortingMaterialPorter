@@ -40,12 +40,10 @@ public sealed class WeaponModSlotPlan
 public sealed record WeaponModPlacement(UObject Mesh, string Bone, FTransform Transform);
 
 /// <summary>
-/// Material Porter fork: weapon mods. A weapon item lists the mods it comes with (its DataList's
-/// WeaponModSlots: a magazine, a foregrip, its sights), which the game attaches to the weapon's
-/// mesh; FP exports the mesh alone. A mod's mesh, attach point and offset on a given weapon are a
-/// row of the WeaponModOverrideData tables (the weapon's tag and the mod's tag), else the mod's own
-/// DefaultModData. The attach point ("attach_mag", "attach_optic"...) is a bone of the weapon's
-/// skeleton, or a socket on one.
+/// Weapon mods. A weapon item lists the mods it comes with (its DataList's WeaponModSlots: magazine, foregrip, sights), which the
+/// game attaches to the weapon's mesh; FP exports the mesh alone. A mod's mesh, attach point and offset on a given weapon are a row
+/// of the WeaponModOverrideData tables (the weapon's tag and the mod's tag), else the mod's own DefaultModData. The attach point
+/// ("attach_mag", "attach_optic"...) is a bone of the weapon's skeleton, or a socket on one.
 /// </summary>
 public static class WeaponMods
 {
@@ -92,7 +90,7 @@ public static class WeaponMods
                         var mod = new WeaponMod
                         {
                             Item = item, Path = item.GetPathName(), Tag = tag, Slot = SlotOf(tag),
-                            // ("Iron Sight (Default)", "Magazine (Default)": the lists say which is the weapon's own)
+                            // "Iron Sight (Default)", "Magazine (Default)": the lists say which is the weapon's own
                             Name = item.GetOrDefault<FText?>("ItemName")?.Text is { Length: > 0 } name ? name.Replace(" (Default)", "") : item.Name,
                             MeshData = item.GetOrDefault<FStructFallback?>("DefaultModData")?.GetOrDefault<FStructFallback?>("MeshData"),
                         };
@@ -223,8 +221,8 @@ public static class WeaponMods
         foreach (var slot in Slots)
         {
             defaults.TryGetValue(slot, out var own);
-            // the weapon's own, and the mods that allow the weapon and have a mesh for it; another
-            // weapon's sights are that weapon's shape, so only its own
+            // the weapon's own, and the mods that allow the weapon and have a mesh for it; another weapon's sights are
+            // that weapon's shape, so only its own
             var options = _mods.Where(m => m.Slot == slot && (ReferenceEquals(m, own)
                 || Allows(m, tags) && HasMesh(m, tags) && !IsSights(m))).ToList();
             if (own is null && options.Count == 0) continue;
@@ -242,8 +240,8 @@ public static class WeaponMods
         || _rows.Any(r => r.ModTag.Equals(mod.Tag, StringComparison.OrdinalIgnoreCase) && Has(weaponTags, r.WeaponTag));
 
     /// <summary>
-    /// The options' names for a list: a mod's name, and where several share it (the same scope
-    /// made for two weapon families), what its asset's name adds (WMOID_FeralCorgi_Optic_Holo: "FeralCorgi").
+    /// The options' names for a list: a mod's name, and where several share it (the same scope made for two weapon families), what its
+    /// asset's name adds (WMOID_FeralCorgi_Optic_Holo: "FeralCorgi").
     /// </summary>
     public static Dictionary<WeaponMod, string> Labels(IEnumerable<WeaponMod> options)
     {
@@ -255,7 +253,7 @@ public static class WeaponMods
                 if (group.Count() == 1) { labels[mod] = mod.Name; continue; }
                 var words = mod.Item.Name.Split('_').Skip(1)
                     .Where(w => !w.Equals(mod.Slot, StringComparison.OrdinalIgnoreCase) && w is not ("Optic" or "Mag" or "Default")).ToList();
-                // (the plain one of the set says nothing more: WMOID_Optic_Holo, "Holo-13 Optic")
+                // the plain one of the set says nothing more (WMOID_Optic_Holo, "Holo-13 Optic")
                 var plain = words.Count == 0 || words.Count == 1
                     && new string(mod.Name.Where(char.IsLetterOrDigit).ToArray()).Contains(words[0], StringComparison.OrdinalIgnoreCase);
                 labels[mod] = plain ? mod.Name : $"{mod.Name} ({string.Join(" ", words)})";
@@ -265,9 +263,8 @@ public static class WeaponMods
     }
 
     /// <summary>
-    /// A mod on a weapon: the override row for the weapon's tag and the mod's (the most specific
-    /// weapon tag wins) over the mod's own mesh data, and the attach point's place on the weapon's mesh.
-    /// Null when the mod has no mesh or the weapon no such attach point.
+    /// A mod on a weapon: the override row for the weapon's tag and the mod's (the most specific weapon tag wins) over the mod's own
+    /// mesh data, and the attach point's place on the weapon's mesh. Null when the mod has no mesh or the weapon no such attach point.
     /// </summary>
     public static WeaponModPlacement? Place(IFileProvider provider, WeaponMod mod, HashSet<string> weaponTags, USkeletalMesh weaponMesh)
     {
@@ -282,7 +279,7 @@ public static class WeaponMods
         }
         if (data is null) return null;
         var mesh = data.GetOrDefault<FSoftObjectPath>("ModMesh").TryLoad(provider, out UObject? loaded) ? loaded : null;
-        // (a row that only moves the mod keeps the mod's own mesh)
+        // a row that only moves the mod keeps the mod's own mesh
         if (mesh is null && mod.MeshData?.GetOrDefault<FSoftObjectPath>("ModMesh").TryLoad(provider, out UObject? own) == true) mesh = own;
         if (mesh is null) return null;
         var socket = data.GetOrDefault<FName>("SocketName").Text;

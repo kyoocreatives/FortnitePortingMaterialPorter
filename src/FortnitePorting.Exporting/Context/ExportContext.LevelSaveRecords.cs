@@ -23,7 +23,7 @@ using FortnitePorting.Shared.Extensions;
 
 namespace FortnitePorting.Exporting.Context;
 
-// Material Porter fork: FP's prefab reading, fixed (template keys, per-slot texture data, older records).
+// Prefab reading: template keys, per-slot texture data, older records.
 public partial class ExportContext
 {
     public List<ExportObject> LevelSaveRecord(ULevelSaveRecord levelSaveRecord)
@@ -35,13 +35,12 @@ public partial class ExportContext
             var actorBlueprint = templateRecord.ActorClass.Load<UBlueprintGeneratedClass>();
             if (actorBlueprint is null) continue;
 
-            // Material Porter fork: each template's own objects and actor data (the record's ActorData
-            // list skips null templates, so its index isn't the template's key)
+            // The record's ActorData list skips null templates, so its index isn't the template key.
             var templateObjects = Blueprint(actorBlueprint);
             if (templateObjects.Count == 0) continue;
             objects.AddRange(templateObjects);
 
-            // the texture data the actor sets, by slot: null where it clears one (the mesh's own material)
+            // texture data by slot; null clears the slot (mesh's own material)
             var textureDatas = new Dictionary<int, UBuildingTextureData?>();
             if (templateRecord.bUsingRecordDataReferenceTable)
             {
@@ -75,8 +74,7 @@ public partial class ExportContext
             }
             if (textureDatas.Count == 0) continue;
 
-            // onto the actor's own mesh (the class default's, which carries its default texture data),
-            // replacing that slot's default
+            // apply onto the actor's own mesh (the class default's), replacing that slot's default
             var meshes = templateObjects.OfType<ExportMesh>().ToList();
             var defaultName = actorBlueprint.ClassDefaultObject?.Name;
             var targetMesh = meshes.FirstOrDefault(mesh => mesh.TextureData.Count > 0)
@@ -93,8 +91,7 @@ public partial class ExportContext
         return objects;
     }
 
-    // An older record's actor data, read by CUE4Parse - which unsets its package's unversioned flag
-    // while it reads and leaves it unset when the read throws: put back here either way
+    // CUE4Parse clears the package's unversioned flag while reading and leaves it cleared if the read throws; restore it.
     static FStructFallback LegacyActorData(ULevelSaveRecord levelSaveRecord, FActorTemplateRecord templateRecord)
     {
         var owner = levelSaveRecord.Owner;

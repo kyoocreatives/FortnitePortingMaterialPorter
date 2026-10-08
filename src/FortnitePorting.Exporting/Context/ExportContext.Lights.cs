@@ -22,11 +22,11 @@ using Serilog;
 
 namespace FortnitePorting.Exporting.Context;
 
-// Material Porter fork: an asset's lights, as the engine reads them.
+// Lights as the engine reads them.
 public partial class ExportContext
 {
-    // A point, spot or rect light (FP mapped point lights only), as the levels' lights are: the component's values
-    // over its templates', else the engine's defaults (white, 6500 K, 1000 cm reach, 44° spot, 64 cm rect, 8 cd).
+    // Point, spot or rect light: component values over template values, else engine defaults
+    // (white, 6500 K, 1000 cm reach, 44° spot, 64 cm rect, 8 cd).
     public ExportLight? LightComponent(ULightComponentBase lightComponent)
     {
         lightComponent.GatherTemplateProperties();

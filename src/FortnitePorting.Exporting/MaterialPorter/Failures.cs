@@ -3,11 +3,7 @@ using System.Collections.Concurrent;
 
 namespace FortnitePorting.Exporting.MaterialPorter;
 
-/// <summary>
-/// Material Porter fork: a failure the code steps over (an item that won't read: the next one), logged
-/// as a warning - the first few of each place, then one line that the rest of that place's go unlogged
-/// (an asset listing reads thousands of packages: an unmounted plugin's would each fail).
-/// </summary>
+/// <summary>Logs a failure the code steps over: the first few per place, then one line saying the rest go unlogged.</summary>
 public static class Failures
 {
     const int PerPlace = 3;

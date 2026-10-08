@@ -15,10 +15,9 @@ using FortnitePorting.CUE4Parse.Extensions;
 namespace FortnitePorting.Exporting.MaterialPorter;
 
 /// <summary>
-/// LEGO figures (JunoAthenaCharacterItemOverrideDefinition). A figure's AssembledMeshSchema is
-/// either baked, listing its cooked skeletal meshes (SkeletalMeshes), or a Mutable object
-/// (CustomizableObjectInstance). A Mutable figure may still have a bake cooked in its Bake folder,
-/// beside the Mutable one (/FigureCosmetics/Figure/Figure_X/Mutable/... and .../Figure_X/Bake/).
+/// LEGO figures (JunoAthenaCharacterItemOverrideDefinition). A figure's AssembledMeshSchema is either baked (SkeletalMeshes lists its
+/// cooked meshes) or a Mutable object (CustomizableObjectInstance), which may still have a bake in its Bake folder beside the
+/// Mutable one (/FigureCosmetics/Figure/Figure_X/Mutable/... and .../Figure_X/Bake/).
 /// </summary>
 public static class Figures
 {
@@ -26,9 +25,8 @@ public static class Figures
     /// <summary>A LEGO emote: its Battle Royale emote and the figure's montage ("Animation").</summary>
     public const string EmoteClass = "JunoAthenaDanceItemOverrideDefinition";
     /// <summary>
-    /// A LEGO creature's look (a pawn customization under /JunoCreature_*): either an AssembledMeshSchema
-    /// listing its skeletal meshes (body, head) and the textures it puts on their materials (its colour
-    /// LUT), or one SkeletalMesh with OverrideMaterials by slot.
+    /// A LEGO creature's look (a pawn customization under /JunoCreature_*): an AssembledMeshSchema listing its skeletal meshes (body,
+    /// head) and the textures it puts on their materials (its colour LUT), or one SkeletalMesh with OverrideMaterials by slot.
     /// </summary>
     public const string CreatureClass = "FortAIPawnCustomizationDefinition";
 
@@ -41,16 +39,15 @@ public static class Figures
            && provider.TryGetGameFile(path[..path.LastIndexOf('.')] + ".uasset", out _);
 
     /// <summary>
-    /// A creature look's icon (large: the _L one where there is one). The game's creature icons
-    /// (T_UI_Juno_Icon_[Creature_]...) aren't tied to the looks by any asset: one named with the
-    /// look's words (Juno_Cow_Default_Holstein_A -> ..._Cow_HolsteinA) is its own; else its species'
-    /// icon, the one its pawn blueprint shows on the map (MarkerDisplay.Icon) - its own folder's, or
-    /// for a look whose folder's pawns show none (Juno_PigCowboy), the species its name starts with.
+    /// A creature look's icon (large: the _L one if there is one). The game's creature icons (T_UI_Juno_Icon_[Creature_]...) aren't
+    /// tied to looks by any asset: an icon named with the look's words (Juno_Cow_Default_Holstein_A -> ..._Cow_HolsteinA) is its own;
+    /// else its species' icon, the one its pawn blueprint shows on the map (MarkerDisplay.Icon), from its own folder, or, if that
+    /// folder's pawns show none (Juno_PigCowboy), the species its name starts with.
     /// </summary>
     public static UTexture2D? CreatureIcon(IFileProvider provider, UObject item, bool large)
     {
         var (icons, pawns) = CreatureIndex(provider);
-        // its words, or its words but the species' first (Juno_Cow_Default_Simmental_A -> ..._SimmentalA)
+        // its words, or its words minus the species' first (Juno_Cow_Default_Simmental_A -> ..._SimmentalA)
         var look = item.Name.StartsWith("Juno_", StringComparison.OrdinalIgnoreCase) ? item.Name[5..] : item.Name;
         var species = Regex.Match(look, "^[A-Z][a-z]+").Value;
         foreach (var key in (string[]) [IconKey(look), IconKey(look[species.Length..])])
@@ -81,7 +78,7 @@ public static class Figures
     private static UTexture2D? Texture(IFileProvider provider, string key) =>
         provider.TryLoadPackageObject<UTexture2D>($"{key}.{Path.GetFileName(key)}", out var texture) ? texture : null;
 
-    /// <summary>A look's or icon's name as the words that tell it, in any order (Juno_, Creature_, Default, Customization, T_UI_Juno_Icon_ left out).</summary>
+    /// <summary>A look's or icon's name as the words that tell it, in any order (Juno_, Creature_, Default, Customization, T_UI_Juno_Icon_ dropped).</summary>
     private static string IconKey(string name)
     {
         var words = Regex.Replace(name, "([a-z])([A-Z])", "$1_$2").Split('_', StringSplitOptions.RemoveEmptyEntries);
@@ -93,7 +90,7 @@ public static class Figures
     private static Dictionary<string, (string Small, string? Large)> _creatureIcons = new();
     private static Dictionary<string, List<string>> _creaturePawns = new(StringComparer.OrdinalIgnoreCase);
 
-    /// <summary>The creature icons by key, and each plugin's pawn blueprints (shortest name first: the species' own), made once per provider.</summary>
+    /// <summary>The creature icons by key and each plugin's pawn blueprints (shortest name first: the species' own), made once per provider.</summary>
     private static (Dictionary<string, (string Small, string? Large)> Icons, Dictionary<string, List<string>> Pawns) CreatureIndex(IFileProvider provider)
     {
         lock (Lock)
@@ -144,13 +141,10 @@ public static class Figures
     /// <summary>LEGO building props and building sets: an actor class of meshes ("BuildingActorClassToPreview").</summary>
     public static readonly string[] PropClasses = ["JunoBuildingPropAccountItemDefinition", "JunoBuildingSetAccountItemDefinition"];
 
-    /// <summary>
-    /// What LEGO Fortnite builds: walls, floors, roofs, doors, furniture (JBID_), crafting
-    /// stations, chests (PBID_)... Its actor class is its DataList's "ActorClass".
-    /// </summary>
+    /// <summary>What LEGO Fortnite builds: walls, floors, roofs, doors, furniture (JBID_), crafting stations, chests (PBID_)... Its actor class is its DataList's "ActorClass".</summary>
     public const string BuildClass = "JunoBuildInstructionsItemDefinition";
 
-    /// <summary>A LEGO Fortnite cave room (its entrances, dens, treasure rooms...): a level ("World").</summary>
+    /// <summary>A LEGO Fortnite cave room (entrances, dens, treasure rooms...): a level ("World").</summary>
     public const string CaveClass = "PDA_Juno_ProcCave_ShellData_C";
 
     /// <summary>A cave room's level path, or null.</summary>
@@ -181,10 +175,7 @@ public static class Figures
         return null;
     }
 
-    /// <summary>
-    /// Whether a LEGO prop's actor class can be read: much of LEGO Fortnite's gameplay content
-    /// (its creatures among it) is an optional download (install tag GFP_JunoRoot) that may be absent.
-    /// </summary>
+    /// <summary>Whether a LEGO prop's actor class can be read: much of LEGO Fortnite's gameplay content is an optional download (install tag GFP_JunoRoot) that may be absent.</summary>
     public static bool HasPropActor(IFileProvider provider, UObject item) =>
         PropActorPath(item) is { } path && provider.TryGetGameFile(path[..path.LastIndexOf('.')] + ".uasset", out _)
         || CaveWorldPath(item) is { } world && provider.TryGetGameFile(world[..world.LastIndexOf('.')] + ".umap", out _);
@@ -264,9 +255,8 @@ public static class Figures
     }
 
     /// <summary>
-    /// The figure's recipe: its schema's CustomizableObjectInstance (Figure_X/Mutable/Dataless/COI_...,
-    /// or Figure_X/Mutable/COI_... for the newer ones), all on the shared recipe object that
-    /// FigureRecipe builds; else null.
+    /// The figure's recipe: its schema's CustomizableObjectInstance (Figure_X/Mutable/Dataless/COI_..., or Figure_X/Mutable/COI_... for
+    /// newer ones), all on the shared recipe object FigureRecipe builds; else null.
     /// </summary>
     public static string? RecipeInstance(IFileProvider provider, UObject item)
     {
@@ -303,7 +293,7 @@ public static class Figures
                 }
                 catch
                 {
-                    // not a package that loads: the next one
+                    // not a package that loads: try the next
                 }
             }
         }
@@ -342,7 +332,7 @@ public static class Figures
                 list.Add(key[..^".uasset".Length]);
             }
             foreach (var list in bakes.Values)
-                list.Sort((a, b) => a.Length.CompareTo(b.Length));     // FigureBake_X before its variants
+                list.Sort((a, b) => a.Length.CompareTo(b.Length)); // FigureBake_X before its variants
             _bakes = bakes;
             _indexed = provider;
             return bakes;

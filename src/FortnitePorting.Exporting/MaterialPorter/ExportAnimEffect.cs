@@ -13,12 +13,7 @@ public class ExportSocket
     public FVector Scale = FVector.OneVector;
 }
 
-/// <summary>
-/// Material Porter fork: a particle effect an animation plays (the Niagara notifies of an emote's
-/// montage and of its sequences that play one system on one socket): the effect
-/// (ExportContext.Effect), the socket it is put on with its offsets, the times it starts at, and for
-/// each how long a timed notify keeps it going (0: it plays out by itself).
-/// </summary>
+/// <summary>A particle effect an animation plays: its socket and offsets, start times, and per start how long a timed notify keeps it going (0: plays out by itself).</summary>
 public class ExportAnimEffect
 {
     public ExportMesh Effect = null!;

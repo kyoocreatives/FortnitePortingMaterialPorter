@@ -9,11 +9,7 @@ using FortnitePorting.Exporting.Models;
 
 namespace FortnitePorting.Exporting.Context;
 
-/// <summary>
-/// Material Porter fork: Geometry Collection components (Chaos destruction; every LEGO Fortnite
-/// build is bricks that break apart) drawn whole, as the game draws them until they break: their
-/// collection's root proxy meshes (a LEGO build's piece, and its common parts "_CP").
-/// </summary>
+/// <summary>Geometry Collection components (Chaos destruction) drawn whole, as the game does until they break: the root proxy meshes.</summary>
 public partial class ExportContext
 {
     public List<ExportMesh> GeometryCollectionComponent(UGeometryCollectionComponent component)
@@ -26,7 +22,7 @@ public partial class ExportContext
             SetMeshComponentTransforms(export, component);
             if (proxy.MeshTransforms is { } transforms && i < transforms.Length)
             {
-                // a proxy placed within the collection: under the component's transform
+                // proxy transform is relative to the collection; apply the component's on top
                 var placed = transforms[i] * new FTransform(export.Rotation, export.Location, export.Scale);
                 export.Location = placed.Translation;
                 export.Rotation = placed.Rotator();
@@ -37,10 +33,7 @@ public partial class ExportContext
         return meshes;
     }
 
-    /// <summary>
-    /// The Geometry Collection components an actor class's defaults hold (a native component, such
-    /// as a LEGO chest's), which the Blueprint's construction script walk doesn't see.
-    /// </summary>
+    /// <summary>Native Geometry Collection components in a class's defaults, which the construction script walk misses.</summary>
     public List<ExportMesh> NativeGeometryCollections(UBlueprintGeneratedClass actorClass)
     {
         var meshes = new List<ExportMesh>();

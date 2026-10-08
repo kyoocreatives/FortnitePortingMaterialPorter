@@ -15,12 +15,10 @@ namespace FortnitePorting.Exporting.Context;
 public partial class ExportContext
 {
     /// <summary>
-    /// Material Porter fork: a character part's shell fur. UE's ShellMesh plugin draws the part's
-    /// mesh again ShellCount times, each copy pushed out along its normals a step further into
-    /// TotalShellDepth, with the asset's shell material (one per material slot) - whose fur mask
-    /// thins from root to tip by the copy's layer - and the base layer's own material in place of
-    /// the slot's. A part names its ShellMeshAsset in its CosmeticPartDataList (Hi-Hat's body and
-    /// face accessory). Returns the part with its shells (MaterialPorterPart.MPShells), else as it was.
+    /// A character part's shell fur. UE's ShellMesh plugin draws the mesh ShellCount times, each copy pushed
+    /// further along the normals up to TotalShellDepth, with the shell material (per slot; its fur mask thins
+    /// root to tip by layer) and the base layer material in place of the slot's. The part names its
+    /// ShellMeshAsset in CosmeticPartDataList. Returns the part with MPShells, else unchanged.
     /// </summary>
     public ExportPart ShellFur(UObject part, ExportPart exportPart)
     {
@@ -28,7 +26,7 @@ public partial class ExportContext
         var path = dataList.GetItemOrDefault<FSoftObjectPath>("ShellMeshAsset");
         if (path.AssetPathName.IsNone || path.LoadOrDefault<UObject>() is not { } shell) return exportPart;
 
-        // the nearest level of detail's count (further ones only thin it out)
+        // nearest LOD's count (further LODs only thin it out)
         var lods = shell.GetOrDefault("ShellLods", Array.Empty<FStructFallback>());
         var count = lods.FirstOrDefault()?.GetOrDefault<FPerQualityLevelInt>("ShellCount")?.Default ?? 0;
         var resources = shell.GetOrDefault<FStructFallback>("RuntimeResources");

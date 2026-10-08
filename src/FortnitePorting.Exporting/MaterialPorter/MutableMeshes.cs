@@ -15,12 +15,10 @@ using global::CUE4Parse.UE4.Readers;
 namespace FortnitePorting.Exporting.MaterialPorter;
 
 /// <summary>
-/// A cooked Mutable program's constant meshes (the parts its mesh ops start
-/// from), read as they are stored: each constant is a range of content parts
-/// (geometry, pose, physics, metadata), each part either kept in the program
-/// (ConstantMeshesPermanent) or streamed: a ROM, whose bytes are a block of
-/// the model's streamable bulk data (UModelStreamableData: ROM id -> file,
-/// offset; the ROM table gives its size).
+/// A cooked Mutable program's constant meshes (the parts its mesh ops start from), read as stored: each constant is a range of
+/// content parts (geometry, pose, physics, metadata), each either kept in the program (ConstantMeshesPermanent) or streamed as a
+/// ROM, whose bytes are a block of the model's streamable bulk data (UModelStreamableData: ROM id -> file, offset; the ROM table
+/// gives its size).
 /// </summary>
 public sealed class MutableMeshes
 {
@@ -77,10 +75,9 @@ public sealed class MutableMeshes
     }
 
     /// <summary>
-    /// One of the model's streamable bulk files. They are the package's bulk data
-    /// at different cooked indices: IoStore chunks of the package's id, type BulkData,
-    /// the cooked index in the id's padding byte (CUE4Parse's own reader maps the package's
-    /// .ubulk to one of them only).
+    /// One of the model's streamable bulk files: the package's bulk data at different cooked indices, as IoStore chunks of the
+    /// package's id, type BulkData, with the cooked index in the id's padding byte (CUE4Parse's reader maps the package's .ubulk
+    /// to only one of them).
     /// </summary>
     public FArchive? OpenFile(uint fileId)
     {
@@ -105,9 +102,8 @@ public sealed class MutableMeshes
     }
 
     /// <summary>
-    /// A chunk of a CDN-streamed container, matched on all of its id: CUE4Parse's own
-    /// lookup compares ids without their index and padding bytes, so it gives the
-    /// package's first bulk chunk for every cooked index.
+    /// A chunk of a CDN-streamed container, matched on all of its id: CUE4Parse's lookup compares ids without the index and padding
+    /// bytes, so it returns the package's first bulk chunk for every cooked index.
     /// </summary>
     static byte[]? ReadOnDemand(IoStoreOnDemandReader reader, FIoChunkId chunk)
     {
@@ -173,9 +169,8 @@ public sealed class MutableMeshes
     }
 
     /// <summary>
-    /// A constant as a skinned mesh: its geometry's vertices, its surfaces as sections,
-    /// and each vertex's influences on the skeleton's bones (the pose part's bone map,
-    /// ids matched to the skeleton's names by <see cref="CityHash32.BoneId"/>).
+    /// A constant as a skinned mesh: its geometry's vertices, its surfaces as sections, and each vertex's influences on the
+    /// skeleton's bones (the pose part's bone map, ids matched to the skeleton's names by <see cref="CityHash32.BoneId"/>).
     /// </summary>
     public RawSkinnedMesh? Skinned(int constant, IReadOnlyList<string> skeletonBones)
     {
@@ -243,8 +238,8 @@ public sealed class MutableMeshes
 
     /// <summary>n x `from` components as n x `to` (missing ones `fill`).</summary>
     /// <summary>
-    /// Whether a buffer set's colour channel holds 8-bit colours: those are UE's FColor bytes, B G R A (a
-    /// Mutable-built wheel's tire mask, R in the cooked mesh, came out in B: its tire drew the rim's masks).
+    /// Whether a buffer set's colour channel holds 8-bit colours, which are UE's FColor bytes, B G R A (a Mutable-built wheel's
+    /// tire mask, R in the cooked mesh, came out in B, so the tire drew the rim's masks).
     /// </summary>
     static bool ColorIsBgra(FMeshBufferSet set) =>
         set.Buffers.SelectMany(b => b.Channels).FirstOrDefault(c => c.Semantic == EMeshBufferSemantic.Color && c.SemanticIndex == 0) is { } ch
@@ -345,8 +340,8 @@ public sealed class RawSkinnedMesh
     public int UnknownBones;
 
     /// <summary>
-    /// This mesh without the faces all of whose vertices a mask holds (a remove-mask op:
-    /// the body part a replacement takes the place of). The vertices stay, unused.
+    /// This mesh without the faces whose vertices are all in a mask (a remove-mask op: the body part a replacement takes the place
+    /// of). The vertices stay, unused.
     /// </summary>
     public RawSkinnedMesh Without(IReadOnlySet<int> mask)
     {
@@ -366,8 +361,8 @@ public sealed class RawSkinnedMesh
     }
 
     /// <summary>
-    /// This mesh with another's geometry added (a program merging two constants: the
-    /// figure body and the stomach panel that closes it), all in one section.
+    /// This mesh with another's geometry added (a program merging two constants: the figure body and the stomach panel that closes
+    /// it), all in one section.
     /// </summary>
     public RawSkinnedMesh Merged(RawSkinnedMesh other)
     {
@@ -391,8 +386,8 @@ public sealed class RawSkinnedMesh
     }
 
     /// <summary>
-    /// Meshes as one, each part's faces a section of its slot (a car body: a constant per
-    /// surface). UV channels a part lacks are zeros; colours a part lacks are white.
+    /// Meshes as one, each part's faces a section of its slot (a car body: a constant per surface). UV channels a part lacks are
+    /// zeros; colours a part lacks are white.
     /// </summary>
     public static RawSkinnedMesh Combine(IReadOnlyList<(RawSkinnedMesh Mesh, int Slot)> parts)
     {

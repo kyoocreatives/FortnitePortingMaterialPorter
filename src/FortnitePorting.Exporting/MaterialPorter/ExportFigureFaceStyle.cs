@@ -2,7 +2,7 @@ using FortnitePorting.Exporting.Styles;
 
 namespace FortnitePorting.Exporting.MaterialPorter;
 
-/// <summary>A LEGO figure's expression pick (Material Porter fork): a face feature ("Mouth", "Eyes", "Brows") and its rig pose.</summary>
+/// <summary>A LEGO figure's expression pick: a face feature ("Mouth", "Eyes", "Brows") and its rig pose.</summary>
 public class ExportFigureFaceStyle : ExportStyleBase
 {
     public string Feature = "";
