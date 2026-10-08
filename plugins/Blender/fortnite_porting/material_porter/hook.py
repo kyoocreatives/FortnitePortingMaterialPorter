@@ -1,7 +1,7 @@
 """FP's materials rebuilt exactly from their UE graphs.
 
 FP's material import calls build_exact() once its parameters are merged. The app's bridge (localhost:24320)
-serves the material, its graph, functions, textures and parameter collections; build.py (with ue_graph.py)
+serves the material, its graph, functions, textures and parameter collections; build.py (with ue_graph)
 makes the node trees. When that can't be done (no bridge, Blender before 5.0, failed build) it returns None
 and FP builds its own preset material.
 """

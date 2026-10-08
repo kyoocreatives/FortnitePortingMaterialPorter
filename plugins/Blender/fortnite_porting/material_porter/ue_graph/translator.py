@@ -53,7 +53,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         self.function = None
         self.x, self.y = x0, y0
         self.warnings = []
-        # layout section new nodes go in (tools/layout.py): the material, then one frame
+        # layout section new nodes go in (layout): the material, then one frame
         # per called material function, nested as UE nests them
         self.section = []
         self._shared = {}

@@ -373,7 +373,7 @@ public static class Effects
 
     /// <summary>
     /// What a replay of the system is made from: its package's exports (name, type, outer, properties) in package order, which holds
-    /// each CPU emitter's compiled scripts, parameters and curves. The plugin runs them (material_porter/niagara.py).
+    /// each CPU emitter's compiled scripts, parameters and curves. The plugin runs them (material_porter/niagara).
     /// </summary>
     public static JArray Program(UObject system)
     {

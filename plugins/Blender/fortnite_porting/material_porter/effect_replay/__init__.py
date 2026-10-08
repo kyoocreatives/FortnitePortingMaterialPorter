@@ -1,6 +1,6 @@
 """A particle effect's CPU emitters, played in Blender.
 
-The emitters' scripts are run over the scene's frame range (niagara.py) and each frame's result is
+The emitters' scripts are run over the scene's frame range (niagara) and each frame's result is
 kept: a mesh of points per drawn piece holding every frame's particles, each point with its frame
 and its particle's values. A geometry nodes modifier keeps the current frame's points and puts the
 piece (the sprite's plane, the mesh renderer's mesh) on each: turned to the camera or along its

@@ -6,7 +6,7 @@ Keep the two in step.
 import bpy
 from types import SimpleNamespace
 
-# node property sec() tags a section into; tools/layout.py reads and removes it
+# node property sec() tags a section into; layout reads and removes it
 SECTION_KEY = "fpv4_section"
 
 # Tuned defaults overriding sock() values, as in fpv4_sprite. The clouds have none.
@@ -216,7 +216,7 @@ def helpers(tree, gi):
     current = [""]
 
     def sec(*path):
-        """Start a layout section: tools/layout.py frames every node made until the next sec() under `path`
+        """Start a layout section: layout frames every node made until the next sec() under `path`
         ("Reaper", "Matcap UV" is a Matcap UV frame inside a Reaper frame).
         Tagging sweeps the whole tree, so nodes made via N.new or evaluator() are caught and a path can be
         re-entered. Nodes made before the first call stay unframed.

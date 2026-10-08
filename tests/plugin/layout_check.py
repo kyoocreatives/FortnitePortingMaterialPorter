@@ -1,4 +1,4 @@
-"""Proves the plugin's material_porter/layout.py moved nodes around without changing what they compute.
+"""Proves the plugin's material_porter/layout moved nodes around without changing what they compute.
 
 Builds every tree translator_test.py builds (it runs that script's body, so they are the translator's own
 output), lays out a copy of each and compares the two graphs the way a shader would see them: every input of

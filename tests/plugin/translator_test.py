@@ -1,4 +1,4 @@
-"""Numeric checks for the plugin's material_porter/ue_graph.py: small UE graphs, translated, and the
+"""Numeric checks for the plugin's material_porter/ue_graph: small UE graphs, translated, and the
 Blender nodes they become evaluated here in Python against UE's own formulas.
 
     blender -b --factory-startup --python-exit-code 1 -P tests/plugin/translator_test.py -- <plugin parent>
