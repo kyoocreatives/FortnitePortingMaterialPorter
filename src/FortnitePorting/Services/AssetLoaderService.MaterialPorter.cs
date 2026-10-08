@@ -22,19 +22,29 @@ public partial class AssetLoaderService
     public AssetLoaderService()
     {
         // particle effects (Niagara systems): what each emitter draws, to place by hand (the description says what the
-        // emitters are). The registry's (islands') and the game's own, found by file name.
+        // emitters are). The registry's (islands') and the game's own, found by file name. An item's effect shows the item's
+        // icon and its name after its own, so searching an item's name finds its effects.
         Categories.First(category => category.Category == EAssetCategory.Gameplay).Loaders.Add(new AssetLoader(EExportType.Effect)
         {
             ClassNames = ["NiagaraSystem"],
             HideRarity = true,
+            SortType = EAssetSortType.AZ,
+            DisplayNameHandler = EffectOwners.DisplayName,
             DescriptionHandler = Effects.Describe,
+            MPIconPath = EffectOwners.IconPath,
             MPUnregistered = registry => UEParse.Provider is { } provider ? Effects.ListedSystems(provider, registry) : registry,
-            // GPU emitters aren't replayed (an island's effects are mostly GPU); these are the ones that play apart
+            // the items' index is kept from the last listing of the same files
+            MPBeforeListing = async () => await EffectOwners.Build(
+                Path.Combine(FortnitePorting.Application.AppServices.App.DataFolder.FullName, "mp_effect_owners.tsv"),
+                $"2 {UEParse.Provider.Files.Count} {UEParse.Provider.MountedVfs.Count}"),
+            // GPU emitters aren't replayed (an island's effects are mostly GPU); "Plays in Blender" keeps the ones that play
             FilterCategories =
             {
                 new FilterCategory("EFFECT", [EExportType.Effect])
                 {
-                    Filters = [new FilterItem("Plays in Blender", asset => Effects.Plays(asset.CreationData.Object))]
+                    Filters = [new FilterItem("Plays in Blender", asset => Effects.Plays(asset.CreationData.Object)),
+                        new FilterItem("Of an Item", asset => EffectOwners.Owned(asset.CreationData.Object)),
+                        ..EffectOwners.Kinds.Select(kind => new FilterItem(kind, asset => EffectOwners.Is(asset.CreationData.Object, kind)))]
                 }
             },
         });
@@ -56,7 +66,7 @@ public partial class AssetLoaderService
             // outlines and the items' index are kept from the last listing of the same files: seconds instead of over a minute
             MPBeforeListing = async () =>
             {
-                var key = $"2 {UEParse.Provider.Files.Count} {UEParse.Provider.MountedVfs.Count}";
+                var key = $"3 {UEParse.Provider.Files.Count} {UEParse.Provider.MountedVfs.Count}";
                 var data = FortnitePorting.Application.AppServices.App.DataFolder.FullName;
                 await AnimationOwners.Build(Path.Combine(data, "mp_animation_owners.tsv"), key);
                 Animations.Recall(Path.Combine(data, "mp_animations.tsv"), key);

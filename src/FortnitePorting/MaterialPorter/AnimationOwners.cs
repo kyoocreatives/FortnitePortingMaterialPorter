@@ -7,8 +7,8 @@ using System.Threading.Tasks;
 using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.UObject;
+using FortnitePorting.Application;
 using FortnitePorting.Exporting.MaterialPorter;
-using FortnitePorting.Models.Assets.Loading;
 
 namespace FortnitePorting.MaterialPorter;
 
@@ -17,12 +17,12 @@ namespace FortnitePorting.MaterialPorter;
 // emotes by their montage's folder. Cached in a file: the first run reads ~9,000 items.
 public static class AnimationOwners
 {
-    private static readonly (string Class, bool ByFolder)[] Sources =
+    private static readonly (string Class, EExportType Type, bool ByFolder)[] Sources =
     [
-        ("AthenaGliderItemDefinition", false),
-        ("AthenaBackpackItemDefinition", false),
-        ("AthenaPickaxeItemDefinition", false),
-        ("AthenaDanceItemDefinition", true),
+        ("AthenaGliderItemDefinition", EExportType.Glider, false),
+        ("AthenaBackpackItemDefinition", EExportType.Backpack, false),
+        ("AthenaPickaxeItemDefinition", EExportType.Pickaxe, false),
+        ("AthenaDanceItemDefinition", EExportType.Emote, true),
     ];
 
     public static async Task Build(string file, string key)
@@ -37,8 +37,10 @@ public static class AnimationOwners
             {
                 if (await UEParse.Provider.SafeLoadPackageObjectAsync(data.ObjectPath) is not { } item) return;
                 var name = item.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text is { Length: > 0 } shown ? shown : item.Name;
-                var owner = new Animations.Owner(name, AssetLoader.GetLowResIcon(item)?.GetPathName());
-                if (Sources.First(s => s.Class == data.AssetClass.Text).ByFolder)
+                var source = Sources.First(s => s.Class == data.AssetClass.Text);
+                // the icon its own tab shows (a pickaxe's can be its weapon's)
+                var owner = new Animations.Owner(name, AppServices.AssetLoading.Get(source.Type).LowResIconHandler(item)?.GetPathName());
+                if (source.ByFolder)
                 {
                     foreach (var montage in new[] { PathOf(item, "Animation"), PathOf(item, "AnimationFemaleOverride") })
                         if (montage is not null) found.Add((true, montage[..montage.LastIndexOf('/')], owner));

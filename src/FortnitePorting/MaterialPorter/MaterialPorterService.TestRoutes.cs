@@ -719,6 +719,10 @@ public partial class MaterialPorterService
                 // effects: how many play in Blender (the tab's filter)
                 plays = loader.Type == EExportType.Effect ? loader.Source.Items.OfType<Models.Assets.Asset.AssetItem>().Count(a => Effects.Plays(a.CreationData.Object)) : -1,
                 owned = loader.Type == EExportType.Animation ? loader.Source.Items.OfType<Models.Assets.Asset.AssetItem>().Count(a => Animations.Owned(a.CreationData.Object)) : -1,
+                // effects: how many belong to an item, and how many of each kind (the tab's filters)
+                effectOwned = loader.Type == EExportType.Effect ? loader.Source.Items.OfType<Models.Assets.Asset.AssetItem>().Count(a => EffectOwners.Owned(a.CreationData.Object)) : -1,
+                effectKinds = loader.Type == EExportType.Effect ? loader.Source.Items.OfType<Models.Assets.Asset.AssetItem>()
+                    .GroupBy(a => EffectOwners.KindOf(a.CreationData.Object)).ToDictionary(g => g.Key, g => g.Count()) : null,
                 sample = names.Where(n => n.Contains(filter, StringComparison.OrdinalIgnoreCase)).Take(12),
                 cooked, failed = failed.Count, failedSample = failed.Take(12)
             });
