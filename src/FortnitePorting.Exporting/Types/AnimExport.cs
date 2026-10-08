@@ -8,8 +8,6 @@ using CUE4Parse.UE4.Assets.Exports.Animation.CurveExpression;
 using CUE4Parse.UE4.Assets.Exports.MetaSound;
 using CUE4Parse.UE4.Assets.Exports.Sound;
 using CUE4Parse.UE4.Assets.Objects;
-using CUE4Parse.UE4.Objects.Core.Math;
-using CUE4Parse.UE4.Objects.Engine.Curves;
 using CUE4Parse.UE4.Objects.UObject;
 using FortnitePorting.CUE4Parse.Extensions;
 using FortnitePorting.CUE4Parse.Models.Fortnite;
@@ -22,30 +20,18 @@ using FortnitePorting.Shared.Extensions;
 
 namespace FortnitePorting.Exporting.Types;
 
-public class AnimExport : BaseExport
+public partial class AnimExport : BaseExport
 {
     public ExportMesh? Skeleton;
     public readonly List<ExportAnimSection> Sections = new();
     public readonly List<ExportSound> Sounds = new();
     public readonly List<ExportProp> Props = new();
-    // Material Porter fork: the particle effects the animation's notifies play
-    public readonly List<MaterialPorter.ExportAnimEffect> MPEffects = new();
-    // and the skeleton's sockets (an effect sits on one, or reads them; an armature in Blender may have none of them)
-    public readonly Dictionary<string, MaterialPorter.ExportSocket> MPSockets = new(StringComparer.OrdinalIgnoreCase);
-    // and when a swing turns the held pickaxe's trails on and off: [on, off] times (its MeleeAnimTrails notifies)
-    public List<float[]> MPTrails = [];
-    // and when its swings hit (the melee ability each one triggers): times, for the pickaxe's hit effects
-    public List<float> MPHits = [];
-    private readonly List<float> _trailsOn = [], _trailsOff = [];
-    private readonly HashSet<FAnimNotifyEvent> _effectNotifies = [];
-    private readonly Dictionary<string, MaterialPorter.ExportAnimEffect> _effects = [];
     public List<ExportCurveMapping> LegacyToMetahumanMappings = [];
     public List<ExportCurveMapping> MetahumanToLegacyMappings = [];
     
     public AnimExport(string name, UObject asset, ExportStyleBase[] styles, EExportType exportType, ExportDataMeta metaData, IExportFileMeta? fileMeta) : base(name, exportType, metaData)
     {
-        // Material Porter fork: one the Animations tab lists unread is read now
-        asset = MaterialPorter.Unloaded.Read(asset, Context.Meta.Provider.Provider);
+        asset = MaterialPorter.Unloaded.Read(asset, Context.Meta.Provider.Provider);     // MP: one the tab lists unread
         switch (exportType)
         {
             case EExportType.Animation:
@@ -80,7 +66,7 @@ public class AnimExport : BaseExport
                 break;
             }
             case EExportType.Emote:
-            case EExportType.LegoEmote: // Material Porter fork: a LEGO emote's montage is its override's "Animation"
+            case EExportType.LegoEmote:     // MP
             {
                 if (styles.Length > 0)
                 {
@@ -100,23 +86,12 @@ public class AnimExport : BaseExport
                 if (montage is null) break;
                 
                 AnimMontage(montage);
-                // Material Porter fork: a LEGO emote animates the figure's face with its curves
-                // (the face material's parameters); their keys' interpolation goes along
-                if (exportType is EExportType.LegoEmote)
-                    foreach (var section in Sections)
-                        section.MPCurveModes = CurveModes(section.AssetRef);
+                if (exportType is EExportType.LegoEmote) ReadFaceCurveModes();     // MP
                 break;
             }
         }
 
-        // Material Porter fork: a plain sequence's effect notifies (a montage's are read with it)
-        if (asset is UAnimSequenceBase sequence and not UAnimMontage)
-        {
-            SkeletonSockets(sequence.Skeleton.Load<USkeleton>());
-            foreach (var notify in sequence.Notifies ?? [])
-                EffectNotify(notify, 0);
-        }
-
+        ReadSequenceEffects(asset);     // MP
         if (Context.Meta.Provider.Provider.TryLoadPackageObject<UCurveExpressionsDataAsset>(
                 "FortniteGame/Content/Characters/Player/Common/Fortnite_Base_Head/Facials/CurveMappings/FN_LegacyTo3L_Main_Mapping",
                 out var legacyToMetahumanCurves))
@@ -134,9 +109,7 @@ public class AnimExport : BaseExport
     
     private void AnimMontage(UAnimMontage montage)
     {
-        // Material Porter fork: a LEGO emote's montage names no skeleton; its sequences do (the figure's)
-        var skeleton = montage.Skeleton.Load<USkeleton>()
-                       ?? montage.CompositeSections.Select(section => section.LinkedSequence.Load<UAnimSequence>()?.Skeleton.Load<USkeleton>()).FirstOrDefault(s => s is not null);
+        var skeleton = MontageSkeleton(montage);     // MP
         Skeleton = Context.Skeleton(skeleton)!;
         HandleSectionTree(Sections, montage, montage.CompositeSections.First());
 
@@ -147,83 +120,7 @@ public class AnimExport : BaseExport
         {
             HandleNotify(notify);
         }
-
-        // Material Porter fork: the Niagara effects its notifies play, each at its time (a section's own
-        // notifies: from the section's start)
-        SkeletonSockets(skeleton);
-        foreach (var notify in montage.GetOrDefault("Notifies", Array.Empty<FAnimNotifyEvent>()))
-            EffectNotify(notify, 0);
-        foreach (var section in Sections)
-            foreach (var notify in section.AssetRef?.Notifies ?? [])
-                EffectNotify(notify, section.Time);
-    }
-
-    /// <summary>Material Porter fork: the trail switches as windows: each "on" until the next "off" (half a second without one).</summary>
-    private void TrailWindows()
-    {
-        MPTrails = _trailsOn.Distinct().OrderBy(t => t)
-            .Select(on => new[] { on, _trailsOff.Where(off => off > on).DefaultIfEmpty(on + 0.5f).Min() }).ToList();
-    }
-
-    /// <summary>Material Porter fork: a skeleton's sockets, by name.</summary>
-    private void SkeletonSockets(USkeleton? skeleton)
-    {
-        foreach (var index in skeleton?.Sockets ?? [])
-        {
-            if (index.Load<global::CUE4Parse.UE4.Assets.Exports.SkeletalMesh.USkeletalMeshSocket>() is not { } socket || socket.SocketName.Text is not { Length: > 0 } name) continue;
-            MPSockets.TryAdd(name, new MaterialPorter.ExportSocket
-            {
-                Bone = socket.BoneName.Text, Location = socket.RelativeLocation, Rotation = socket.RelativeRotation, Scale = socket.RelativeScale,
-            });
-        }
-    }
-
-    /// <summary>Material Porter fork: a notify that plays a Niagara system, as an effect on its socket from its time
-    /// (a notify's own: a montage's is linked to one of its segments, absolutely or from the segment's start).</summary>
-    private void EffectNotify(FAnimNotifyEvent notify, float sectionTime)
-    {
-        if (!_effectNotifies.Add(notify)) return;
-        try
-        {
-            var timed = notify.NotifyStateClass?.Load<UObject>();
-            var played = timed ?? notify.Notify?.Load<UObject>();
-            // a swing's hit (the melee ability it triggers)
-            if (played?.ExportType is "FortAnimNotify_TriggerGameplayAbility")
-            {
-                MPHits = MPHits.Append(sectionTime + notify.GetTime()).Distinct().OrderBy(t => t).ToList();
-                return;
-            }
-            // a swing's trail switch
-            if (played?.ExportType is "FortAnimNotify_MeleeAnimTrails_On" or "FortAnimNotify_MeleeAnimTrails_Off")
-            {
-                (played.ExportType.EndsWith("_On") ? _trailsOn : _trailsOff).Add(sectionTime + notify.GetTime());
-                TrailWindows();
-                return;
-            }
-            if (played?.GetOrDefault<UObject?>("Template") is not { ExportType: "NiagaraSystem" } system) return;
-            var socket = played.GetOrDefault<FName>("SocketName");
-            var location = played.GetOrDefault("LocationOffset", FVector.ZeroVector);
-            var rotation = played.GetOrDefault("RotationOffset", FRotator.ZeroRotator);
-            var scale = played.GetOrDefault("Scale", FVector.OneVector);
-            // one effect per system and place, played at each of its notifies' times
-            var key = $"{system.GetPathName()}|{socket.Text}|{location}|{rotation}|{scale}";
-            if (!_effects.TryGetValue(key, out var effect))
-            {
-                effect = _effects[key] = new MaterialPorter.ExportAnimEffect
-                {
-                    Effect = Context.Effect(system),
-                    SocketName = MaterialPorter.Effects.Named(socket) ? socket.Text : null,
-                    LocationOffset = location, RotationOffset = rotation, Scale = scale,
-                };
-                MPEffects.Add(effect);
-            }
-            effect.Times.Add(sectionTime + notify.GetTime());
-            effect.Durations.Add(timed is not null ? notify.Duration : 0);
-        }
-        catch (Exception e)
-        {
-            Serilog.Log.Warning("[Material Porter] {Name}: an effect notify wasn't read ({Error})", Name, e.Message);
-        }
+        ReadMontageEffects(montage, skeleton);     // MP
     }
 
     private void HandleSectionTree(List<ExportAnimSection> sections, UAnimMontage montageRef, FCompositeSection currentSection, float time = 0.0f)
@@ -278,8 +175,7 @@ public class AnimExport : BaseExport
                     Sounds.Add(new ExportSound
                     {
                         Path = Context.Export(sound.SoundWave.Load<USoundWave>()),
-                        // Material Porter fork: the notify's own time (one linked from its segment's start: LinkValue alone is early)
-                        Time = sound.Time + notify.GetTime(),
+                        Time = sound.Time + notify.GetTime(),     // MP: LinkValue alone is early for a segment-linked notify
                         Loop = sound.Loop
                     });
                 }
@@ -316,25 +212,6 @@ public class AnimExport : BaseExport
                 break;
             }
         }
-    }
-
-    /// <summary>Material Porter fork: a sequence's float curves' key interpolation (see ExportAnimSection.MPCurveModes).</summary>
-    private static Dictionary<string, string>? CurveModes(UAnimSequence? sequence)
-    {
-        if (sequence?.CompressedCurveData?.FloatCurves is not { Length: > 0 } curves) return null;
-        var modes = new Dictionary<string, string>();
-        foreach (var curve in curves)
-        {
-            var letters = string.Concat(curve.FloatCurve.Keys.Select(key => key.InterpMode switch
-            {
-                ERichCurveInterpMode.RCIM_Constant => 'C',
-                ERichCurveInterpMode.RCIM_Cubic => 'Q',
-                _ => 'L',
-            }));
-            if (letters.Length == 0) continue;
-            modes[curve.CurveName.Text] = letters.Distinct().Count() == 1 ? letters[..1] : letters;
-        }
-        return modes;
     }
 
     private List<ExportCurveMapping> CurveMappings(UCurveExpressionsDataAsset curveExpressions)

@@ -38,25 +38,11 @@ public partial class MeshExport : BaseExport
     public readonly List<ExportOverrideParameters> OverrideParameters = [];
     public readonly List<ExportOverrideMorphTargets> OverrideMorphTargets = [];
     public ExportLightCollection Lights = new();
-    /// <summary>Material Porter fork: a level's decals (a world export's; omitted from any other).</summary>
-    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-    public List<ExportDecal>? Decals;
-    /// <summary>Material Porter fork: a level's particle systems (a world export's; omitted from any other).</summary>
-    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
-    public List<ExportEffect>? Effects;
     public AnimExport? Animation;
-    [Newtonsoft.Json.JsonIgnore] public Dictionary<int, int> CarPicks = [];
-    [Newtonsoft.Json.JsonIgnore] public Dictionary<string, int> FacePicks = [];
     
     public MeshExport(string name, UObject asset, ExportStyleBase[] styles, EExportType exportType, ExportDataMeta metaData, IExportFileMeta? fileMeta) : base(name, exportType, metaData)
     {
-        Context.StartPrefetch(asset);     // Material Porter fork: a downloaded build's files fetched beside the export
-        // Material Porter fork: the wrap and the weapon mods picked on the asset's page
-        Context.WrapPick = styles.OfType<MaterialPorter.ExportWrapStyle>().FirstOrDefault()?.Path;
-        Context.EffectsPick = styles.OfType<MaterialPorter.ExportEffectsStyle>().Any(s => s.On);
-        Context.WeaponModPicks = styles.OfType<MaterialPorter.ExportWeaponModStyle>().Where(s => s.Path is not null)
-            .GroupBy(s => s.Slot).ToDictionary(g => g.Key, g => g.Last().Path!);
-
+        ReadPagePicks(asset, styles);     // MP
         var objectStyles = styles.OfType<ExportObjectStyle>().ToArray();
         if (objectStyles.Length > 0)
         {
@@ -65,36 +51,16 @@ public partial class MeshExport : BaseExport
                 Export(objectStyle.StyleData, objectStyle.AssociatedExportType is not EExportType.None ? objectStyle.AssociatedExportType : exportType);
             }
 
-            ApplyWrapPick();
+            ApplyWrapPick();     // MP
             return;
         }
 
-        // Material Porter fork: a car's style picks (channel -> option)
-        CarPicks = styles.OfType<MaterialPorter.ExportCarStyle>().ToDictionary(s => s.Channel, s => s.Option);
-        // a LEGO figure's expression (feature -> rig pose)
-        FacePicks = styles.OfType<MaterialPorter.ExportFigureFaceStyle>().Where(s => s.Pose >= 0).ToDictionary(s => s.Feature, s => s.Pose);
-        // what the picked styles do to the item's effects, known before its parts' effects are exported
-        foreach (var style in styles.OfType<ExportStructStyle>()) Context.AddEffectStyle(style.StyleData);
+        ReadStylePicks(styles);     // MP
         Export(asset, exportType);
 
         var assetStyles = styles.OfType<ExportStructStyle>();
         ExportStyles(asset, assetStyles);
-        ApplyWrapPick();
-    }
-
-    /// <summary>Material Porter fork: the wrap picked on the asset's page, over every mesh of the export.</summary>
-    private void ApplyWrapPick()
-    {
-        if (Context.WrapPick is not { Length: > 0 } path) return;
-        try
-        {
-            if (Context.WrapValuesAt(path) is not { } values) return;
-            foreach (var mesh in Meshes.Concat(OverrideMeshes)) Context.ApplyWrapDeep(mesh, values);
-        }
-        catch (Exception e)
-        {
-            Serilog.Log.Warning("[Material Porter] {Name}: the wrap wasn't laid over it ({Error})", Name, e.Message);
-        }
+        ApplyWrapPick();     // MP
     }
 
     public MeshExport(string name, MeshDefinition mesh, Func<string, Stream> openCustomAssetResource, EExportType exportType, ExportDataMeta metaData) : base(name, exportType, metaData)
@@ -137,11 +103,9 @@ public partial class MeshExport : BaseExport
         
     }
 
-    /// <summary>The owner's private overlay's exports (FortnitePorting.Exporting.csproj imports it when it's there).</summary>
-    partial void ExportOwner(UObject asset, EExportType exportType);
-
     public void Export(UObject asset, EExportType exportType)
     {
+        if (ExportForkType(asset, exportType)) return;     // MP
         switch (exportType)
         {
             case EExportType.Outfit:
@@ -203,8 +167,7 @@ public partial class MeshExport : BaseExport
                 if (weapon is null) break;
 
                 Meshes.AddRange(Context.WeaponDefinition(weapon));
-                // Material Porter fork: its trail, swing and idle effects, when its page says so
-                if (Context.EffectsPick) Context.PickaxeEffects(weapon, Meshes);
+                if (Context.EffectsPick) Context.PickaxeEffects(weapon, Meshes);     // MP
                 break;
             }
             case EExportType.Glider:
@@ -221,8 +184,7 @@ public partial class MeshExport : BaseExport
                     part.OverrideMaterials.AddIfNotNull(Context.OverrideMaterial(overrideMaterial));
                 }
 
-                // Material Porter fork: its trails, when its page says so
-                if (Context.EffectsPick) Context.GliderEffects(asset, part);
+                if (Context.EffectsPick) Context.GliderEffects(asset, part);     // MP
                 Meshes.Add(part);
                 break;
             }
@@ -321,24 +283,8 @@ public partial class MeshExport : BaseExport
                     
                     var transform = prop.GetOrDefault<FTransform>("Transform");
                     var objects = Context.LevelSaveRecord(targetSaveRecord);
-                    // Material Porter fork: a prop whose parts sit off its pivot (a billboard's screen and
-                    // frame) under an empty at the item's transform - added to each part, the transform
-                    // moved their offsets without turning or scaling them with the item
-                    if (objects.Any(o => o.Location != FVector.ZeroVector
-                                         || o.Rotation.Pitch != 0 || o.Rotation.Yaw != 0 || o.Rotation.Roll != 0))
-                    {
-                        var item = new ExportMesh
-                        {
-                            Name = prop.GetOrDefault<FName>("RecordUniqueName") is { IsNone: false } record ? record.Text : objects[0].Name,
-                            IsEmpty = true,
-                            Location = transform.Translation,
-                            Rotation = transform.Rotator(),
-                            Scale = transform.Scale3D
-                        };
-                        item.AddChildren(objects);
-                        objects = [item];
-                    }
-                    else foreach (var mesh in objects)
+                    if (!GroupOffPivot(prop, transform, ref objects))     // MP
+                    foreach (var mesh in objects)
                     {
                         mesh.Location += transform.Translation;
                         mesh.Rotation += transform.Rotator();
@@ -375,10 +321,7 @@ public partial class MeshExport : BaseExport
 
                 Name = world.Owner?.Name.SubstringAfterLast("/") ?? world.Name;
                 Meshes.AddRange(Context.World(world));
-                // Material Porter fork: the level's point, spot and rect lights, decals and particle systems
-                Lights.AddRange(Context.MaterialPorterLights);
-                Decals = [.. Context.MaterialPorterDecals];
-                Effects = [.. Context.MaterialPorterEffects];
+                AddLevelExtras();     // MP
                 break;
             }
             case EExportType.Item:
@@ -419,10 +362,7 @@ public partial class MeshExport : BaseExport
                 var material = asset.GetDataListItem<UMaterialInterface>("Material");
                 var exportMaterial = Context.Material(material, 0);
                 exportMesh?.OverrideMaterials.AddIfNotNull(exportMaterial);
-                // Material Porter fork: a sprite's second material slot, its own effect (a fire sprite's flames)
-                if (asset.GetDataListItem<UMaterialInterface>("MaterialSlot2") is { } second)
-                    exportMesh?.OverrideMaterials.AddIfNotNull(Context.Material(second, 1));
-                if (Context.EffectsPick && exportMesh is not null) Context.SpriteEffects(asset, exportMesh);
+                AddSpriteExtras(asset, exportMesh);     // MP
 
                 Meshes.AddIfNotNull(exportMesh);
 
@@ -624,72 +564,6 @@ public partial class MeshExport : BaseExport
             case EExportType.Wildlife:
             {
                 Meshes.AddIfNotNull(Context.Mesh(asset));
-                break;
-            }
-            case EExportType.Car:
-            {
-                // Material Porter fork: the body, its wheels on their sockets, Mutable's colours
-                Meshes.AddRange(Context.MaterialPorterCar(asset, CarPicks));
-                Type = EExportType.Vehicle;     // the plugins import it as a vehicle
-                break;
-            }
-            case EExportType.Effect:
-            {
-                // Material Porter fork: a particle effect's emitters, and what each draws (one the tab
-                // lists unread is read now)
-                Meshes.Add(Context.Effect(MaterialPorter.Unloaded.Read(asset, Context.Meta.Provider.Provider)));
-                break;
-            }
-            case EExportType.TimeOfDay:
-                // Material Porter fork: the owner's private overlay exports it (nothing without it)
-                ExportOwner(asset, exportType);
-                break;
-            case EExportType.Contrail:
-            {
-                // Material Porter fork: a contrail is its item's effect (put on a character in Blender: Replay Effect)
-                if (asset.GetOrDefault<FSoftObjectPath>(MaterialPorter.Effects.ContrailEffect).TryLoad(out UObject? contrail))
-                {
-                    var effect = Context.Effect(contrail);
-                    // as the locker shows it (the character needn't fall), and on the armature selected in Blender
-                    if (effect is MaterialPorter.MaterialPorterMesh { MPEffect: { } node })
-                    {
-                        node["User"] = new Dictionary<string, object> { ["User.bIsFrontEnd"] = true, ["User.bIsFrontEndPreview"] = true };
-                        node["Attach"] = true;
-                    }
-                    Meshes.Add(effect);
-                }
-                Type = EExportType.Effect;      // the plugins import it as an effect
-                break;
-            }
-            case EExportType.LegoWildlife:
-            {
-                // Material Porter fork: a LEGO creature's meshes, their materials in its colours
-                Meshes.AddRange(Context.MaterialPorterCreature(asset));
-                break;
-            }
-            case EExportType.LegoProp:
-            {
-                // Material Porter fork: a LEGO building prop or set, the meshes of the actor its item previews;
-                // a LEGO build (wall, station...), its DataList's actor class
-                if (MaterialPorter.Figures.PropActor(asset) is { } actorClass)
-                {
-                    AddObjects(Context.Blueprint(actorClass));
-                    AddObjects(Context.NativeGeometryCollections(actorClass));
-                }
-                // a LEGO cave room: its level
-                else if (asset.GetOrDefault<FSoftObjectPath>("World").TryLoad<UWorld>(out var caveWorld))
-                {
-                    Meshes.AddRange(Context.World(caveWorld));
-                    Lights.AddRange(Context.MaterialPorterLights);
-                    Decals = [.. Context.MaterialPorterDecals];
-                    Effects = [.. Context.MaterialPorterEffects];
-                }
-                break;
-            }
-            case EExportType.LegoOutfit:
-            {
-                // Material Porter fork: a LEGO figure, cooked (its Bake folder's meshes) or from its recipe
-                Meshes.AddRange(Context.MaterialPorterFigure(asset, FacePicks));
                 break;
             }
             case EExportType.Vehicle:
