@@ -30,7 +30,8 @@ FLAT_SKY = (0.4, 0.5, 0.7)
 
 
 # collection parameters the game updates from the sun; they follow the scene's sun lamp
-LIVE = ("SunAndMoonModelDirectionalVector", "SunAndMoonModelWorldPosition", "SunlightYTransformVector")
+# (SunlightDirectionalVector lights toon characters: Lexa's face is shaded by it)
+LIVE = ("SunAndMoonModelDirectionalVector", "SunAndMoonModelWorldPosition", "SunlightYTransformVector", "SunlightDirectionalVector")
 
 
 def has_day():
@@ -261,7 +262,7 @@ def _live(t, name, x_holder):
     """Live value of a collection parameter the game keeps updated, or None."""
     if name in LIVE:
         g = t.nodes.new("ShaderNodeGroup"); g.node_tree = sun_group(); g.label = "World Sun"
-        if name == "SunAndMoonModelDirectionalVector":
+        if name in ("SunAndMoonModelDirectionalVector", "SunlightDirectionalVector"):
             return [g.outputs["Direction"]]
         if name == "SunlightYTransformVector":
             return [g.outputs["Side"]]
