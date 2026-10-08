@@ -126,7 +126,7 @@ public partial class AssetInfo
     }
 
     // An item's Effects switch: off as FP exports it, on with its own effects (Effects.OwnEffectNames), which the plugin
-    // plays on the item's sockets. The note says which of them are GPU-driven.
+    // plays on the item's sockets. The note says which styles bring them and which are GPU-driven.
     private void AddEffectStyles()
     {
         var item = Asset.CreationData.Object;
@@ -144,7 +144,7 @@ public partial class AssetInfo
                 {
                     SelectedStyleIndex = 0,
                     IsSwitch = true,
-                    SwitchNote = Effects.GpuNote(Effects.OwnSystems(item, type)) ?? string.Empty
+                    SwitchNote = string.Join(" ", new[] { Effects.StyleOnlyNote(item, type), Effects.GpuNote(Effects.OwnSystems(item, type)) }.OfType<string>())
                 };
                 await Dispatcher.UIThread.InvokeAsync(() => StyleInfos.Add(info));
             }

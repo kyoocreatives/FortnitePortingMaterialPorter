@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Assets.Objects;
+using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Objects.Engine.VectorField;
@@ -149,14 +150,14 @@ public static class Effects
     private static readonly ConditionalWeakTable<UObject, StrongBox<bool>> _plays = new();
 
     /// <summary>
-    /// The system a soft path names, if it shows something: many parts name a blank system (NS_Blank_Body, NS_Empty) to switch off
-    /// their base part's effect.
+    /// The system a soft path names, if it shows something: many parts name a blank system (NS_Blank_Body, NS_Empty: no emitter,
+    /// or one without a renderer) to switch off their base part's effect.
     /// </summary>
     public static UObject? Shown(FSoftObjectPath path)
     {
         try
         {
-            return Named(path.AssetPathName) && path.TryLoad(out UObject? system) && Emitters(system).Count > 0 ? system : null;
+            return Named(path.AssetPathName) && path.TryLoad(out UObject? system) && Emitters(system).Any(e => e.Renderers.Count > 0) ? system : null;
         }
         catch (Exception e)
         {
@@ -165,23 +166,27 @@ public static class Effects
         }
     }
 
-    /// <summary>The systems the item's styles swap its effects for, those that show something (not NS_Empty for an aura).</summary>
-    public static List<UObject> StyleSystems(UObject item)
+    /// <summary>
+    /// The systems the item's styles swap its effects for, those that show something (not NS_Empty for an aura), with each
+    /// style's name and whether it is its channel's first option (picked unless the user picks another).
+    /// </summary>
+    public static List<(string Style, UObject System, bool First)> StyleSystems(UObject item)
     {
-        var systems = new List<UObject>();
+        var systems = new List<(string, UObject, bool)>();
         try
         {
             foreach (var variant in item.GetOrDefault("ItemVariants", Array.Empty<UObject>()))
                 foreach (var property in variant.Properties)
                     if (property.Tag?.GenericValue is UScriptArray { Properties: var options })
-                        foreach (var option in options.Select(o => o.GetValue(typeof(FStructFallback))).OfType<FStructFallback>())
+                        foreach (var (option, index) in options.Select(o => o.GetValue(typeof(FStructFallback))).OfType<FStructFallback>().Select((o, i) => (o, i)))
                         {
+                            var style = option.GetOrDefault<FText?>("VariantName")?.Text ?? "";
                             systems.AddRange(option.GetOrDefault("VariantParticles", Array.Empty<FStructFallback>())
-                                .Select(s => Shown(s.GetOrDefault<FSoftObjectPath>("OverrideParticleSystem"))).OfType<UObject>());
+                                .Select(s => Shown(s.GetOrDefault<FSoftObjectPath>("OverrideParticleSystem"))).OfType<UObject>().Select(system => (style, system, index == 0)));
                             // a style's own parts (Blackheart's later stages: a body whose part has the aura)
                             foreach (var path in option.GetOrDefault("VariantParts", Array.Empty<FSoftObjectPath>()))
                                 if (path.TryLoad(out UObject? part) && Shown(part.GetOrDefault<FSoftObjectPath>(PartEffect)) is { } system)
-                                    systems.Add(system);
+                                    systems.Add((style, system, index == 0));
                         }
         }
         catch (Exception e)
@@ -191,6 +196,10 @@ public static class Effects
         }
         return systems;
     }
+
+    /// <summary>The parts a back bling or outfit is made of before any style.</summary>
+    private static UObject[] BaseParts(UObject item, EExportType type) =>
+        type is EExportType.Backpack ? item.GetOrDefault("CharacterParts", Array.Empty<UObject>()) : OutfitParts(item);
 
     /// <summary>An outfit's character parts: its own, else its hero definition's first specialization's.</summary>
     public static UObject[] OutfitParts(UObject outfit)
@@ -260,8 +269,7 @@ public static class Effects
             case EExportType.Pickaxe:
                 return item.GetOrDefault<UObject?>("WeaponDefinition") is { } weapon ? PickaxeEffectNames(weapon) : [];
             case EExportType.Backpack or EExportType.Outfit:
-                var parts = type is EExportType.Backpack ? item.GetOrDefault("CharacterParts", Array.Empty<UObject>()) : OutfitParts(item);
-                return parts.Any(p => Shown(p.GetOrDefault<FSoftObjectPath>(PartEffect)) is not null) || StyleSystems(item).Count > 0 ? ["idle"] : [];
+                return BaseParts(item, type).Any(p => Shown(p.GetOrDefault<FSoftObjectPath>(PartEffect)) is not null) || StyleSystems(item).Count > 0 ? ["idle"] : [];
             case EExportType.Glider:
                 return GliderTrails(item).Any(t => Shown(t.System) is not null) ? ["trail"] : [];
             case EExportType.Sprite:
@@ -286,8 +294,7 @@ public static class Effects
                 PickaxeEffects.Select(e => Shown(weapon.GetDataListItem<FSoftObjectPath>(e.Property)))
                     .Concat(PickaxeImpacts(weapon).Select(i => Shown(i.System))),
             EExportType.Backpack or EExportType.Outfit =>
-                (type is EExportType.Backpack ? item.GetOrDefault("CharacterParts", Array.Empty<UObject>()) : OutfitParts(item))
-                .Select(p => Shown(p.GetOrDefault<FSoftObjectPath>(PartEffect))).Concat(StyleSystems(item)),
+                BaseParts(item, type).Select(p => Shown(p.GetOrDefault<FSoftObjectPath>(PartEffect))).Concat(StyleSystems(item).Select(s => s.System)),
             EExportType.Glider => GliderTrails(item).Select(t => Shown(t.System)),
             EExportType.Sprite => [Shown(item.GetDataListItem<FSoftObjectPath>(SpriteEffect))],
             EExportType.Item => WeaponComponents(item.GetOrDefault<UObject?>("WeaponActorClass") ?? item.GetDataListItem<UObject?>("WeaponActorClass"))
@@ -295,6 +302,17 @@ public static class Effects
             _ => []
         };
         return systems.OfType<UObject>().DistinctBy(s => s.GetPathName()).ToList();
+    }
+
+    /// <summary>Which styles bring a back bling's or outfit's effects when its base parts have none (Haze's: Tough Luck Haze).</summary>
+    public static string? StyleOnlyNote(UObject item, EExportType type)
+    {
+        if (type is not (EExportType.Backpack or EExportType.Outfit)) return null;
+        if (BaseParts(item, type).Any(p => Shown(p.GetOrDefault<FSoftObjectPath>(PartEffect)) is not null)) return null;
+        var found = StyleSystems(item);
+        if (found.Any(s => s.First)) return null;
+        var styles = found.Select(s => s.Style).Where(s => s.Length > 0).Distinct().ToList();
+        return styles.Count == 0 ? null : $"Only with the {string.Join(", ", styles)} style{(styles.Count == 1 ? "" : "s")}.";
     }
 
     /// <summary>What the export can't replay: GPU emitters have no script, so their particles come out still (niagara_gpu).</summary>
