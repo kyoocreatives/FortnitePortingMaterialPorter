@@ -9,12 +9,14 @@ import hashlib
 import json
 import os
 import traceback
+from collections import namedtuple
 
 import bpy
 
 from . import build, fallback
 from .app_client import AppClient, AppError
 from ..logger import Log
+from ..processing.enums import EExportType, ExportCategory
 
 URL = os.environ.get("MATERIAL_PORTER_BRIDGE", "http://localhost:24320")
 
@@ -116,17 +118,41 @@ def _material(job, entry, obj):
     return mat
 
 
-def subsurface(context, material_data):
-    """Subsurface settings (intensity, scale) from the app options, applied on top of the game's values.
+Subsurface = namedtuple("Subsurface", "skin base scale colour")
 
-    Skin uses Subsurface Intensity/Scale; shell fur layers and their base (material_porter.shells) use Fur Subsurface Intensity/Scale."""
+# imports whose materials may scatter over their whole surface (Base Subsurface): characters and items, not
+# levels or props (hundreds of materials would all compile Eevee's subsurface pass); Rocket Racing cars come as Vehicle
+COSMETIC_CATEGORIES = (ExportCategory.COSMETIC, ExportCategory.LEGO, ExportCategory.FALL_GUYS, ExportCategory.FESTIVAL)
+
+
+def is_cosmetic(export_type):
+    if not isinstance(export_type, int):
+        # the convert, unwrap and fixer operators pass a namespace with the type's name
+        export_type = EExportType.__members__.get(getattr(export_type, "name", ""), EExportType.NONE)
+    if export_type == EExportType.LEGO_PROP:
+        return False
+    return export_type == EExportType.VEHICLE or (int(export_type) & 0xFF00) in COSMETIC_CATEGORIES
+
+
+def cosmetic_material(context, material_data):
+    """Whether this import's material gets Base Subsurface: a cosmetic's, not a shell fur layer's."""
+    return is_cosmetic(getattr(context, "type", EExportType.NONE)) and not material_data.get("MPMoves")
+
+
+def subsurface(context, material_data):
+    """The import's subsurface values: Skin Subsurface (x the game's skin amount), Base Subsurface (over the whole
+    surface, cosmetics only), Scatter Distance (x the game's) and Profile Colour. Shell fur layers and their base
+    (material_porter.shells) use Fur Subsurface Intensity/Scale and neither base nor profile colour."""
     options = getattr(context, "options", None) or {}
-    prefix = "FurSubsurface" if material_data.get("MPMoves") else "Subsurface"
 
     def value(key, default, most):
-        v = options.get(prefix + key)
+        v = options.get(key)
         return default if v is None else min(max(0.0, float(v)), most)
-    return value("Intensity", 1.0, 1.0), value("Scale", 1.0, 1e4)
+    if material_data.get("MPMoves"):
+        return Subsurface(value("FurSubsurfaceIntensity", 1.0, 1.0), 0.0, value("FurSubsurfaceScale", 1.0, 20.0), 1.0)
+    cosmetic = is_cosmetic(getattr(context, "type", EExportType.NONE))
+    return Subsurface(value("SubsurfaceIntensity", 1.0, 1.0), value("BaseSubsurface", 0.0, 1.0) if cosmetic else 0.0,
+                      value("SubsurfaceScale", 1.0, 10.0), value("ProfileColour", 0.5, 1.0))
 
 
 def exact_available(context):
@@ -248,14 +274,15 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     if material_data.get("MPMoves"):
         entry["moves"] = True
         entry["variant"] = _digest("%s moves" % entry.get("variant", ""))
-    # import's subsurface intensity and scale (separate ones for shell fur), multiplied with the game's
+    # import's subsurface values (fur its own); a cosmetic's materials get the controls even where the game doesn't scatter
     sss = subsurface(context, material_data)
+    entry["cosmetic"] = cosmetic_material(context, material_data)
     # shell fur layer (material_porter.shells): scatters fully
     if material_data.get("MPShell"):
         entry["shell"] = True
         entry["variant"] = _digest("%s shell" % entry.get("variant", ""))
-    if sss != (1.0, 1.0):
-        entry["variant"] = _digest("%s sss %g %g" % ((entry.get("variant", ""),) + sss))
+    if tuple(sss) != (1.0, 0.0, 1.0, 0.5) or entry["cosmetic"]:
+        entry["variant"] = _digest("%s sss %g %g %g %g %s" % ((entry.get("variant", ""),) + tuple(sss) + (entry["cosmetic"],)))
     # Landscape proxy (marked by placement.after_import; FP exports painted layers as colour attributes):
     # one material per set of layers, as UE compiles each component, so other layers' textures fold away
     # (the Ch4 jungle landscape samples 43 textures over all layers, past Eevee's 32, and rendered magenta)
@@ -293,10 +320,14 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     job["notes"].clear()
     if build.KEY_SUBSURFACE in mat:
         # the root group node is the only one in its tree with those inputs
+        values = {build.SKIN_SUBSURFACE_INPUT: sss.skin, build.SUBSURFACE_INTENSITY: sss.skin,
+                  build.BASE_SUBSURFACE: sss.base, build.PROFILE_COLOUR: sss.colour,
+                  build.SCATTER_DISTANCE: mat[build.KEY_SUBSURFACE] * sss.scale}
         for n in mat.node_tree.nodes:
-            if n.bl_idname == "ShaderNodeGroup" and build.SUBSURFACE_SCALE in n.inputs and build.SUBSURFACE_INTENSITY in n.inputs:
-                n.inputs[build.SUBSURFACE_INTENSITY].default_value = sss[0]
-                n.inputs[build.SUBSURFACE_SCALE].default_value = mat[build.KEY_SUBSURFACE] * sss[1]
+            if n.bl_idname == "ShaderNodeGroup" and build.SCATTER_DISTANCE in n.inputs:
+                for name, v in values.items():
+                    if name in n.inputs:
+                        n.inputs[name].default_value = v
     # LEGO face: rig placement of the character accents per mouth pose (face_anim.py)
     if rig := material_data.get("MPFaceRig"):
         mat["mp_face_rig"] = rig

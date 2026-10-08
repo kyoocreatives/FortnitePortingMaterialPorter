@@ -18,7 +18,7 @@ from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PA
 PREFIX = "MP "            # prefix of built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # game object the material translates
 KEY_REV = "mp_rev"        # build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 66       # bump when a builder change should rebuild existing materials
+BUILD_REVISION = 67       # bump when a builder change should rebuild existing materials
 KEY_REPLACES = "mp_replaces"
 KEY_FP = "mp_fp"          # function group fingerprint, for sharing groups
 KEY_VARIANT = "mp_variant"  # hash of a style's parameter values over the instance
@@ -30,10 +30,14 @@ KEY_LAYOUT = "mp_layout_pending"  # tree built without layout; arranged when a n
 LAZY_LAYOUT = False
 KEY_WATER = "mp_water"    # water material (MSM_SingleLayerWater): its objects get the depth under them
 KEY_SUBSURFACE = "mp_subsurface_scale"  # the game's scattering distance (metres), set on the group node input at build
-SUBSURFACE_SCALE = "Subsurface Scale"   # that input
-SUBSURFACE_INTENSITY = "Subsurface Intensity"   # amount where the game's shading model scatters
-SUBSURFACE_RADIUS = "Subsurface Radius"         # per-colour distance (skin, shell fur)
+SKIN_SUBSURFACE_INPUT = "Skin Subsurface"   # x the game's skin amount, where its shading model scatters
+BASE_SUBSURFACE = "Base Subsurface"         # over the whole surface (cosmetics); the amount is max(base, skin)
+SCATTER_DISTANCE = "Scatter Distance"       # metres
+SUBSURFACE_RADIUS = "Subsurface Radius"     # per-colour distance (the profile's, skin's, shell fur's)
+PROFILE_COLOUR = "Profile Colour"           # how much of the profile's per-colour spread the radius keeps
+SUBSURFACE_INTENSITY = "Subsurface Intensity"   # shell fur's amount (everywhere on a layer)
 FUR_RADIUS = (1.0, 0.8, 0.65)                   # default radius for fur
+SKIN_SCALE = 0.003                              # metres: Fortnite skin's (SS_HeroSkin_02), for skin without a profile
 SKIN_SUBSURFACE = "SkinSubsurfaceIntensity"     # a character's skin scattering parameter
 
 
@@ -71,6 +75,8 @@ def settings(entry):
         "profile": entry.get("subsurface"),
         # shell fur layer (shells): scatters fully, as fur
         "shell": bool(entry.get("shell")),
+        # a cosmetic's material (hook.is_cosmetic): subsurface controls even where the game doesn't scatter
+        "cosmetic": bool(entry.get("cosmetic")),
         # a character's head (lips are lit, not skin, in the game's shading; see _per_pixel_models)
         "head": _is_head(entry),
     }
@@ -220,67 +226,107 @@ def assemble(tr, mat, a, s):
                 mat.max_vertex_displacement = 50.0
             moved = True
     # Amount and distance of light scattering under skin or fur sit on the material's own group node so an artist
-    # can tune them (the import settings set them too). The amount is flat: Subsurface Intensity wherever the game's
-    # shading model scatters, everywhere on a shell fur layer. The distance is the game's.
-    # These nodes go in the Output frame with the surface they feed (on their own they came after the output).
+    # can tune them (the import settings set them too). Skin scatters where the game's shading model does (Skin
+    # Subsurface scales the game's amount, keeping its soft edges); Base Subsurface scatters a cosmetic's whole
+    # surface (amount max(base, skin)); Profile Colour blends the profile's per-colour radius towards its mean.
+    # A shell fur layer scatters everywhere by its own amount. These nodes go in the Output frame with the surface.
     with tr.at("Output"):
         weight = bsdf.inputs["Subsurface Weight"]
-        if tr.tree != mat.node_tree and (weight.is_linked or weight.default_value > 0.0 or s.get("shell")):
+        scatters = weight.is_linked or weight.default_value > 0.0
+        shell, cosmetic = s.get("shell"), s.get("cosmetic")
+        if tr.tree != mat.node_tree and (scatters or shell or cosmetic):
+            if not scatters and not shell:
+                # a cosmetic the game doesn't scatter: Base Subsurface alone, over skin's neutral radius and distance
+                bsdf.inputs["Subsurface Radius"].default_value = SKIN_RADIUS
+                bsdf.inputs["Subsurface Scale"].default_value = SKIN_SCALE
             scale = bsdf.inputs["Subsurface Scale"].default_value
 
-            def new_input(name, default, description):
-                sock = tr.tree.interface.new_socket(name, in_out='INPUT', socket_type='NodeSocketFloat')
-                sock.default_value, sock.min_value, sock.max_value, sock.description = default, 0.0,                 (1.0 if name == SUBSURFACE_INTENSITY else 1e4), description
+            def new_input(name, default, description, most=1.0, kind='NodeSocketFloat'):
+                sock = tr.tree.interface.new_socket(name, in_out='INPUT', socket_type=kind)
+                sock.default_value, sock.min_value, sock.description = default, 0.0, description
+                if kind == 'NodeSocketFloat':
+                    sock.max_value = most
                 gi = tr.node("NodeGroupInput", name.lower())
                 return next(o for o in gi.outputs if o.identifier == sock.identifier)
-            intensity = new_input(SUBSURFACE_INTENSITY, 1.0, "How much light scatters where the surface scatters any")
+
+            def node(op, a, b, label):
+                n = tr.node("ShaderNodeMath", label, operation=op)
+                tr.L.new(a, n.inputs[0])
+                tr.L.new(b, n.inputs[1])
+                return n.outputs[0]
+
             game = weight.links[0].from_socket if weight.is_linked else None
-            if s.get("shell") or game is None:
-                tr.L.new(intensity, weight)
-            if not s.get("shell"):
-                # skin radius (Subsurface Profile's, else SKIN_RADIUS) goes on the group node too;
-                # a radius the graph makes (Subsurface's SubsurfaceColor) stays the graph's
+            if shell:
+                tr.L.new(new_input(SUBSURFACE_INTENSITY, 1.0, "How much light scatters under the fur"), weight)
+            else:
+                skin = new_input(SKIN_SUBSURFACE_INPUT, 1.0, "How much light scatters where the game's skin scatters (x its amount)")
+                amount = None
+                if game is not None:
+                    # the game's amount relative to its skin's (SkinSubsurfaceIntensity, e.g. Helsie's face 0.4,
+                    # lips 0): 1 on skin, the game's ratio elsewhere (keeps soft edges); without that parameter,
+                    # the game's amount itself
+                    param = next((it for it in tr.tree.interface.items_tree if it.item_type == 'SOCKET'
+                                  and it.in_out == 'INPUT' and it.name == SKIN_SUBSURFACE), None)
+                    ratio = tr.node("ShaderNodeMath", "game's scattering over its skin's", operation='DIVIDE', use_clamp=True)
+                    tr.L.new(game, ratio.inputs[0])
+                    if param is not None:
+                        gi = tr.node("NodeGroupInput", "skin subsurface intensity")
+                        least = tr.node("ShaderNodeMath", "skin's scattering (not 0)", operation='MAXIMUM')
+                        tr.L.new(next(o for o in gi.outputs if o.identifier == param.identifier), least.inputs[0])
+                        least.inputs[1].default_value = 1e-4
+                        tr.L.new(least.outputs[0], ratio.inputs[1])
+                    else:
+                        ratio.inputs[1].default_value = 1.0
+                    amount = node('MULTIPLY', ratio.outputs[0], skin, "skin subsurface")
+                elif scatters:
+                    amount = skin      # a constant amount: no ratio, the flat Skin Subsurface
+                if cosmetic:
+                    base = new_input(BASE_SUBSURFACE, 0.0, "How much light scatters over the whole surface, clothes included")
+                    amount = node('MAXIMUM', base, amount, "base or skin subsurface") if amount is not None else base
+                if amount is not None:
+                    tr.L.new(amount, weight)
+            tr.L.new(new_input(SCATTER_DISTANCE, scale, "How far light scatters under the surface (metres)", most=1e4),
+                     bsdf.inputs["Subsurface Scale"])
+            if shell:
+                # the game's fur radius (Post FX SubsurfaceColor) is about black: a near-neutral one, red furthest
+                tr.L.new(new_input(SUBSURFACE_RADIUS, FUR_RADIUS, "How far each colour scatters, x the distance",
+                                   kind='NodeSocketVector'), bsdf.inputs["Subsurface Radius"])
+            else:
+                # skin radius (the profile's, else SKIN_RADIUS), blended towards its mean by Profile Colour;
+                # a radius the graph makes (Subsurface's or foliage's SubsurfaceColor) keeps its own colour
                 radius = bsdf.inputs["Subsurface Radius"]
                 target = radius if not radius.is_linked else None
-                if radius.is_linked and radius.links[0].from_node.bl_idname == "ShaderNodeMix"                     and radius.links[0].from_node.label == "subsurface radius"                     and not radius.links[0].from_node.inputs[5].is_linked:
-                    target = radius.links[0].from_node.inputs[5]
+                profiled = not scatters or (per_pixel is None and shading in ("MSM_SubsurfaceProfile", "MSM_PreintegratedSkin"))
+                if radius.is_linked and radius.links[0].from_node.bl_idname == "ShaderNodeMix" \
+                        and radius.links[0].from_node.label == "subsurface radius" \
+                        and not radius.links[0].from_node.inputs[5].is_linked:
+                    target, profiled = radius.links[0].from_node.inputs[5], True
                 if target is not None:
-                    sock = tr.tree.interface.new_socket(SUBSURFACE_RADIUS, in_out='INPUT', socket_type='NodeSocketVector')
-                    sock.default_value, sock.min_value = tuple(target.default_value)[:3], 0.0
-                    sock.description = "How far each colour scatters under skin, times the scale"
-                    gi = tr.node("NodeGroupInput", "subsurface radius")
-                    tr.L.new(next(o for o in gi.outputs if o.identifier == sock.identifier), target)
-            if s.get("shell"):
-                # the game's fur radius (Post FX SubsurfaceColor) is about black, so use a near-neutral one,
-                # red furthest, as through skin
-                sock = tr.tree.interface.new_socket(SUBSURFACE_RADIUS, in_out='INPUT', socket_type='NodeSocketVector')
-                sock.default_value, sock.min_value = FUR_RADIUS, 0.0
-                sock.description = "How far each colour scatters, times the scale"
-                gi = tr.node("NodeGroupInput", "subsurface radius")
-                tr.L.new(next(o for o in gi.outputs if o.identifier == sock.identifier), bsdf.inputs["Subsurface Radius"])
-            elif game is not None:
-                # The game's amount relative to its skin's (SkinSubsurfaceIntensity, e.g. Helsie's face 0.4, lips 0):
-                # 1 on skin, the game's ratio elsewhere (keeps soft edges), times Subsurface Intensity.
-                # Without that parameter, the game's amount itself. A constant weight has no ratio:
-                # the flat Subsurface Intensity linked above is used.
-                skin = next((it for it in tr.tree.interface.items_tree if it.item_type == 'SOCKET'
-                             and it.in_out == 'INPUT' and it.name == SKIN_SUBSURFACE), None)
-                ratio = tr.node("ShaderNodeMath", "game's scattering over its skin's", operation='DIVIDE', use_clamp=True)
-                tr.L.new(game, ratio.inputs[0])
-                if skin is not None:
-                    gi = tr.node("NodeGroupInput", "skin subsurface intensity")
-                    least = tr.node("ShaderNodeMath", "skin's scattering (not 0)", operation='MAXIMUM')
-                    tr.L.new(next(o for o in gi.outputs if o.identifier == skin.identifier), least.inputs[0])
-                    least.inputs[1].default_value = 1e-4
-                    tr.L.new(least.outputs[0], ratio.inputs[1])
-                else:
-                    ratio.inputs[1].default_value = 1.0
-                times = tr.node("ShaderNodeMath", "subsurface intensity", operation='MULTIPLY')
-                tr.L.new(ratio.outputs[0], times.inputs[0])
-                tr.L.new(intensity, times.inputs[1])
-                tr.L.new(times.outputs[0], weight)
-            tr.L.new(new_input(SUBSURFACE_SCALE, scale, "How far light scatters under the surface (metres)"),
-                     bsdf.inputs["Subsurface Scale"])
+                    profile = new_input(SUBSURFACE_RADIUS, tuple(target.default_value)[:3],
+                                        "How far each colour scatters under skin, x the distance", kind='NodeSocketVector')
+                if target is not None and not profiled:
+                    tr.L.new(profile, target)
+                elif target is not None:
+                    colour = new_input(PROFILE_COLOUR, 0.5, "How much of the profile's colour the scattering keeps (0: neutral)")
+                    parts = tr.node("ShaderNodeSeparateXYZ", "profile radius")
+                    tr.L.new(profile, parts.inputs[0])
+                    total = tr.node("ShaderNodeMath", "radius sum", operation='ADD')
+                    tr.L.new(parts.outputs[0], total.inputs[0])
+                    tr.L.new(parts.outputs[1], total.inputs[1])
+                    total3 = tr.node("ShaderNodeMath", "radius sum", operation='ADD')
+                    tr.L.new(total.outputs[0], total3.inputs[0])
+                    tr.L.new(parts.outputs[2], total3.inputs[1])
+                    avg = tr.node("ShaderNodeMath", "radius mean", operation='DIVIDE')
+                    tr.L.new(total3.outputs[0], avg.inputs[0])
+                    avg.inputs[1].default_value = 3.0
+                    neutral = tr.node("ShaderNodeCombineXYZ", "neutral radius")
+                    for i in range(3):
+                        tr.L.new(avg.outputs[0], neutral.inputs[i])
+                    blend = tr.node("ShaderNodeMix", "profile colour", data_type='VECTOR')
+                    tr.L.new(colour, blend.inputs[0])
+                    tr.L.new(neutral.outputs[0], blend.inputs[4])
+                    tr.L.new(profile, blend.inputs[5])
+                    tr.L.new(blend.outputs[1], target)
             mat[KEY_SUBSURFACE] = scale
     # a strip its material thickens towards the camera has no side of its own, and the mirrored import
     # turns away the one it has: draw both sides
@@ -1152,7 +1198,7 @@ def _subsurface_panel(root):
     (a character's: beside SkinSubsurfaceIntensity), else beside the game's own subsurface parameter."""
     iface = root.interface
     items = list(iface.items_tree)
-    names = (SUBSURFACE_INTENSITY, SUBSURFACE_SCALE, SUBSURFACE_RADIUS)
+    names = (SKIN_SUBSURFACE_INPUT, SUBSURFACE_INTENSITY, BASE_SUBSURFACE, SCATTER_DISTANCE, SUBSURFACE_RADIUS, PROFILE_COLOUR)
     mine = sorted((it for it in items if it.item_type == 'SOCKET' and it.in_out == 'INPUT' and it.name in names),
                   key=lambda it: names.index(it.name))
     if not mine:
@@ -1178,7 +1224,7 @@ def shape_key(entry):
     """What decides a build's node trees beyond its parameter values: the master's graph, static switches and masks,
     blend/shading overrides and subsurface profile. Instances alike in all of it differ only in parameter values
     (the material's group-node inputs) and texture images."""
-    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "shell", "fixed", "landscape_layers")}
+    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "shell", "cosmetic", "fixed", "landscape_layers")}
     k["head"] = _is_head(entry)
     # with a time of day in the file collections stay live; without one they are folded in
     k["day"] = world.has_day()

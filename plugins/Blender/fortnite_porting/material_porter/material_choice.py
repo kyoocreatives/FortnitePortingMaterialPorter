@@ -34,11 +34,11 @@ class ExactChoice:
     """One slot's choice. A material built under different settings (prefer FP, Rim Light, subsurface, landscape layers) isn't reused."""
 
     def __init__(self, ctx, material_data, material_slot, as_material_data):
-        from .hook import subsurface as subsurface_of
+        from .hook import cosmetic_material, subsurface as subsurface_of
         self.ctx = ctx
         self.prefer_fp = bool(ctx.options.get("PreferFPShaders") and ctx.type in FP_SHADER_TYPES and has_fp_shader(material_data))
         self.rim_light = bool(ctx.options.get("RimLight"))
-        self.subsurface = "%g %g" % subsurface_of(ctx, material_data)
+        self.subsurface = "%g %g %g %g %s" % (tuple(subsurface_of(ctx, material_data)) + (cosmetic_material(ctx, material_data),))
         # a landscape proxy gets one material per set of painted layers (see hook.build_exact)
         slot_object = None if as_material_data else material_slot.id_data
         self.landscape = "+".join(sorted(a.name for a in slot_object.data.color_attributes if a.name != "COL0")) \
