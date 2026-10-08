@@ -425,7 +425,7 @@ public partial class MaterialPorterService
                     c.ChannelName, options = c.StyleDatas.Count, c.IsPicker, c.IsSwitch, c.SwitchNote, selected = c.SelectedStyle.StyleName,
                     images = c.StyleDatas.Count(d => d.StyleDisplayImage is not null), first = c.StyleDatas.Take(6).Select(d => d.StyleName),
                 }).ToList();
-                if (query["export"] != "1") return JToken.FromObject(new { page });
+                if (query["export"] != "1") return JToken.FromObject(new { path = item.CreationData.Object!.GetPathName(), page });
                 var convert = typeof(ExportService).GetMethod("ConvertStyles", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
                 var styles = (Exporting.Styles.ExportStyleBase[]) convert.Invoke(null, [info.GetSelectedStyles()])!;
                 using var pageMeta = AppServices.AppSettings.ExportSettings.CreateExportMeta(EExportLocation.Blender);
@@ -450,11 +450,12 @@ public partial class MaterialPorterService
         }
         if (route == "fork-find-files")
         {
-            // game files whose path holds every word of ?path= (space-separated), of any type
+            // game files whose path holds every word of ?path= (space-separated), of any type, with the container each is in
             var words = (query["path"] ?? throw new ArgumentException("path missing")).Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            return new JArray(Game.Provider.Files.Keys
-                .Where(k => words.All(w => k.Contains(w, StringComparison.OrdinalIgnoreCase)))
-                .Take(int.TryParse(query["count"], out var most) ? most : 400));
+            return new JArray(Game.Provider.Files
+                .Where(f => words.All(w => f.Key.Contains(w, StringComparison.OrdinalIgnoreCase)))
+                .Take(int.TryParse(query["count"], out var most) ? most : 400)
+                .Select(f => $"{f.Key} [{f.Value.GetType().Name} {(f.Value as global::CUE4Parse.UE4.VirtualFileSystem.VfsEntry)?.Vfs.Name}]"));
         }
         if (route == "fork-effect-program")
         {
@@ -541,6 +542,47 @@ public partial class MaterialPorterService
                 catch (Exception e) { Log.Warning("emote census: {Item}: {Error}", item.Object.Name, e.Message); }
             }
             return JToken.FromObject(new { emotes, kinds = kinds.OrderByDescending(k => k.Value.Count).ToDictionary(k => k.Key, k => new { k.Value.Count, k.Value.Where }) });
+        }
+        if (route == "fork-duplicates")
+        {
+            // paths more than one container holds (?container= one of them, by name): how many per extension, which
+            // container answers for them now, and a few examples
+            var files = (global::CUE4Parse.FileProvider.Vfs.FileProviderDictionary) Game.Provider.Files;
+            var wanted = query["container"] ?? "WindowsUEFN";
+            var shared = new List<(string Path, string Answers)>();
+            foreach (var key in files.Keys.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!files.TryGetValues(key, out var all) || all.Count < 2) continue;
+                if (!all.Any(f => (f as global::CUE4Parse.UE4.VirtualFileSystem.VfsEntry)?.Vfs.Name.Contains(wanted) == true)) continue;
+                shared.Add((key, (files[key] as global::CUE4Parse.UE4.VirtualFileSystem.VfsEntry)?.Vfs.Name ?? ""));
+            }
+            return JToken.FromObject(new
+            {
+                total = shared.Count,
+                byExtension = shared.GroupBy(s => System.IO.Path.GetExtension(s.Path)).ToDictionary(g => g.Key, g => g.Count()),
+                answeredBy = shared.GroupBy(s => s.Answers).ToDictionary(g => g.Key, g => g.Count()),
+                sample = shared.Take(20).Select(s => $"{s.Path} <- {s.Answers}"),
+            });
+        }
+        if (route == "fork-effect-items")
+        {
+            // a tab's items (type=Outfit) that have their own effects, as the Effects switch finds them
+            var type = Enum.Parse<EExportType>(query["type"] ?? "Outfit");
+            var listing = AppServices.AssetLoading.Get(type);
+            await listing.Load();
+            var found = new List<string>();
+            foreach (var item in listing.Source.Items.Select(a => a.CreationData).OfType<Models.Assets.Asset.AssetItemCreationArgs>())
+            {
+                try
+                {
+                    if (Effects.OwnEffectNames(item.Object, type).Count > 0) found.Add($"{item.DisplayName} = {item.Object.GetPathName()}");
+                }
+                catch (Exception e)
+                {
+                    Log.Warning("effect items: {Item}: {Error}", item.Object.Name, e.Message);
+                }
+            }
+            return JToken.FromObject(found);
         }
         if (route == "fork-effect-census")
         {
