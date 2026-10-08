@@ -136,6 +136,10 @@ check("...and scatters nothing at base 0", bsdf_input(node, "Subsurface Weight")
 node.inputs[build.BASE_SUBSURFACE].default_value = 0.5
 check("...base alone drives it", bsdf_input(node, "Subsurface Weight"), 0.5)
 check("...over skin's neutral distance", node.inputs[build.SCATTER_DISTANCE].default_value, build.SKIN_SCALE)
+check("...no profile colour without a profile", build.PROFILE_COLOUR in node.inputs, False)
+check("...but a radius input", build.SUBSURFACE_RADIUS in node.inputs, True)
+mat, node = built("MSM_SubsurfaceProfile", opacity=0.8)
+check("skin without a profile: no profile colour", build.PROFILE_COLOUR in node.inputs, False)
 
 mat, node = built("MSM_DefaultLit", cosmetic=False)
 check("a world material the game doesn't scatter gets nothing", build.BASE_SUBSURFACE in node.inputs, False)

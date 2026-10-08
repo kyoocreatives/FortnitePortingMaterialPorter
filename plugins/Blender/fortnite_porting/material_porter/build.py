@@ -18,7 +18,7 @@ from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PA
 PREFIX = "MP "            # prefix of built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # game object the material translates
 KEY_REV = "mp_rev"        # build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 67       # bump when a builder change should rebuild existing materials
+BUILD_REVISION = 68       # bump when a builder change should rebuild existing materials
 KEY_REPLACES = "mp_replaces"
 KEY_FP = "mp_fp"          # function group fingerprint, for sharing groups
 KEY_VARIANT = "mp_variant"  # hash of a style's parameter values over the instance
@@ -292,15 +292,17 @@ def assemble(tr, mat, a, s):
                 tr.L.new(new_input(SUBSURFACE_RADIUS, FUR_RADIUS, "How far each colour scatters, x the distance",
                                    kind='NodeSocketVector'), bsdf.inputs["Subsurface Radius"])
             else:
-                # skin radius (the profile's, else SKIN_RADIUS), blended towards its mean by Profile Colour;
-                # a radius the graph makes (Subsurface's or foliage's SubsurfaceColor) keeps its own colour
+                # skin radius (the profile's, else SKIN_RADIUS); a game profile's is blended towards its mean by
+                # Profile Colour. SKIN_RADIUS and a radius the graph makes (Subsurface's or foliage's SubsurfaceColor)
+                # keep their own colour
                 radius = bsdf.inputs["Subsurface Radius"]
                 target = radius if not radius.is_linked else None
-                profiled = not scatters or (per_pixel is None and shading in ("MSM_SubsurfaceProfile", "MSM_PreintegratedSkin"))
+                profiled = bool(s["profile"]) and scatters and per_pixel is None \
+                    and shading in ("MSM_SubsurfaceProfile", "MSM_PreintegratedSkin")
                 if radius.is_linked and radius.links[0].from_node.bl_idname == "ShaderNodeMix" \
                         and radius.links[0].from_node.label == "subsurface radius" \
                         and not radius.links[0].from_node.inputs[5].is_linked:
-                    target, profiled = radius.links[0].from_node.inputs[5], True
+                    target, profiled = radius.links[0].from_node.inputs[5], bool(s["profile"])
                 if target is not None:
                     profile = new_input(SUBSURFACE_RADIUS, tuple(target.default_value)[:3],
                                         "How far each colour scatters under skin, x the distance", kind='NodeSocketVector')
