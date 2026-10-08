@@ -1,8 +1,8 @@
-"""Material Porter fork: the FP Material Fixer (from the fpisland extension), in the Fortnite Porting tab.
+"""FP Material Fixer panel (from the fpisland extension), in the Fortnite Porting tab.
 
-Fix FP Materials wires what FP's shader left unlinked (fixer.py). Recover Island Textures (the owner's
-builds, which read islands) gets a UEFN map's missing textures and flat colours from the app (island.py).
-Both take the whole file's materials or only the selected objects'.
+Fix FP Materials wires textures FP left unlinked (fixer.py). Recover Island Textures (owner builds
+only) fetches a UEFN map's missing textures and flat colours from the app (island.py).
+Both work on the whole file or only the selected objects.
 """
 import time
 import types
@@ -15,7 +15,7 @@ from ...material_porter import hook
 from ...material_porter.app_client import AppClient, AppError
 
 REPORT_TEXT = 'FP Fixer Report'
-# what the app's build does (fork-caps): None until asked; island recovery shows only where islands are
+# App capabilities (fork-caps), None until asked. Island recovery is shown only when the app supports it.
 _caps = {'islands': None, 'asking': False, 'next': 0.0}
 _running = False
 
@@ -25,7 +25,7 @@ def _ask_caps():
     try:
         _caps['islands'] = bool(AppClient(hook.URL).get('fork-caps', '').get('islands'))
     except Exception:
-        _caps['next'] = time.time() + 30      # the app isn't open: ask again later, not on every redraw
+        _caps['next'] = time.time() + 30      # app not open: retry in 30 s, not on every redraw
         return None
     tag_redraw(bpy.context)
     return None
@@ -83,7 +83,7 @@ class FPMP_FixerProps(bpy.types.PropertyGroup):
 
 
 def scope_objects(context, scope):
-    """The objects whose slots a fix may change: every one, or the selected (and their collection instances')."""
+    """All objects, or the selected ones plus their collection instances' objects."""
     if scope == 'ALL':
         return list(bpy.data.objects)
     objs, seen = [], set()
@@ -103,9 +103,7 @@ def scope_objects(context, scope):
 
 
 def rebuild_fallbacks(context, scope, dry):
-    """The fork's own materials for an island's materials (no graph: built from the cooked textures and
-    values, mp_fallback) that an older fallback builder made, built again by the current one (the FP
-    Material Fixer's names and colour rules) and put in their slots. (count, notes)."""
+    """Rebuild island materials made by an older fallback builder (mp_fallback < REVISION). Returns (count, notes)."""
     from ...material_porter import fallback
     users = {}
     for o in scope_objects(context, scope):
@@ -208,7 +206,7 @@ class FPMP_OT_RecoverIsland(bpy.types.Operator):
             return {'CANCELLED'}
         if event.type != 'TIMER':
             return {'PASS_THROUGH'}
-        # a slice of the work per tick, so the window keeps answering
+        # Work in ~0.15 s slices per timer tick so the UI stays responsive.
         until = time.perf_counter() + 0.15
         try:
             while time.perf_counter() < until:

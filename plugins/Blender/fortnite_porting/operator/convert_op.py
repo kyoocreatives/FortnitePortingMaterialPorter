@@ -1,12 +1,10 @@
-"""Material Porter fork: FP imports made before (with FortnitePorting itself, or with the fork's
-own FP shaders) converted to the fork's exact materials.
+"""Convert FP-imported materials to the fork's exact materials.
 
-An FP material keeps only its asset's name ("OriginalName"); the app's bridge finds the
-material assets with that name (find-materials) and the fork's material import builds the
-exact one (material_porter.hook.build_exact), which then takes the FP material's slots.
-Where two assets share the name, the one whose textures the FP material shows wins. A
-style's values FP put over the material (a colour swap, a building's texture data) aren't
-kept on the FP material, so the exact one has the asset's own.
+An FP material keeps only its asset name ("OriginalName"). The app bridge finds assets by that
+name (find-materials) and material_porter.hook.build_exact builds the exact material, which
+takes over the FP material's slots. If two assets share the name, the one whose textures the
+FP material shows wins. Style overrides FP applied (colour swaps, building texture data) are
+not stored on the FP material, so the exact one uses the asset's own values.
 """
 import re
 import types
@@ -16,24 +14,22 @@ import bpy
 from ..material_porter import build, hook
 from ..material_porter.app_client import AppClient, AppError
 
-# names per find-materials request (they go in the URL)
+# Names per find-materials request (they go in the URL).
 CHUNK = 40
 
 
 def _asset_name(mat):
-    """The material asset's name: FP keeps it; else the Blender name without FP's style
-    hash (MI_X_3e6eed05) and Blender's duplicate number (.001)."""
+    """Asset name: "OriginalName", else the Blender name minus FP's style hash and the .001 suffix."""
     return mat.get("OriginalName") or re.sub(r"(_[0-9a-f]{8})?(\.\d{3})?$", "", mat.name)
 
 
 def _from_fp(mat):
-    """An FP import's material: it keeps its hash and asset name; an older import's,
-    named as UE names materials."""
+    """True for FP materials: they carry Hash/OriginalName; older imports only have UE-style names."""
     return "Hash" in mat or "OriginalName" in mat or re.match(r"(M|MI|MM|MAT|MIC)_", mat.name) is not None
 
 
 def _image_names(mat):
-    """The images an FP material shows, by texture name."""
+    """Lowercase texture names of the images the material shows."""
     names = set()
     if not mat.node_tree:
         return names
@@ -52,7 +48,7 @@ def _image_names(mat):
 
 
 def _pick(app, mat, paths):
-    """The candidate whose own textures the FP material shows most of (the first on a tie)."""
+    """The candidate sharing the most textures with the FP material (first on a tie)."""
     if len(paths) == 1:
         return paths[0]
     shown = _image_names(mat)
@@ -88,7 +84,7 @@ class FPMP_OT_ConvertExact(bpy.types.Operator):
             self.report({'ERROR'}, "Exact materials need Blender 5.0 or newer")
             return {'CANCELLED'}
         objects = context.selected_objects if self.scope == 'SELECTED' else context.scene.objects
-        # FP material -> the slots that show it
+        # FP material -> its (object, slot index) users
         slots = {}
         for obj in objects:
             for i, slot in enumerate(getattr(obj, "material_slots", [])):
@@ -110,7 +106,7 @@ class FPMP_OT_ConvertExact(bpy.types.Operator):
             self.report({'ERROR'}, "The FP app isn't answering: open FortnitePorting MP and load the game (%s)" % e)
             return {'CANCELLED'}
 
-        # one import session for the lot: many materials lay out lazily, as a world's do
+        # One import session: with many materials the build lays out lazily, as for a world.
         job = types.SimpleNamespace(options={"RimLight": self.rim_light},
                                     type=types.SimpleNamespace(name="WORLD" if len(slots) > 20 else "MESH"))
         converted, missing, failed = 0, [], []
@@ -257,13 +253,12 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
         obj = context.active_object
         col = self.layout.column(align=True)
         if obj.data.get("is_vehicle_rig"):
-            # arrow: move forward; arcs: rotate; roof slab: move/tilt; wheel rings: lift/turn
             col.label(text="Drive: arrow. Steer, drift: arcs. Body: roof")
-            col.prop(obj, "fpmp_ground", text="Ground")             # the wheels follow it
+            col.prop(obj, "fpmp_ground", text="Ground")
             col.prop(obj, '["auto_wheels"]', text="Wheels Spin", slider=True)
             col.prop(obj, '["auto_steer"]', text="Wheels Steer", slider=True)
             for key, text in (("countersteer", "Counter-steer"), ("suspension", "Body Follows Wheels"), ("lean", "Lean in Turns")):
-                if key in obj:          # (a rig made before they were)
+                if key in obj:          # missing on rigs made before these existed
                     col.prop(obj, '["%s"]' % key, text=text, slider=True)
             return
         if obj.data.get("is_lego_rig"):
@@ -274,7 +269,6 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
             col.operator(FPMP_OT_VehicleRig.bl_idname)
             col.operator(FPMP_OT_LegoRig.bl_idname)
             return
-        # each limb's IK (0: FK, as an animation plays it); the eyes' aim
         col.label(text="IK (0 to play an animation):")
         for key in sorted(k for k in obj.keys() if k.startswith("ik_")):
             col.prop(obj, '["%s"]' % key, text=key[3:], slider=True)
@@ -295,10 +289,10 @@ class FPMP_PT_Exact(bpy.types.Panel):
         row = col.row(align=True)
         row.operator(FPMP_OT_ConvertExact.bl_idname, text="Selected").scope = 'SELECTED'
         row.operator(FPMP_OT_ConvertExact.bl_idname, text="Scene").scope = 'SCENE'
-        # a wrap goes on in the app (the Wrap list of a weapon's or vehicle's page); it comes off here
+        # Wraps are applied in the app (Wrap list on a weapon/vehicle page); removed here.
         col.separator()
         col.operator(FPMP_OT_RemoveWrap.bl_idname, text="Remove Wrap from Selected")
-        # an effect is replayed at import; again here: on a character, over another frame range
+        # Effects replay at import; this replays them on a character or another frame range.
         col.separator()
         col.operator(FPMP_OT_ReplayEffect.bl_idname, text="Replay Effect")
 
@@ -318,7 +312,7 @@ class FPMP_OT_AddShellFur(bpy.types.Operator):
         obj = context.active_object
         was_edit = obj.mode == 'EDIT'
         if was_edit:
-            bpy.ops.object.mode_set(mode='OBJECT')      # (the selection reaches the mesh)
+            bpy.ops.object.mode_set(mode='OBJECT')      # flushes the edit-mode selection to the mesh
         try:
             msg = custom_fur.add_fur(obj)
         except ValueError as e:
@@ -372,7 +366,7 @@ classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_
 
 
 def _owner_panels():
-    """The owner's private overlay's panels, when the app packed them in (none elsewhere)."""
+    """Panels of the owner-only overlay; empty when it isn't packed in."""
     try:
         from ..material_porter import tod_panel
     except ImportError:
@@ -384,11 +378,11 @@ def register():
     from ..processing.context import vehicle_rig
     for c in classes:
         bpy.utils.register_class(c)
-    vehicle_rig.register()          # (the armature object's Ground)
+    vehicle_rig.register()          # registers the armature's fpmp_ground property
     for m in _owner_panels():
         m.register()
     from ..material_porter import effects
-    effects.register()              # (effects' soft fade follows the render engine)
+    effects.register()              # soft fade follows the render engine
 
 
 def unregister():

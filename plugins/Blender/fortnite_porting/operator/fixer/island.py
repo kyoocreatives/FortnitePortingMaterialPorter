@@ -1,12 +1,11 @@
 """Island texture recovery: FP materials from a UEFN island that came in without their textures.
 
-FP exports only texture *parameters*. UEFN island materials that hard-code textures in the graph
-(the parent UMaterial) or are plain colours arrive empty. The FP app (the owner's builds, which read
-islands) finds the material each one was made from and says what it references: its instance
-parameters, its master's cooked ReferencedTextures and parameter defaults (the fork-island-* routes,
-IslandMaterials.cs); its textures come over the bridge's texture route. This module picks the
-material, wires the textures and sets the flat colours. (From the FP Material Fixer extension's
-island.py, whose fpisland tool the app's routes replace.)
+FP exports only texture parameters, so UEFN island materials that hard-code textures in the parent
+UMaterial, or are plain colours, arrive empty. The FP app (owner builds only) finds the source
+material of each one and reports its instance parameters, its master's cooked ReferencedTextures
+and parameter defaults (fork-island-* routes, IslandMaterials.cs). Textures come over the bridge's
+texture route. This module picks the material, wires the textures and sets the flat colours.
+(From the FP Material Fixer extension's island.py; the app's routes replace its fpisland tool.)
 """
 import os
 import re
@@ -17,12 +16,12 @@ import bpy
 from . import fixer
 
 ISLAND_FRAME = 'Island Textures'
-# Fortnite's own master materials reference helper textures that must never be wired as surface maps
+# Helper textures referenced by Fortnite's master materials; never wire them as surface maps.
 HELPER_STEMS = {'t_crack_normal', 't_crack_fx_mask', 't_blindsnormalnoise_n', 't_curie_noisepack', 't_cloud2dnoise',
                 't_gaussiannoise_01_m', 't_electricnoise', 't_athena_snow_01_mobile_m'}
 DIFFUSE_KEYS = ['Color', 'Base color', 'BaseColor', 'MainColor', 'DiffuseColor', 'TextureColor', 'Param']
 GUID_RX = re.compile(r'[\\/]([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})[\\/]', re.I)
-# names per find request (they go in the URL)
+# Names per find request (they go in the URL).
 CHUNK = 40
 
 
@@ -67,12 +66,13 @@ def build_targets(materials):
     return targets
 
 
-# ---------------------------------------------------------------- step 2: the materials, from the app
+# ---------------------------------------------------------------- step 2: find the source materials in the app
 def resolve(app, targets):
-    """A generator: yields (done, total, label) as it goes, returns a record per target
-    ('status' ok, ambiguous with 'alts', not found, or error). Candidates: the islands this
-    file has textures from first, then other islands, then the game's own; several with one
-    name are told apart by the meshes' slots, then by FP's leftover parameter values."""
+    """Generator yielding (done, total, label); returns one record per target
+    (status: ok, ambiguous with 'alts', not found, or error).
+
+    Candidates rank by islands this file has textures from, other islands, then game assets.
+    Same-named candidates are told apart by the meshes' slots, then by leftover FP parameter values."""
     here = islands_in_file()
     lookup = {t['mat']: re.sub(r'^MID_(.+)_\d+$', r'\1', t['orig']) for t in targets}   # FP: MID_<parent>_0
     names = sorted(set(lookup.values()) | {m['mesh'] for t in targets for m in t['meshes']})
@@ -94,7 +94,7 @@ def resolve(app, targets):
             try:
                 slots[mesh] = app.get('fork-island-mesh', keys[0]) if keys else []
             except Exception as e:
-                # (the app closed: every mesh would fail - the first one said)
+                # If the app closed every mesh fails; only the first failure is logged.
                 if not failed:
                     print("[FNPORTING] [Material Porter] island: %s's slots not read from the app (%s)" % (mesh, e))
                 failed.append(mesh)
@@ -133,7 +133,7 @@ def resolve(app, targets):
 # ---------------------------------------------------------------- parameters
 def record_params(rec):
     p = dict(rec.get('cooked', {}))
-    p.update(rec.get('scalars', {}))     # instance overrides win
+    p.update(rec.get('scalars', {}))     # instance overrides cooked defaults
     p.update(rec.get('vectors', {}))
     return p
 
