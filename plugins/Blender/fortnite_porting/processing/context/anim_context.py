@@ -26,8 +26,7 @@ class AnimImportContext:
             target_skeleton["use_pole_targets"] = False
             target_skeleton["use_ik_fingers"] = False
 
-        # Material Porter fork: the effects already on the character (an outfit's idle ones), to replay on
-        # the animation's bones once it is on
+        # MP: the character's effects already present (an outfit's idle ones), replayed on the animated bones below
         from ...material_porter import effects as mp_effects
         mp_present = mp_effects.on_character(target_skeleton)
             
@@ -69,7 +68,7 @@ class AnimImportContext:
             mesh_track = active_mesh.data.shape_keys.animation_data.nla_tracks.new(prev=None)
             mesh_track.name = "Sections"
 
-        # Material Porter fork: the main skeleton's sections, for a LEGO emote's face curves
+        # MP: the main skeleton's sections, for a LEGO emote's face curves
         face_sections = []
 
         def import_sections(sections, skeleton, track, is_main_skeleton = False):
@@ -269,7 +268,7 @@ class AnimImportContext:
 
         total_frames = import_sections(data.get("Sections"), target_skeleton, target_track, True)
 
-        # Material Porter fork: a LEGO figure's face moves with the emote (its curves on the face material)
+        # MP: a LEGO figure's face moves with the emote (its curves on the face material)
         if self.type == EExportType.LEGO_EMOTE:
             try:
                 from ...material_porter import face_anim
@@ -315,10 +314,9 @@ class AnimImportContext:
                 path = sound.get("Path")
                 self.import_sound(path, time_to_frame(sound.get("Time")))
 
-        # Material Porter fork: the effects the animation plays, each on its socket from its frame
+        # MP: the effects the animation plays, each on its socket from its frame
         if data.get("MPEffects"):
-            # an effect on a bone the armature lacks (the game's skeleton has more than a mesh's): the skeleton as
-            # the game has it, animated alike - what FP makes for an emote's props
+            # an effect on a bone the armature lacks: the game's full skeleton, animated alike (as FP makes for props)
             master_skeleton = first(target_skeleton.children, lambda child: child.name == "Master_Skeleton")
             if master_skeleton is None and mp_effects.lacks_bones(data.get("MPEffects"), target_skeleton, data.get("MPSockets")):
                 master_skeleton = self.import_model(data.get("Skeleton"), can_reorient=False)
@@ -331,12 +329,11 @@ class AnimImportContext:
                 master_skeleton.hide_set(True)
             mp_effects.from_animation(self, data.get("MPEffects"), target_skeleton, data.get("MPSockets"), master_skeleton)
 
-        # Material Porter fork: the character's own effects follow its bones now that they move (a swing's
-        # replay below takes the idle ones)
+        # MP: the character's own effects follow its moving bones (a swing's replay takes the idle ones)
         if mp_present:
             swung = data.get("MPTrails") or data.get("MPHits")
             mp_effects.follow(target_skeleton, [r for r in mp_present if not (swung and r.get(mp_effects.KEY_ROLE) == "idle")])
-        # Material Porter fork: a swing's trail windows and hits, given to the effects of the pickaxe the armature holds
+        # MP: a swing's trail windows and hits, for the held pickaxe's effects
         if data.get("MPTrails") or data.get("MPHits"):
             mp_effects.swing(data.get("MPTrails") or [], target_skeleton, data.get("MPHits") or [])
 

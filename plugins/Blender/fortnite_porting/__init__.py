@@ -70,12 +70,12 @@ def register():
     drag_drop_op.register()
     ueformat_register()
 
-    # Material Porter fork: exact materials a world import left unarranged are laid out when shown
+    # MP: exact materials a world import left unarranged are laid out when shown
     from .material_porter import build as material_porter_build
     material_porter_build.ensure_layout_timer()
-    # Material Porter fork: FP imports converted to exact materials (sidebar, Fortnite Porting tab)
+    # MP: FP imports converted to exact materials (sidebar, Fortnite Porting tab)
     convert_op.register()
-    # Material Porter fork: the FP Material Fixer (unlinked textures, UEFN islands' missing ones)
+    # MP: the FP Material Fixer (unlinked textures, UEFN islands' missing ones)
     material_fixer.register()
 
 

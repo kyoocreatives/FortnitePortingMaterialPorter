@@ -21,7 +21,7 @@ class Log:
 
 
 def _forward(prefix, message):
-    """Material Porter fork: the line to the app's status log too."""
+    """MP: the line to the app's status log too."""
     try:
         from .material_porter import status
         status.post(prefix + str(message))

@@ -7,25 +7,7 @@ from ..enums import *
 from ..utils import *
 from ...utils import *
 from ...logger import Log
-
-# Material Porter fork: the exports "Prefer FP Shaders for Characters" is about
-FP_SHADER_TYPES = [EExportType.OUTFIT, EExportType.BACKPACK, EExportType.PICKAXE, EExportType.GLIDER, EExportType.PET,
-                   EExportType.KICKS, EExportType.SIDEKICK, EExportType.FALL_GUYS_OUTFIT]
-
-
-def has_fp_shader(material_data):
-    """Material Porter fork: whether one of FP's shaders is made for a material - a base shader its
-    parameters call for (toon, layered, Valet, Bean...), or FP's default one knowing its base colour."""
-    if any(find_all_matching_mappings(material_data), lambda m: m.type == ENodeType.NT_Base):
-        return True
-    diffuse = {s.name.casefold() for s in DefaultMappings.textures if s.slot == "Diffuse"}
-    return any(material_data.get("Textures") or [], lambda t: (t.get("Name") or "").casefold() in diffuse)
-
-def is_toon(material_data):
-    """Material Porter fork: whether FP's toon shader is the base it picks for a material (the last
-    base mapping its parameters call for) - a cel-shaded one, which gets FP's outline whoever builds it."""
-    mappings = find_all_matching_mappings(material_data)
-    return bool(mappings) and mappings[-1].node_name == "FPv4 Base Toon"
+from ...material_porter.material_choice import ExactChoice     # MP
 
 def create_texture_node(nodes, name, image, srgb):
     node = nodes.new(type="ShaderNodeTexImage")
@@ -166,35 +148,11 @@ class MaterialImportContext:
 
         hash_key = hash_code(material_hash)
 
-        # Material Porter fork: "Prefer FP Shaders for Characters" gives a character's material that one of FP's
-        # shaders is made for to FP; one built the other way (or, exact, with the other Rim Light) before a setting
-        # changed isn't reused
-        prefer_fp = bool(self.options.get("PreferFPShaders") and self.type in FP_SHADER_TYPES and has_fp_shader(material_data))
-        rim_light = bool(self.options.get("RimLight"))
-        from ...material_porter.hook import subsurface as subsurface_of
-        subsurface = "%g %g" % subsurface_of(self, material_data)
-        # Material Porter fork: a landscape proxy's exact material is built per set of the layers painted on
-        # it (hook.build_exact): one built for another proxy's set isn't this one's
-        slot_object = None if as_material_data else material_slot.id_data
-        landscape = "+".join(sorted(a.name for a in slot_object.data.color_attributes if a.name != "COL0")) \
-            if slot_object is not None and slot_object.type == 'MESH' and slot_object.get("mp_landscape") else None
-        existing_material = material_hash_cache.get(hash_key)
-        if existing_material and (bool(existing_material.get("MPPreferFP")) == prefer_fp
-                                  and bool(existing_material.get("MPRimLight", rim_light)) == rim_light
-                                  and existing_material.get("MPSubsurface", subsurface) == subsurface
-                                  and existing_material.get("MPLandscapeLayers") == landscape):
+        mp = ExactChoice(self, material_data, material_slot, as_material_data)     # MP
+        if (existing_material := material_hash_cache.get(hash_key)) and mp.reusable(existing_material):     # MP
             if not as_material_data:
                 material_slot.material = existing_material
-                # Material Porter fork: the UV maps an exact material reads that the mesh lacks (UE reads the last)
-                from ...material_porter.placement import ensure_slot_uvs
-                ensure_slot_uvs(material_slot, existing_material)
-                # Material Porter fork: a reused cel-shaded material still gets this mesh its outline
-                if is_toon(material_data):
-                    self.add_toon_outline = True
-                # Material Porter fork: and a reused exact material its hidden elements (below)
-                if hide := existing_material.get("MPHideElements"):
-                    import json
-                    self.partial_vertex_crunch_materials[existing_material] = json.loads(hide)
+                mp.reused(material_slot, existing_material, material_data)     # MP
                 return
 
         # same name but different hash
@@ -211,23 +169,16 @@ class MaterialImportContext:
         material = bpy.data.materials.new(material_name) if as_material_data else material_slot.material
         material.use_nodes = True
         material.surface_render_method = "DITHERED"
-        # Material Porter fork: the exact material, rebuilt from its UE graph, unless FP's is preferred.
-        # A material only *named* "...Transparent" (a car's glass) isn't hidden when exact materials build
-        # it: its graph says how see-through it is
-        from ...material_porter.hook import exact_available
-        # (a time of day's sky and clouds get theirs once the day is known: material_porter.sky)
-        use_exact = exact_available(self) and not prefer_fp and getattr(self, "type", None) != EExportType.TIME_OF_DAY
-        if prefer_fp:
-            material["MPPreferFP"] = True
+        # MP: the exact material unless FP's shader is preferred; one only named "...Transparent" (a car's glass)
+        # isn't hidden then, its graph says how see-through it is
+        use_exact = mp.use_exact(material)
         crunch_names = [n for n in vertex_crunch_names if n != "Transparent"] if use_exact else vertex_crunch_names
         outline_shell = any(toon_outline_names, lambda x: x in material_name) and not any(toon_outline_disable_names, lambda x: x in material_name)
         if (any(crunch_names, lambda x: x in material_name) 
                 or get_param(scalars, "HT_CrunchVerts") == 1 
                 or outline_shell):
             self.full_vertex_crunch_materials.append(material)
-            # Material Porter fork: the game's outline shell (an anime skin's: drawn from the scene's
-            # depth) is hidden; FP's outline draws one instead, as on a cel-shaded material
-            if outline_shell:
+            if outline_shell:     # MP: the game's outline shell is hidden, FP's outline draws one instead
                 self.add_toon_outline = True
             return
 
@@ -258,38 +209,8 @@ class MaterialImportContext:
                 for vector in parameters.get("Vectors"):
                     replace_or_add_parameter(vectors, vector)
 
-        # Material Porter fork: the exact material; FP's shader when it can't be built (or isn't wanted)
-        from ...material_porter.hook import build_exact
-        if use_exact and (exact := build_exact(self, material_data, meta.get("TextureData"), override_parameters,
-                                               None if as_material_data else material_slot.id_data)):
-            # a cel-shaded material's outline: FP's (mesh_context: a Solidify shell drawn with M_FP_Outline)
-            if is_toon(material_data):
-                self.add_toon_outline = True
-            exact["Hash"] = hash_code(material_hash)
-            exact["MPRimLight"] = rim_light
-            exact["MPSubsurface"] = subsurface
-            exact["OriginalName"] = material_data.get("Name")
-            if landscape is not None:
-                exact["MPLandscapeLayers"] = landscape
-            elif "MPLandscapeLayers" in exact:
-                del exact["MPLandscapeLayers"]
-            # the elements a style hides (its Hide Element 0X, by vertex colour: Dylan's sunglasses off):
-            # FP's vertex crunch removes their faces, as for its own shaders (post parameter handling)
-            if get_param(switches, "Use Vertex Colors for Mask"):
-                import json
-                hide = {scalar.get("Name"): scalar.get("Value") for scalar in scalars if "Hide Element" in scalar.get("Name")}
-                self.partial_vertex_crunch_materials[exact] = hide
-                exact["MPHideElements"] = json.dumps(hide)
-            elif "MPHideElements" in exact:
-                del exact["MPHideElements"]
-            if not as_material_data:
-                material_slot.material = exact
-                from ...material_porter.placement import ensure_slot_uvs
-                ensure_slot_uvs(material_slot, exact)
-            if material.users == 0:
-                bpy.data.materials.remove(material)
-            material_hash_cache[hash_key] = exact
-            material_name_cache[material_name.casefold()] = exact
+        if use_exact and mp.build(material, material_data, meta, override_parameters, material_slot, as_material_data,     # MP
+                                  switches, scalars, material_hash, hash_key, material_name, material_hash_cache, material_name_cache):
             return
 
         output_node = nodes.new(type="ShaderNodeOutputMaterial")

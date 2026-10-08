@@ -58,9 +58,9 @@ class EExportType(IntEnum):
     WILDLIFE = ExportCategory.GAMEPLAY + 5
     WEAPON_MOD = ExportCategory.GAMEPLAY + 6
     SPRITE = ExportCategory.GAMEPLAY + 7
-    # Material Porter fork: a particle effect, as what it is made of
+    # MP: a particle effect, as what it is made of
     EFFECT = ExportCategory.GAMEPLAY + 9
-    # Material Porter fork: a time of day (Fortnite's TODM): its sky dome, clouds, sun and day
+    # MP: a time of day (Fortnite's TODM): its sky dome, clouds, sun and day
     TIME_OF_DAY = ExportCategory.GAMEPLAY + 10
 
     # FESTIVAL

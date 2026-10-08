@@ -18,7 +18,7 @@ class Server(Thread):
         Thread.__init__(self, daemon=True)
         self.queue = deque()
         self.host = '127.0.0.1'
-        self.port = 40010  # Material Porter fork (upstream FP: 40000)
+        self.port = 40010  # MP (upstream FP: 40000)
         self.server = None
         self.running = False
         self.clients = []

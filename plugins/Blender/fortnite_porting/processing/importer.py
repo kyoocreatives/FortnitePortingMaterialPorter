@@ -1,5 +1,4 @@
 import json
-import time
 import bpy
 from .context import ImportContext
 from .legacy.context import LegacyImportContext
@@ -25,39 +24,11 @@ class Importer:
         profile = resolve_export_profile(bpy.app.version)
         context_type = LegacyImportContext if profile.uses_legacy_materials else ImportContext
 
-        # Material Porter fork: the app's status log hears the import start, end, and what it made
-        from ..material_porter import status
-        names = ", ".join(str(e.get("Name")) for e in exports or [])
-        status.post("Importing %s" % names, state="begin")
-        t0 = time.perf_counter()
-        objects0 = {o.name for o in bpy.data.objects}
-        failed = None
-        # Material Porter fork: the function groups the import made lose what no material reads
-        from ..material_porter.build import pruning
-        try:
-            with pruning():
-                for export in exports:
-                    context = context_type(meta)
-                    context.run(export)
-            # Material Porter fork: FP's shader library, but for what this import used
-            from ..utils import drop_unused_blend_data
-            drop_unused_blend_data()
-        except Exception as e:
-            failed = e
-            raise
-        finally:
-            # skinned meshes keep their rest positions for the shaders (UE's PreSkinnedPosition:
-            # a LEGO face's prints stay put while the figure moves)
-            for o in bpy.data.objects:
-                if o.name not in objects0 and o.type == 'MESH' and any(m.type == 'ARMATURE' for m in o.modifiers):
-                    o.add_rest_position_attribute = True
-            # the imported meshes (not FP's bone-shape widgets, which carry no material)
-            meshes = [o for o in bpy.data.objects if o.name not in objects0 and o.type == 'MESH' and len(o.material_slots) > 0]
-            used = {s.material.name: s.material for o in meshes for s in o.material_slots if s.material is not None}
-            exact = sum(1 for m in used.values() if m.name.startswith("MP "))
-            status.post("%s %s: %d meshes, %d materials (%d exact) in %.1f s" % (
-                "Import failed" if failed else "Imported", names, len(meshes), len(used), exact,
-                time.perf_counter() - t0) + (" - %s: %s" % (type(failed).__name__, failed) if failed else ""), state="end")
+        from ..material_porter.import_run import import_run     # MP
+        with import_run(exports):     # MP: status log, pruning, cleanup
+            for export in exports:
+                context = context_type(meta)
+                context.run(export)
 
     @staticmethod
     def _check_version(meta: dict):

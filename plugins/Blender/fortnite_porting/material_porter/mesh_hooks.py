@@ -1,0 +1,170 @@
+"""What the fork adds to FP's mesh import (processing/context/mesh_context.py calls these)."""
+from math import radians
+
+import bmesh
+import bpy
+
+from ..logger import Log
+from ..processing.enums import EExportType
+
+
+def begin(ctx, selected_armature):
+    # a contrail goes on the character selected when it was sent (effects.finish); a character's own effects
+    # play once its skeleton is final (effects.settle)
+    ctx.mp_selected_armature = selected_armature
+    ctx.mp_deferred_effects = [] if ctx.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT] else None
+
+
+def after_meshes(ctx):
+    # the depth under water surfaces, which their exact materials read
+    if ctx.type in [EExportType.WORLD, EExportType.PREFAB]:
+        from .placement import after_world
+        after_world(ctx.collection.all_objects)
+
+
+def after_lights(ctx, data):
+    # a level's decals and placed effects; a lamp's own housing casts no shadow from its light
+    from .decals import import_decals
+    from .level_effects import import_effects
+    from .shadow_linking import link_housings
+    import_decals(ctx, data.get("Decals"))
+    import_effects(ctx, data.get("Effects"))
+    link_housings(ctx)
+
+
+def before_merge(ctx):
+    # an outfit's parts left apart share the whole character's bounds, as in the game (their materials read them)
+    if ctx.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT, EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE] \
+            and not ctx.options.get("MergeArmatures"):
+        from .build import mark_shared_bounds
+        mark_shared_bounds([imported_mesh.get("Mesh") for imported_mesh in ctx.imported_meshes])
+
+
+def after_merge(master_mesh):
+    # the joined mesh's bounds and head, which its materials read (built per part before the merge)
+    from .build import mark_bounds
+    mark_bounds([master_mesh])
+
+
+def settle_effects(ctx):
+    if ctx.mp_deferred_effects is not None:
+        from . import effects
+        effects.settle(ctx)
+
+
+def after_parts(ctx, rig_type, tasty):
+    """Shell fur, the character's effects not played yet (parts not merged), and a rig for what Tasty's doesn't fit."""
+    from . import shells
+    shells.apply(ctx, [m.get("Mesh") for m in ctx.imported_meshes])
+    settle_effects(ctx)
+
+    # a creature's, a sidekick's, a vehicle's or a LEGO figure's armature gets a rig of its own
+    if rig_type != tasty or ctx.type not in [EExportType.WILDLIFE, EExportType.LEGO_WILDLIFE, EExportType.SIDEKICK,
+                                             EExportType.VEHICLE, EExportType.LEGO_OUTFIT]:
+        return
+    from ..processing.context import lego_rig
+
+    def armature(o):
+        try:        # (a part's armature merged into the body's is gone)
+            return o is not None and o.name in bpy.data.objects and o.type == 'ARMATURE'
+        except ReferenceError:
+            return False
+    skeletons = [m.get("Skeleton") for m in ctx.imported_meshes if armature(m.get("Skeleton"))]
+    if ctx.type == EExportType.LEGO_OUTFIT:
+        skeletons = [o for o in skeletons if lego_rig.fits(o)]
+    skeleton = skeletons[0] if skeletons else None
+    if skeleton is None or [k for k in ("is_creature_rig", "is_vehicle_rig", "is_lego_rig") if skeleton.data.get(k)]:
+        return
+    if ctx.type == EExportType.VEHICLE:
+        from ..processing.context.vehicle_rig import create as create_rig
+    elif ctx.type == EExportType.LEGO_OUTFIT:
+        create_rig = lego_rig.create
+    else:
+        from ..processing.context.creature_rig import create as create_rig
+    try:
+        Log.info(create_rig(skeleton))
+    except Exception as e:
+        Log.error("%s: no rig (%s: %s)" % (skeleton.name, type(e).__name__, e))
+        if bpy.context.object is not None and bpy.context.object.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+
+def make_empty(ctx, mesh, name):
+    # a particle effect's sprite or ribbon is a plane with its material
+    from . import effects
+    return effects.make(ctx, mesh, name)
+
+
+def finish_empty(ctx, mesh, empty_object, imported_children):
+    # a particle effect's CPU emitters, replayed over the scene's frames; a time of day (the owner's private
+    # overlay's module, absent elsewhere)
+    from . import effects
+    effects.finish(ctx, mesh, empty_object)
+    if mesh.get("MPTimeOfDay"):
+        try:
+            from . import sky
+        except ImportError:
+            return
+        sky.finish(ctx, mesh, empty_object, imported_children)
+
+
+def tris_to_quads(imported_mesh):
+    # Tris to Quads with its defaults (UVs compared), on the mesh data: no mode switches
+    bm = bmesh.new()
+    bm.from_mesh(imported_mesh.data)
+    bmesh.ops.join_triangles(bm, faces=bm.faces[:], cmp_seam=False, cmp_sharp=False, cmp_uvs=True,
+                             cmp_vcols=False, cmp_materials=False,
+                             angle_face_threshold=radians(40), angle_shape_threshold=radians(40))
+    bm.to_mesh(imported_mesh.data)
+    bm.free()
+    imported_mesh.data.update()
+
+
+def after_model(ctx, mesh, imported_object, imported_mesh):
+    # a spline mesh's bend, custom data, white vertex colours
+    from .placement import after_import
+    after_import(mesh, imported_object, imported_mesh, ctx.scale)
+
+
+def final_materials(mesh, override_materials):
+    """Each slot's material as the import ends: a style's swap replaces the default, so only that one is built (an
+    exact material takes a second or two). A style swaps by the name the slot shows (TextureData's override material
+    on slot 0)."""
+    td_override = next((td.get("OverrideMaterial") for td in mesh.get("TextureData") if td.get("OverrideMaterial")), None)
+    final = {}
+    for material in mesh.get("Materials") + mesh.get("OverrideMaterials"):
+        final[material.get("Slot")] = material
+    for variant_override_material in override_materials:
+        for index, material in list(final.items()):
+            shown = td_override if td_override and material.get("Slot") == 0 else material
+            if shown.get("Name") == variant_override_material.get("MaterialNameToSwap"):
+                final[index] = variant_override_material.get("Material")
+    return final
+
+
+def prepare_shells(ctx, mesh, imported_mesh, meta):
+    # shell fur: the base layer's materials, the shells built
+    if mesh.get("MPShells") and imported_mesh is not None:
+        from . import shells
+        shells.prepare(ctx, imported_mesh, mesh.get("MPShells"), meta)
+
+
+def reparent_duplicate_bones(master_skeleton):
+    """What hangs from a joined skeleton's duplicate bone (a head effect on "root.001") moves to the bone it
+    duplicates before that one is deleted, keeping its rest pose (tail space to tail space: the join's evaluated
+    matrices aren't current yet, and reoriented bones differ in length and turn)."""
+    import re
+    from mathutils import Matrix
+    bones = master_skeleton.data.bones
+    for child in master_skeleton.children:
+        if child.parent_type != 'BONE' or not re.search(r"\.\d\d\d$", child.parent_bone):
+            continue
+        base_name = re.sub(r"\.\d\d\d$", "", child.parent_bone)
+        if base_name not in bones or child.parent_bone not in bones:
+            continue
+        old, new = bones[child.parent_bone], bones[base_name]
+        old_space = old.matrix_local @ Matrix.Translation((0.0, old.length, 0.0))
+        new_space = new.matrix_local @ Matrix.Translation((0.0, new.length, 0.0))
+        child.matrix_basis = new_space.inverted() @ old_space @ child.matrix_parent_inverse @ child.matrix_basis
+        child.matrix_parent_inverse = Matrix.Identity(4)
+        child.parent_bone = base_name

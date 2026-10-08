@@ -60,60 +60,10 @@ def ensure_blend_data_for_file(file_name):
         if group is not None and not group.get("addon_version"):
             group["addon_version"] = version_string()
 
-    # Material Porter fork: what came, for drop_unused_blend_data
-    for ids in (data_to.node_groups, data_to.materials, data_to.images, data_to.objects, data_to.fonts):
-        appended_ids.extend(i for i in ids if i is not None)
-
+    from .material_porter import blend_data     # MP
+    blend_data.appended(data_to)     # MP
     loaded_versions[file_name] = current
-    merge_duplicate_images()
-
-
-def merge_duplicate_images():
-    """Material Porter fork: an appended node group brings its images again (image.001, .002...) even when the
-    file has them, each a copy in GPU memory; a file imported into over many add-on updates had 18 of some (1.5 GB).
-    Copies of the same file (same colour space and alpha) are merged into the first. How many went."""
-    kept, gone = {}, 0
-    for img in sorted(bpy.data.images, key=lambda i: (len(i.name), i.name)):
-        if img.source != 'FILE' or not img.filepath or img.library is not None or img.packed_file is not None:
-            continue
-        key = (os.path.normcase(os.path.abspath(bpy.path.abspath(img.filepath))), img.colorspace_settings.name, img.alpha_mode)
-        first = kept.setdefault(key, img)
-        if first is img:
-            continue
-        img.user_remap(first)
-        bpy.data.images.remove(img)
-        gone += 1
-    if gone:
-        print("[material_porter] %d duplicate images merged" % gone)
-    return gone
-
-
-# Material Porter fork: the data files' groups, materials, images... this session appended
-appended_ids: list = []
-
-
-def drop_unused_blend_data():
-    """Material Porter fork: what FP's data files brought that the import didn't use goes again: its
-    shader library's groups, their packed textures (a saved file carried ~5 MB of them) and bone shapes.
-    The next import (or rig) appends what it needs again."""
-    removed = 0
-    while True:
-        alive = []
-        for i in appended_ids:
-            try:
-                i.users
-            except ReferenceError:
-                continue
-            alive.append(i)
-        appended_ids[:] = alive
-        unused = [i for i in alive if i.users == 0 and not i.use_fake_user]
-        if not unused:
-            break
-        bpy.data.batch_remove(unused)
-        removed += len(unused)
-    if removed:
-        loaded_versions.clear()
-    return removed
+    blend_data.merge_duplicate_images()     # MP
 
 
 # TODO: Make dynamic from mappings_registry.blend_files list?

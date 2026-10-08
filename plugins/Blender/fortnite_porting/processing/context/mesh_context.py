@@ -1,8 +1,7 @@
 import os.path
 import bpy
 import numpy as np
-from math import radians, cos, pi
-from mathutils import Matrix
+from math import radians
 
 from ..mappings import *
 from ..enums import *
@@ -11,62 +10,13 @@ from ...utils import *
 from ...logger import Log
 from ...ueformat.importer.import_context import UEFormatImport
 from ...ueformat.options import UEModelOptions
+from ...material_porter import mesh_hooks as mp     # MP
+from ...material_porter.lights import LightImportMixin     # MP
 
 VERTEX_CRUNCH_NAME = "FPv4 Vertex Crunch"
 FULL_VERTEX_CRUNCH_NAME = "FPv4 Full Vertex Crunch"
 
-# Material Porter fork: a light's brightness in Blender watts per UE candela. FP has read a UE point light's candelas
-# as watts since it first imported them (a street lamp's candelas show in a night scene; the physical 4 pi / 683
-# watts a candela would show nothing), and spot and rect lights follow it; retune every imported light with this.
-LIGHT_CANDELA_TO_WATTS = 1.0
-
-
-def spot_solid_angle(inner, outer):
-    """The solid angle (sr) of a UE spot light's cone: UE clamps its half angle between the inner angle and 89 degrees."""
-    half = min(max(radians(outer), radians(min(inner, 89.0)) + 0.001), radians(89.0) + 0.001)
-    return 2 * pi * (1.0 - cos(half))
-
-
-def light_candelas(light, solid_angle):
-    """
-    A UE light's Intensity as candelas along its axis (ULocalLightComponent::GetUnitsConversionFactor): candelas as
-    they are, lumens over the solid angle the light fills, and the legacy Unitless 16 / 10,000 of a candela (the 5000 a
-    light was placed with is 8 candelas). EV and Nits don't occur on a placed local light: read as candelas.
-    A light with the older falloff (Fortnite's street lamps and floodlights: bUseInverseSquaredFalloff off) has a
-    brightness instead, whatever its units say, that fades as (1 - (d / reach)^2)^exponent: it is given the candelas
-    that light a surface the same a third of the way out (as the particle lights of effect_replay are).
-    A light of no brightness (a car's headlights, which its Blueprint turns on when it drives: Intensity 0) is 0 candelas
-    whatever its units; a missing, negative or non-finite Intensity counts as 0 too.
-    """
-    intensity = light.get("Intensity")
-    if intensity is None or not np.isfinite(intensity) or intensity <= 0.0:
-        return 0.0
-    if not light.get("InverseSquaredFalloff", True):
-        d = (light.get("AttenuationRadius") or 0.0) / 3.0
-        return intensity * (8.0 / 9.0) ** max(light.get("FalloffExponent", 8.0), 0.0) * (d * d + 1.0) / 1e4
-    units = light.get("IntensityUnits") or "Candelas"
-    if units == "Lumens":
-        return intensity / max(solid_angle, 1e-6)
-    if units == "Unitless":
-        return intensity / 625.0
-    return intensity
-
-
-def kelvin_tint(kelvin):
-    """A colour temperature's linear sRGB tint at unit luminance (UE's FLinearColor::MakeFromColorTemperature: Krystek's
-    Planckian locus in CIE 1960 UCS, 6500 K being about white)."""
-    t = min(max(kelvin, 1000.0), 15000.0)
-    u = (0.860117757 + 1.54118254e-4 * t + 1.28641212e-7 * t * t) / (1.0 + 8.42420235e-4 * t + 7.08145163e-7 * t * t)
-    v = (0.317398726 + 4.22806245e-5 * t + 4.20481691e-8 * t * t) / (1.0 - 2.89741816e-5 * t + 1.61456053e-7 * t * t)
-    d = 2.0 * u - 8.0 * v + 4.0
-    x = 3.0 * u / d
-    y = 2.0 * v / d
-    x_, z_ = x / y, (1.0 - x - y) / y
-    return (max(3.2404542 * x_ - 1.5371385 - 0.4985314 * z_, 0.0),
-            max(-0.9692660 * x_ + 1.8760108 + 0.0415560 * z_, 0.0),
-            max(0.0556434 * x_ - 0.2040259 + 1.0572252 * z_, 0.0))
-
-class MeshImportContext:
+class MeshImportContext(LightImportMixin):     # MP: spot and rect lights
     def import_mesh_data(self, data):
         rig_type = ERigType(self.options.get("RigType"))
         
@@ -79,17 +29,13 @@ class MeshImportContext:
         self.override_morph_targets = data.get("OverrideMorphTargets")
 
         pre_import_selected_armature = get_selected_armature()
-        # Material Porter fork: a contrail goes on the character selected when it was sent (effects.finish)
-        self.mp_selected_armature = pre_import_selected_armature
-        # and a character's own effects are played once its skeleton is final (effects.settle)
-        self.mp_deferred_effects = [] if self.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT] else None
+        mp.begin(self, pre_import_selected_armature)     # MP
         pre_import_selected_armature_active = pre_import_selected_armature is not None and pre_import_selected_armature.select_get()
         
         self.collection = create_or_get_collection(self.name) if self.options.get("ImportIntoCollection") else bpy.context.scene.collection
 
-        # (Material Porter fork: a sidekick's styles swap its parts too - a skin's own materials and fur)
         if self.type in [EExportType.OUTFIT, EExportType.BACKPACK, EExportType.PICKAXE, EExportType.FALL_GUYS_OUTFIT,
-                         EExportType.SIDEKICK]:
+                         EExportType.SIDEKICK]:     # MP: a sidekick's styles swap parts too
             target_meshes = data.get("OverrideMeshes")
             normal_meshes = data.get("Meshes")
             for mesh in normal_meshes:
@@ -99,45 +45,25 @@ class MeshImportContext:
             target_meshes = data.get("Meshes")
 
         self.meshes = target_meshes
-        # Material Porter fork: each mesh's index for the progress log, without a scan per object
-        self.mesh_index = {id(m): i for i, m in enumerate(target_meshes)}
+        self.mesh_index = {id(m): i for i, m in enumerate(target_meshes)}     # MP: progress without a scan per object
         for mesh in target_meshes:
             self.import_model(mesh, can_spawn_at_3d_cursor=True)
 
-        # Material Porter fork: the depth under water surfaces, which their exact materials read
-        if self.type in [EExportType.WORLD, EExportType.PREFAB]:
-            from ...material_porter.placement import after_world
-            after_world(self.collection.all_objects)
+        mp.after_meshes(self)     # MP
 
         self.import_light_data(data.get("Lights"))
-        # Material Porter fork: a level's decals and placed effects (material_porter.decals, level_effects)
-        from ...material_porter.decals import import_decals
-        from ...material_porter.level_effects import import_effects
-        import_decals(self, data.get("Decals"))
-        import_effects(self, data.get("Effects"))
-        # Material Porter fork: a lamp's own housing casts no shadow from its light (material_porter.shadow_linking)
-        from ...material_porter.shadow_linking import link_housings
-        link_housings(self)
+        mp.after_lights(self, data)     # MP
                 
         if self.type in [EExportType.OUTFIT]:
             for imported_mesh in self.imported_meshes:
                 self.parent_deform_bones(imported_mesh["Skeleton"], ["dfrm_", "deform_"])
                 self.parent_bones(imported_mesh["Skeleton"], extra_deform_mappings)
             
-        # Material Porter fork: an outfit's parts left apart share the whole character's bounds, as in
-        # the game (their materials read them: a gradient from the feet to the top of the head)
-        if self.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT, EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE] and not self.options.get("MergeArmatures"):
-            from ...material_porter.build import mark_shared_bounds
-            mark_shared_bounds([imported_mesh.get("Mesh") for imported_mesh in self.imported_meshes])
-
-        # Material Porter fork: a LEGO figure's or creature's parts too (the body's armature takes them)
-        if self.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT, EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE] and self.options.get("MergeArmatures"):
+        mp.before_merge(self)     # MP
+        if self.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT, EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE] and self.options.get("MergeArmatures"):     # MP: LEGO too
             master_skeleton = merge_parts(self.imported_meshes)
             master_mesh = get_armature_mesh(master_skeleton)
-            # (Material Porter fork: the joined mesh's bounds and head, which its materials read -
-            # they were built as each part came in, on the part's own skeleton and size)
-            from ...material_porter.build import mark_bounds
-            mark_bounds([master_mesh])
+            mp.after_merge(master_mesh)     # MP
             # Update attribute to account for joined mesh
             self.update_preskinned_bounds(master_mesh)
             
@@ -165,13 +91,10 @@ class MeshImportContext:
                 solidify.use_flip_normals = True
                 solidify.material_offset = len(master_mesh.data.materials) - 1
                 
-            # Material Porter fork: Tasty's rig is for Fortnite's humanoid skeleton, not a LEGO figure's or creature's
-            if rig_type == ERigType.TASTY and self.type not in [EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE]:
+            if rig_type == ERigType.TASTY and self.type not in [EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE]:     # MP: humanoids only
                 self.create_tasty_rig(master_skeleton, self.get_metadata("MasterSkeletalMesh"))
 
-            if self.mp_deferred_effects is not None:
-                from ...material_porter import effects as mp_effects
-                mp_effects.settle(self)
+            mp.settle_effects(self)     # MP
 
             if anim_data := data.get("Animation"):
                 self.import_anim_data(anim_data, master_skeleton)
@@ -196,43 +119,7 @@ class MeshImportContext:
                     if key := best(shape_keys.key_blocks, lambda block: block.name.lower(), morph_target.get("Name").lower()):
                         key.value = morph_target.get("Value")
                         
-        # Material Porter fork: shell fur on the meshes it's for (the joined one, else each part)
-        from ...material_porter import shells as mp_shells
-        mp_shells.apply(self, [m.get("Mesh") for m in self.imported_meshes])
-
-        # Material Porter fork: a character's effects not played yet (no merge of its parts): now
-        if self.mp_deferred_effects is not None:
-            from ...material_porter import effects as mp_effects
-            mp_effects.settle(self)
-
-        # Material Porter fork: a creature's, a sidekick's, a vehicle's or a LEGO figure's armature gets a rig of its own, as an
-        # outfit's gets Tasty's
-        if rig_type == ERigType.TASTY and self.type in [EExportType.WILDLIFE, EExportType.LEGO_WILDLIFE, EExportType.SIDEKICK,
-                                                         EExportType.VEHICLE, EExportType.LEGO_OUTFIT]:
-            from . import lego_rig
-
-            def armature(o):
-                try:        # (a part's armature merged into the body's is gone)
-                    return o is not None and o.name in bpy.data.objects and o.type == 'ARMATURE'
-                except ReferenceError:
-                    return False
-            skeletons = [m.get("Skeleton") for m in self.imported_meshes if armature(m.get("Skeleton"))]
-            if self.type == EExportType.LEGO_OUTFIT:
-                skeletons = [o for o in skeletons if lego_rig.fits(o)]
-            skeleton = skeletons[0] if skeletons else None
-            if skeleton is not None and not [k for k in ("is_creature_rig", "is_vehicle_rig", "is_lego_rig") if skeleton.data.get(k)]:
-                if self.type == EExportType.VEHICLE:
-                    from .vehicle_rig import create as create_rig
-                elif self.type == EExportType.LEGO_OUTFIT:
-                    create_rig = lego_rig.create
-                else:
-                    from .creature_rig import create as create_rig
-                try:
-                    Log.info(create_rig(skeleton))
-                except Exception as e:
-                    Log.error("%s: no rig (%s: %s)" % (skeleton.name, type(e).__name__, e))
-                    if bpy.context.object is not None and bpy.context.object.mode != 'OBJECT':
-                        bpy.ops.object.mode_set(mode='OBJECT')
+        mp.after_parts(self, rig_type, ERigType.TASTY)     # MP
 
         if self.type in [EExportType.KICKS]:
 
@@ -252,9 +139,7 @@ class MeshImportContext:
         part_type = EFortCustomPartType(mesh.get("Type"))
         
         if mesh.get("IsEmpty"):
-            # Material Porter fork: a particle effect's sprite or ribbon is a plane with its material
-            from ...material_porter import effects
-            empty_object = effects.make(self, mesh, name)
+            empty_object = mp.make_empty(self, mesh, name)     # MP: an effect's sprite or ribbon
 
             empty_object.parent = parent
             empty_object.rotation_euler = make_euler(mesh.get("Rotation"))
@@ -265,16 +150,7 @@ class MeshImportContext:
             
             imported_children = [(child, self.import_model(child, parent=empty_object)) for child in mesh.get("Children")]
 
-            # Material Porter fork: a particle effect's CPU emitters, replayed over the scene's frames
-            effects.finish(self, mesh, empty_object)
-            # Material Porter fork: a time of day (the owner's private overlay's module, absent elsewhere)
-            if mesh.get("MPTimeOfDay"):
-                try:
-                    from ...material_porter import sky
-                except ImportError:
-                    pass
-                else:
-                    sky.finish(self, mesh, empty_object, imported_children)
+            mp.finish_empty(self, mesh, empty_object, imported_children)     # MP
             return empty_object
         
         if self.type in [EExportType.PREFAB, EExportType.WORLD] and (index := self.mesh_index.get(id(mesh))) is not None:
@@ -296,16 +172,7 @@ class MeshImportContext:
             imported_mesh = get_armature_mesh(imported_object)
 
             if EPolygonType(self.options.get("PolygonType")) == EPolygonType.QUADS and imported_mesh is not None:
-                # Material Porter fork: Tris to Quads (its defaults, UVs compared) on the mesh data, no mode switches
-                import bmesh
-                bm = bmesh.new()
-                bm.from_mesh(imported_mesh.data)
-                bmesh.ops.join_triangles(bm, faces=bm.faces[:], cmp_seam=False, cmp_sharp=False, cmp_uvs=True,
-                                         cmp_vcols=False, cmp_materials=False,
-                                         angle_face_threshold=radians(40), angle_shape_threshold=radians(40))
-                bm.to_mesh(imported_mesh.data)
-                bm.free()
-                imported_mesh.data.update()
+                mp.tris_to_quads(imported_mesh)     # MP
 
         if (override_vertex_colors := mesh.get("OverrideVertexColors")) and len(override_vertex_colors) > 0:
             imported_mesh.data = imported_mesh.data.copy()
@@ -353,13 +220,9 @@ class MeshImportContext:
         if self.options.get("ImportAt3DCursor") and can_spawn_at_3d_cursor:
             imported_object.location += bpy.context.scene.cursor.location
 
-        # Material Porter fork: a spline mesh's bend, custom data, white vertex colours
-        from ...material_porter.placement import after_import
-        after_import(mesh, imported_object, imported_mesh, self.scale)
+        mp.after_model(self, mesh, imported_object, imported_mesh)     # MP
 
-        # (Material Porter fork: a particle effect's pieces aren't parts of the item: an outfit's
-        # armatures are merged and its bones reparented over these)
-        if not mesh.get("MPEffect"):
+        if not mesh.get("MPEffect"):     # MP: an effect's pieces aren't parts of the item
             self.imported_meshes.append({
                 "Skeleton": imported_object,
                 "Mesh": imported_mesh,
@@ -370,9 +233,7 @@ class MeshImportContext:
         # metadata handling
         meta = self.gather_metadata("PoseAsset")
 
-        # pose asset (Material Porter fork: not for a world's meshes; making each one active
-        # resyncs the view layer per object. Nor for a particle effect's pieces: an outfit's
-        # idle effect comes after its head, whose poses are no business of a sprite's)
+        # pose asset (MP: not for a world's meshes, where activating each resyncs the view layer, nor an effect's pieces)
         if imported_mesh is not None and self.type not in [EExportType.WORLD, EExportType.PREFAB] and not mesh.get("MPEffect"):
             bpy.context.view_layer.objects.active = imported_mesh
             self.import_pose_asset_data(meta, get_selected_armature(), part_type)
@@ -393,18 +254,7 @@ class MeshImportContext:
 
         meta["TextureData"] = mesh.get("TextureData")
 
-        # Material Porter fork: each slot's material built once, the one it ends with - not a default a
-        # style swaps out (an exact material costs a second or two to build)
-        # (a style swaps by the name the slot shows: TextureData's override material's on slot 0, import_material)
-        td_override = next((td.get("OverrideMaterial") for td in mesh.get("TextureData") if td.get("OverrideMaterial")), None)
-        final = {}
-        for material in mesh.get("Materials") + mesh.get("OverrideMaterials"):
-            final[material.get("Slot")] = material
-        for variant_override_material in self.override_materials:
-            for index, material in list(final.items()):
-                shown = td_override if td_override and material.get("Slot") == 0 else material
-                if shown.get("Name") == variant_override_material.get("MaterialNameToSwap"):
-                    final[index] = variant_override_material.get("Material")
+        final = mp.final_materials(mesh, self.override_materials)     # MP: only each slot's final material is built
 
         for material in mesh.get("Materials"):
             index = material.get("Slot")
@@ -442,10 +292,7 @@ class MeshImportContext:
             for slot in slots:
                 self.import_material(slot, td_override_material, meta)
                 
-        # Material Porter fork: shell fur (material_porter.shells): the base layer's materials, the shells' built
-        if mesh.get("MPShells") and imported_mesh is not None:
-            from ...material_porter import shells as mp_shells
-            mp_shells.prepare(self, imported_mesh, mesh.get("MPShells"), meta)
+        mp.prepare_shells(self, mesh, imported_mesh, meta)     # MP
 
         self.import_light_data(mesh.get("Lights"), imported_object)
 
@@ -568,74 +415,7 @@ class MeshImportContext:
 
         for point_light in lights.get("PointLights") or []:
             self.import_point_light(point_light, parent)
-
-        # Material Porter fork: a level's spot and rect lights (FP's own export has point lights only)
-        for spot_light in lights.get("SpotLights") or []:
-            self.import_spot_light(spot_light, parent)
-
-        for rect_light in lights.get("RectLights") or []:
-            self.import_rect_light(rect_light, parent)
-
-    def import_point_light(self, point_light, parent=None):
-        light, light_data = self.create_light(point_light, 'POINT', 4 * pi, parent)
-        # (a point light looks the same whichever way it faces)
-        light.scale = make_vector(point_light.get("Scale"))
-        light_data.shadow_soft_size = point_light.get("Radius") * self.scale
-
-    def import_spot_light(self, spot_light, parent=None):
-        outer = max(spot_light.get("OuterConeAngle"), 0.5)
-        inner = min(max(spot_light.get("InnerConeAngle"), 0.0), outer)
-        light, light_data = self.create_light(spot_light, 'SPOT', spot_solid_angle(inner, outer), parent)
-        # UE's cone angles are from the axis, Blender's size is the whole cone; its blend is the fraction of the cone
-        # that fades out, where UE's inner angle is where the fade starts
-        light_data.spot_size = radians(min(max(outer * 2, 1.0), 179.0))
-        light_data.spot_blend = min(max(1.0 - inner / outer, 0.0), 1.0)
-        light_data.shadow_soft_size = spot_light.get("Radius") * self.scale
-
-    def import_rect_light(self, rect_light, parent=None):
-        # (a rect light's lumens leave one face, as a Lambertian surface's do: candelas along its axis are lumens / pi)
-        light, light_data = self.create_light(rect_light, 'AREA', pi, parent)
-        light_data.shape = 'RECTANGLE'
-        # the light is turned so that its X is UE's up (SourceHeight) and its Y UE's right (SourceWidth)
-        light_data.size = rect_light.get("SourceHeight") * self.scale
-        light_data.size_y = rect_light.get("SourceWidth") * self.scale
-
-    def create_light(self, data, light_type, solid_angle, parent=None):
-        """
-        A light object where UE has the light, with its colour (and temperature), brightness, reach and shadows.
-        The caller gives its shape (spot cone, rect size...) and the solid angle its lumens spread over.
-        """
-        name = data.get("Name")
-        light_data = bpy.data.lights.new(name=name, type=light_type)
-        light = bpy.data.objects.new(name=name, object_data=light_data)
-        self.collection.objects.link(light)
-
-        light.parent = parent
-        rotation = make_euler(data.get("Rotation"))
-        if light_type != 'POINT':
-            # a UE spot or rect light shines along its X axis, a Blender one along its -Z
-            rotation = (rotation.to_matrix() @ Matrix.Rotation(radians(-90), 3, 'Y')).to_euler()
-        light.rotation_euler = rotation
-        light.location = make_vector(data.get("Location"), unreal_coords_correction=True) * self.scale
-
-        color = data.get("Color")
-        rgb = [color["R"], color["G"], color["B"]]
-        if data.get("UseTemperature"):
-            rgb = [c * t for c, t in zip(rgb, kelvin_tint(data.get("Temperature") or 6500.0))]
-        # (a light's colour stops at white: what a hot tint goes past it moves to its power)
-        peak = max(max(rgb), 1.0)
-        light_data.color = [c / peak for c in rgb]
-        light_data.energy = float(light_candelas(data, solid_angle) * LIGHT_CANDELA_TO_WATTS * peak)
-        light_data.use_custom_distance = True
-        light_data.cutoff_distance = data.get("AttenuationRadius") * self.scale
-        light_data.use_shadow = data.get("CastShadows")
-        # what UE stored, to retune the power by
-        light_data["ue_intensity"] = data.get("Intensity") or 0.0
-        light_data["ue_units"] = data.get("IntensityUnits") or "Candelas"
-        # the actor it came from: its own meshes won't shadow it (material_porter.shadow_linking)
-        if data.get("Actor"):
-            light["mp_actor"] = str(data["Actor"])
-        return light, light_data
+        self.import_mp_lights(lights, parent)     # MP
 
     def import_mesh(self, path: str, can_reorient=True):
         options = UEModelOptions(scale_factor=self.scale,
