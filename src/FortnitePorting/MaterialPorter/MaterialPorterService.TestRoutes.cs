@@ -253,7 +253,7 @@ public partial class MaterialPorterService
                 var file = query["path"] ?? throw new ArgumentException("path missing");
                 var size = SaveShot(window, file);
                 var blender = AppSettings.ExportSettings.Blender;
-                return new { file, blender.SubsurfaceIntensity, blender.SubsurfaceScale, blender.FurSubsurfaceIntensity, blender.FurSubsurfaceScale };
+                return new { file, blender.SubsurfaceIntensity, blender.BaseSubsurface, blender.SubsurfaceScale, blender.ProfileColour, blender.FurSubsurfaceIntensity, blender.FurSubsurfaceScale };
             });
         }
         if (route == "fork-map-shot")

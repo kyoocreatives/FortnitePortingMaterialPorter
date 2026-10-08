@@ -38,9 +38,12 @@ public partial class BlenderSettingsViewModel : BaseExportSettings
     [ObservableProperty] private bool _preferFPShaders = false;
     // MP: the character materials' rim light (baseBrightness), off by default
     [ObservableProperty] private bool _rimLight = false;
-    // MP: exact materials' subsurface amount and distance (× the game's), for skin and for shell fur
+    // MP: exact materials' subsurface: skin amount (x the game's), base amount over a whole cosmetic, distance (x the
+    // game's), how much of the profile's colour the scattering keeps; shell fur has its own amount and distance
     [ObservableProperty] private float _subsurfaceIntensity = 1.0f;
+    [ObservableProperty] private float _baseSubsurface = 0.0f;
     [ObservableProperty] private float _subsurfaceScale = 1.0f;
+    [ObservableProperty] private float _profileColour = 0.5f;
     [ObservableProperty] private float _furSubsurfaceIntensity = 1.0f;
     [ObservableProperty] private float _furSubsurfaceScale = 1.0f;
     

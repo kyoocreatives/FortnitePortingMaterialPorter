@@ -20,8 +20,8 @@
                 <ToggleSwitch IsChecked="{Binding RimLight}"/>
             </controls:SettingsItem.Footer>
         </controls:SettingsItem>
-        <controls:SettingsItem Title="Subsurface Intensity"
-                               Description="How much light scatters under skin on exact materials, wherever the game's material scatters any. Each material keeps it as its Subsurface Intensity input."
+        <controls:SettingsItem Title="Skin Subsurface"
+                               Description="How much light scatters under skin, where the game's material scatters (x its amount)."
                                IsEnabled="{Binding ExportMaterials}">
             <controls:SettingsItem.Footer>
                 <StackPanel Orientation="Horizontal">
@@ -34,8 +34,22 @@
                 </StackPanel>
             </controls:SettingsItem.Footer>
         </controls:SettingsItem>
-        <controls:SettingsItem Title="Subsurface Scale"
-                               Description="How far light scatters under skin on exact materials, times the game's distance (1: the game's). Each material keeps it as its Subsurface Scale input."
+        <controls:SettingsItem Title="Base Subsurface"
+                               Description="Light scattering over the whole of a cosmetic, clothes included, for a softer look. 0: only where the game scatters."
+                               IsEnabled="{Binding ExportMaterials}">
+            <controls:SettingsItem.Footer>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Value="{Binding BaseSubsurface}" MinWidth="200"
+                            Minimum="0" Maximum="1"
+                            TickFrequency="0.05" TickPlacement="BottomRight"
+                            IsSnapToTickEnabled="True"/>
+                    <TextBlock Text="{Binding BaseSubsurface, StringFormat=N2}"
+                               VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
+                </StackPanel>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+        <controls:SettingsItem Title="Scatter Distance"
+                               Description="How far light scatters, x the game's distance (1: the game's)."
                                IsEnabled="{Binding ExportMaterials}">
             <controls:SettingsItem.Footer>
                 <StackPanel Orientation="Horizontal">
@@ -44,6 +58,20 @@
                             TickFrequency="0.25" TickPlacement="BottomRight"
                             IsSnapToTickEnabled="True"/>
                     <TextBlock Text="{Binding SubsurfaceScale, StringFormat=N2}"
+                               VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
+                </StackPanel>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+        <controls:SettingsItem Title="Profile Colour"
+                               Description="How much of the skin profile's colour the scattering keeps. 1: the game's; lower softens coloured profiles that darken and saturate skin."
+                               IsEnabled="{Binding ExportMaterials}">
+            <controls:SettingsItem.Footer>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Value="{Binding ProfileColour}" MinWidth="200"
+                            Minimum="0" Maximum="1"
+                            TickFrequency="0.05" TickPlacement="BottomRight"
+                            IsSnapToTickEnabled="True"/>
+                    <TextBlock Text="{Binding ProfileColour, StringFormat=N2}"
                                VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
                 </StackPanel>
             </controls:SettingsItem.Footer>
