@@ -803,9 +803,6 @@ a commit's) ask neither.
   `ExportService.cs` (the fork's style lists), `FortnitePorting.csproj`, `build-release.yml`, `build-commit.yml`, `README.md`, plugin
   `server.py`, `material_context.py`, `mesh_context.py`, `importer.py` and `enums.py`.
 
-Generated files come from Material Porter (`Documents/Claude/materialporter`):
-edit there, then `python tools/sync_fork.py`.
-
 - `patches/CUE4Parse/`: whole files laid over the `external/CUE4Parse`
   submodule (upstream's, which the fork can't push to). Both workflows copy them
   in after the submodule checkout; locally, copy them into the submodule the
