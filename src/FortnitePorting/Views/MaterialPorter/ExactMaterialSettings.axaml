@@ -1,0 +1,80 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ext="clr-namespace:FortnitePorting.Extensions;assembly=FortnitePorting"
+             xmlns:settings="clr-namespace:FortnitePorting.ViewModels.Settings"
+             xmlns:controls="clr-namespace:FortnitePorting.Controls.Settings"
+             x:Class="FortnitePorting.Views.MaterialPorter.ExactMaterialSettings"
+             x:DataType="settings:BlenderSettingsViewModel">
+    <StackPanel Spacing="{ext:Space 0, 0, 0, 1}">
+        <controls:SettingsItem Title="Prefer FP Shaders for Characters"
+                               Description="Outfits, back blings, pickaxes, gliders, pets, kicks and sidekicks use FP's prebuilt shaders where FP has one for a material; the others keep the exact material rebuilt from its Unreal graph."
+                               IsEnabled="{Binding ExportMaterials}">
+            <controls:SettingsItem.Footer>
+                <ToggleSwitch IsChecked="{Binding PreferFPShaders}"/>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+        <controls:SettingsItem Title="Rim Light"
+                               Description="Keeps the rim light Fortnite's character materials add at the edges of a silhouette (their baseBrightness). Off: baseBrightness is 0 on exact materials."
+                               IsEnabled="{Binding ExportMaterials}">
+            <controls:SettingsItem.Footer>
+                <ToggleSwitch IsChecked="{Binding RimLight}"/>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+        <controls:SettingsItem Title="Subsurface Intensity"
+                               Description="How much light scatters under skin on exact materials, wherever the game's material scatters any. Each material keeps it as its Subsurface Intensity input."
+                               IsEnabled="{Binding ExportMaterials}">
+            <controls:SettingsItem.Footer>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Value="{Binding SubsurfaceIntensity}" MinWidth="200"
+                            Minimum="0" Maximum="1"
+                            TickFrequency="0.05" TickPlacement="BottomRight"
+                            IsSnapToTickEnabled="True"/>
+                    <TextBlock Text="{Binding SubsurfaceIntensity, StringFormat=N2}"
+                               VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
+                </StackPanel>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+        <controls:SettingsItem Title="Subsurface Scale"
+                               Description="How far light scatters under skin on exact materials, times the game's distance (1: the game's). Each material keeps it as its Subsurface Scale input."
+                               IsEnabled="{Binding ExportMaterials}">
+            <controls:SettingsItem.Footer>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Value="{Binding SubsurfaceScale}" MinWidth="200"
+                            Minimum="0" Maximum="10"
+                            TickFrequency="0.25" TickPlacement="BottomRight"
+                            IsSnapToTickEnabled="True"/>
+                    <TextBlock Text="{Binding SubsurfaceScale, StringFormat=N2}"
+                               VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
+                </StackPanel>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+        <controls:SettingsItem Title="Fur Subsurface Intensity"
+                               Description="How much light scatters under shell fur (all of it) and the skin under it (where the game's scatters any). Higher: softer fur that blends into the body."
+                               IsEnabled="{Binding ExportMaterials}">
+            <controls:SettingsItem.Footer>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Value="{Binding FurSubsurfaceIntensity}" MinWidth="200"
+                            Minimum="0" Maximum="1"
+                            TickFrequency="0.05" TickPlacement="BottomRight"
+                            IsSnapToTickEnabled="True"/>
+                    <TextBlock Text="{Binding FurSubsurfaceIntensity, StringFormat=N2}"
+                               VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
+                </StackPanel>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+        <controls:SettingsItem Title="Fur Subsurface Scale"
+                               Description="How far light scatters under shell fur and the skin under it, times the game's distance (1: the game's)."
+                               IsEnabled="{Binding ExportMaterials}">
+            <controls:SettingsItem.Footer>
+                <StackPanel Orientation="Horizontal">
+                    <Slider Value="{Binding FurSubsurfaceScale}" MinWidth="200"
+                            Minimum="0" Maximum="20"
+                            TickFrequency="0.5" TickPlacement="BottomRight"
+                            IsSnapToTickEnabled="True"/>
+                    <TextBlock Text="{Binding FurSubsurfaceScale, StringFormat=N2}"
+                               VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
+                </StackPanel>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+    </StackPanel>
+</UserControl>

@@ -368,8 +368,7 @@
                                                                         IsVisible="{Binding !MultiSelect}">
                                                             <DropDownButton.Flyout>
                                                                 <Flyout>
-<Panel>
-
+                                                                    <Panel>     <!-- MP: a search and a tile grid when there are many options (a car's wheel sets) -->
                                                                     <ListBox IsVisible="{Binding !IsPicker}" SelectionMode="{Binding SelectionMode}"
                                                                              SelectedItems="{Binding SelectedItems}"
                                                                              SelectedIndex="{Binding SelectedStyleIndex, Mode=TwoWay}"
@@ -443,49 +442,48 @@
                                                                             </DataTemplate>
                                                                         </ListBox.ItemTemplate>
                                                                     </ListBox>
-<!-- Material Porter fork: many options (a car's wheel sets) - a search and a tile grid -->
-<Grid IsVisible="{Binding IsPicker}" RowDefinitions="Auto,8,*" Width="660" Height="560">
-    <TextBox Grid.Row="0" Text="{Binding PickerSearch}" Watermark="Search..." />
-    <ListBox Grid.Row="2" ItemsSource="{Binding PickerItems}" SelectedItem="{Binding PickerSelection, Mode=TwoWay}"
-             AutoScrollToSelectedItem="False" Background="Transparent"
-             PointerReleased="OnStyleFlyoutItemPointerReleased">
-        <ListBox.Styles>
-            <Style Selector="ListBoxItem">
-                <Setter Property="Background" Value="Transparent" />
-                <Setter Property="CornerRadius" Value="12" />
-                <Setter Property="Cursor" Value="Hand" />
-                <Setter Property="MinWidth" Value="0" />
-                <Setter Property="Padding" Value="0" />
-                <Style Selector="^:selected /template/ ContentPresenter#PART_ContentPresenter">
-                    <Setter Property="Background" Value="{DynamicResource FPAccentBrush}" />
-                    <Setter Property="CornerRadius" Value="12" />
-                </Style>
-                <Style Selector="^ /template/ Rectangle#SelectionIndicator">
-                    <Setter Property="Opacity" Value="0" />
-                </Style>
-            </Style>
-        </ListBox.Styles>
-        <ListBox.ItemTemplate>
-            <DataTemplate DataType="assets:BaseStyleData">
-                <StackPanel Width="96" Margin="4" Spacing="4" ToolTip.Tip="{Binding StyleName}">
-                    <Border ClipToBounds="True" CornerRadius="8" Width="96" Height="96"
-                            Background="{StaticResource SkeletonBrush}">
-                        <Image Stretch="UniformToFill" Source="{Binding StyleDisplayImage}"
-                               RenderOptions.BitmapInterpolationMode="LowQuality" />
-                    </Border>
-                    <TextBlock Text="{Binding StyleName}" FontSize="12" HorizontalAlignment="Center"
-                               TextTrimming="CharacterEllipsis" />
-                </StackPanel>
-            </DataTemplate>
-        </ListBox.ItemTemplate>
-        <ListBox.ItemsPanel>
-            <ItemsPanelTemplate>
-                <wrapPanel:VirtualizingWrapPanel DistributeEvenly="True" />
-            </ItemsPanelTemplate>
-        </ListBox.ItemsPanel>
-    </ListBox>
-</Grid>
-</Panel>
+                                                                    <Grid IsVisible="{Binding IsPicker}" RowDefinitions="Auto,8,*" Width="660" Height="560">
+                                                                        <TextBox Grid.Row="0" Text="{Binding PickerSearch}" Watermark="Search..." />
+                                                                        <ListBox Grid.Row="2" ItemsSource="{Binding PickerItems}" SelectedItem="{Binding PickerSelection, Mode=TwoWay}"
+                                                                                 AutoScrollToSelectedItem="False" Background="Transparent"
+                                                                                 PointerReleased="OnStyleFlyoutItemPointerReleased">
+                                                                            <ListBox.Styles>
+                                                                                <Style Selector="ListBoxItem">
+                                                                                    <Setter Property="Background" Value="Transparent" />
+                                                                                    <Setter Property="CornerRadius" Value="12" />
+                                                                                    <Setter Property="Cursor" Value="Hand" />
+                                                                                    <Setter Property="MinWidth" Value="0" />
+                                                                                    <Setter Property="Padding" Value="0" />
+                                                                                    <Style Selector="^:selected /template/ ContentPresenter#PART_ContentPresenter">
+                                                                                        <Setter Property="Background" Value="{DynamicResource FPAccentBrush}" />
+                                                                                        <Setter Property="CornerRadius" Value="12" />
+                                                                                    </Style>
+                                                                                    <Style Selector="^ /template/ Rectangle#SelectionIndicator">
+                                                                                        <Setter Property="Opacity" Value="0" />
+                                                                                    </Style>
+                                                                                </Style>
+                                                                            </ListBox.Styles>
+                                                                            <ListBox.ItemTemplate>
+                                                                                <DataTemplate DataType="assets:BaseStyleData">
+                                                                                    <StackPanel Width="96" Margin="4" Spacing="4" ToolTip.Tip="{Binding StyleName}">
+                                                                                        <Border ClipToBounds="True" CornerRadius="8" Width="96" Height="96"
+                                                                                                Background="{StaticResource SkeletonBrush}">
+                                                                                            <Image Stretch="UniformToFill" Source="{Binding StyleDisplayImage}"
+                                                                                                   RenderOptions.BitmapInterpolationMode="LowQuality" />
+                                                                                        </Border>
+                                                                                        <TextBlock Text="{Binding StyleName}" FontSize="12" HorizontalAlignment="Center"
+                                                                                                   TextTrimming="CharacterEllipsis" />
+                                                                                    </StackPanel>
+                                                                                </DataTemplate>
+                                                                            </ListBox.ItemTemplate>
+                                                                            <ListBox.ItemsPanel>
+                                                                                <ItemsPanelTemplate>
+                                                                                    <wrapPanel:VirtualizingWrapPanel DistributeEvenly="True" />
+                                                                                </ItemsPanelTemplate>
+                                                                            </ListBox.ItemsPanel>
+                                                                        </ListBox>
+                                                                    </Grid>
+                                                                    </Panel>
 
                                                                 </Flyout>
                                                             </DropDownButton.Flyout>

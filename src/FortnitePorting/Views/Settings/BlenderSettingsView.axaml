@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mp="clr-namespace:FortnitePorting.Views.MaterialPorter"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:ui="clr-namespace:FluentAvalonia.UI.Controls;assembly=FluentAvalonia"
@@ -246,79 +247,7 @@
                                               SelectedItem="{Binding MaterialImportMethod, Converter={StaticResource EnumToRecord}}"/>
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
-                            <!-- Material Porter fork: FP's shaders for characters, exact materials for what FP has none for -->
-                            <controls:SettingsItem Title="Prefer FP Shaders for Characters"
-                                                   Description="Outfits, back blings, pickaxes, gliders, pets, kicks and sidekicks use FP's prebuilt shaders where FP has one for a material; the others keep the exact material rebuilt from its Unreal graph."
-                                                   IsEnabled="{Binding ExportMaterials}">
-                                <controls:SettingsItem.Footer>
-                                    <ToggleSwitch IsChecked="{Binding PreferFPShaders}"/>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
-                            <!-- Material Porter fork: the character materials' rim light -->
-                            <controls:SettingsItem Title="Rim Light"
-                                                   Description="Keeps the rim light Fortnite's character materials add at the edges of a silhouette (their baseBrightness). Off: baseBrightness is 0 on exact materials."
-                                                   IsEnabled="{Binding ExportMaterials}">
-                                <controls:SettingsItem.Footer>
-                                    <ToggleSwitch IsChecked="{Binding RimLight}"/>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
-                            <!-- Material Porter fork: how much and how far light scatters under exact materials, × the game's -->
-                            <controls:SettingsItem Title="Subsurface Intensity"
-                                                   Description="How much light scatters under skin on exact materials, wherever the game's material scatters any. Each material keeps it as its Subsurface Intensity input."
-                                                   IsEnabled="{Binding ExportMaterials}">
-                                <controls:SettingsItem.Footer>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Slider Value="{Binding SubsurfaceIntensity}" MinWidth="200"
-                                                Minimum="0" Maximum="1"
-                                                TickFrequency="0.05" TickPlacement="BottomRight"
-                                                IsSnapToTickEnabled="True"/>
-                                        <TextBlock Text="{Binding SubsurfaceIntensity, StringFormat=N2}"
-                                                   VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
-                                    </StackPanel>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
-                            <controls:SettingsItem Title="Subsurface Scale"
-                                                   Description="How far light scatters under skin on exact materials, times the game's distance (1: the game's). Each material keeps it as its Subsurface Scale input."
-                                                   IsEnabled="{Binding ExportMaterials}">
-                                <controls:SettingsItem.Footer>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Slider Value="{Binding SubsurfaceScale}" MinWidth="200"
-                                                Minimum="0" Maximum="10"
-                                                TickFrequency="0.25" TickPlacement="BottomRight"
-                                                IsSnapToTickEnabled="True"/>
-                                        <TextBlock Text="{Binding SubsurfaceScale, StringFormat=N2}"
-                                                   VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
-                                    </StackPanel>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
-                            <controls:SettingsItem Title="Fur Subsurface Intensity"
-                                                   Description="How much light scatters under shell fur (all of it) and the skin under it (where the game's scatters any). Higher: softer fur that blends into the body."
-                                                   IsEnabled="{Binding ExportMaterials}">
-                                <controls:SettingsItem.Footer>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Slider Value="{Binding FurSubsurfaceIntensity}" MinWidth="200"
-                                                Minimum="0" Maximum="1"
-                                                TickFrequency="0.05" TickPlacement="BottomRight"
-                                                IsSnapToTickEnabled="True"/>
-                                        <TextBlock Text="{Binding FurSubsurfaceIntensity, StringFormat=N2}"
-                                                   VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
-                                    </StackPanel>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
-                            <controls:SettingsItem Title="Fur Subsurface Scale"
-                                                   Description="How far light scatters under shell fur and the skin under it, times the game's distance (1: the game's)."
-                                                   IsEnabled="{Binding ExportMaterials}">
-                                <controls:SettingsItem.Footer>
-                                    <StackPanel Orientation="Horizontal">
-                                        <Slider Value="{Binding FurSubsurfaceScale}" MinWidth="200"
-                                                Minimum="0" Maximum="20"
-                                                TickFrequency="0.5" TickPlacement="BottomRight"
-                                                IsSnapToTickEnabled="True"/>
-                                        <TextBlock Text="{Binding FurSubsurfaceScale, StringFormat=N2}"
-                                                   VerticalAlignment="Center" Margin="{ext:Space 1, 0, 0, 0}"/>
-                                    </StackPanel>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
+                            <mp:ExactMaterialSettings/>     <!-- MP -->
                         </StackPanel>
                     </sidebar:SidebarItemButton.Tag>
                 </sidebar:SidebarItemButton>
@@ -333,14 +262,7 @@
                                               SelectedItem="{Binding ImageFormat, Converter={StaticResource EnumToRecord}}"/>
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
-                            <!-- Material Porter fork -->
-                            <controls:SettingsItem Title="Max Texture Size"
-                                                   Description="The largest textures are imported at, from their own smaller mips (no resampling). Lower for backgrounds: a map of a thousand textures fits in far less GPU memory.">
-                                <controls:SettingsItem.Footer>
-                                    <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fpExport:ETextureSizeCap}}"
-                                              SelectedItem="{Binding MaxTextureSize, Converter={StaticResource EnumToRecord}}"/>
-                                </controls:SettingsItem.Footer>
-                            </controls:SettingsItem>
+                            <mp:MaxTextureSizeSetting/>     <!-- MP -->
                             <controls:SettingsItem Title="Method"
                                                    Description="The way textures should be imported.">
                                 <controls:SettingsItem.Footer>

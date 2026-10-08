@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ext="clr-namespace:FortnitePorting.Extensions;assembly=FortnitePorting"
+             xmlns:settings="clr-namespace:FortnitePorting.ViewModels.Settings"
+             xmlns:fpExport="clr-namespace:FortnitePorting;assembly=FortnitePorting.Exporting"
+             xmlns:controls="clr-namespace:FortnitePorting.Controls.Settings"
+             x:Class="FortnitePorting.Views.MaterialPorter.MaxTextureSizeSetting"
+             x:DataType="settings:BlenderSettingsViewModel">
+    <controls:SettingsItem Title="Max Texture Size"
+                           Description="The largest textures are imported at, from their own smaller mips (no resampling). Lower for backgrounds: a map of a thousand textures fits in far less GPU memory.">
+        <controls:SettingsItem.Footer>
+            <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fpExport:ETextureSizeCap}}"
+                      SelectedItem="{Binding MaxTextureSize, Converter={StaticResource EnumToRecord}}"/>
+        </controls:SettingsItem.Footer>
+    </controls:SettingsItem>
+</UserControl>

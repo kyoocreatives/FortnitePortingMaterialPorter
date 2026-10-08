@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mp="clr-namespace:FortnitePorting.Views.MaterialPorter"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:ui="clr-namespace:FluentAvalonia.UI.Controls;assembly=FluentAvalonia"
@@ -46,35 +47,7 @@
                 </controls:SettingsItem.Footer>
             </controls:SettingsItem>
             
-            <controls:SettingsItem Title="UEFN Project Folders"
-                                   Description="Your Fortnite Projects folder and the projects UEFN lists are found by themselves; add folders that hold other UEFN projects here (found by their .uefnproject file). An island of yours then imports with exact materials, read from its project's own graphs."
-                                   IsVisible="{Binding ShowIslandSettings}">
-                <controls:SettingsItem.Footer>
-                    <StackPanel Spacing="4" HorizontalAlignment="Right">
-                        <ItemsControl ItemsSource="{Binding UefnProjectFolders}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate x:DataType="x:String">
-                                    <Grid ColumnDefinitions="* Auto" Margin="0 0 0 4">
-                                        <TextBlock Grid.Column="0" Text="{Binding}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
-                                        <Button Grid.Column="1" Classes="GhostButton" Margin="4 0 0 0" MinWidth="32"
-                                                ToolTip.Tip="Remove Folder"
-                                                Command="{Binding $parent[ItemsControl].((settings:ApplicationSettingsViewModel)DataContext).RemoveUefnProjectFolder}"
-                                                CommandParameter="{Binding}">
-                                            <avalonia:MaterialIcon Kind="Delete" Width="16" Height="16"/>
-                                        </Button>
-                                    </Grid>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                        <TextBlock Text="{Binding FoundUefnProjects}" Opacity="0.7" TextWrapping="Wrap" MaxWidth="440"
-                                   HorizontalAlignment="Right" TextAlignment="Right"/>
-                        <Button HorizontalAlignment="Right" ToolTip.Tip="Add Folder" Command="{Binding AddUefnProjectFolder}">
-                            <avalonia:MaterialIcon Kind="FolderPlus"/>
-                        </Button>
-                    </StackPanel>
-                </controls:SettingsItem.Footer>
-            </controls:SettingsItem>
-
+            <mp:UefnProjectSettings/>     <!-- MP -->
             <TextBlock Text="Display"
                        Classes="SettingsSectionHeaderStyle TextFillColorTertiaryBrush"
                        HorizontalAlignment="Left"

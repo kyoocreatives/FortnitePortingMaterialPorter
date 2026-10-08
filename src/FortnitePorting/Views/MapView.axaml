@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mp="clr-namespace:FortnitePorting.Views.MaterialPorter"
              xmlns:viewModels="clr-namespace:FortnitePorting.ViewModels"
              xmlns:ext="clr-namespace:FortnitePorting.Extensions;assembly=FortnitePorting"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
@@ -39,15 +40,7 @@
                 </sidebar:Sidebar.Items>
                 <sidebar:Sidebar.Footer>
                     <StackPanel Spacing="{ext:Space 1}">
-                        <!-- Material Porter fork: a UEFN island opened by its map code (owner's builds only) -->
-                        <StackPanel Spacing="{ext:Space 1}" IsVisible="{Binding CanUnlockIslands}">
-                            <TextBox Text="{Binding IslandCode}" Watermark="Island code (1234-5678-9012)" IsEnabled="{Binding !IsUnlockingIsland}"/>
-                            <Button HorizontalAlignment="Stretch" Content="{controls:IconText 'Unlock Island', LockOpen}"
-                                    IsEnabled="{Binding !IsUnlockingIsland}"
-                                    Command="{Binding UnlockIslandCommand}"/>
-                            <TextBlock Text="{Binding IslandStatus}" TextWrapping="Wrap" FontSize="11" Opacity="0.7"
-                                       IsVisible="{Binding IslandStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
-                        </StackPanel>
+                        <mp:IslandUnlockPanel/>     <!-- MP -->
                         <Button HorizontalAlignment="Stretch" Content="{controls:IconText 'Reload Maps', Reload}"
                                 IsEnabled="{Binding !IsLoading}"
                                 Command="{Binding ReloadMapsCommand}"/>
@@ -424,7 +417,7 @@
                                HorizontalAlignment="Center" VerticalAlignment="Center"
                                Classes="BodyTextBlockStyle TextFillColorSecondaryBrush"
                                IsVisible="{Binding SelectedMap.NoPreview}"/>
-                    <!-- Material Porter fork: a drawn map's progress -->
+                    <!-- MP: a drawn map's progress -->
                     <TextBlock Text="{Binding SelectedMap.PreviewStatus}" Margin="{ext:Space 2}"
                                HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False"
                                Classes="BodyTextBlockStyle TextFillColorSecondaryBrush"

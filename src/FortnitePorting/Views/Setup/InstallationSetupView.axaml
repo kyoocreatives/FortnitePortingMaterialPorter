@@ -1,5 +1,6 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mp="clr-namespace:FortnitePorting.Views.MaterialPorter"
              xmlns:ui="using:FluentAvalonia.UI.Controls"
              xmlns:ext="clr-namespace:FortnitePorting.Extensions;assembly=FortnitePorting"
              xmlns:versions="clr-namespace:CUE4Parse.UE4.Versions;assembly=CUE4Parse"
@@ -71,59 +72,7 @@
                         </StackPanel>
                     </controls:SettingsItem.Footer>
                 </controls:SettingsItem>
-                <!-- Material Porter fork: an older build downloaded from its manifest -->
-                <controls:SettingsItem Title="Download Build"
-                                       Description="Download this version from Epic with its build manifest instead of reading an installation (Epic only lists the live build: an older one needs its manifest)."
-                                       IsVisible="{Binding Profile.CanDownloadBuild}">
-                    <controls:SettingsItem.Footer>
-                        <ToggleSwitch IsChecked="{Binding Profile.DownloadFromManifest}" />
-                    </controls:SettingsItem.Footer>
-                </controls:SettingsItem>
-                <controls:SettingsItem Title="Build"
-                                       Description="Find the builds this PC's launcher kept (with their UEFN, for exact materials) and the fn-releases archive's: picking one fills the manifests, keys and mappings."
-                                       IsVisible="{Binding Profile.IsCustomOnDemand}">
-                    <controls:SettingsItem.Footer>
-                        <StackPanel Orientation="Horizontal">
-                            <ComboBox MinWidth="280" PlaceholderText="Find builds first" ItemsSource="{Binding Profile.AvailableBuilds}"
-                                      SelectedItem="{Binding Profile.SelectedBuild}" />
-                            <Button Margin="4 0 0 0" Command="{Binding Profile.FindBuilds}" IsEnabled="{Binding !Profile.IsFindingBuilds}"
-                                    ToolTip.Tip="Find builds">
-                                <avalonia:MaterialIcon Kind="Magnify"/>
-                            </Button>
-                        </StackPanel>
-                    </controls:SettingsItem.Footer>
-                </controls:SettingsItem>
-                <controls:SettingsItem Title="Build Manifest"
-                                       Description="The build's .manifest file, or a link to it."
-                                       IsVisible="{Binding Profile.IsCustomOnDemand}">
-                    <controls:SettingsItem.Footer>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBox Text="{Binding Profile.ManifestPath}" Watermark="Ex. C:/Manifests/Fortnite_26.00.manifest" />
-                            <Button Margin="4 0 0 0" Command="{Binding Profile.BrowseManifestFile}">
-                                <avalonia:MaterialIcon Kind="File"/>
-                            </Button>
-                        </StackPanel>
-                    </controls:SettingsItem.Footer>
-                </controls:SettingsItem>
-                <controls:SettingsItem Title="UEFN Manifest"
-                                       Description="The same build's UEFN (Studio) .manifest file, or a link to it: its editor data gives exact materials. Optional."
-                                       IsVisible="{Binding Profile.IsCustomOnDemand}">
-                    <controls:SettingsItem.Footer>
-                        <StackPanel Orientation="Horizontal">
-                            <TextBox Text="{Binding Profile.StudioManifestPath}" Watermark="Optional" />
-                            <Button Margin="4 0 0 0" Command="{Binding Profile.BrowseStudioManifestFile}">
-                                <avalonia:MaterialIcon Kind="File"/>
-                            </Button>
-                        </StackPanel>
-                    </controls:SettingsItem.Footer>
-                </controls:SettingsItem>
-                <controls:SettingsItem Title="Detect Unreal Version"
-                                       Description="Find the build's Unreal Version on load, reading some of its packages with the versions near the one below (and the one its UEFN names); the one found replaces it."
-                                       IsVisible="{Binding Profile.IsCustomOnDemand}">
-                    <controls:SettingsItem.Footer>
-                        <ToggleSwitch IsChecked="{Binding Profile.AutoUnrealVersion}" />
-                    </controls:SettingsItem.Footer>
-                </controls:SettingsItem>
+                <mp:DownloadedBuildSettings DataContext="{Binding Profile}"/>     <!-- MP -->
                 <controls:SettingsItem Title="Game Language" 
                                      Description="The language used for in-game text strings such as names, descriptions, styles, etc.">
                     <controls:SettingsItem.Footer>
