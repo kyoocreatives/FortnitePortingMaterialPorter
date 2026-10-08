@@ -26,6 +26,25 @@ public partial class CUE4ParseService
         Exporting.MaterialPorter.Prefetch.Enabled = Profile.IsCustomOnDemand || Profile.FortniteVersion is EFortniteVersion.LatestOnDemand;
     }
 
+    // Fortnite also ships UEFN's editor pak, with uncooked copies of some of the game's own packages (AtmosphericCloudNoise01,
+    // DefaultTexture). Both containers mount with the same read order, so which copy a path read changed from run to run;
+    // the cooked one is what the game uses and the only one that exports (an uncooked texture has no mips).
+    private void PreferCookedFiles()
+    {
+        if (Provider.Files is not global::CUE4Parse.FileProvider.Vfs.FileProviderDictionary files) return;
+        var editorPaks = Provider.MountedVfs.Where(v => v.Name.StartsWith("UEFNFortniteGame-", StringComparison.OrdinalIgnoreCase)).ToList();
+        var editorPaths = editorPaks.SelectMany(v => v.Files.Keys).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var cooked = new Dictionary<string, global::CUE4Parse.FileProvider.Objects.GameFile>(StringComparer.OrdinalIgnoreCase);
+        // in read order, so a patch's copy is the one kept, as the provider would
+        foreach (var vfs in Provider.MountedVfs.Except(editorPaks).OrderBy(v => v.ReadOrder))
+            foreach (var (path, file) in vfs.Files)
+                if (editorPaths.Contains(path))
+                    cooked[path] = file;
+        if (cooked.Count == 0) return;
+        files.AddFiles(cooked, long.MaxValue);
+        Log.Information("[Material Porter] {Count} packages in UEFN's editor pak read from the game's own containers", cooked.Count);
+    }
+
     // a downloaded build caches its material graphs under its own version
     private void OnLoadingFinished() =>
         MaterialPorter.MaterialPorterService.Instance.OnGameLoaded(Provider!, _resolvedVersion?.Version ?? LiveManifest?.Meta.BuildVersion);

@@ -439,6 +439,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     {
         Provider.LoadVirtualPaths();
         Provider.PostMount();
+        PreferCookedFiles();     // MP
         
         if (AppSettings.Installation.CurrentProfile.GameLanguage is not ELanguage.English 
             && !Provider.TryChangeCulture(Provider.GetLanguageCode(AppSettings.Installation.CurrentProfile.GameLanguage)))
