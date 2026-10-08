@@ -329,6 +329,9 @@ CUSTOM_HASHES = {
     "dd5fa5b0": "custom_acos",              # return acos(a);  (RotateVector, engine)
     "41a47d1f": "custom_rgb_to_hsv",        # RGBtoHSV (engine)
     "8fb148eb": "custom_cube_corner",       # Center + float3(-Size / 2)  (MF_ProjectUV_WiryPerk)
+    "f5aab5b0": "custom_soft_outline",      # FXCommon_SoftOutline: scene depth rings
+    "82ca7c96": "custom_soft_outline",      # ... its custom depth variant
+    "89b45337": "custom_soft_outline",      # ... its custom stencil variant
     "e200a58e": "custom_bounds_min",        # GetPrimitiveData(Parameters).LocalObjectBoundsMin.xyz
     "a48f54dd": "custom_bounds_max",        # ... LocalObjectBoundsMax.xyz
     "8ae85b7f": "custom_bounds_extent",     # ... InstanceLocalBoundsExtent.xyz

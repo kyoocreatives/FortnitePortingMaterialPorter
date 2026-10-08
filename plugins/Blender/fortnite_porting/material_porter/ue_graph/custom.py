@@ -2,7 +2,7 @@
 
 import math
 
-from .core import Attrs, CUSTOM_LAZY, TexRef, Val, LazyInputs, custom_handler, linked
+from .core import Attrs, CUSTOM_LAZY, TexRef, Val, LazyInputs, custom_code, custom_handler, linked
 
 
 class CustomMixin:
@@ -372,6 +372,72 @@ class CustomMixin:
     def custom_length(self, ins, p):
         v = self._in(ins, "x")
         return self.math('ABSOLUTE', v) if v.w == 1 else self.vmath('LENGTH', self.as3(v))
+
+    def _built_value(self, v):
+        """A float's value when the material is built: a constant's, or the default of the group input it comes
+        from (a function's input its callers leave unset); None otherwise."""
+        if v is None:
+            return None
+        if v.const:
+            return float(v.s)
+        sock = v.s
+        if getattr(getattr(sock, "node", None), "bl_idname", "") == "NodeGroupInput":
+            item = next((i for i in sock.node.id_data.interface.items_tree
+                         if getattr(i, "identifier", None) == sock.identifier and hasattr(i, "default_value")), None)
+            return float(item.default_value) if item is not None else None
+        return None
+
+    def custom_soft_outline(self, ins, p):
+        """FXCommon_SoftOutline: rings of scene-depth samples around the pixel, each counting (up to 0.99) by how
+        little the surface there lies behind it (out 0, averaged); out 1 (Mask) is the pixel's own sample.
+        Unrolled to the step counts it has when built (a function input's default); a sample past the counts it
+        has later weighs 0, so fewer steps stay exact. UE's temporal jitter is left out (its samples at rest);
+        the custom-depth and custom-stencil variants read the scene depth, which Blender has instead."""
+        steps, radial = self._in(ins, "DistanceSteps"), self._in(ins, "RadialSteps")
+        n_steps, n_radial = self._built_value(steps), self._built_value(radial)
+        if n_steps is None or n_radial is None or int(n_steps) * int(n_radial) > 64:
+            return self.stand_in("SoftOutline without known step counts (or over 64 samples) as 0", self.const(0.0))
+        n_steps, n_radial = int(n_steps), int(n_radial)
+        if n_steps < 1 or n_radial < 1:
+            return self.const(0.0)
+        if custom_code(p).count("SceneTextureLookupCommon"):
+            self.stand_in("SoftOutline's custom depth / stencil read as the scene depth", None)
+        steps, radial = self.math('TRUNC', steps), self.math('TRUNC', radial)
+        uv = self.evaluate_geometry(None, None, "ScreenPosition", 0, None, {}, None)
+        p_depth, offset = self._in(ins, "PDepth"), self._in(ins, "PixelDepthOffset")
+        spread = self.math('ADD', self._in(ins, "DivideF"), offset)
+
+        def near(at):
+            # min(1 - saturate(max(0, t) / (DivideF + PixelDepthOffset)), 0.99) where t > 0, else 0
+            t = self.math('ADD', self.math('SUBTRACT', self.scene_depth_at(at), p_depth), offset)
+            q = self.math('SUBTRACT', self.const(1.0), self.math('DIVIDE', self.math('MAXIMUM', t, self.const(0.0)), spread, clamp=True))
+            return self.math('MULTIPLY', self.math('MINIMUM', q, self.const(0.99)), self.math('GREATER_THAN', t, self.const(0.0)))
+
+        def within(count, k):       # 1 while sample k is one the loop takes (k < count)
+            return self.math('GREATER_THAN', count, self.const(k - 0.5))
+        own = near(uv)
+        if getattr(self, "custom_out", 0) == 1:
+            return own
+        # ring 0 is at distance 0: every one of its samples is the pixel itself
+        total = self.math('MULTIPLY', own, radial)
+        step = self.math('DIVIDE', self._in(ins, "Distance"), steps)
+        mask = self._in(ins, "DistanceMask")
+        mx, my = (mask, mask) if mask.w == 1 else self.comps(mask)[:2]
+        turn = self.math('DIVIDE', self.const(2.0 * math.pi), radial)
+        u, v = self.comps(uv)[:2]
+        for i in range(1, n_steps):
+            reach = self.math('MULTIPLY', step, self.const(float(i)))
+            for j in range(n_radial):
+                # Substep counts every sample taken so far and gains RadialOffset after each ring
+                sub = self.math('ADD', self.math('MULTIPLY_ADD', radial, self.const(float(i)), self.const(float(j))),
+                                self.math('MULTIPLY', self._in(ins, "RadialOffset"), self.const(float(i))))
+                angle = self.math('MULTIPLY', sub, turn)
+                du = self.math('MULTIPLY', self.math('MULTIPLY', self.math('COSINE', angle), mx), reach)
+                dv = self.math('MULTIPLY', self.math('MULTIPLY', self.math('SINE', angle), my), reach)
+                taken = self.math('MULTIPLY', within(steps, i), within(radial, j))
+                sample = near(self.combine([self.math('ADD', u, du), self.math('ADD', v, dv)]))
+                total = self.math('ADD', total, self.math('MULTIPLY', sample, taken))
+        return self.math('DIVIDE', total, self.math('MULTIPLY', steps, radial))
 
     def custom_acos(self, ins, p):
         return self.math('ARCCOSINE', self.mask(self._in(ins, "a"), [0]))

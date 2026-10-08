@@ -25,6 +25,47 @@ class RendererMixin:
                 return self.const((1920.0, 1080.0), 2)
         return self._hook("view_size", fallback)
 
+    def scene_depth_at(self, uv):
+        """UE's CalcSceneDepth at a screen position (0-1, V down): view depth in cm of what the camera sees there,
+        far (1e8) where nothing is. A Raycast from the camera through that position: EEVEE's marches its depth
+        buffer, which blended surfaces stay out of, as UE's scene depth leaves out translucency (Cycles' rays
+        hit them too). The field of view is the scene camera's when the material is built."""
+        try:
+            import bpy
+            scene = bpy.context.scene
+            tx, ty = render_tan_half_fov(scene.camera.data, scene.render)
+        except Exception:
+            tx, ty = 1.0, 9.0 / 16.0
+        u, v = self.comps(uv)[:2]
+        ndc_x = self.math('MULTIPLY_ADD', u, self.const(2.0), self.const(-1.0))
+        ndc_y = self.math('MULTIPLY_ADD', v, self.const(-2.0), self.const(1.0))
+        along = self.combine([self.math('MULTIPLY', ndc_x, self.const(tx)), self.math('MULTIPLY', ndc_y, self.const(ty)), self.const(1.0)])
+
+        def camera():
+            n = self.node("ShaderNodeVectorTransform", "camera position", vector_type='POINT', convert_from='CAMERA', convert_to='WORLD')
+            n.inputs[0].default_value = (0.0, 0.0, 0.0)
+            return Val(n.outputs[0], 3)
+        origin = self.shared("camera position", camera)
+        turn = self.node("ShaderNodeVectorTransform", "view to world", vector_type='VECTOR', convert_from='CAMERA', convert_to='WORLD')
+        self.link(self.vmath('NORMALIZE', along, out_w=3), turn.inputs[0])     # (EEVEE's trace wants a unit direction)
+        ray = self.node("ShaderNodeRaycast", "scene depth")
+        self.link(origin, ray.inputs["Position"])
+        self.link(Val(turn.outputs[0], 3), ray.inputs["Direction"])
+        ray.inputs["Length"].default_value = 10000.0
+        # the hit's view depth in cm, from where it is (EEVEE's marched hit distance is a few cm off; its position
+        # is the depth buffer's); shader camera space looks down +Z
+
+        def forward():
+            n = self.node("ShaderNodeVectorTransform", "camera forward", vector_type='VECTOR', convert_from='CAMERA', convert_to='WORLD')
+            n.inputs[0].default_value = (0.0, 0.0, 1.0)
+            return Val(n.outputs[0], 3)
+        ahead = self.vmath('DOT_PRODUCT', self.vmath('SUBTRACT', Val(ray.outputs["Hit Position"], 3), origin, out_w=3),
+                           self.shared("camera forward", forward))
+        depth = self.math('MULTIPLY', ahead, self.const(100.0))
+        # depth where it hits, else far: added, not lerped (float32 rounds far - depth to 8 cm at 1e8)
+        hit = Val(ray.outputs["Is Hit"], 1)
+        return self.math('MULTIPLY_ADD', depth, hit, self.math('MULTIPLY', self.math('SUBTRACT', self.const(1.0), hit), self.const(1e8)))
+
     def view_property(self, name):
         """UE's ViewProperty: what a still frame has (no temporal jitter, full
         resolution), the camera's field of view."""

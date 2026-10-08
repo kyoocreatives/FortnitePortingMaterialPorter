@@ -1019,6 +1019,23 @@ def hsv_ref(c):
 
 for rgb in ((0.9, 0.2, 0.4), (0.1, 0.8, 0.3), (0.2, 0.3, 0.7), (0.5, 0.5, 0.5)):
     check("rgb to hsv %s" % (rgb,), snippet("41a47d1f", {"c": lambda g, v=rgb: vector(g, v)}), hsv_ref(rgb))
+
+
+# SoftOutline samples the scene depth by Raycast (a render can check its values, not this evaluator): its rings are
+# unrolled to the step counts, ring 0 being the pixel itself (1 + (6 - 1) * 4 rays)
+def soft_outline(g):
+    CUSTOM_HASHES[__import__("hashlib").sha1(b"__outline__").hexdigest()[:8]] = "custom_soft_outline"
+    ins = {"Distance": 0.03, "DistanceSteps": 6.0, "RadialSteps": 4.0, "TempAARotation": 0.0, "DistanceMask": 1.0,
+           "TempAADistance": 0.0, "RadialOffset": 0.5, "DivideF": 20.0, "PixelDepthOffset": 0.0}
+    inputs = [{"InputName": k, "Input": R(g.add("Constant", R=v))} for k, v in ins.items()]
+    inputs.append({"InputName": "PDepth", "Input": R(g.add("PixelDepth"))})
+    return g.add("Custom", Code="__outline__", OutputType="ECustomMaterialOutputType::CMOT_Float1", Inputs=inputs)
+
+
+g = G()
+v, tr = run_val(g, soft_outline(g))
+check("soft outline rays", count(tr.tree, "ShaderNodeRaycast"), 21.0)
+check("soft outline built", float(not any("SoftOutline" in w or "unknown Custom" in w for w in tr.warnings)), 1.0)
 check("eye adaptation inverse snippet", snippet("190f0d13", {"LightValue": lambda g: scalar(g, 4.0),
                                                             "Alpha": lambda g: scalar(g, 1.0),
                                                             "Adaptation": lambda g: scalar(g, 2.0)}), 2.0)
