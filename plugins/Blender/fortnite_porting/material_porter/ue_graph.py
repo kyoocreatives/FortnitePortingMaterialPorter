@@ -4,46 +4,39 @@
     colour = tr.material_output("M_Sky_Ch7.json", "EmissiveColor")
 
 Every UE expression becomes the Blender nodes that compute the same value. The
-graph's own maths is carried over as is - nothing is re-derived by hand, which
-is where ports go wrong - with these conventions:
+graph's own maths is carried over as is, nothing re-derived by hand. Conventions:
 
 * Values carry a width (1-4). Width 1 is a float socket; 2-4 a vector socket
-  (z = 0 for width 2, alpha dropped for width 4 unless read through an output
+  (z = 0 for width 2; alpha dropped for width 4 unless read through an output
   index that means alpha). UE broadcasts only float1, and so does this.
 * Unconnected pins use UE's class defaults, which the dumps pin down (the value
-  never seen serialized): Add.B 1, Subtract.A/B 1, Multiply.B 1, Divide.A 1
-  B 2, Lerp.B 1 alpha 0.5, Power exponent 2, Max/Min.B 1, Step X 1 Y 0,
+  is never serialized): Add.B 1, Subtract.A/B 1, Multiply.B 1, Divide.A 1 B 2,
+  Lerp.B 1 alpha 0.5, Power exponent 2, Max/Min.B 1, Step X 1 Y 0,
   SmoothStep 0..1, Rotator centre 0.5 speed 0.25, Sine period 1 (sin 2 pi x),
   texture tiling 1.
 * Everything is evaluated in UE space. The env hands in world vectors already
-  mirrored (FP flips UE's Y), so cross products and XY projections need no
-  per-site fix-ups. UVs likewise run in UE's top-left space: a UV input is
+  mirrored (FP flips UE's Y). UVs run in UE's top-left space: a UV input is
   (u, 1 - v) of Blender's, and a texture sample flips back.
 * Compile-time switches take the branch a shipping PC build compiles
   (COMPILE_SWITCHES): Epic quality, SM6, deferred, pixel shader, no ray
-  tracing, the fallback without virtual textures or distance fields.
-* Static switches are resolved while translating, as UE resolves them while
-  compiling: only the live branch becomes nodes. Their values come from
-  env.static_switch (the instance's overrides), else the graph's defaults.
-  A material function taking a static bool gets one node group per set of
-  values it's called with ("Foo [+UseX]").
-* Material Attributes are a value of their own (Attrs): each attribute
-  becomes nodes only when something reads it, as UE compiles each material
-  property on its own. Across a function's group sockets they travel as one
-  socket per attribute Blender uses (CARRIED: "Layer A: Base Color");
-  constant ones travel as data, with no socket. The rest (world position
-  offset, refraction, customized UVs...) have no Blender slot and stay
-  inside. Translator.material_attributes(path) gives a material's CARRIED
-  attributes, from its MaterialAttributes pin or its separate pins.
-* Renderer-only inputs (exposure, the scene's depth and colour, the sky
-  light, particles, derivatives, virtual textures...) are stand-ins: what a
-  still frame of a plain mesh gets (exposure 1, no particle, a far scene), or
-  an env hook's answer. Each is reported as a warning ("stand-in: ..."), so
-  a material that leans on one shows it.
+  tracing, no virtual textures or distance fields.
+* Static switches are resolved while translating, as UE does when compiling:
+  only the live branch becomes nodes. Values come from env.static_switch (the
+  instance's overrides), else the graph's defaults. A material function taking
+  a static bool gets one node group per set of values ("Foo [+UseX]").
+* Material Attributes are a value of their own (Attrs). Each attribute becomes
+  nodes only when something reads it. Across a function's group sockets they
+  travel as one socket per CARRIED attribute ("Layer A: Base Color"); constant
+  ones travel as data. The rest (world position offset, refraction, customized
+  UVs...) have no Blender slot and stay inside.
+  Translator.material_attributes(path) gives a material's CARRIED attributes.
+* Renderer-only inputs (exposure, scene depth and colour, sky light, particles,
+  derivatives, virtual textures...) are stand-ins: what a still frame of a plain
+  mesh gets (exposure 1, no particle, a far scene), or an env hook's answer.
+  Each is reported as a warning ("stand-in: ...").
 
 What the graph reads from the world (camera vector, sun, atmosphere, time,
-parameters, textures) comes from `env`, an object with these methods - see
-build_sky.py's SkyEnv for the sky's:
+parameters, textures) comes from `env`; build_sky.py's SkyEnv is the sky's:
 
     env.camera_vector()               -> Val (3)   pixel to camera, UE space
     env.light_direction()             -> Val (3)   towards the sun, UE space
@@ -92,19 +85,17 @@ geometry, camera), so an env only defines what it knows better:
     env.texture_slices(name, sampler) -> [bpy.types.Image] a texture array
     env.texture_parameter(pname, default) -> the texture a parameter holds
     env.preskinned_position()         -> Val (3)   UE cm, object space, before skinning
-    env.texture_nearest(name)         -> bool      the texture samples unfiltered (its Filter
-                                                   TF_Nearest: a LUT, a pixel grid)
+    env.texture_nearest(name)         -> bool      texture samples unfiltered (Filter TF_Nearest)
     env.primitive_index()             -> Val (1)
-    env.water_depth()                 -> Val (1)   UE cm from a water surface down to the
-                                                   ground (the water info texture's heights)
-    env.water_flow()                  -> Val (2)   the surface's flow, DrawWaterInfo's encoding
+    env.water_depth()                 -> Val (1)   UE cm from the water surface down to the ground
+    env.water_flow()                  -> Val (2)   surface flow, DrawWaterInfo's encoding
                                                    (speed / MaxVelocity, angle / 2 pi)
 
 A water material (MSM_SingleLayerWater) also gives its medium:
-Translator.material_attributes() adds WaterScattering, WaterAbsorption
-(per cm), WaterPhaseG and WaterColorScaleBehindWater from its
-SingleLayerWaterMaterialOutput, and the view ray's way through the water
-(water_path(), cm) is what SceneDepthWithoutWater - PixelDepth measures.
+Translator.material_attributes() adds WaterScattering, WaterAbsorption (per cm),
+WaterPhaseG and WaterColorScaleBehindWater from its SingleLayerWaterMaterialOutput.
+water_path() (cm) is the view ray's length through the water, which is what
+SceneDepthWithoutWater - PixelDepth measures.
 """
 import contextlib
 import hashlib
@@ -115,8 +106,8 @@ import re
 import sys
 from contextlib import contextmanager
 
-# Fortnite's layered masters nest expressions 130+ deep (a customization
-# function's reroute chains), several Python frames each
+# Fortnite's layered masters nest expressions 130+ deep (reroute chains in a
+# customization function), several Python frames each
 sys.setrecursionlimit(max(sys.getrecursionlimit(), 20000))
 
 try:
@@ -126,8 +117,7 @@ except ImportError:          # outside the build (a probe): no layout
 
 
 def socket_name(name):
-    """A socket name Blender keeps whole (63 bytes at most): a longer one is
-    cut and tagged with its hash, so two long names can't meet."""
+    """Blender sockets hold 63 bytes: cut longer names and tag them with a hash so they stay distinct."""
     name = str(name)
     if len(name.encode("utf-8")) <= 63:
         return name
@@ -163,13 +153,13 @@ UE_DEFAULTS = {
     ("If", "ConstB"): 0.0,
 }
 
-# What a shipping PC build compiles, per compile-time switch: the first of
-# these pins that is linked (UE falls back to Default for an unlinked one).
+# What a shipping PC build compiles per compile-time switch: the first of these
+# pins that is linked (UE falls back to Default for an unlinked one).
 #   QualitySwitch       Inputs[3] = Epic
 #   FeatureLevelSwitch  Inputs[4] = SM6 (DX12)
 #   ShadingPathSwitch   Inputs[0] = Deferred (serialized as "Inputs")
-# The virtual-texture and distance-field switches take their "No" branch:
-# the one Blender can draw (their "Yes" samples renderer-only data).
+# Virtual-texture and distance-field switches take "No", the branch Blender can
+# draw ("Yes" samples renderer-only data).
 COMPILE_SWITCHES = {
     "QualitySwitch": ("Inputs[3]", "Default"),
     "FeatureLevelSwitch": ("Inputs[4]", "Default"),
@@ -187,18 +177,18 @@ COMPILE_SWITCHES = {
     "RuntimeVirtualTextureReplace": ("Default",),
 }
 
-# Transform / TransformPosition spaces, by enum suffix
-BOUNDS_CENTRE = "mp_bounds_centre"     # an object's bounds centre (local, Blender metres): UE's Object Position
-BOUNDS_MIN = "mp_bounds_min"       # an object's bounding box (local, Blender metres): UE's local bounds,
+BOUNDS_CENTRE = "mp_bounds_centre"     # object bounds centre (local, Blender metres): UE's Object Position
+BOUNDS_MIN = "mp_bounds_min"       # object bounding box (local, Blender metres): UE's local bounds,
 BOUNDS_MAX = "mp_bounds_max"       # read per object (a shared function's group holds no object's numbers)
 PART_BOUNDS_MIN = "mp_part_bounds_min"   # a mesh part's own bounding box (local, Blender metres), a point
 PART_BOUNDS_MAX = "mp_part_bounds_max"   # attribute that stays with the part when parts are joined
-HEAD_SOCKET = "mp_head_socket"     # an object's armature's head (local, Blender metres): what a game blueprint sets HeadSocketLocation to
-SHELL_LAYER = "mp_shell_layer"     # shell fur (UE's ShellMesh; Material Porter's shells.py): a copy's layer, 1 to count - 1 (0: the mesh itself),
-SHELL_LAYER_N = "mp_shell_layer_n" # that over count - 1 (the tip 1),
-SHELL_COUNT = "mp_shell_count"     # and the count, on each copy's points;
-SHELL_OFFSET = "mp_shell_offset"   # where the copy's point goes (local, Blender units: the vertex normal * depth * layer),
-SHELL_VECTOR = "mp_shell_vector"   # and the whole depth's (normal * depth): what the shell material's WPO moves it by
+HEAD_SOCKET = "mp_head_socket"     # object's armature head (local, Blender metres): what a game blueprint sets HeadSocketLocation to
+SHELL_LAYER = "mp_shell_layer"     # shell fur (UE's ShellMesh; shells.py), per point of each copy: layer, 1 to count - 1 (0: the mesh itself)
+SHELL_LAYER_N = "mp_shell_layer_n" # layer / (count - 1), the tip is 1
+SHELL_COUNT = "mp_shell_count"     # layer count
+SHELL_OFFSET = "mp_shell_offset"   # where the point goes (local, Blender units): vertex normal * depth * layer
+SHELL_VECTOR = "mp_shell_vector"   # the full depth's offset (normal * depth): what the shell material's WPO moves it by
+# Transform / TransformPosition spaces, by enum suffix
 VECTOR_SPACES = {"Tangent": "tangent", "Local": "local", "World": "world", "View": "view", "Camera": "view",
                  "ParticleWorld": "world", "Instance": "local"}
 POSITION_SPACES = {"Local": "local", "World": "world", "TranslatedWorld": "translated", "View": "view",
@@ -208,9 +198,9 @@ POSITION_SPACES = {"Local": "local", "World": "world", "TranslatedWorld": "trans
 STATIC_BOOL_INPUT = "EFunctionInputType::FunctionInput_StaticBool"
 ATTRIBUTES_INPUT = "EFunctionInputType::FunctionInput_MaterialAttributes"
 
-# UE's material attributes (FMaterialAttributeDefinitionMap): name, GUID as the
-# dumps write it, width, default. GUIDs are matched against the dumps' own
-# Set nodes, whose input names spell the attribute out.
+# UE material attributes (FMaterialAttributeDefinitionMap): name, GUID as written in
+# the dumps, width, default. GUIDs are matched against the dumps' Set nodes, whose
+# input names spell the attribute out.
 ATTRIBUTES = [
     ("BaseColor", "69B8D336-16ED4D49-9AA49729-2F050F7A", 3, (0.0, 0.0, 0.0)),
     ("Metallic", "57C3A161-7F064296-B00B24A5-A496F34C", 1, 0.0),
@@ -240,8 +230,8 @@ ATTRIBUTE_WIDTH = {name: w for name, _, w, _ in ATTRIBUTES}
 ATTRIBUTE_DEFAULT = {name: d for name, _, _, d in ATTRIBUTES}
 # the vertex-shader attributes (BlendMaterialAttributes' VertexAttributeBlendType)
 VERTEX_ATTRIBUTES = {"WorldPositionOffset", "Displacement"} | {"CustomizedUV%d" % i for i in range(8)}
-# BreakMaterialAttributes' outputs, in order (proven on the dumps: each index
-# feeds the MakeMaterialAttributes pin of the same name)
+# BreakMaterialAttributes outputs in order (each index feeds the
+# MakeMaterialAttributes pin of the same name)
 BREAK_ORDER = (["BaseColor", "Metallic", "Specular", "Roughness", "Anisotropy", "EmissiveColor", "Opacity",
                 "OpacityMask", "Normal", "Tangent", "WorldPositionOffset", "SubsurfaceColor", "ClearCoat",
                 "ClearCoatRoughness", "AmbientOcclusion", "Refraction"]
@@ -252,7 +242,7 @@ MAKE_PINS = dict({n: n for n in BREAK_ORDER if not n.startswith("CustomizedUV")}
 # a material's separate output pins -> attribute (non-attribute materials)
 PIN_ATTRIBUTE = dict({n: n for n in MAKE_PINS.values()}, CustomData0="ClearCoat", CustomData1="ClearCoatRoughness",
                      ShadingModelFromMaterialExpression="ShadingModel")
-# what a Blender material has a place for: these cross function groups and
+# Attributes a Blender material has a slot for: they cross function groups and
 # are what material_attributes() returns
 CARRIED = ("BaseColor", "Metallic", "Specular", "Roughness", "Anisotropy", "EmissiveColor", "Opacity",
            "OpacityMask", "Normal", "Tangent", "SubsurfaceColor", "ClearCoat", "ClearCoatRoughness",
@@ -287,10 +277,9 @@ def attribute_default(name):
 
 
 class Attrs:
-    """A Material Attributes value. Each attribute is made on first read -
-    UE compiles each material property on its own, so an attribute nothing
-    reads never becomes nodes - from `thunks` (the ones this value sets),
-    else `base` (the value it was set on), else UE's default."""
+    """A Material Attributes value. Each attribute is made on first read (an
+    unread one never becomes nodes, as in UE) from `thunks` (the ones this
+    value sets), else `base` (the value it was set on), else UE's default."""
 
     def __init__(self, base=None, thunks=None):
         self.base, self.thunks, self.vals = base, dict(thunks or {}), {}
@@ -393,13 +382,13 @@ class OpenAttrs(Attrs):
 CUSTOM_SNIPPETS = {
     # MF_FPMeshCameraOffset: a first-person mesh's own offset where FP is set, else the one passed
     "if(FP) { return WPO_FP; } return WPO;": "custom_fp_select",
-    # a NaN: UE drops a vertex given one (a shell layer culled at a distance, MF_Fur_Shells); an
-    # If branch that gives it is never taken here (If) - Blender keeps every layer
+    # NaN: UE drops a vertex given one (shell layers culled at a distance, MF_Fur_Shells).
+    # The If branch that gives it is never taken here: Blender keeps every layer
     "const float fNaN = 0.0f / 0.0f; return fNaN;": "custom_nan",
     "float HeightDensity = Density; if(NormAltitude<0.05 || NormAltitude>0.95) "
     "{ HeightDensity = 0.0; } return HeightDensity;": "custom_height_band",
-    # the layer samplers of Fortnite's 4-layer bases (MF_ConditionalColor/
-    # NormalTextureSample): a texture read only where the layer shows
+    # 4-layer base samplers (MF_ConditionalColor/NormalTextureSample): a texture
+    # read only where the layer shows
     "MaterialFloat4 Color = 0; BRANCH if ((bool)bDoWork) { Color = ProcessMaterialColorTextureLookup("
     "Texture2DSample(Tex, GetMaterialSharedSampler(TexSampler, View_MaterialTextureBilinearWrapedSampler), UVs)); } "
     "return Color;": "custom_conditional_color",
@@ -407,13 +396,13 @@ CUSTOM_SNIPPETS = {
     "Texture2DSample(Tex, GetMaterialSharedSampler(TexSampler, View_MaterialTextureBilinearWrapedSampler), UVs)); } "
     "return Normal;": "custom_conditional_normal",
     "float2 box = step(float2(0, 0), uv) - step(float2(1,1), uv); return (box.x * box.y) * color;": "custom_uv_box",
-    # the post-process ambient cubemap's tint (GetAmbientCubemapTint): none is set, the view keeps the default
+    # post-process ambient cubemap tint (GetAmbientCubemapTint): none is set, the view keeps the default
     "View.AmbientCubemapTint": "custom_white4",
 }
 
 
-# ... and by the first 8 hex digits of the collapsed code's SHA-1 (the
-# census's "HLSL:<hash>" names), for the long or generic ones
+# Same, keyed by the first 8 hex digits of the collapsed code's SHA-1 (the
+# census's "HLSL:<hash>" names), for long or generic code
 CUSTOM_HASHES = {
     "1be3a427": "custom_ggx_d",             # GGXSpecular (engine): GGX's distribution term for a light
     "58c98080": "custom_dither5",           # Mod((uint)p.x + 2 * (uint)p.y, 5)  DitherTemporalAA
@@ -467,8 +456,8 @@ CUSTOM_HASHES = {
     "2658b7cc": "custom_euler_to_quat",     # roll/pitch/yaw degrees -> quaternion (MF_EulerToQUat)
     "2e4092f5": "custom_one_minus_exp",     # return 1-exp(-x);
     "791169ec": "custom_one_minus_exp",     # return 1.0-exp(-x);
-    # the Water plugin's runtime: a water body's data, its zone's water info
-    # texture, its Gerstner waves - see Translator.water_depth()
+    # Water plugin runtime: water body data, the zone's water info texture,
+    # Gerstner waves (see Translator.water_depth())
     "1186187d": "custom_zero",              # GetWaterWaveParamIndex(Parameters): the water body's index
     "e9d7efe6": "custom_zero",              # GetWaterBodyData(i).WaterZoneIndex
     "71f271be": "custom_zero",              # GetWaterInfoTextureViewIndex(WaterZoneIndex)
@@ -514,20 +503,20 @@ class _LazyInputs(dict):
         return [self[k] for k in self._refs]
 
 
-# UE's water medium (MSM_SingleLayerWater): its SingleLayerWaterMaterialOutput
-# pins, the attribute each becomes, the default of an unlinked one
+# MSM_SingleLayerWater medium: SingleLayerWaterMaterialOutput pin, resulting
+# attribute, default when unlinked
 WATER_OUTPUTS = (("ScatteringCoefficients", "WaterScattering", (0.0, 0.0, 0.0)),
                  ("AbsorptionCoefficients", "WaterAbsorption", (0.0, 0.0, 0.0)),
                  ("PhaseG", "WaterPhaseG", 0.0),
                  ("ColorScaleBehindWater", "WaterColorScaleBehindWater", (1.0, 1.0, 1.0)))
-# how deep the water is (cm) where the env knows no ground under it
+# water depth (cm) where the env knows no ground below
 WATER_DEPTH_DEFAULT = 300.0
 
 
 def render_tan_half_fov(cam, render):
-    """tan of half the field of view across and up a render: the sensor fits the frame's larger
-    side (Auto), its width or its height; the other follows the frame's aspect. (Blender's
-    angle_y is the sensor height's, whatever the frame: 1.5x too narrow on a square render.)"""
+    """tan of half the field of view, across and up. The sensor fits the larger frame
+    side (Auto), its width or its height; the other axis follows the aspect. Blender's
+    angle_y is always the sensor height's: 1.5x too narrow on a square render."""
     rx = render.resolution_x * render.pixel_aspect_x
     ry = render.resolution_y * render.pixel_aspect_y
     fit = cam.sensor_fit
@@ -580,8 +569,7 @@ def linked(ref):
 
 
 def handled_types():
-    """Every expression type the translator turns into nodes, read from its
-    own source, so the coverage census can't drift from it."""
+    """Expression types the translator handles, read from this file's source so the census can't drift."""
     src = open(__file__, encoding="utf-8").read()
     body = src[src.index("    def _expr_in"):]
     out = set(re.findall(r'\bt == "([A-Za-z0-9_]+)"', body))
@@ -600,9 +588,9 @@ class TexRef:
 
 
 class Val:
-    """A value in the Blender graph: a socket (or a Python constant) and a
-    width. Blender vectors have three components; a UE float4 keeps its
-    fourth as `a`, a width-1 Val of its own."""
+    """A value in the Blender graph: a socket (or Python constant) and a width.
+    Blender vectors have three components; a UE float4 keeps its fourth as `a`,
+    a width-1 Val."""
     __slots__ = ("s", "w", "a")
 
     def __init__(self, s, w, a=None):
@@ -622,15 +610,14 @@ def _inner(object_name):
     return object_name.split("'")[1] if "'" in object_name else object_name
 
 
-# the nodes each tree's translation made, by what they compute (Translator.reuse): asked for
-# the same value twice, it gets the one node. merge_duplicates, which removes nodes, empties
-# its tree's.
+# Nodes each tree's translation made, by what they compute (Translator.reuse): the same
+# value asked for twice gets the one node. merge_duplicates, which removes nodes, empties its tree's.
 _MADE = {}
 
 
 def _ident(v):
-    """A value as a node input, for Translator.reuse: its socket or its number, with its
-    width; None for what no socket holds (Material Attributes, a texture reference)."""
+    """A value as a node input, for Translator.reuse: its socket or number plus width;
+    None for what no socket holds (Material Attributes, a texture reference)."""
     if v is None:
         return ()
     s = v.s
@@ -647,9 +634,8 @@ _GRAPHS = {}
 
 
 def load_graph(path):
-    """A graph dump, parsed once per file version: a map's hundreds of
-    materials share masters and functions, and parsing them was a tenth of
-    the build (Graph objects are only read once made)."""
+    """A graph dump, parsed once per file version: a map's materials share masters and
+    functions, and parsing them was a tenth of the build. Graphs are not modified once made."""
     try:
         st = os.stat(path)
         key = (path, st.st_mtime_ns, st.st_size)
@@ -683,15 +669,14 @@ class TexKey(str):
 
 
 class Graph:
-    """One dumped graph. Expressions are found by name; a name used twice
-    (a collapsed subgraph keeps its own numbering: its Reroute_13 isn't the
-    material's) by its full object path instead - see key()."""
+    """One dumped graph. Expressions are found by name; a name used twice (a collapsed
+    subgraph keeps its own numbering) is found by its full object path instead, see key()."""
 
     def __init__(self, path):
         self.path = path
         self.name = os.path.splitext(os.path.basename(path))[0]
         self.o = json.load(open(path, encoding="utf-8"))
-        # an older build's dump (28.00) names a function input's and output's guid "ID", not "Id": unmatched,
+        # a 28.00 dump names a function input's and output's guid "ID", not "Id"; unmatched,
         # every input a call gives would read as unconnected
         for x in self.o:
             p = x.get("Properties")
@@ -757,17 +742,15 @@ INPUT_WIDTH = {"EFunctionInputType::FunctionInput_Scalar": 1, "EFunctionInputTyp
 class FunctionTree:
     """One UE material function as one node group, shared by every call.
 
-    Its FunctionInputs are the group's inputs and its outputs are built as they
-    are first asked for. A call site gets its own group node and links only the
-    inputs the asked-for output reaches - UE compiles each output on its own,
-    and linking the rest can close a loop (the sky's horizon-hills mask feeds
-    the chain that ends in the same function's colour input). What the body
-    reads from the material (a parameter socket, the sun) becomes an input
-    too, handed down by the caller: see env.group_input.
+    Its FunctionInputs are the group's inputs; outputs are built as first asked for.
+    A call site gets its own group node and links only the inputs the asked-for output
+    reaches: UE compiles each output on its own, and linking the rest can close a loop
+    (the sky's horizon-hills mask feeds the chain that ends in the same function's colour
+    input). What the body reads from the material (a parameter socket, the sun) becomes
+    an input too, handed down by the caller (env.group_input).
 
-    Static bool inputs aren't sockets: UE compiles the function once per set
-    of values, and so does this (`statics`, input id -> bool; `label` names
-    the variant).
+    Static bool inputs aren't sockets: the function is compiled once per set of values
+    (`statics`, input id -> bool; `label` names the variant).
     """
     PREFIX = "FPv4 Sky - "
 
@@ -777,9 +760,8 @@ class FunctionTree:
         self.statics = statics or {}
         self.prefix = getattr(parent.env, "function_prefix", self.PREFIX)
         name = self.prefix + (label or section_name(fname))
-        # a rebuild replaces its old group (the sky); an env that builds
-        # alongside other materials keeps them (env.replace_groups = False:
-        # Blender numbers the new one)
+        # a rebuild replaces its old group (the sky); an env that builds alongside other
+        # materials keeps them (env.replace_groups = False: Blender numbers the new one)
         old = bpy.data.node_groups.get(name)
         if old is not None and getattr(parent.env, "replace_groups", True):
             bpy.data.node_groups.remove(old)
@@ -861,10 +843,10 @@ class FunctionTree:
         return Val(self.gi.outputs[name], WIDTH_OF_SOCKET.get(socket_type, 3))
 
     def texture_input(self, spec, tname, sampler, img, own, address):
-        """The Closure input a texture the body samples arrives on (Vector -> Color, Alpha): the
-        image node stays at the material's root, so the group holds no image and every material
-        calling the function shares it. Named for the texture parameter (an instance's texture
-        doesn't rename it), else the texture."""
+        """The Closure input a texture the body samples arrives on (Vector -> Color, Alpha).
+        The image node stays at the material's root so the group holds no image and every
+        material calling the function shares it. Named for the texture parameter, else the
+        texture (an instance's texture doesn't rename it)."""
         key = ("tex", spec)
         for name, k in self.kind.items():
             if k == key:
@@ -919,10 +901,9 @@ class FunctionTree:
         return self.outs[oid]
 
     def attribute_outputs(self, name, attrs, passes):
-        """A Material Attributes output: a socket per CARRIED attribute the
-        function computes; constants go to the caller as data, and attributes
-        that leave unchanged from a Material Attributes input (`passes`) don't
-        enter the group at all - the caller keeps its own."""
+        """A Material Attributes output: a socket per CARRIED attribute the function computes.
+        Constants go to the caller as data; attributes passed unchanged from a Material
+        Attributes input (`passes`) stay out of the group, the caller keeps its own."""
         out = {}
         for a in self.tr.carried:
             if a in passes:
@@ -940,9 +921,9 @@ class FunctionTree:
         return out
 
     def reached(self, out_name):
-        """The input sockets an output depends on - through a nested group, only the inputs
-        the output it reads depends on (a function passing Material Attributes through another
-        read every attribute for its Normal: the Normal's own pass copied the whole material)."""
+        """The input sockets an output depends on; through a nested group, only those the
+        output it reads depends on. Otherwise a function passing Material Attributes through
+        another read every attribute for its Normal, and the Normal's pass copied the whole material."""
         if out_name not in self.needs:
             want = self.go.inputs[out_name].identifier
             names = {s.identifier: s.name for s in self.gi.outputs}
@@ -961,26 +942,25 @@ class Translator:
         self.graphs = parent.graphs if parent else {}
         # material functions become shared node groups (env.nest_functions)
         self.functions = parent.functions if parent else {}
-        # the Material Attributes a function's group passes in and out: CARRIED, and what
-        # this material's build reads besides (a moving one's World Position Offset)
+        # Material Attributes a function's group passes in and out: CARRIED, plus what this
+        # material's build reads besides (a moving one's World Position Offset)
         self.carried = parent.carried if parent else CARRIED
         self.function = None
         self.x, self.y = x0, y0
         self.warnings = []
-        # the layout section new nodes go in (tools/layout.py): the material,
-        # then one frame per material function it calls, nested as UE nests them
+        # layout section new nodes go in (tools/layout.py): the material, then one frame
+        # per called material function, nested as UE nests them
         self.section = []
         self._shared = {}
         self._made = _MADE.setdefault(tree.as_pointer(), {})
         if parent is None or parent.tree != tree:
-            # (a tree made where a removed one was can have its address)
+            # a new tree can reuse a removed tree's address
             self._made.clear()
         # clip()s of the material's own graph: where one is 0 the pixel isn't drawn
         self.clips = []
 
     def activate(self):
-        """Make this the translator the env builds nodes with; returns the
-        one that was, to activate again after."""
+        """Make this the translator the env builds nodes with; returns the previous one."""
         prev = getattr(self.env, "current", lambda: None)()
         if hasattr(self.env, "set_current"):
             self.env.set_current(self)
@@ -1019,9 +999,9 @@ class Translator:
         return n
 
     def reuse(self, key, make):
-        """The value a node made for `key` (what it computes: its kind, settings and inputs'
-        _idents) gives, else make()'s: translation asks for one value in many places (a vector
-        split per read, a mix per branch) - each a node made, linked and folded away after."""
+        """The value a node made for `key` (what it computes: kind, settings, inputs'
+        _idents), else make()'s. Translation asks for one value in many places (a vector
+        split per read, a mix per branch); this makes one node instead of many to fold away."""
         if key is None or None in key:
             return make()
         got = self._made.get(key)
@@ -1164,11 +1144,11 @@ class Translator:
         return v
 
     def divide(self, a, b, label=""):
-        """UE's A / B. Where B is zero the GPU gives an infinity of A's sign - which a saturate
-        turns into 1 or 0: a fade over a length of 0 shows everything past its start - where a
-        Blender Divide gives 0 (the material drew nothing). A divisor that is a socket (a
-        parameter, a function's input) is checked as the material runs; one known when the
-        material is built and not zero: a plain Divide."""
+        """UE's A / B. Where B is 0 the GPU gives an infinity of A's sign, which a saturate
+        turns into 1 or 0 (a fade over a length of 0 shows everything past its start); a
+        Blender Divide gives 0 and the material drew nothing. A divisor that is a socket
+        (a parameter, a function's input) is checked as the material runs; one known at
+        build time and not zero is a plain Divide."""
         big = 1e18
         if b.const:
             values = b.s if isinstance(b.s, (tuple, list)) else (b.s,)
@@ -1180,14 +1160,14 @@ class Translator:
             return self.binop('DIVIDE', a, b, label=label)
         # A over B, or over 1 / big where B is 0 (A's sign times big): B + (B is 0) / big
         if b.w != 1:
-            # the same per component (a scale of 0 put through Scale UVs By Center - a sprite's
-            # missing mouth - pushes its UVs off the texture: Blender's 0 drew the mouth's middle
-            # over the whole body): 1 - sign(|B|) is 1 where a component is 0
+            # the same per component (a scale of 0 in Scale UVs By Center, a sprite's missing mouth,
+            # pushes its UVs off the texture; Blender's 0 drew the mouth's middle over the whole
+            # body): 1 - sign(|B|) is 1 where a component is 0
             zero = self.vmath('SUBTRACT', self.const(1.0, b.w),
                               self.vmath('SIGN', self.vmath('ABSOLUTE', b, out_w=b.w), out_w=b.w), out_w=b.w)
             safe = self.vmath('MULTIPLY_ADD', zero, self.const(1.0 / big, b.w), b, label="B, or tiny if 0", out_w=b.w)
             return self.binop('DIVIDE', a, safe, label=label)
-        # (Blender's compare: within 1e-5 - a B that small gains 1 / big, nothing it shows)
+        # Blender's compare is within 1e-5; a B that small gains 1 / big, nothing visible
         zero = self.math('COMPARE', b, self.const(0.0), self.const(0.0))
         safe = self.math('MULTIPLY_ADD', zero, self.const(1.0 / big), b, label="B, or tiny if 0")
         return self.binop('DIVIDE', a, safe, label=label)
@@ -1270,7 +1250,7 @@ class Translator:
         if v.const:
             return [Val(c, 1) for c in v.s[:3]]
         # a vector put together here (UE's swizzles: append, then a mask): its parts as they were,
-        # not a split of it - which drew a wire from where it was made to wherever it's read
+        # not a split of it, which drew a wire from where it was made to wherever it's read
         made = self._made.get(("parts", v.s.as_pointer())) if hasattr(v.s, "as_pointer") else None
         if made is not None:
             return list(made)
@@ -1320,8 +1300,8 @@ class Translator:
         return self.combine(self.comps(v)[:2] + [self.const(0.0)]) if v.w == 2 else v
 
     def flat(self, a, b):
-        """Two operands of a length or a distance: where the wider is 2 wide, both with Z 0 (a
-        scalar against a float2 spreads over X and Y only)."""
+        """Two operands of a length or distance. Where the wider is 2 wide, both with Z 0
+        (a scalar against a float2 spreads over X and Y only)."""
         if max(a.w, b.w) != 2:
             return a, b
         return tuple(self.combine(self.comps(v)[:2] + [self.const(0.0)]) for v in (a, b))
@@ -1339,8 +1319,8 @@ class Translator:
         return self.input(g, ed["Properties"][prop], {}, None)
 
     def prune_unused(self):
-        """Remove function groups no node uses (a function whose outputs all
-        went to its callers as pass-throughs or constants)."""
+        """Remove function groups no node uses (all their outputs went to the callers as
+        pass-throughs or constants)."""
         import bpy
         while True:
             dead = [k for k, ft in self.functions.items() if ft.tree.users == 0]
@@ -1350,18 +1330,17 @@ class Translator:
             bpy.data.batch_remove([self.functions.pop(k).tree for k in dead])
 
     def material_attributes(self, path, names=CARRIED):
-        """A material's attributes Blender has a place for, {name: Val}: from
-        its MaterialAttributes pin, or its separate output pins (unlinked ones
-        are UE's defaults)."""
+        """A material's attributes Blender has a slot for, {name: Val}: from its
+        MaterialAttributes pin, or its separate output pins (unlinked ones are UE's defaults)."""
         g = self.graph(path)
         pins = (g.editor_data() or {}).get("Properties") or {}
         self.carried = tuple(CARRIED) + tuple(n for n in names if n not in CARRIED)
         if linked(pins.get("MaterialAttributes")):
             v = self.input(g, pins["MaterialAttributes"], {}, None)
             attrs = v.s if v is not None and isinstance(v.s, Attrs) else Attrs()
-            # what PixelNormalWS reads (pixel_normal): the Normal, made apart (its own scope: a
-            # function's group node would carry both the Normal and what reads it - a loop UE,
-            # compiling each property on its own, never has); merge_duplicates folds what it can
+            # what PixelNormalWS reads (pixel_normal): the Normal, made apart (a function's group
+            # node would carry both the Normal and what reads it, a loop UE never has since it
+            # compiles each property on its own); merge_duplicates folds what it can
             def normal():
                 with self.normal_pass():
                     nv = self.input(g, pins["MaterialAttributes"], {"_id": PIXEL_NORMAL}, None)
@@ -1385,9 +1364,9 @@ class Translator:
 
     @contextlib.contextmanager
     def normal_pass(self):
-        """The Normal's own pass in a frame of its own: what it doesn't share with the rest
-        (merge_duplicates folds what it does) is a second copy of the functions on the way -
-        a group node can't feed its own PixelNormalWS input."""
+        """The Normal's own pass in a frame of its own. What it doesn't share with the rest
+        (merge_duplicates folds what it does) is a second copy of the functions on the way,
+        because a group node can't feed its own PixelNormalWS input."""
         saved = self.section
         self.section = [NORMAL_PASS]
         try:
@@ -1396,9 +1375,8 @@ class Translator:
             self.section = saved
 
     def water_outputs(self, g):
-        """A water material's medium (its SingleLayerWaterMaterialOutput, a
-        custom output beside the attributes), {WATER_OUTPUTS name: Val}; {}
-        for a material without one."""
+        """A water material's medium (its SingleLayerWaterMaterialOutput), {WATER_OUTPUTS name: Val};
+        {} for a material without one."""
         x = next((x for x in g.o if T(x) == "SingleLayerWaterMaterialOutput"), None)
         if x is None:
             return {}
@@ -1427,8 +1405,7 @@ class Translator:
             else UE_DEFAULTS.get((cls, const_name), fallback)
         v = self.input(g, p.get(name), scope, self.const(dflt))
         if isinstance(v.s, Attrs):
-            # maths on Material Attributes: UE would compile it per property;
-            # this reads Base Color
+            # maths on Material Attributes: UE compiles it per property, this reads Base Color
             self.warnings.append("Material Attributes used as a value in %s -> Base Color" % x.get("Name"))
             v = v.s.get("BaseColor")
         return v
@@ -1502,8 +1479,8 @@ class Translator:
             return self.binop(op, P("A"), P("B"), label=x["Name"][18:])
         if t == "Power":
             # UE's Power is pow(max(Base, 0), Exponent) (PositiveClampedPow, since 4.16): a negative
-            # base gives 0, where Blender's Power squares it (a variant sprite's sphere mask, 1 - d / r
-            # squared, came out 1 far from the sphere: its base look showed through)
+            # base gives 0, where Blender's Power squares it (a variant sprite's sphere mask,
+            # 1 - d / r squared, came out 1 far from the sphere)
             base, ex = P("Base", fallback=1.0), P("Exponent")
             if base.w == 1 and ex.w == 1:
                 if not (base.const and float(base.s) >= 0.0):
@@ -1513,8 +1490,8 @@ class Translator:
                 base = self.binop('MAXIMUM', base, self.const(0.0))
             return self.vmath('POWER', base, ex, out_w=base.w)
         if t == "LinearInterpolate":
-            # an Alpha known to be 0 or 1 picks a side, and the other isn't built (only its
-            # width could matter: a float1 side broadcast to the other's, so that one is read)
+            # an Alpha known to be 0 or 1 picks a side and the other isn't built (only its width
+            # could matter: a float1 side broadcasts to the other's, so that one is read)
             al = P("Alpha")
             if al.const and al.w == 1 and al.s in (0.0, 1.0):
                 taken = P("B" if al.s else "A")
@@ -1694,9 +1671,8 @@ class Translator:
                 v = env.primitive_data(v, int(p.get("PrimitiveDataIndex") or 0), 1)
             return v
         if t in ("VectorParameter", "DoubleVectorParameter"):
-            # no DefaultValue: the class default (0, 0, 0, 0), which cooking
-            # leaves out (no dumped graph stores it; (0, 0, 0, 1) is stored).
-            # A double vector's is X Y Z W
+            # no DefaultValue: the class default (0, 0, 0, 0), which cooking leaves out
+            # ((0, 0, 0, 1) is stored). A double vector's is X Y Z W
             d = p.get("DefaultValue", {})
             rgba = (d.get("R", d.get("X", 0.0)), d.get("G", d.get("Y", 0.0)), d.get("B", d.get("Z", 0.0)),
                     d.get("A", d.get("W", 0.0)))
@@ -1725,28 +1701,6 @@ class Translator:
             own = src in ("", "SSM_FromTextureAsset")
             address = None if own else ("Clamp", "Clamp") if "Clamp" in src or "Terrain" in src else ("Wrap", "Wrap")
             return self.sample(tname, coords, out, p.get("SamplerType", ""), own, address)
-        if t == "Convert":
-            # UE 5's component shuffle: typed outputs, filled from input
-            # components by explicit mappings, defaults elsewhere
-            width = {"Scalar": 1, "Vector2": 2, "Vector3": 3, "Vector4": 4}
-            ins = []
-            for ci in p.get("ConvertInputs", []):
-                d = ci.get("DefaultValue", {})
-                dv = self.const((d.get("R", 0.0), d.get("G", 0.0), d.get("B", 0.0)),
-                                width.get(ci.get("Type", "").split("::")[-1], 1))
-                v = self.input(g, ci.get("ExpressionInput"), scope, dv)
-                ins.append(self.comps(v) if v.w > 1 else [v, v, v])
-            outs = []
-            for co in p.get("ConvertOutputs", []):
-                d = co.get("DefaultValue", {})
-                outs.append([self.const(d.get(k, 0.0)) for k in "RGB"][:width.get(co.get("Type", "").split("::")[-1], 1)])
-            for mp in p.get("ConvertMappings", []):
-                oi, oc = mp.get("OutputIndex", 0), mp.get("OutputComponentIndex", 0)
-                ii, ic = mp.get("InputIndex", 0), mp.get("InputComponentIndex", 0)
-                if oi < len(outs) and oc < len(outs[oi]) and ii < len(ins) and ic < 3:
-                    outs[oi][oc] = ins[ii][ic]
-            sel = outs[min(out, len(outs) - 1)] if outs else [self.const(0.0)]
-            return self.combine(sel)
         if t == "FunctionInput" and scope.get("_fn") is not None:
             return scope["_fn"].ue_input(x)
         if t == "FunctionInput":
@@ -1804,9 +1758,8 @@ class Translator:
         return name
 
     def tex_param(self, p, key):
-        """The texture a texture parameter holds: the env's (an instance
-        override), else its default. The key remembers the parameter
-        (TexKey.param), so the image node sampling it can say which it is."""
+        """The texture a texture parameter holds: the env's (an instance override), else its
+        default. The key remembers the parameter (TexKey.param) for the image node sampling it."""
         name = p.get("ParameterName")
         if name is None:
             return key
@@ -1963,9 +1916,8 @@ class Translator:
             v = self.input(g, p.get("Input"), scope, self.const(0.0))
             m = self._hook("static_mask", lambda: None, name, dflt)
             if m is None:
-                # the instance doesn't say (a cooked instance keeps no mask
-                # choice: it's editor-only data): the env may tell from the
-                # texture behind it, else the default
+                # the instance doesn't say (a cooked instance keeps no mask choice, it's
+                # editor-only data): the env may tell from the texture behind it, else the default
                 m = self._hook("guess_mask", lambda: dflt, name, dflt, v)
             idx = [i for i, on in enumerate(m) if on]
             return self.mask(v, idx) if idx else self.const(0.0)
@@ -2026,10 +1978,9 @@ class Translator:
         return v.s.get(name) if isinstance(v.s, Attrs) else v
 
     def passthrough(self, g, ref, scope):
-        """{attribute: input id} for the attributes a Material Attributes value
-        carries unchanged from one of its function's Material Attributes
-        inputs (through Set nodes that don't touch them, reroutes, switches).
-        Worked out without making nodes."""
+        """{attribute: input id} for the attributes a Material Attributes value carries
+        unchanged from one of its function's Material Attributes inputs (through Set
+        nodes that don't touch them, reroutes, switches). Worked out without making nodes."""
         if not linked(ref):
             return {}
         x = g.by.get(g.key(ref))
@@ -2579,10 +2530,10 @@ class Translator:
         return self.from_blender(self.shared("tangent", make))
 
     def _blender_bitangent(self):
-        """Blender's UV bitangent (Blender world space), signed as its Normal Map node signs it: by
-        the mesh's tangent handedness (a mirrored UV island) and the object's (negative scale: a
-        prefab's mirrored roof piece, whose normal map lit upside down by normal x tangent). A
-        Normal Map node reading +Y gives exactly that."""
+        """Blender's UV bitangent (Blender world space), signed as its Normal Map node signs it:
+        by the mesh's tangent handedness (a mirrored UV island) and the object's (negative scale;
+        a prefab's mirrored roof piece lit its normal map upside down with normal x tangent).
+        A Normal Map node reading +Y gives exactly that."""
         def make():
             nm = self.node("ShaderNodeNormalMap", "UV bitangent", space='TANGENT', uv_map="UV0")
             if hasattr(nm, "convention"):
@@ -2631,8 +2582,8 @@ class Translator:
 
     def material_normal(self, n, tangent=True):
         """A material's Normal as Blender's world normal, one per tree (the BSDF and PixelNormalWS
-        read the same node): UE's tangent space is DirectX (green down) - a Normal Map node set so
-        (Blender 5.2; before, green flipped here) - or a world-space normal in UE space."""
+        read the same node). UE's tangent space is DirectX (green down): a Normal Map node set so
+        (Blender 5.2; before that, green was flipped here), or a world-space normal in UE space."""
         def make():
             if not tangent:
                 return self.vmath('NORMALIZE', self.vmath('MULTIPLY', n, self.const((1.0, -1.0, 1.0), 3), out_w=3), out_w=3)
@@ -2652,10 +2603,10 @@ class Translator:
         """UE's Object Position: the centre of the object's bounds, not its pivot (that's Actor
         Position): a sprite's pivot is at its feet, its screen-space glow centred on its body.
         The centre (local, Blender metres) is a property the import sets on each object
-        (mp_bounds_centre: the material stays shared); an object without it: its pivot. An
-        outfit's parts take the body's bounds in Fortnite (a head's ObjectRadius is the whole
-        character's: Cyclo's sprite scales by it over an ActorRadius of 97 cm), which the joined
-        mesh's are. UE world, cm."""
+        (mp_bounds_centre: the material stays shared); without it, the pivot. An outfit's parts
+        take the body's bounds in Fortnite (a head's ObjectRadius is the whole character's:
+        Cyclo's sprite scales by it over an ActorRadius of 97 cm), which the joined mesh's are.
+        UE world, cm."""
         env = self.env
 
         def centre():
@@ -2667,8 +2618,8 @@ class Translator:
         return self._hook("object_position", centre, rel)
 
     def head_socket(self):
-        """The character's head in UE world cm (HEAD_SOCKET, the import's: its armature's head
-        bone), else Object Position: a stand-in for a head socket position the game sets at run time."""
+        """The character's head in UE world cm (HEAD_SOCKET: the import's armature head bone),
+        else Object Position: a stand-in for a head socket position the game sets at run time."""
         def make():
             n = self.node("ShaderNodeAttribute", "head socket", attribute_type='OBJECT', attribute_name=HEAD_SOCKET)
             local = Val(n.outputs["Vector"], 3)
@@ -2743,8 +2694,8 @@ class Translator:
 
     def smoothstep(self, mn, mx, v):
         """HLSL's smoothstep(Min, Max, Value). Over an empty range (Min = Max: a softness of 0.5
-        taken off both ends) its (Value - Min) / 0 is an infinity the saturate turns into a hard
-        edge, 1 past Min and 0 before it; a Blender Map Range gives 0 everywhere (the embers drew
+        taken off both ends) (Value - Min) / 0 is an infinity the saturate turns into a hard edge,
+        1 past Min and 0 before it; a Blender Map Range gives 0 everywhere (the embers drew
         nothing). Scalars: a Min and Max that are sockets are checked as the material runs."""
         w = max(mn.w, mx.w, v.w)
         if w == 1 and mn.const and mx.const and float(mn.s) == float(mx.s):
@@ -2779,20 +2730,18 @@ class Translator:
         return self._hook("pixel_depth", fallback)
 
     def water_depth(self):
-        """How deep the water is under this pixel of its surface (UE cm, the
-        surface's height less the ground's; below 0 where the ground rises
-        over it - measured along the surface's normal where it isn't level).
-        At run time the water info texture holds both heights; here the
+        """How deep the water is under this pixel of its surface (UE cm: the surface's height less
+        the ground's; below 0 where the ground rises over it; measured along the surface's normal
+        where it isn't level). At run time the water info texture holds both heights; here the
         env's water_depth() answers, else WATER_DEPTH_DEFAULT."""
         return self.shared("water depth", lambda: self._hook("water_depth", lambda: self.stand_in(
             "water depth %g cm (the ground under the water unknown)" % WATER_DEPTH_DEFAULT,
             self.const(WATER_DEPTH_DEFAULT))))
 
     def water_path(self):
-        """The view ray's way through the water to the ground behind it (UE
-        cm, >= 0): the depth (along the surface's normal: down, for level
-        water) over the ray's steepness to the surface, the ground taken
-        parallel to it (what SceneDepthWithoutWater - PixelDepth measures)."""
+        """The view ray's way through the water to the ground behind it (UE cm, >= 0): the depth
+        (along the surface's normal: down for level water) over the ray's steepness to the
+        surface, the ground taken parallel to it (what SceneDepthWithoutWater - PixelDepth measures)."""
         def make():
             # level water (normal within 60 degrees of up) is measured straight down
             n = self.vertex_normal()
@@ -2857,7 +2806,7 @@ class Translator:
         if t == "DepthFade":
             # soft-particle fade against the scene's depth: InOpacity x saturate((scene depth - pixel
             # depth) / FadeDistance). Where the env can cast a ray behind this pixel (env.depth_behind:
-            # cm along the view ray, and whether it hit - a see-through material) it fades by that,
+            # cm along the view ray, and whether it hit; a see-through material) it fades by that,
             # else not at all
             opacity = self.input(g, p.get("InOpacity"), scope, self.const(float(p.get("InOpacityDefault", 1.0))))
             behind = getattr(self.env, "depth_behind", None)
@@ -2866,8 +2815,8 @@ class Translator:
                 return self.stand_in("DepthFade as its opacity", opacity)
             distance, known = got
             fade = self.input(g, p.get("FadeDistance"), scope, self.const(float(p.get("FadeDistanceDefault", 100.0))))
-            # UE divides by max(FadeDistance, 0.0001): a 0 fade distance leaves it all drawn (Blender's
-            # x / 0 is 0, which hid it wherever anything was behind - Elite Jules' crown)
+            # UE divides by max(FadeDistance, 0.0001): a 0 fade distance leaves it all drawn
+            # (Blender's x / 0 is 0, which hid it wherever anything was behind: Elite Jules' crown)
             fade = self.math('MAXIMUM', fade, self.const(0.0001))
             near = self.saturate(self.binop('DIVIDE', distance, fade, label="depth fade"))
             factor = self.math('ADD', self.const(1.0), self.math('MULTIPLY', self.math('SUBTRACT', near, self.const(1.0)), known))
@@ -2996,10 +2945,9 @@ class Translator:
         if t == "SamplePhysicsVectorField":
             return self.stand_in("%s as 0" % t, self.const((0.0, 0.0, 0.0), 3))
         if t == "LandscapeLayerCoords":
-            # UE: the landscape's own texture coordinates (quads, landscape-wide:
-            # an exported landscape carries them as UV0; XZ/YZ mappings read
-            # UV1/UV2) over the mapping scale, rotated, panned
-            # (UMaterialExpressionLandscapeLayerCoords::Compile)
+            # UE: the landscape's own texture coordinates (quads, landscape-wide; an exported
+            # landscape carries them as UV0, XZ/YZ mappings read UV1/UV2) over the mapping
+            # scale, rotated, panned (UMaterialExpressionLandscapeLayerCoords::Compile)
             mapping = str(p.get("MappingType", ""))
             index = 1 if mapping.endswith("XZ") else 2 if mapping.endswith("YZ") else 0
             base = self._hook("landscape_uv", lambda: None, index)
@@ -3112,8 +3060,8 @@ class Translator:
         if t == "PreSkinnedNormal":
             return self.vmath('NORMALIZE', self.from_world(self.vertex_normal(), "local", False), out_w=3)
         if t in ("PreSkinnedLocalBounds", "ObjectLocalBounds", "Bounds", "ObjectBounds"):
-            # (the pre-skinned ones are the mesh's own - a part's, joined into a character -
-            # the object's are the whole object's: env.preskinned_bounds)
+            # the pre-skinned ones are the mesh's own (a part's, when joined into a character), the
+            # object's are the whole object's: env.preskinned_bounds
             mn, mx = self._hook("preskinned_bounds", self.local_bounds) if t == "PreSkinnedLocalBounds" \
                 else self.local_bounds()
             full = self.vmath('SUBTRACT', mx, mn, out_w=3)
@@ -3185,9 +3133,8 @@ class Translator:
         return None
 
     # ------------------------------------------------------------ custom HLSL
-    # Custom nodes carry HLSL; each known snippet is rebuilt here by hand
-    # (whitespace-insensitive match), anything else is reported and passes
-    # its first input through.
+    # Custom nodes carry HLSL; each known snippet is rebuilt here by hand (whitespace-insensitive
+    # match), anything else is reported and passes its first input through.
     def custom(self, g, x, scope, out=0):
         p = x.get("Properties") or {}
         handler = custom_handler(p)
@@ -3455,8 +3402,7 @@ class Translator:
         # a light march through a density texture, in the sprite's plane: step k (0 .. numSteps - 1)
         # moves the UV on by marchDir * (k * marchDistance / numSteps) / numSteps, reads the density
         # there (the texel over (numSteps - contrast), against ChannelSelect) and dims the light by it;
-        # LO + LightColor * light * density comes out. The loop is laid out step by step: as many
-        # as NumSteps says when the material is built.
+        # LO + LightColor * light * density comes out. Unrolled to NumSteps as known at build time.
         steps = int(round(self._number(ins.get("numSteps"), 16.0)))
         if steps > 64:
             self.warnings.append("approximate: a %d-step light march laid out as 64 steps" % steps)
@@ -3584,10 +3530,9 @@ class Translator:
         return self.math('FLOORED_MODULO', shifted, self.math('POWER', self.const(2.0), cnt), label="bit field")
 
     def float_fields(self, f):
-        """asuint(f) as its three fields - sign (1 bit), exponent (8), mantissa
-        (23) - each exact in float maths: a float can't hold all 32 bits at
-        once, but every field fits in its 24-bit integers. Normal and
-        subnormal floats (0 is all zeros)."""
+        """asuint(f) as its three fields: sign (1 bit), exponent (8), mantissa (23). Each is
+        exact in float maths (a float can't hold all 32 bits, but every field fits in 24).
+        Normal and subnormal floats (0 is all zeros)."""
         a = self.math('ABSOLUTE', f)
         sign = self.math('LESS_THAN', f, self.const(0.0))
         tiny = self.math('LESS_THAN', a, self.const(2.0 ** -126))
@@ -3604,8 +3549,8 @@ class Translator:
         return sign, exp, mant
 
     def bits(self, f, index, count):
-        """(asuint(f) >> index) & ((1 << count) - 1), for constant index and
-        count: pieced together from the fields it spans."""
+        """(asuint(f) >> index) & ((1 << count) - 1) for constant index and count, pieced
+        together from the fields it spans."""
         sign, exp, mant = self.float_fields(f)
         high = self.binop('ADD', self.binop('MULTIPLY', sign, self.const(256.0)), exp)   # bits 23..31
         pieces = []
@@ -3649,13 +3594,12 @@ class Translator:
         return self.saturate(self.combine([r, g, b]))
 
     # ------------------------------------------------------------ water
-    # The Water plugin draws each water body's surface mesh into its zone's
-    # water info texture at run time (DrawWaterInfo: the vertex colour's flow,
-    # the surface height, the ground height under it); materials decode it.
-    # A material on the surface mesh itself reads the same things off the
-    # pixel: its height, its vertex colour, the depth the env knows.
+    # The Water plugin draws each water body's surface mesh into its zone's water info
+    # texture at run time (DrawWaterInfo: the vertex colour's flow, the surface height, the
+    # ground height under it); materials decode it. A material on the surface mesh itself
+    # reads the same things off the pixel: its height, its vertex colour, the depth the env knows.
     def custom_water_info_z(self, ins, p):
-        # DecodeWaterInfoZHeight: the water's height here - the surface's own
+        # DecodeWaterInfoZHeight: the surface's own height here
         return self.comps(self.env.world_position(False))[2]
 
     def custom_water_info_ground(self, ins, p):
@@ -3825,10 +3769,10 @@ class Translator:
 
     # ---------------------------------------------------------- textures
     def sample_volume(self, tname, coords, out):
-        """A volume texture, as UE samples one: trilinear, wrapping on all
-        three axes. The texture is a vertical stack of its slices (CUE4Parse
-        decodes it that way, slice 0 at the top); eight nearest taps weighted
-        here, as a Linear image node would take Eevee's mipmaps."""
+        """A volume texture, as UE samples one: trilinear, wrapping on all three axes. The
+        texture is a vertical stack of its slices (CUE4Parse decodes it that way, slice 0 at
+        the top); eight nearest taps are weighted here, since a Linear image node would go
+        through Eevee's mipmaps."""
         img, size, depth = self.env.volume(tname)
         if coords is None:
             coords = self.const((0.0, 0.0, 0.0), 3)
@@ -3874,9 +3818,9 @@ class Translator:
     def address_mode(self, tname, own, address, img):
         """(extension, per-axis fixes) for a texture's addressing: its own (env.texture_address,
         AddressX/AddressY) through its own sampler, else the shared sampler's. One extension
-        serves both axes; an axis addressed otherwise is fixed on the coordinate: a clamped one
-        held between the edge texels' centres (bilinear filtering then never reaches across),
-        a mirrored one folded (ping-pong)."""
+        serves both axes; an axis addressed otherwise is fixed on the coordinate: clamp holds
+        it between the edge texels' centres (bilinear filtering then never reaches across),
+        mirror folds it (ping-pong)."""
         if address is None:
             address = self._hook("texture_address", lambda: ("Wrap", "Wrap"), tname) if own else ("Wrap", "Wrap")
         ax, ay = (tuple(address) + ("Wrap", "Wrap"))[:2]
@@ -3950,9 +3894,9 @@ class Translator:
         return cout.outputs[0]
 
     def sample_node(self, tname, coords, sampler, img=None, own=True, address=None):
-        """A node reading a 2D texture at UE UVs, with outputs Color and Alpha (unfiltered when the
-        texture is, read through its own sampler: a LUT sampled at a texel's centre stays exact):
-        its image node, or with env.texture_closures an Evaluate Closure of the texture's closure."""
+        """A node reading a 2D texture at UE UVs, with outputs Color and Alpha: its image node, or
+        with env.texture_closures an Evaluate Closure of the texture's closure. Unfiltered when the
+        texture is, read through its own sampler (a LUT sampled at a texel's centre stays exact)."""
         if img is None:
             img = self.env.texture(tname, sampler)
         u, v = self.comps(coords)[:2]
@@ -4051,10 +3995,9 @@ class Translator:
         p = x["Properties"]
         fname = (p.get("MaterialFunction") or {}).get("ObjectName", "").split("'")[1]
         outs = p.get("FunctionOutputs", [])
-        # Inputs bind lazily: UE compiles each function output on its own, so
-        # an output that never reads an input must not evaluate it. The sky's
-        # horizon-hills mask feeds the chain that ends in the same function's
-        # colour input - eager binding turns that into a cycle.
+        # Inputs bind lazily: UE compiles each function output on its own, so an output that
+        # never reads an input must not evaluate it. The sky's horizon-hills mask feeds the chain
+        # that ends in the same function's colour input: eager binding makes that a cycle.
         ins = {fi.get("ExpressionInputId"): _Lazy(g, fi.get("Input"), scope, self.section)
                for fi in p.get("FunctionInputs", [])}
         special = self.env.special_function(fname, _SpecialInputs(self, list(ins.values())))
@@ -4104,15 +4047,15 @@ class Translator:
         return False
 
     def fold_call(self, ft, fg, fo, name, w, ins, site):
-        """A call whose output reads only inputs known when built (constants all the way):
-        the function worked out inline instead - a value, not a group node (a time of day's
-        weights broken out of a float4 the file holds no day for). None where it isn't."""
+        """A call whose output reads only inputs known when built (constants all the way): the
+        function worked out inline, a value instead of a group node (a time of day's weights
+        broken out of a float4 the file holds no day for). None where it isn't."""
         needs = ft.reached(name) | (ft.reached(socket_name(name + " (A)")) if w == 4 else set())
         if not needs:
             return None
-        # in the group's input order, not the set's: reading an input builds the caller's
-        # nodes (and other calls' outputs) as it goes, and the first non-constant one stops
-        # it - over a set of names that order followed PYTHONHASHSEED, and so did the trees
+        # in the group's input order, not the set's: reading an input builds the caller's nodes
+        # (and other calls' outputs) as it goes, and the first non-constant one stops it; a set's
+        # order followed PYTHONHASHSEED, and so did the trees
         needs = [s for s in ft.kind if s in needs]
         if any(ft.kind[s][0] not in ("ue", "ue_alpha") for s in needs):
             return None
@@ -4129,7 +4072,7 @@ class Translator:
         v = self.input(fg, fo["Properties"].get("A"), sub, self.const(0.0))
         if v.const and (v.w != 4 or v.a is None or v.a.const):
             return v
-        # (not a constant after all: what that made reaches nothing, and goes when duplicates merge)
+        # not a constant after all: what that made reaches nothing and goes when duplicates merge
         return None
 
     def call_group(self, fname, fg, outs, out, ins, site=None):
@@ -4146,9 +4089,9 @@ class Translator:
             ft = self.functions[key] = FunctionTree(self, fname, fg, statics, self.variant_label(fname, fg, statics))
             if getattr(self.env, "whole_functions", False):
                 # every output, in the function's own order: two materials calling it build the same
-                # group, which they then share (built as each asked, their groups differed by what
-                # each read - a copy of the function per material). Unread outputs cost nothing at
-                # render: Blender drops what a material's output doesn't reach.
+                # group and share it (built as each asked, their groups differed by what each read:
+                # a copy of the function per material). Unread outputs cost nothing at render:
+                # Blender drops what a material's output doesn't reach.
                 for each in fg.outputs.values():
                     try:
                         ft.output(each)
@@ -4167,11 +4110,11 @@ class Translator:
             n.node_tree = ft.tree
             return n, set()
 
-        # One node per call, whichever outputs are read: UE compiles each output on its own,
-        # and a node per output read drew the same function three times over (Pre FX's M,
-        # Distance Blend and Pre Skinned Local Position). Each output still links only the
-        # inputs it reaches, as it's read; one whose input would come from the node's own
-        # output (a loop UE never sees) gets a node of its own instead.
+        # One node per call, whichever outputs are read: UE compiles each output on its own, and
+        # a node per output read drew the same function three times over (Pre FX's M, Distance
+        # Blend and Pre Skinned Local Position). Each output still links only the inputs it
+        # reaches, as it's read; one whose input would come from the node's own output (a loop
+        # UE never sees) gets a node of its own instead.
         if w == "attrs" and not any(o[0] == "socket" for o in ft.attr_outs[fo["Properties"].get("Id")].values()):
             node, linked = None, set()
         else:
@@ -4236,10 +4179,9 @@ class Translator:
             self.link(v, node.inputs[sock])
 
         if w == "attrs":
-            # each attribute links only the inputs it reaches, when something
-            # reads it: UE compiles a Material Attributes output one property
-            # at a time (InfoInvader's visor reads the Normal of the face's
-            # attributes, whose Emissive needs the visor's UVs - linking every
+            # each attribute links only the inputs it reaches, when something reads it: UE compiles
+            # a Material Attributes output one property at a time (InfoInvader's visor reads the
+            # Normal of the face's attributes, whose Emissive needs the visor's UVs: linking every
             # attribute's inputs at once is a loop)
             souts = ft.attr_outs[fo["Properties"].get("Id")]
             passed = {}
@@ -4439,14 +4381,13 @@ def _group_deps(tree, memo):
 
 
 def merge_duplicates(tree, memo=None):
-    """Fold nodes that compute the same thing into one: same type and settings, same inputs
-    (the same upstream sockets, the same values). Group nodes of one group also merge when
-    every input both read agrees - a call read through several outputs is one group node -
-    unless that would close a loop (UE compiles each output of a call on its own: one
-    output's inputs may need another's result). A vector split and put back together in
-    order (UE's swizzles, free in HLSL, are nodes here) is the vector again, maths that
-    hands a value on unchanged (x * 1, x + 0) goes, and so does what reaches no output.
-    Returns how many nodes went."""
+    """Fold nodes that compute the same thing into one: same type, settings and inputs (the
+    same upstream sockets or values). Group nodes of one group also merge when every input
+    both read agrees (a call read through several outputs is one group node), unless that
+    would close a loop (UE compiles each output of a call on its own: one output's inputs may
+    need another's result). Also: a vector split and recombined in order (UE's swizzles, free
+    in HLSL, are nodes here) is the vector again; maths that hands a value on unchanged
+    (x * 1, x + 0) goes; so does what reaches no output. Returns how many nodes went."""
     memo = {} if memo is None else memo
     _MADE.get(tree.as_pointer(), {}).clear()
     nodes = {n.as_pointer(): n for n in tree.nodes}
