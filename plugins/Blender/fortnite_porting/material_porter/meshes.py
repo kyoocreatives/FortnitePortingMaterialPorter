@@ -1,11 +1,9 @@
-"""Mesh data work shared by the imports (Material Porter's and the FortnitePorting fork's)."""
+"""Mesh data helpers shared by the imports."""
 import bpy
 
 
 def white_colors(me):
-    """A mesh with no vertex colours reads white in UE (its vertex factory's
-    default), black through Blender's Color Attribute node: give it a white
-    COL0, so materials that blend by vertex colour pick the layers UE does."""
+    """Give a mesh with no vertex colours a white COL0. UE reads such meshes as white, Blender's Color Attribute node as black."""
     if me.color_attributes.get("COL0") is not None:
         return
     a = me.color_attributes.new("COL0", 'BYTE_COLOR', 'CORNER')
@@ -13,12 +11,11 @@ def white_colors(me):
 
 
 def spline_bend(me, sp, scale=0.01):
-    """A copy of a mesh bent as UE's spline mesh component bends it
-    (USplineMeshComponent::CalcSliceTransform): each vertex's place along
-    the forward axis is the Hermite segment's parameter; the other two
-    coordinates go along the frame there (up x direction, rolled, scaled,
-    offset). Worked in UE's component space (cm, Y mirrored back): `scale`
-    is the import's metres per cm (0.01)."""
+    """Copy of a mesh bent like USplineMeshComponent::CalcSliceTransform.
+
+    The forward-axis position is the Hermite parameter; the other two coordinates follow the frame there
+    (up x direction, rolled, scaled, offset). Works in UE component space (cm, Y mirrored back);
+    `scale` is metres per cm."""
     import numpy as np
     out = me.copy()
     n = len(out.vertices)
@@ -57,7 +54,7 @@ def spline_bend(me, sp, scale=0.01):
     yv = ca * by + sa * bx
     s0, s1 = np.array(sp.get("s0", (1, 1)), dtype=np.float64), np.array(sp.get("s1", (1, 1)), dtype=np.float64)
     sc = s0 + (s1 - s0) * h[:, None]
-    # the slice's axes, as the forward axis picks them
+    # slice axes depend on the forward axis
     if ax == 0:
         a, b, ua, ub = ue[:, 1] * sc[:, 0], ue[:, 2] * sc[:, 1], xv, yv
     elif ax == 1:
@@ -66,7 +63,7 @@ def spline_bend(me, sp, scale=0.01):
         a, b, ua, ub = ue[:, 0] * sc[:, 0], ue[:, 1] * sc[:, 1], xv, yv
     new = pos + a[:, None] * ua + b[:, None] * ub
     out.vertices.foreach_set("co", (new / flip).astype(np.float32).ravel())
-    # custom normals turn with the frame (the scale's inverse on the side axes)
+    # custom normals follow the frame (inverse scale on the side axes)
     try:
         nl = len(out.loops)
         cn = np.empty(nl * 3, dtype=np.float32)
@@ -84,6 +81,6 @@ def spline_bend(me, sp, scale=0.01):
         nn = unit(nn) * np.array([1.0, -1.0, 1.0])
         out.normals_split_custom_set([tuple(v) for v in nn])
     except Exception:
-        pass        # smooth shading from the bent faces
+        pass        # fall back to smooth shading
     out.update()
     return out

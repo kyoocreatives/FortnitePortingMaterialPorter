@@ -3,7 +3,7 @@ import os
 
 import bpy
 
-# the groups, materials, images... this session appended from FP's data files
+# datablocks this session appended from FP's data files
 appended_ids: list = []
 
 
@@ -13,8 +13,7 @@ def appended(data_to):
 
 
 def merge_duplicate_images():
-    """An appended node group brings its images again (image.001, .002...), each a copy in GPU memory: copies of the
-    same file (colour space and alpha alike) are merged into the first. Returns how many went."""
+    """Merge copies of the same file (same colour space and alpha) that appended node groups bring (image.001...). Returns the count removed."""
     kept, gone = {}, 0
     for img in sorted(bpy.data.images, key=lambda i: (len(i.name), i.name)):
         if img.source != 'FILE' or not img.filepath or img.library is not None or img.packed_file is not None:
@@ -32,8 +31,7 @@ def merge_duplicate_images():
 
 
 def drop_unused_blend_data():
-    """What FP's data files brought that the import didn't use goes again (its shader library's groups, their packed
-    textures, bone shapes); the next import appends what it needs."""
+    """Remove appended datablocks nothing uses (shader library groups, packed textures, bone shapes)."""
     from ..utils import loaded_versions
     removed = 0
     while True:

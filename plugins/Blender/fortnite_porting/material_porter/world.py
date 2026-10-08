@@ -1,20 +1,17 @@
-"""What exact materials read from the world, one node group each per file, which every material links:
+"""World data exact materials read, as one node group each per file that every material links:
 
-    MP World Sun           Direction, towards the sun (UE space: Y mirrored), and Color, the light's
-                           colour times its strength - the scene's sun lamp's, driven (a time of day's
-                           own sun once one is imported); straight overhead and white without one.
-    MP World Sky           Direction (UE space) -> Luminance: UE's SkyAtmosphereViewLuminance and its
-                           sky light. A flat sky colour until a time of day fills it with its baked
-                           atmosphere.
-    MP Collection <name>   one output per parameter of that material parameter collection that a
-                           material read (a vector's alpha: "<name> (A)"): its default, or the day's
-                           curve where a time of day keys it.
-    MP World Fog           a time of day's height fog: Factor and Fog Color for the shaded point
-                           (Receiver Distance 0: its own distance), laid over each exact material's
-                           surface (apply_fog).
+    MP World Sun           Direction (towards the sun, UE space: Y mirrored) and Color (light colour times strength),
+                           driven by the scene's sun lamp, or by a time of day's sun once imported;
+                           straight overhead and white without one.
+    MP World Sky           Direction (UE space) -> Luminance: UE's SkyAtmosphereViewLuminance and sky light.
+                           A flat colour until a time of day fills it with its baked atmosphere.
+    MP Collection <name>   one output per parameter of that material parameter collection that a material read
+                           (a vector's alpha: "<name> (A)"): its default, or the day's curve where a time of day keys it.
+    MP World Fog           a time of day's height fog (Factor, Fog Color) for the shaded point
+                           (Receiver Distance 0: its own distance), laid over each exact material's surface (apply_fog).
 
-A time of day stores its day (tod.parse) in the Text "MP Time of Day" and refills the groups, so a
-map imported before it follows its hour as well as one imported after.
+A time of day stores its day (tod.parse) in the Text "MP Time of Day" and refills the groups, so maps imported
+before it follow its hour too.
 """
 import json
 
@@ -27,17 +24,17 @@ SKY = "MP World Sky"
 FOG = "MP World Fog"
 COLLECTION = "MP Collection "
 DAY_TEXT = "MP Time of Day"
-HOUR = "mp_tod_hour"            # the scene's hour (a time of day's)
-KEY_FOG = "mp_fog"              # on a fogged material's root tree, and on the nodes put in
+HOUR = "mp_tod_hour"            # the scene's time-of-day hour
+KEY_FOG = "mp_fog"              # on a fogged material's root tree and on the nodes added to it
 FLAT_SKY = (0.4, 0.5, 0.7)
 
 
-# the collection parameters the game keeps updated from the sun: they follow the scene's sun lamp
+# collection parameters the game updates from the sun; they follow the scene's sun lamp
 LIVE = ("SunAndMoonModelDirectionalVector", "SunAndMoonModelWorldPosition", "SunlightYTransformVector")
 
 
 def has_day():
-    """Whether the file has a time of day (its collections then follow its hour)."""
+    """Whether the file has a time of day (collections then follow its hour)."""
     return bpy.data.texts.get(DAY_TEXT) is not None
 
 
@@ -59,8 +56,7 @@ def set_day(data):
 
 
 def _new_group(name, inputs=(), outputs=()):
-    """The group, made or emptied - its sockets kept (the materials that use it stay linked), the
-    missing ones added."""
+    """Create the group or empty it. Existing sockets are kept so users stay linked; missing ones are added."""
     t = bpy.data.node_groups.get(name)
     if t is None:
         t = bpy.data.node_groups.new(name, "ShaderNodeTree")
@@ -98,11 +94,11 @@ def scene_sun():
 
 
 def sun_group(sun=None):
-    """The sun group, made on first use (following the scene's sun lamp), or remade to follow `sun`."""
+    """The sun group, created on first use (following the scene's sun lamp) or rebuilt to follow `sun`."""
     t = bpy.data.node_groups.get(SUN)
     if t is not None and sun is None:
         followed = bpy.data.objects.get(t.get("mp_sun") or "")
-        # (one made with no sun lamp in the scene, or whose lamp is gone, follows the one there now)
+        # a group made without a sun lamp, or whose lamp is gone, follows the scene's current one
         if (followed is not None and followed.type == 'LIGHT') or scene_sun() is None:
             return t
     sun = sun or scene_sun()
@@ -114,7 +110,7 @@ def sun_group(sun=None):
     c = N.new("ShaderNodeCombineColor"); c.label = "the sun lamp's colour x strength"; c.location = (-300, -150)
     if sun is not None:
         for i in range(3):
-            # RNA's matrix storage is column-major: column 2 (+Z, towards the sun) is [2][i]
+            # RNA matrix indexing is column-major: column 2 (+Z, towards the sun) is [2][i]
             _drive(d.inputs[i], None, sun, "matrix_world[2][%d]" % i)
             _drive(side.inputs[i], None, sun, "matrix_world[0][%d]" % i)
             _drive(c.inputs[i], None, sun, "data.color[%d]" % i, "v * e", (("e", "data.energy"),))
@@ -139,7 +135,7 @@ def sun_group(sun=None):
 
 
 def sun(tr, output="Direction"):
-    """The sun group's output in the translator's tree (a Val, UE space)."""
+    """Sun group output in the translator's tree (Val, UE space)."""
     n = tr.node("ShaderNodeGroup", "World Sun")
     n.node_tree = sun_group()
     return Val(n.outputs[output], 3)
@@ -147,9 +143,9 @@ def sun(tr, output="Direction"):
 
 # ------------------------------------------------------------------ the view
 VIEW = "MP World View"
-# tan of half the field of view across and up the render (the sensor fits the frame's larger side
-# when Auto, its width or its height when told; the other side follows the frame's aspect), and
-# the render's size in pixels - plain arithmetic, which drivers evaluate without Python
+# Tan of half the field of view across and up the render (sensor fit Auto uses the frame's larger side,
+# otherwise the width or height; the other side follows the aspect), and the render size in pixels.
+# Plain arithmetic so drivers evaluate it without Python.
 _RX = "(rx * ax)"
 _RY = "(ry * ay)"
 _TX = ("(f == 0) * sw / (2 * l) * %(x)s / max(%(x)s, %(y)s) + (f == 1) * sw / (2 * l)"
@@ -162,9 +158,9 @@ _VIEW_VARS = (("rx", "render.resolution_x"), ("ry", "render.resolution_y"), ("ax
 
 
 def view_group():
-    """The view group, made on first use: the scene camera's field of view and the render's size,
-    driven - what UE's ViewProperty and ViewSize read, followed when the camera's lens or the
-    render's size change after the import (frozen, a screen-space glow drifted off its head)."""
+    """The view group, created on first use: scene camera field of view and render size, driven (UE's ViewProperty and ViewSize).
+
+    Driven so lens or render size changes after the import are followed (frozen, a screen-space glow drifted off its head)."""
     t = bpy.data.node_groups.get(VIEW)
     if t is not None:
         return t
@@ -194,7 +190,7 @@ def view_group():
 
 
 def view(tr, output):
-    """A view group output in the translator's tree (x, y in a float2 Val)."""
+    """View group output in the translator's tree (x, y in a float2 Val)."""
     n = tr.node("ShaderNodeGroup", "World View")
     n.node_tree = view_group()
     return Val(n.outputs[output], 2)
@@ -243,7 +239,7 @@ def _curve(t, ch, x, label, loc):
     mp = n.mapping
     mp.use_clip = False
     cv = mp.curves[0]
-    from . import tod      # (a time of day's own module: only reached once one is in the file)
+    from . import tod      # only reached once a time of day is in the file
     pts = tod.samples(ch)
     cv.points[0].location = pts[0]
     cv.points[1].location = pts[-1]
@@ -257,12 +253,12 @@ def _curve(t, ch, x, label, loc):
     return n.outputs["Value"]
 
 
-# collection parameters the game sets from its sun every frame (the legacy sky domes read them)
-SUN_DISTANCE = 12000000.0       # cm: a time of day manager's DistanceToSunOrMoon
+# collection parameters the game sets from its sun every frame (legacy sky domes read them)
+SUN_DISTANCE = 12000000.0       # cm: time of day manager's DistanceToSunOrMoon
 
 
 def _live(t, name, x_holder):
-    """The live value of a collection parameter the game keeps updated, or None."""
+    """Live value of a collection parameter the game keeps updated, or None."""
     if name in LIVE:
         g = t.nodes.new("ShaderNodeGroup"); g.node_tree = sun_group(); g.label = "World Sun"
         if name == "SunAndMoonModelDirectionalVector":
@@ -280,7 +276,7 @@ def _live(t, name, x_holder):
 
 
 def _fill_collection(t):
-    """The group's insides from its parameters' defaults (["mp_defaults"]) and the day's keys."""
+    """Rebuild the group from its parameter defaults (["mp_defaults"]) and the day's keys."""
     defaults = json.loads(t.get("mp_defaults") or "{}")
     keyed = ((day() or {}).get("collections") or {}).get(t.get("mp_path") or "") or {}
     t.nodes.clear()
@@ -328,7 +324,7 @@ def _fill_collection(t):
 
 
 def collection(tr, path, name, default):
-    """A collection parameter (default: a float, or (r, g, b, a)) through its collection's group."""
+    """A collection parameter (default: float or (r, g, b, a)) read through its collection's group."""
     key = path.split(".")[0]
     gname = _collection_name(key)
     t = bpy.data.node_groups.get(gname)
@@ -358,7 +354,7 @@ def collection(tr, path, name, default):
 
 
 def refresh_collections():
-    """Every collection group, following the file's day now."""
+    """Refill every collection group from the file's current day."""
     for t in bpy.data.node_groups:
         if t.name.startswith(COLLECTION) and "mp_defaults" in t:
             _fill_collection(t)
@@ -370,7 +366,7 @@ def fog_ready():
 
 
 def _root_tree(mat):
-    """An exact material's root group (the group node feeding its output), or None."""
+    """The exact material's root group (the group node feeding its output), or None."""
     if not mat.get("mp_path") or not mat.node_tree:
         return None
     out = next((n for n in mat.node_tree.nodes if n.bl_idname == "ShaderNodeOutputMaterial" and n.is_active_output), None)
@@ -407,7 +403,7 @@ class _Fog:
         return self._g
 
     def scale(self, sock):
-        """The shader times the fog's transmittance."""
+        """The shader times the fog transmittance."""
         black = self.node("ShaderNodeEmission", "fogged away")
         black.inputs["Color"].default_value = (0.0, 0.0, 0.0, 1.0)
         mix = self.node("ShaderNodeMixShader", "x fog factor")
@@ -426,8 +422,8 @@ class _Fog:
         return add.outputs[0]
 
     def shader(self, sock, depth=0):
-        """The shader at `sock`, fogged: only what is drawn - a see-through part keeps showing what is
-        behind (already fogged itself); an additive one is dimmed, not lit."""
+        """Fog the shader at `sock`. Only what is drawn is fogged: see-through parts keep showing what is
+        behind (already fogged), additive ones are dimmed, not lit."""
         node = sock.node
         L = self.t.links
         if depth > 8:
@@ -449,7 +445,7 @@ class _Fog:
         if node.bl_idname == "ShaderNodeBsdfPrincipled":
             alpha = node.inputs["Alpha"]
             if alpha.is_linked or alpha.default_value < 1.0:
-                # its alpha becomes a mix with see-through, so only the surface is fogged
+                # alpha becomes a mix with see-through so only the surface is fogged
                 mix = self.node("ShaderNodeMixShader", "alpha (fog)")
                 tp = self.node("ShaderNodeBsdfTransparent", "see-through")
                 if alpha.is_linked:
@@ -466,8 +462,9 @@ class _Fog:
 
 
 def apply_fog(mat, receiver=0.0, mirror=0.0):
-    """The file's height fog over an exact material (its root group, shared by its instances, once).
-    False when there's no fog or nothing to fog."""
+    """Put the file's height fog over an exact material (once, in its root group shared by instances).
+
+    False when there is no fog or nothing to fog."""
     if not fog_ready():
         return False
     tree = _root_tree(mat) if mat.get("mp_path") else None
@@ -491,14 +488,14 @@ def apply_fog(mat, receiver=0.0, mirror=0.0):
 
 
 def remove_fog(mat):
-    """Undo apply_fog (the material's tree back as built)."""
+    """Undo apply_fog."""
     tree = _root_tree(mat) or (mat.node_tree if mat.get("mp_tod") else None)
     if tree is None or not tree.get(KEY_FOG):
         return False
     L = tree.links
     for n in [n for n in tree.nodes if n.get(KEY_FOG)]:
         if n.bl_idname == "ShaderNodeMixShader" and n.label == "alpha (fog)":
-            # the alpha back on the Principled BSDF
+            # restore alpha on the Principled BSDF
             fac, surf = _from(n.inputs[0]), _from(n.inputs[2])
             bsdf = _unfog(surf)
             if bsdf is not None and bsdf.node.bl_idname == "ShaderNodeBsdfPrincipled":
@@ -521,7 +518,7 @@ def remove_fog(mat):
 
 
 def _unfog(sock):
-    """Through the fog's own nodes back to the shader they took."""
+    """Follow the fog's nodes back to the shader they wrapped."""
     while sock is not None and sock.node.get(KEY_FOG):
         n = sock.node
         if n.bl_idname == "ShaderNodeAddShader":

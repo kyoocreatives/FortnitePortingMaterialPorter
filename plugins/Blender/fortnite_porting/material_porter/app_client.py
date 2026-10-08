@@ -1,4 +1,4 @@
-"""The app's bridge, asked while a material builds (see the app's Bridge.cs)."""
+"""Client for the app's bridge (see Bridge.cs)."""
 import hashlib
 import http.client
 import json
@@ -11,12 +11,11 @@ class AppError(RuntimeError):
 
 
 CONNECT_TIMEOUT = 3.0     # seconds
-READ_TIMEOUT = 120.0      # a first texture may stream from Epic's CDN; past this the app is stuck
+READ_TIMEOUT = 120.0      # a first texture may stream from Epic's CDN
 
 
 def fetch_dir():
-    """Where files fetched from the app are kept (Blender's own view of
-    %LOCALAPPDATA%, so they last beyond the session)."""
+    """Folder for files fetched from the app, under Blender's own %LOCALAPPDATA%."""
     base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
     d = os.path.join(base, "MaterialPorter", "fetched")
     os.makedirs(d, exist_ok=True)
@@ -30,20 +29,18 @@ class AppClient:
         u = urllib.parse.urlsplit(self.url)
         self._host, self._port = u.hostname or "localhost", u.port or 80
         self._conn = None
-        self.max_texture = 0        # pixels: the import's texture size cap (0: full size)
+        self.max_texture = 0        # texture size cap in pixels (0: full size)
 
     def _fetch(self, route, path):
-        """(status, body) of GET /route?path=..., on one kept-alive connection
-        (a new one per request cost a connect each, hundreds per import)."""
+        """(status, body) of GET /route?path=..., over one kept-alive connection."""
         query = {"path": path}
         if route == "texture" and self.max_texture:
-            query["cap"] = self.max_texture      # the import's texture size cap
+            query["cap"] = self.max_texture
         target = "/%s?%s" % (route, urllib.parse.urlencode(query))
         for attempt in (0, 1):
             try:
                 if self._conn is None:
-                    # a quick connect: an app that's there answers at once, a closed one
-                    # shouldn't hold the import; then long enough for a first texture
+                    # short connect timeout so a closed app doesn't hold the import, long read timeout
                     self._conn = http.client.HTTPConnection(self._host, self._port, timeout=CONNECT_TIMEOUT)
                     self._conn.connect()
                     self._conn.sock.settimeout(READ_TIMEOUT)
@@ -55,7 +52,7 @@ class AppClient:
                     self._conn = None
                 return r.status, body
             except (http.client.HTTPException, OSError):
-                # the app closed an idle connection: once more on a new one
+                # idle connection closed by the app: retry once on a new one
                 if self._conn is not None:
                     self._conn.close()
                 self._conn = None
@@ -85,22 +82,17 @@ class AppClient:
         return v
 
     def local(self, path):
-        """A file the app exported, as a path Blender can open: the app's own
-        path when Blender sees it there, else a copy fetched over the link
-        (the app's files can live where only the app sees them)."""
+        """Path Blender can open for a file the app exported: the app's path, else a copy fetched over the bridge."""
         if not path or os.path.exists(path):
             return path
         key = ("file", path)
         if key not in self.memo:
-            # a short name: the app's names run long (a function's whole folder
-            # path), and Blender's Python can't open a path past 260 characters -
-            # which is also why Blender may not see the app's own copy
+            # short name: the app's names run long and Blender's Python can't open paths past 260 characters
             base = os.path.basename(path.replace("\\", "/"))
             stem, ext = os.path.splitext(base)
             digest = hashlib.sha1(path.lower().encode("utf-8")).hexdigest()[:12]
             dest = os.path.join(fetch_dir(), "%s_%s%s" % (digest, stem.split("~")[-1][:48], ext))
-            # fetched again once per job: the app may have written a better copy
-            # since (a texture's full mips streamed in)
+            # refetched each job: the app may have written a better copy since (full mips streamed in)
             try:
                 status, data = self._fetch("file", path)
             except (http.client.HTTPException, OSError) as e:

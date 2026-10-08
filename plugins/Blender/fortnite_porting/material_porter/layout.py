@@ -1,32 +1,20 @@
-"""Lays a built node group out as framed, left-to-right sections.
+"""Lays a built node group out as framed, left-to-right sections, derived from the finished graph.
 
-The builders used to place every node by a hand-typed coordinate, and as the
-variants grew those coordinates drifted into one tangle. This pass throws them
-away and derives the layout from the finished graph instead:
+  * Every node carries the section the builder was in when it made it (nodelib's `sec()`).
+    A section is a frame, nested along its path: "Reaper/Matcap UV" is a Matcap UV frame inside a Reaper frame.
+  * Inside a frame nodes are layered left to right by dataflow, ordered to avoid wire crossings and nudged
+    so wires run straight (the usual Sugiyama recipe). A frame is laid out before its parent and placed there
+    as one block, ports and all.
+  * Pure input nodes (Group Input, Geometry, Texture Coordinate, the bundle split, ...) are copied into every
+    frame that reads them (like UE's local parameter nodes) so no wire crosses the whole graph to fetch a socket.
+  * Unused outputs are hidden; nodes that no longer reach the output (the retired fade terms, kept on purpose,
+    see sphere_only.simplify_fade) are parked in an "Unused" frame underneath.
 
-  * Every node carries the section the builder was in when it made it
-    (nodelib's `sec()`). A section is a frame, nested the way its path is:
-    "Reaper/Matcap UV" is a Matcap UV frame inside a Reaper frame.
-  * Inside a frame the nodes are layered left to right by dataflow, ordered
-    to keep wires from crossing and nudged so each wire runs as straight as
-    its neighbours allow - the usual Sugiyama recipe. A frame is laid out
-    before its parent and then placed there as one block, ports and all.
-  * Pure input nodes (Group Input, Geometry, Texture Coordinate, the bundle
-    split, ...) are copied into every frame that reads them - Blender's
-    version of UE's local parameter nodes - so no wire crosses the whole
-    graph just to fetch a socket.
-  * Unused outputs are hidden, and nodes that no longer reach the output
-    (the retired fade terms, kept on purpose - see sphere_only.simplify_fade)
-    are parked in an "Unused" frame underneath.
+It changes where nodes sit and what they draw, never what they compute. It must run last, after every insertion
+pass: those find their anchors by label and neighbour and are gated by tree markers, so they never rerun on a laid-out group.
 
-It changes where nodes sit and what they draw, never what they compute. It
-has to run last, after every insertion pass: those passes find their anchors
-by label and by neighbour, and are gated by tree markers, so they never run
-again on a group this has laid out.
-
-Node sizes are an estimate: Blender only measures a node when it draws it,
-and the build runs in the background. The table below was measured in a UI
-session (tools/layout_measure.py) and is good to a few pixels.
+Node sizes are estimates: Blender only measures a node when it draws it and the build runs in the background.
+The table below was measured in a UI session (tools/layout_measure.py), good to a few pixels.
 """
 import colorsys
 import bisect
@@ -39,9 +27,8 @@ from .nodelib import SECTION_KEY
 UNUSED = "Unused"
 
 # ------------------------------------------------------------------ metrics
-# Height of a node with no visible sockets, by type (and data type where that
-# changes the buttons drawn). Each visible socket row adds ROW; an unlinked
-# vector input draws its three fields and adds VEC instead.
+# Height of a node with no visible sockets, by type (and data type where that changes the buttons drawn).
+# Each visible socket row adds ROW; an unlinked vector input draws three fields and adds VEC instead.
 ROW = 22.4
 VEC = 84.0
 BASE_H = {
@@ -79,8 +66,7 @@ BASE_H = {
     "ShaderNodeGamma": 3.2,
     "GeometryNodeMenuSwitch": 60.0,
     "NodeReroute": 0.0,
-    # the sky's (tools/build_sky.py, build_fog.py, build_grade.py): estimates
-    # on the generous side, since a gap reads better than an overlap
+    # the sky's (tools/build_sky.py, build_fog.py, build_grade.py): generous estimates, since a gap reads better than an overlap
     "ShaderNodeFloatCurve": 262.0,
     "ShaderNodeTexImage": 206.0,
     "ShaderNodeAttribute": 58.0,
@@ -91,21 +77,16 @@ BASE_DEFAULT = 60.0
 HEAD = 24.0     # node top to the first output row
 FOOT = 6.0      # last input row to the node bottom
 
-# frames: Blender draws a shrink-wrapped frame this far outside its children,
-# plus the label on top. Kept a little generous so a drawn frame never
-# reaches into its neighbour.
+# Frames: Blender draws a shrink-wrapped frame this far outside its children, plus the label on top.
+# Kept a little generous so a frame never reaches into its neighbour.
 PAD = 34.0
 LABEL = {1: 34, 2: 22}          # label_size by depth; deeper reuses the last
 GAP_NODE_Y = 45.0
 GAP_BOX_Y = 90.0
 GAP_DUMMY_Y = 20.0
 GAP_LANE_BOX = 40.0      # a lane or a loose node beside a frame
-BUS_MIN = 60.0           # a wire that climbs less than this stays a plain wire
-BUS_SNAP = 24.0          # bus taps closer than this merge
-BUS_PAD = 40.0           # first bus this far into the gap
-BUS_STEP = 24.0          # buses side by side in one gap
 LANE_LIMIT = 160         # reroutes a tree's lanes may make, the most useful first; past it, plain wires
-LANE_WORK = 40000        # ...and reroutes times the tree's nodes: each new node and link costs Blender a pass over the tree
+LANE_WORK = 40000        # ...and reroutes times the tree's nodes (each new node and link costs Blender a pass over the tree)
 ROUTE_LONG = 600.0       # a wire longer than this that climbs more than ROUTE_SLANT is routed level (_wire_routes)
 ROUTE_SLANT = 40.0
 ROUTE_M = 16.0           # a routed wire's clearance from nodes and frames
@@ -115,9 +96,6 @@ ROUTE_BEND = 100.0       # a bend's cost, in level pixels x 1000
 ROUTE_SPAN = 400.0       # how far above and below its ends a route may go
 ROUTE_GRID = 40000       # a route's grid past this: the plain wire
 ROUTE_SNAP = 8.0         # grid lines closer than this merge
-# Wires between frames as reroute buses (UE's wiring). Off: a material's dozens of
-# parallel wires became ladders of reroute dots, harder to follow than the wires
-ROUTE_BUSES = False
 ROUTE_LANES = True
 SPLIT_FANOUTS = True
 HIDE_IDLE_INPUTS = True  # unlinked inputs still at their default hidden, Ctrl+H style (_hide_idle_inputs)
@@ -128,8 +106,7 @@ GAP_PART_X = 100.0       # the same, sideways
 GAP_NODE_X = 70.0
 GAP_BOX_X = 130.0
 
-# Frame colours by top-level section. Anything not listed gets a stable hue
-# from its name; sub-frames are a lighter shade of their parent.
+# Frame colours by top-level section. Unlisted ones get a stable hue from their name; sub-frames are a lighter shade of the parent.
 PALETTE = {
     "Common": (0.20, 0.20, 0.22),
     "Golden": (0.40, 0.30, 0.07),
@@ -150,10 +127,9 @@ PALETTE = {
     UNUSED: (0.10, 0.10, 0.10),
 }
 
-# Nodes with nothing but outputs whose value does not depend on where they
-# sit, so a copy is the same node. Value and RGB are not here: those hold a
-# number someone may edit, and editing one copy of it would be a trap. The
-# scene-time Value is the exception and is recognised by its driver.
+# Nodes with only outputs whose value doesn't depend on where they sit, so a copy is the same node.
+# Value and RGB are not here: they hold a number someone may edit, and editing one copy would be a trap.
+# The scene-time Value is the exception, recognised by its driver.
 PURE_SOURCES = {
     "NodeGroupInput": (),
     "ShaderNodeNewGeometry": (),
@@ -230,15 +206,12 @@ def socket_offset(n, sock):
 
 
 # ------------------------------------------------------------------ links
-# Blender answers `socket.links` by walking every link in the tree, and any
-# read after a link edit makes it rebuild its topology cache first. On the
-# Variants group that turns a few thousand reads into a minute. So the links
-# are read once into plain records, the passes below work on those, and each
-# pass writes its edits back in one go.
+# Blender answers `socket.links` by walking every link in the tree, and any read after a link edit rebuilds
+# its topology cache first; on the Variants group a few thousand reads take a minute. So the links are read
+# once into plain records, the passes below work on those, and each pass writes its edits back in one go.
 #
-# Sockets are kept by identifier, not by handle: a reroute rebuilds its
-# sockets when the first link gives it a type, and a handle taken before that
-# points at freed memory.
+# Sockets are kept by identifier, not by handle: a reroute rebuilds its sockets when the first link gives it
+# a type, and a handle taken before that points at freed memory.
 class _Wire:
     __slots__ = ("link", "a", "ia", "type", "b", "ib")
 
@@ -294,9 +267,8 @@ def _is_source(n, ins):
 def _resolve_untagged(tree, tags, wires):
     """Nodes an insertion pass added after the builder finished.
 
-    They go with the node they read from, which is where every pass inserts:
-    the mirror after the object-space read, the grade after the variant
-    colour, the cell variation after the LootHacker base.
+    They go with the node they read from, which is where every pass inserts: the mirror after the
+    object-space read, the grade after the variant colour, the cell variation after the LootHacker base.
     """
     ins, outs = _adjacency(wires)
     pending = [n for n in tree.nodes if n.name in tags and tags[n.name] is None]
@@ -395,8 +367,8 @@ def _key(n):
 def _relink(tree, a, ia, b, ib):
     """Point input `ib` of `b` at output `ia` of `a`.
 
-    A new link into a single input replaces the one already there, which
-    saves the separate remove - every edit costs Blender a tree update.
+    A new link into a single input replaces the existing one, saving a separate remove
+    (every edit costs Blender a tree update).
     """
     sb = _in(b, ib)
     if sb.is_multi_input:
@@ -405,12 +377,10 @@ def _relink(tree, a, ia, b, ib):
     return tree.links.new(_out(a, ia), sb)
 
 
-# A Group Input carries every interface socket - 361 on the Variants group -
-# and the cost of any link edit grows with the sockets in the tree. A hundred
-# copies of it make every later edit ten times slower. So until the last edit
-# is done a copy is stood in for by a Separate Bundle holding only the outputs
-# that copy will show, drawn the same height and in the same order, and the
-# real Group Input replaces it at the very end (_realize_inputs).
+# A Group Input carries every interface socket (361 on the Variants group) and the cost of any link edit grows
+# with the sockets in the tree; a hundred copies make every later edit ten times slower. So until the last edit
+# a copy is stood in for by a Separate Bundle holding only the outputs that copy will show (same height and
+# order), and the real Group Input replaces it at the very end (_realize_inputs).
 STAND_IN = "fpv4_group_input"
 
 
@@ -422,9 +392,8 @@ def _out_of(node, ident, stand_ins):
     outs = [s for s in node.outputs if s.identifier != "__extend__"]
     if ident in idents:
         return outs[idents.index(ident)]
-    # Wires scanned after localizing name the stand-in's own outputs (Item_N),
-    # not the Group Input's (Socket_N). A lane routed out of a stand-in into a
-    # nested frame arrives here with one of those; the two never collide.
+    # Wires scanned after localizing name the stand-in's own outputs (Item_N), not the Group Input's (Socket_N).
+    # A lane routed out of a stand-in into a nested frame arrives here with one of those; the two never collide.
     return _out(node, ident)
 
 
@@ -443,12 +412,10 @@ def _stand_in(tree, gi, idents):
 
 
 def _localize_sources(tree, tags, wires):
-    """Copy every pure input node into each frame that reads it - and a Group
-    Input to each node that reads it, showing only what that node reads: a
-    parameter sits beside its reader, where one Group Input feeding a whole
-    frame sent dozens of wires across it. A parameter bundle's Separate Bundle
-    goes to each column of its readers, with a Group Input of its own: one
-    per frame sent its items across the frame.
+    """Copy every pure input node into each frame that reads it, and a Group Input to each node that reads it,
+    showing only what that node reads: a parameter sits beside its reader (one Group Input feeding a whole frame
+    sent dozens of wires across it). A parameter bundle's Separate Bundle goes to each column of its readers with
+    a Group Input of its own (one per frame sent its items across the frame).
 
     Returns (copies made, {stand-in name: Group Input output ids}).
     """
@@ -456,8 +423,8 @@ def _localize_sources(tree, tags, wires):
     order = sorted((n for n in tree.nodes if n.name in tags and _is_source(n, ins)),
                    key=lambda n: 0 if n.bl_idname == "NodeSeparateBundle" else 1)
     sources = {n.name for n in order}
-    # what each frame (or reader) will read from each source, so a stand-in can
-    # be made with exactly those outputs; key (source, path, reader or None)
+    # what each frame (or reader) reads from each source, so a stand-in can have exactly those outputs;
+    # key (source, path, reader or None)
     stays, moves = set(), defaultdict(list)
     rank = _ranks(tree, outs)
     for src in order:
@@ -467,7 +434,7 @@ def _localize_sources(tree, tags, wires):
             if src.type == 'GROUP_INPUT' and w.b.name not in sources:
                 moves[(src.name, tags[w.b.name], w.b.name)].append(w)
             elif split and _in(w.b, w.ib).is_multi_input:
-                stays.add(src.name)     # (a Join reads its links in order: relinked, it would change)
+                stays.add(src.name)     # a Join reads its links in order; relinking would change it
             elif split:
                 moves[(src.name, tags[w.b.name], ("column", rank.get(w.b.name, 0), ins[src.name][0].ia))].append(w)
             elif tags[w.b.name] == own:
@@ -516,8 +483,8 @@ def _localize_sources(tree, tags, wires):
         for w in group:
             sb = _in(w.b, w.ib)
             tree.links.new(_out_of(c, w.ia, stand_ins), sb)
-    # a parameter bundle's Separate Bundle kept where most of its readers are: its own Group
-    # Input beside it too (the first one's could be a frame away)
+    # a parameter bundle's Separate Bundle stays where most of its readers are, with its own Group Input
+    # beside it (the first one's could be a frame away)
     for name in sorted(stays):
         n = tree.nodes.get(name)
         if n is None or n.bl_idname != "NodeSeparateBundle" or not ins[name] or ins[name][0].a.type != 'GROUP_INPUT':
@@ -526,9 +493,8 @@ def _localize_sources(tree, tags, wires):
         needs[(_key(feed.a), tags[name], ("split", name))].add(feed.ia)
         gi = copy_in(feed.a, tags[name], ("split", name))
         tree.links.new(_out_of(gi, feed.ia, stand_ins), n.inputs[0])
-    # an original nothing reads any more is only clutter - but keep the
-    # first Group Input, which older code looks the interface up through (a
-    # material's own tree has none)
+    # an original nothing reads any more is clutter, but keep the first Group Input, which older code
+    # looks the interface up through (a material's own tree has none)
     keep = next((n for n in tree.nodes if n.type == 'GROUP_INPUT'), None)
     for src in order:
         if src != keep and src.name not in stays:
@@ -538,8 +504,8 @@ def _localize_sources(tree, tags, wires):
 
 
 def _ranks(tree, outs):
-    """Each node's longest path to an output, in links: nodes alike in it share a column (the
-    layering puts each just before its nearest reader)."""
+    """Each node's longest path to an output, in links. Nodes with the same value share a column
+    (the layering puts each just before its nearest reader)."""
     rank = {}
     for n in tree.nodes:
         stack = [n.name]
@@ -558,12 +524,12 @@ def _ranks(tree, outs):
 
 
 def _split_fanouts(tree, tags, wires):
-    """A Separate Bundle read across many columns sends a wire per item the whole way:
-    parallel lines no one can follow. Each column of readers (a frame's nodes as far from
-    the output) gets its own copy instead, right before it, showing only what that column
-    reads, and only the bundle travels - one wire, shared by every copy. Readers through a
-    multi-input socket keep the original (a Join reads its links in order); one a Group
-    Input feeds is a pure input, copied per frame later (_localize_sources).
+    """Split a Separate Bundle read across many columns, which would send a wire per item the whole way.
+
+    Each column of readers (a frame's nodes equally far from the output) gets its own copy right before it,
+    showing only what that column reads, and only the bundle travels (one wire shared by every copy).
+    Readers through a multi-input socket keep the original (a Join reads its links in order); one fed by a
+    Group Input is a pure input, copied per frame later (_localize_sources).
 
     Returns the copies made."""
     ins, outs = _adjacency(wires)
@@ -618,9 +584,7 @@ EXIT_MARK = " ▸"
 
 
 def _port_name(node, src):
-    """What a port shows: its source's label, marked, so that nothing that
-    looks nodes up by exact label - the passes, the tests - ever takes a port
-    for the node it carries."""
+    """What a port shows: its source's label, marked, so lookups by exact label (passes, tests) never take a port for its node."""
     name = node.label or node.name
     if name.startswith(PORT_MARK):
         name = name[len(PORT_MARK):]
@@ -634,28 +598,21 @@ def _port_name(node, src):
 def _ports(tree, tags, wires):
     """Reroutes where a signal crosses a frame's edge, UE comment-box style.
 
-    Exits first, inside out. A value made deep inside a frame and read
-    outside it would otherwise leave from wherever its node sits and cut
-    across the rest of the frame on its way out; when the part that makes it
-    also feeds something else in the frame - so the layering cannot put it on
-    the frame's right edge by itself - it goes out through a reroute that
-    does sit there.
+    Exits first, inside out. A value made deep inside a frame and read outside would leave from wherever its node
+    sits and cut across the rest of the frame. When the part that makes it also feeds something else in the frame
+    (so the layering can't put it on the right edge by itself) it goes out through a reroute that sits there.
 
-    Then entries, outside in. A value read by several nodes inside a frame
-    arrives as one wire, to a labelled reroute on the frame's left edge, and
-    fans out from there instead of arriving as one long wire per reader. So
-    does a value read by one node that sits behind something else in the
-    frame. A sub-frame gets its own entry, fed from its parent's.
+    Then entries, outside in. A value read by several nodes inside a frame arrives as one wire at a labelled
+    reroute on the frame's left edge and fans out from there. So does a value read by one node that sits behind
+    something else in the frame. A sub-frame gets its own entry, fed from its parent's.
 
-    Pure inputs get neither - they are about to be copied into the frame.
-    This runs before those copies exist, while a link edit is still cheap.
-    Returns {reroute name: "first" | "last"}, the column each one is pinned to.
+    Pure inputs get neither (they are about to be copied into the frame). This runs before those copies exist,
+    while link edits are still cheap. Returns {reroute name: "first" | "last"}, the column each one is pinned to.
     """
     L = tree.links
     pins = {}
     ins, _ = _adjacency(wires)
-    # (nor a wire into a multi-input socket: a Join reads its links in order, and a relink
-    # there replaces them all)
+    # nor a wire into a multi-input socket (a Join reads its links in order; a relink there replaces them all)
     live = [w for w in wires if not _is_source(w.a, ins) and not _in(w.b, w.ib).is_multi_input]
     paths = {p[:k] for p in tags.values() if p for k in range(1, len(p) + 1)}
     paths = [p for p in paths if p[0] != UNUSED]
@@ -719,8 +676,8 @@ def _ports(tree, tags, wires):
             groups[(w.a.name, w.ia)].append(w)
         gone, made = set(), []
         for group in groups.values():
-            # one reader on the frame's left edge can take the wire directly;
-            # one further in would have it cross whatever sits in front
+            # a reader on the frame's left edge can take the wire directly; one further in would have it cross
+            # whatever sits in front
             deep = any(item(tags[w.b.name], depth, w.b) in fed for w in group)
             if len(group) < 2 and not deep:
                 continue
@@ -732,9 +689,9 @@ def _ports(tree, tags, wires):
     return pins
 
 
-# Nodes whose whole content is their wiring, when every input is wired: drawn collapsed
-# (a row each), they stop taking the height of their socket list. A Separate/Combine Color in
-# another mode than RGB keeps its mode on show, a node with a value typed in keeps it.
+# Nodes whose whole content is their wiring, when every input is wired: drawn collapsed (a row each) so they
+# stop taking the height of their socket list. A Separate/Combine Color in a mode other than RGB, or a node
+# with a typed-in value, stays expanded.
 COLLAPSIBLE = {"ShaderNodeSeparateXYZ", "ShaderNodeCombineXYZ", "ShaderNodeSeparateColor",
                "ShaderNodeCombineColor", "NodeEvaluateClosure"}
 
@@ -760,8 +717,7 @@ def _hide_unused_outputs(tree, wires):
             s.hide = (n.name, s.identifier) not in used
 
 
-# A constant on an operator reads as part of what it does - Multiply by 0.5 is not
-# Multiply - so these show every input, at its default or not
+# A constant on an operator is part of what it does (Multiply by 0.5 is not Multiply), so these show every input
 OPERATORS = {"ShaderNodeMath", "ShaderNodeVectorMath", "ShaderNodeMix", "ShaderNodeMixRGB",
              "FunctionNodeCompare", "ShaderNodeClamp", "ShaderNodeMapRange", "FunctionNodeBooleanMath",
              "FunctionNodeIntegerMath", "ShaderNodeMixShader", "ShaderNodeVectorRotate"}
@@ -780,8 +736,7 @@ def _same(a, b):
 
 
 def _defaults(tree, n):
-    """A node's input defaults: a group's from its interface, a built-in's from a fresh one
-    (made once per type, in a scratch tree)."""
+    """A node's input defaults: a group's from its interface, a built-in's from a fresh node (made once per type in a scratch tree)."""
     if n.bl_idname == "ShaderNodeGroup" or n.type == 'GROUP':
         if n.node_tree is None:
             return {}
@@ -804,9 +759,8 @@ def _defaults(tree, n):
 
 
 def _hide_idle_inputs(tree, wires):
-    """Ctrl+H where it loses nothing: an unlinked input still at its default is hidden (one
-    with no value at all too) - except on operators, and in a material's own tree, whose
-    group node's inputs are the material's controls."""
+    """Ctrl+H where nothing is lost: hide unlinked inputs still at their default (and ones with no value),
+    except on operators and in a material's own tree, whose group node inputs are the material's controls."""
     if tree.is_embedded_data:
         return
     fed = {(w.b.name, w.ib) for w in wires}
@@ -900,10 +854,9 @@ class _It:
         self.pos = 0.0
         self.order = order
         self.pin = pin
-        # a reroute: its wire goes straight through, so it lines up by socket
-        # rather than by top edge. Lanes line up by top edge like the nodes
-        # they run beside - mixing the two lets a chain creep a socket's
-        # height per sweep until it has drifted away from its neighbours.
+        # A reroute's wire goes straight through, so it lines up by socket rather than top edge.
+        # Lanes line up by top edge like the nodes they run beside; mixing the two lets a chain creep a
+        # socket's height per sweep until it drifts away from its neighbours.
         self.dot = kind == "node" and obj.bl_idname == "NodeReroute"
 
 
@@ -931,8 +884,8 @@ def _wmedian(cands):
 def _settle(col, desired, weight):
     """Closest positions to `desired` that keep `col`'s order and gaps.
 
-    Weighted isotonic regression (pool adjacent violators) on y minus each
-    item's cumulative minimum offset from the top of the column.
+    Weighted isotonic regression (pool adjacent violators) on y minus each item's cumulative minimum
+    offset from the top of the column.
     """
     n = len(col)
     c = [0.0] * n
@@ -976,12 +929,12 @@ def _crossings(segs):
 
 
 def _brandes_koepf(layers, ins, outs):
-    """y for the ordered columns (y down): Brandes and Koepf's placement, by sockets. Each item
-    joins a block with its median neighbour in the column before (or after) - the wire between
-    them straight, socket to socket - unless that would cross a block already made or a long
-    wire's lane (lanes stay straight first); blocks then pack as close as the column gaps let
-    them. Four passes (blocks to the left or right, packed up or down), balanced: each item at
-    the mean of its two middle positions, then settled back into its column's order and gaps.
+    """y for the ordered columns (y down): Brandes and Koepf's placement, by sockets.
+
+    Each item joins a block with its median neighbour in the column before (or after), the wire between them straight
+    socket to socket, unless that would cross a block already made or a long wire's lane (lanes stay straight first).
+    Blocks then pack as close as the column gaps allow. Four passes (blocks to the left or right, packed up or down)
+    are balanced: each item at the mean of its two middle positions, then settled back into its column's order and gaps.
 
     ins/outs: id(item) -> [(upper, lower, upper port, lower port, weight)]."""
     if not layers:
@@ -1005,14 +958,14 @@ def _brandes_koepf(layers, ins, outs):
             scan, k0 = i + 1, k1
     items = [it for col in layers for it in col]
     runs = []
-    for left in (True, False):          # blocks follow the column before, or the one after
-        for down in (True, False):      # columns read top down (packed up), or bottom up
+    for left in (True, False):          # blocks follow the column before or after
+        for down in (True, False):      # columns read top down (packed up) or bottom up
             cols = layers if left else layers[::-1]
             cols = [col if down else col[::-1] for col in cols]
             lpos = {id(it): i for col in cols for i, it in enumerate(col)}
             root = {id(it): it for it in items}
             align = {id(it): it for it in items}
-            off = {id(it): 0.0 for it in items}     # y of an item minus its block root's
+            off = {id(it): 0.0 for it in items}     # item y minus its block root's y
             for col in cols[1:]:
                 r = -1
                 for v in col:
@@ -1031,7 +984,7 @@ def _brandes_koepf(layers, ins, outs):
                         if key in conflicts or r >= lpos[id(u)] or align[id(u)] is not u and \
                                 not (align[id(u)] is root[id(u)]):
                             continue
-                        # (u's block may only grow at its end: u must be its last item)
+                        # u's block may only grow at its end: u must be its last item
                         if align[id(u)] is not root[id(u)]:
                             continue
                         align[id(u)] = v
@@ -1066,12 +1019,12 @@ def _brandes_koepf(layers, ins, outs):
                     if indeg[q] == 0:
                         queue.append(q)
             if seen < len(roots):
-                continue        # (a cycle: this pass is left out)
+                continue        # a cycle: leave this pass out
             sign = 1.0 if down else -1.0
             runs.append({id(it): sign * ybase[id(root[id(it)])] + off[id(it)] for it in items})
     if not runs:
         return
-    # line the runs up on the smallest one's top, then each item at the mean of its middle two
+    # line the runs up on the smallest one's top, then put each item at the mean of its middle two
     spans = [(max(r[id(it)] + it.h for it in items) - min(r.values()), i) for i, r in enumerate(runs)]
     tops = [min(r.values()) for r in runs]
     for r, top in zip(runs, tops):
@@ -1080,7 +1033,7 @@ def _brandes_koepf(layers, ins, outs):
     for it in items:
         ys = sorted(r[id(it)] for r in runs)
         it.y = (ys[(len(ys) - 1) // 2] + ys[len(ys) // 2]) * 0.5
-    # (the mean of two runs can overlap neighbours by a little: each column settled back)
+    # the mean of two runs can overlap neighbours slightly, so each column is settled back
     for col in layers:
         _settle(col, [it.y for it in col], [1.0] * len(col))
 
@@ -1091,9 +1044,9 @@ def _sugiyama(items, edges):
     edges: (u, v, u_port, v_port, weight, wire) with ports measured from each
     item's top edge and wire = (from node, output id, to node, input id).
 
-    Returns (w, h, routes): the reroutes that carry wires between frames,
-    each (source node, output id, [(x, y) per reroute], [(i, j) links between
-    them], [(reader node, input id, i)]), with i = -1 for the source itself.
+    Returns (w, h, routes): the reroutes that carry wires between frames, each
+    (source node, output id, [(x, y) per reroute], [(i, j) links between them], [(reader node, input id, i)]),
+    with i = -1 for the source itself.
     """
     if not items:
         return 0.0, 0.0, []
@@ -1122,9 +1075,8 @@ def _sugiyama(items, edges):
                 stack.append((v, iter(succ[id(v)])))
     dag = [e for e in edges if (id(e[0]), id(e[1])) not in back]
 
-    # --- layers, as late as possible: sinks on the right, everything else
-    # just before its nearest consumer. Entry and exit ports then get a column
-    # of their own on the far left and far right, the frame's edges.
+    # --- layers, as late as possible: sinks on the right, everything else just before its nearest consumer.
+    # Entry and exit ports then get a column of their own on the far left and far right, the frame's edges.
     out = defaultdict(set)
     for e in dag:
         out[id(e[0])].add(e[1])
@@ -1159,8 +1111,7 @@ def _sugiyama(items, edges):
         for it in col:
             it.layer = l
 
-    # --- long edges become chains of dummies, one chain per source socket,
-    # shared by every reader of it
+    # --- long edges become chains of dummies, one chain per source socket, shared by every reader of it
     segs = []                                     # (a, b, pa, pb, w)
     trunks = {}                                   # source socket -> chain
     reads = defaultdict(list)                     # source socket -> [(v, v port, wire)]
@@ -1190,9 +1141,8 @@ def _sugiyama(items, edges):
         outs[id(s[0])].append(s)
         ins[id(s[1])].append(s)
 
-    # --- order within layers: barycentre sweeps from creation order. Frames
-    # keep the order the builder made them in - Golden above CheatMaster above
-    # LootHacker reads better than whatever minimises a crossing count - and
+    # --- order within layers: barycentre sweeps from creation order. Frames keep the order the builder made
+    # them in (Golden above CheatMaster above LootHacker reads better than whatever minimises crossings);
     # only nodes and lanes move around them.
     def reorder(col, key):
         boxes = sorted((it for it in col if it.kind == "box"), key=lambda it: it.order)
@@ -1237,14 +1187,11 @@ def _sugiyama(items, edges):
             it.pos = i
 
     # --- y: stack, then pull every item level with what it connects to.
-    # Level means top edges, not sockets: Blender draws a node's outputs above
-    # its inputs, so lining sockets up makes every chain climb a step per node
-    # and a long one ends up a diagonal. Tops keep chains in rows, and the
-    # wires between them only dip by a socket or two. Reroutes and lanes are
-    # the exception - a wire goes straight through them, so they line up by
-    # socket. Frames do not chase anything: they stay stacked from the top of
-    # their column, which packs them like a masonry wall instead of leaving
-    # holes wherever two frames tried to line up with different neighbours.
+    # Level means top edges, not sockets: Blender draws a node's outputs above its inputs, so lining sockets up
+    # makes every chain climb a step per node and a long one ends up diagonal. Tops keep chains in rows and
+    # wires only dip by a socket or two. Reroutes and lanes are the exception (a wire goes straight through
+    # them) and line up by socket. Frames chase nothing: they stay stacked from the top of their column,
+    # packing like a masonry wall instead of leaving holes where two frames tried to line up with different neighbours.
     for col in layers:
         y = 0.0
         for i, it in enumerate(col):
@@ -1289,8 +1236,8 @@ def _sugiyama(items, edges):
         for l in range(1, len(layers)):
             pull(layers[l], True)
 
-    # close any band no column uses: two chains that share nothing can end up
-    # far apart, and the frame would carry the empty stretch between them
+    # close any band no column uses: two chains sharing nothing can end up far apart,
+    # and the frame would carry the empty stretch between them
     hole = GAP_BOX_Y if any(it.kind == "box" for it in items) else 2 * GAP_NODE_Y
     shift, bottom = 0.0, None
     for it in sorted((it for col in layers for it in col), key=lambda it: it.y):
@@ -1306,73 +1253,10 @@ def _sugiyama(items, edges):
             it.y -= y0
     _straighten(layers, trunks, reads, trunk_port)
 
-    # --- routes, only at a level that holds frames. There a wire between two
-    # columns can have thousands of pixels to climb, and drawn straight it
-    # cuts across every frame in between. Instead it leaves its socket level,
-    # drops down a vertical bus in the gap after its column and turns into its
-    # reader level - UE's wiring, built from reroutes. A lane (the chain of
-    # dummies of a long edge) needs no reroute of its own: the bus before it
-    # and the bus after it sit at the same height, so the wire between them
-    # is already a straight line through the gap it reserved. Inside a plain
-    # node frame none of this is worth its reroutes.
-    routes, buses = [], defaultdict(list)
-    if ROUTE_BUSES and any(it.kind == "box" for it in items):
-        nets = {}
-        for u, v, pu, pv, w, wire in dag:
-            if v.layer <= u.layer:
-                continue
-            net = nets.setdefault((wire[0], wire[1]), (u, pu, defaultdict(list)))
-            net[2][v.layer].append((v, pv, wire))
-        for key, (u, pu, reads) in nets.items():
-            lane = {d.layer: d for d in trunks.get(key, [])[1:]}
-            points, links, feeds = [], [], []
-            cur, cur_y = -1, u.y + pu
-            for g in range(u.layer, max(reads)):
-                dests = [(v.y + pv, wire) for v, pv, wire in reads.get(g + 1, [])]
-                if g + 1 in lane:
-                    dests.append((lane[g + 1].y, None))
-                far = sorted({y for y, _ in dests if abs(y - cur_y) > BUS_MIN})
-                at = {}
-                if far:
-                    bus = [g, cur_y, 0]               # gap, height, lane slot
-                    buses[g].append(bus)
-                    first = len(points)
-                    points.append((bus, cur_y))
-                    links.append((cur, first))
-                    for side in (sorted((y for y in far if y < cur_y), reverse=True),
-                                 sorted(y for y in far if y > cur_y)):
-                        prev, prev_y = first, cur_y
-                        for y in side:
-                            # readers a socket or so apart share one tap
-                            if prev != first and abs(y - prev_y) <= BUS_SNAP:
-                                at[y] = prev
-                                continue
-                            points.append((bus, y))
-                            links.append((prev, len(points) - 1))
-                            prev, prev_y = len(points) - 1, y
-                            at[y] = prev
-                nxt = None
-                for y, wire in dests:
-                    i = at.get(y, cur)
-                    if wire is None:
-                        # the lane carries on at the height its wire really is
-                        nxt = (i, points[i][1] if i != cur else cur_y)
-                    else:
-                        feeds.append((wire[2], wire[3], i))
-                if nxt is not None:
-                    cur, cur_y = nxt
-            if points:
-                routes.append((key, points, links, feeds))
-        # buses whose wire starts higher take the slots further left
-        for g, row in buses.items():
-            for slot, bus in enumerate(sorted(row, key=lambda b: b[1])):
-                bus[2] = slot
-
-    # --- x: columns, wider gaps where more wires cross or buses run. Frames
-    # sit on the column's left edge so the gap before them stays clear; nodes
-    # sit on its right edge, so a column's outputs line up and a small node
+    # --- x: columns, wider gaps where more wires cross. Frames sit on the column's left edge so the gap
+    # before them stays clear; nodes sit on its right edge, so a column's outputs line up and a small node
     # sharing a column with a wide frame stays next to what it feeds.
-    x, gap_at, col_left, col_right = 0.0, {}, {}, {}
+    x, col_left, col_right = 0.0, {}, {}
     for l, col in enumerate(layers):
         width = max((it.w for it in col if it.kind != "dummy"), default=0.0)
         col_left[l], col_right[l] = x, x + width
@@ -1385,9 +1269,6 @@ def _sugiyama(items, edges):
             n_wires = sum(len(outs[id(it)]) for it in col)
             boxes = any(it.kind == "box" for it in col + layers[l + 1])
             gap = (GAP_BOX_X if boxes else GAP_NODE_X) + min(60.0, 2.0 * n_wires)
-            if buses.get(l):
-                gap = max(gap, 2 * BUS_PAD + BUS_STEP * (len(buses[l]) - 1))
-            gap_at[l] = x + width
             x += width + gap
         else:
             x += width
@@ -1398,19 +1279,16 @@ def _sugiyama(items, edges):
     _snap_sources(layers, dag)
 
     placed = []
-    for (src, ident), points, links, feeds in routes:
-        xy = [(gap_at[bus[0]] + BUS_PAD + BUS_STEP * bus[2], y) for bus, y in points]
-        placed.append((src, ident, xy, links, feeds))
     if ROUTE_LANES:
         placed += _wire_routes(dag, real, trunks)
     return x, max(it.y + it.h for it in real), placed
 
 
 def _straighten(layers, trunks, reads, trunk_port):
-    """Each long wire's lane at one height, where its columns leave room - every step in a
-    lane is a pair of reroutes: its source's socket height if it can be (no bend leaving it),
-    else a reader's (none arriving), else one its stretches already have. A reroute source -
-    a frame's port - moves level with its lane instead, where its own column lets it."""
+    """Put each long wire's lane at one height where its columns leave room (every step in a lane is a pair
+    of reroutes): its source's socket height if possible (no bend leaving it), else a reader's (none arriving),
+    else one its stretches already have. A reroute source (a frame's port) moves level with its lane instead,
+    where its own column allows."""
     where = {id(it): (l, i) for l, col in enumerate(layers) for i, it in enumerate(col)}
 
     def room(it, y, h):
@@ -1437,9 +1315,8 @@ def _straighten(layers, trunks, reads, trunk_port):
 
 
 def _snap_sources(layers, dag):
-    """An input that feeds one node only - a Group Input copy, a texture coordinate - sits
-    level with it, wherever the columns left it: a short wire across, not one down half the
-    frame from a node that rose into the free space above on its own."""
+    """Put an input that feeds one node only (a Group Input copy, a texture coordinate) level with it, wherever
+    the columns left it: a short wire across, not one down half the frame from a node that rose into free space above."""
     real = [it for col in layers for it in col if it.kind != "dummy"]
     lanes = [it for col in layers for it in col if it.kind == "dummy"]
     ins, outs = defaultdict(list), defaultdict(list)
@@ -1482,13 +1359,11 @@ def _crosses(xa, ya, xb, yb, rects, skip):
 
 
 def _wire_routes(dag, real, trunks):
-    """Reroutes for the wires that would run behind a node or frame, the long ones that would
-    cross the graph on a slant, and a bundle read in several columns: such a wire runs level
-    and bends only where there's room, a dot at each end of a bend - few bends, none away
-    from where it goes and back. Routed on the finished positions (the columns' lanes are
-    candidate heights, not the route), the longest wires first; a lane already laid keeps
-    the next off its height. A wire into a multi-input socket stays plain (a Join reads its
-    links in order: relinked, the order would change).
+    """Reroutes for wires that would run behind a node or frame, long wires that would cross the graph on a slant,
+    and a bundle read in several columns. Such a wire runs level and bends only where there is room, a dot at each
+    end of a bend: few bends, none away from where it goes and back. Routed on the finished positions (the columns'
+    lanes are candidate heights, not the route), longest wires first; a lane already laid keeps the next off its height.
+    A wire into a multi-input socket stays plain (a Join reads its links in order; relinking would change it).
 
     Returns [(source node, output id, [(x, y)], [(i, j)], [(reader node, input id, i)])]."""
     nets = defaultdict(list)
@@ -1506,7 +1381,7 @@ def _wire_routes(dag, real, trunks):
             xb, yb = v.x, v.y + pv
             if xb < xa + GAP_NODE_X * 0.5:
                 continue
-            # (a wire to the next column that clips a node stays plain: its dots would crowd)
+            # a wire to the next column that clips a node stays plain (its dots would crowd)
             if (bus or v.layer > u.layer + 1 and _crosses(xa, ya, xb, yb, real, (u, v))
                     or xb - xa > ROUTE_LONG and abs(yb - ya) > ROUTE_SLANT):
                 want.append((v, xb, yb, wire))
@@ -1520,10 +1395,9 @@ def _wire_routes(dag, real, trunks):
 
 
 def _route_net(u, xa, ya, want, real, runs, lane):
-    """One source's routed wires: a cheapest path over a grid of the heights just clear of
-    what's in the way and the x where something starts or ends. Level stretches are free,
-    each bend costs, more when steep; a run away from the source's height costs a little,
-    so a wire leaves level and bends late, and wires to several readers share their start."""
+    """One source's routed wires: the cheapest path over a grid of heights just clear of obstacles and the x where
+    something starts or ends. Level stretches are free, each bend costs (more when steep), and a run away from
+    the source's height costs a little, so a wire leaves level and bends late and wires to several readers share their start."""
     readers = {id(v) for v, *_ in want}
     x_end = max(xb for _, xb, _, _ in want)
     ys_all = [ya] + [yb for _, _, yb, _ in want]
@@ -1537,7 +1411,7 @@ def _route_net(u, xa, ya, want, real, runs, lane):
     lanes = [r for r in runs if r[0] < x_end and r[1] > xa]
 
     def grid(fixed, extra):
-        # the ends exact; the rest thinned where they crowd (rows of nodes share their edges)
+        # ends exact; the rest thinned where they crowd (rows of nodes share their edges)
         out = sorted(set(fixed))
         for v in sorted(extra):
             j = bisect.bisect_left(out, v)
@@ -1545,7 +1419,7 @@ def _route_net(u, xa, ya, want, real, runs, lane):
                 out.insert(j, v)
         return out
     X = grid([xa, *(xb for _, xb, _, _ in want)], [x for r in rects for x in (r[0], r[2]) if xa < x < x_end])
-    # a wide empty stretch: room to bend near either end of it, not only right across it
+    # a wide empty stretch gives room to bend near either end, not only right across it
     X = grid(X, [x for a, b in zip(X, X[1:]) if b - a > 4 * ROUTE_BEND_W
                  for x in (a + 2 * ROUTE_BEND_W, b - 2 * ROUTE_BEND_W)])
     Y = grid(ys_all, [*lane, *(y for r in rects for y in (r[1] - 1.0, r[3] + 1.0) if lo < y < hi)])
@@ -1556,7 +1430,7 @@ def _route_net(u, xa, ya, want, real, runs, lane):
     across = {}
 
     def blocks(i, j):
-        """What stands between X[i] and X[j]: its rects, its lanes."""
+        """What stands between X[i] and X[j]: rects and lanes."""
         if (i, j) not in across:
             x0, x1 = X[i], X[j]
             across[i, j] = ([r for r in rects if r[0] < x1 - 0.5 and r[2] > x0 + 0.5],
@@ -1568,7 +1442,7 @@ def _route_net(u, xa, ya, want, real, runs, lane):
         return not any(r[1] < y < r[3] for r in rs) and not any(abs(ly - y) < ROUTE_SEP for ly in ls)
 
     def span(i, j, y):
-        """The heights a bend from y across X[i]..X[j] can reach: up to what's above, down to what's below."""
+        """The heights a bend from y across X[i]..X[j] can reach, up to what is above and down to what is below."""
         rs = blocks(i, j)[0]
         top = max((r[3] for r in rs if r[1] < y), default=-1e18)
         bottom = min((r[1] for r in rs if r[3] > y), default=1e18)
@@ -1579,7 +1453,7 @@ def _route_net(u, xa, ya, want, real, runs, lane):
     goal_xy = [(xb, yb) for _, xb, yb, _ in want]
 
     def h(i, k):
-        # A*: what's left at the least - its level run, a bend if it isn't level with any reader
+        # A*: what is left at the least cost: its level run, plus a bend if it isn't level with any reader
         x, y = X[i], Y[k]
         return min((xb - x) * 1e-3 + (0.0 if yb == y else ROUTE_BEND) for xb, yb in goal_xy if xb >= x)             if any(xb >= x for xb, _ in goal_xy) else 1e18
     dist, prev = {start: 0.0}, {}
@@ -1594,7 +1468,7 @@ def _route_net(u, xa, ya, want, real, runs, lane):
         moves = []
         if i + 1 < len(X) and level(i, y):
             moves.append(((i + 1, k), (X[i + 1] - X[i]) * (1e-3 if y == ya else 2e-3)))
-        # bends: across the narrowest gap that's wide enough, and the next two wider ones
+        # bends: across the narrowest gap wide enough, and the next two wider ones
         j0 = bisect.bisect_left(X, X[i] + ROUTE_BEND_W, i + 1)
         for j in range(j0, min(j0 + 3, len(X))):
             w = X[j] - X[i]
@@ -1618,7 +1492,7 @@ def _route_net(u, xa, ya, want, real, runs, lane):
         paths.append((wire, p[::-1]))
     if not paths:
         return None
-    # a dot where a bend starts or ends, and where readers part; none at the source or a reader
+    # a dot where a bend starts or ends and where readers part; none at the source or a reader
     bend_end = set()
     for _, p in paths:
         for a, b in zip(p, p[1:]):
@@ -1652,11 +1526,12 @@ def _route_net(u, xa, ya, want, real, runs, lane):
 
 
 def _pull_up(layers, dag, trunks=None, reads=None, trunk_port=None):
-    """Move rows up into the free space above them. A row is the items its level wires join
-    (top edges equal: Sugiyama lined them up), moved as one so its wires stay straight; it
-    rises until something overlapping it horizontally is in the way. Columns are stacked
-    whole, so a short column under a long frame's end sat as low as the tallest one. A
-    long wire's lane moves as one, with what it lines up with at either end."""
+    """Move rows up into the free space above them.
+
+    A row is the items its level wires join (top edges equal, as Sugiyama lined them up), moved as one so its
+    wires stay straight; it rises until something overlapping it horizontally is in the way. (Columns are stacked
+    whole, so a short column under a long frame's end would otherwise sit as low as the tallest.)
+    A long wire's lane moves as one with what it lines up with at either end."""
     real = [it for col in layers for it in col]
     up = {id(it): id(it) for it in real}
 
@@ -1681,8 +1556,8 @@ def _pull_up(layers, dag, trunks=None, reads=None, trunk_port=None):
     rows = defaultdict(list)
     for it in real:
         rows[find(id(it))].append(it)
-    # a row packs close under what it's wired to, further from the rest: separate parts of
-    # the shader stay apart instead of setting into one block
+    # a row packs close under what it is wired to and further from the rest, so separate parts of the
+    # shader stay apart instead of setting into one block
     wired = defaultdict(set)
     for u, v, *_ in dag:
         wired[id(u)].add(find(id(v)))
@@ -1707,10 +1582,10 @@ def _pull_up(layers, dag, trunks=None, reads=None, trunk_port=None):
 
 
 def _pull_right(layers, dag):
-    """Move each item right, to just before the nearest thing that reads it, as far as nothing
-    in its rows is in the way. A column is as wide as its widest item: a short chain beside a
-    long frame otherwise waits at the left end of a wire as long as the frame. Readers first,
-    so a chain follows its last node; frame ports keep their edge columns."""
+    """Move each item right to just before the nearest thing that reads it, as far as nothing in its rows is in the way.
+
+    A column is as wide as its widest item, so a short chain beside a long frame would otherwise wait at the left
+    end of a wire as long as the frame. Readers go first so a chain follows its last node; frame ports keep their edge columns."""
     real = [it for col in layers for it in col if it.kind != "dummy"]
     lanes = [it for col in layers for it in col if it.kind == "dummy"]
     readers = defaultdict(list)
@@ -1730,8 +1605,8 @@ def _pull_right(layers, dag):
         top, bottom = it.y - GAP_DUMMY_Y, it.y + it.h + GAP_DUMMY_Y
         mine = {id(v) for v in readers[id(it)]}
         for o in real + [d for d in lanes if d.obj is not it]:
-            # what's further right in the rows it spans stops it short (further off when it
-            # doesn't read this: another part); so does a lane running through them
+            # whatever is further right in the rows it spans stops it short (further off if it doesn't
+            # read this: another part), and so does a lane running through them
             if o is not it and o.x >= it.x + it.w and o.y < bottom and o.y + o.h >= top:
                 want = min(want, o.x - (gap(it, o) if id(o) in mine else max(gap(it, o), GAP_PART_X)) - it.w)
         if want > it.x:
@@ -1740,7 +1615,7 @@ def _pull_right(layers, dag):
 
 # ------------------------------------------------------------------ layout
 def _item_of(node, path, k):
-    """The item at level k that holds `node`: itself, or a child box."""
+    """The item at level k that holds `node`: the node itself or a child box."""
     if len(path) > k:
         return ("box", path[k])
     return ("node", node.name)
@@ -1751,7 +1626,7 @@ def _layout(box, index, ports):
         _layout(kid, index, ports)
     items = {}
     for name, kid in box.kids.items():
-        # the retired terms go last, under whatever shares their column
+        # retired terms go last, under whatever shares their column
         order = float("inf") if name == UNUSED else kid.order
         items[("box", name)] = _It(("box", name), "box", kid, kid.w, kid.h, order)
     for n in box.nodes:
@@ -1803,18 +1678,17 @@ def _colour(path):
 def _apply(tree, root, stand_ins):
     """Make the frames and lanes and move every node, in one bulk write.
 
-    Assigning a location one node at a time costs Blender a tree update per
-    node. `foreach_set` writes them all at once; the frames go first, one by
-    one and parents before children, so each node's location is taken
-    relative to a frame that is already where it will stay.
+    Assigning a location per node costs Blender a tree update each; `foreach_set` writes them all at once.
+    Frames go first, one by one and parents before children, so each node's location is taken relative to a
+    frame already where it will stay.
     """
     N = tree.nodes
     where = {}
     routed = []
 
-    # a big flat graph can ask for thousands of reroutes (a face material: 9,000 for 875
-    # nodes); made one by one they take Blender minutes. The lanes that carry the most
-    # wires per dot go first, until the tree's allowance is spent; the rest stay plain wires
+    # A big flat graph can ask for thousands of reroutes (a face material: 9,000 for 875 nodes), and made one by
+    # one they take Blender minutes. Lanes carrying the most wires per dot go first until the tree's allowance
+    # is spent; the rest stay plain wires.
     def boxes(box):
         yield box
         for k in box.kids.values():
@@ -1868,7 +1742,7 @@ def _apply(tree, root, stand_ins):
         flat.extend(where.get(n.name, tuple(n.location_absolute)))
     N.foreach_set("location_absolute", flat)
 
-    # wired from the source outwards: a reroute takes its type from its input
+    # wire from the source outwards: a reroute takes its type from its input
     for src, ident, dots, links, feeds in routed:
         def out_of(i):
             if i < 0:
@@ -1908,7 +1782,7 @@ def arrange(tree):
     for n in tree.nodes:
         if SECTION_KEY in n:
             del n[SECTION_KEY]
-    # a node made from Python starts selected; ship the group with none lit up
+    # a node made from Python starts selected; deselect all
     tree.nodes.foreach_set("select", [False] * len(tree.nodes))
     frames = sum(1 for n in tree.nodes if n.bl_idname == "NodeFrame")
     return ("%d frames, %d local input copies, %d ports, %d bus reroutes, "

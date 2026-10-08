@@ -1,37 +1,36 @@
-"""A function group's Material Attributes as bundles, as FP's own modules pass them.
+"""Turn a function group's Material Attributes into bundles, as FP's own modules pass them.
 
-A Material Attributes input or output of a UE function is one socket per attribute on its group
-node ("Material: Base Color", "Material: Normal", ... "Result: Base Color", ...): twenty wires
-from one module to the next. Once an import's groups are pruned (build.pruning), each such set
-of two or more sockets becomes one Bundle socket: a Separate Bundle inside the group hands its
-attributes out, a Combine Bundle gathers what the group sets; where the group is used, a Combine
-Bundle gathers what goes in and a Separate Bundle hands out what comes out. A module's bundle
-feeding the next one's attribute for attribute is then one wire (Pre FX -> Post FX). The shader
-is the same: bundles resolve when the shader is compiled.
+A UE function's Material Attributes input or output is one socket per attribute on its group node
+("Material: Base Color", ... "Result: Base Color", ...), so twenty wires from one module to the next.
+After an import's groups are pruned (build.pruning), each set of two or more such sockets becomes one Bundle socket:
+inside the group a Separate Bundle hands the attributes out and a Combine Bundle gathers what the group sets;
+where the group is used, a Combine Bundle gathers the inputs and a Separate Bundle hands out the outputs.
+A module's bundle feeding the next one attribute for attribute is then one wire (Pre FX -> Post FX).
+The compiled shader is the same: bundles resolve at compile time.
 """
 import bpy
 
 from .ue_graph import ATTRIBUTE_DEFAULT, ATTRIBUTE_WIDTH, BREAK_ORDER, CARRIED, pretty
 
-KEY_FROM = "mp_bundled_from"    # a bundled group: the fingerprint (build.KEY_FP) it had before
-TAG = "mp_bundle"               # on the bundle nodes this makes: "in" / "out" / "use_in" / "use_out" / "set" / "join"
+KEY_FROM = "mp_bundled_from"    # a bundled group's fingerprint (build.KEY_FP) from before bundling
+TAG = "mp_bundle"               # on the bundle nodes made here: "in" / "out" / "use_in" / "use_out" / "set" / "join" / "shared"
 ATTRIBUTE_NAMES = {pretty(a) for a in BREAK_ORDER}
-# each attribute's item type, the same in every bundle (a module's Base Color and the next one's must
-# match: a Separate Bundle reads an item of another type as 0)
+# Item type per attribute, the same in every bundle (a Separate Bundle reads an item of another type as 0)
 ITEM_OF = {pretty(a): 'FLOAT' if ATTRIBUTE_WIDTH.get(a, 1) == 1 else 'VECTOR' for a in BREAK_ORDER}
-# a module's whole Material Attributes: what it doesn't set, at UE's defaults (as FP's modules pass them)
+# a module's full Material Attributes; attributes it doesn't set get UE's defaults (as FP's modules pass them)
 COMPLETE = [(pretty(a), ITEM_OF[pretty(a)], ATTRIBUTE_DEFAULT.get(a)) for a in CARRIED]
-PARAMETER_PREFIXES = ("P", "V")     # a parameter's socket ("P: Roughness"): not an attribute
+PARAMETER_PREFIXES = ("P", "V")     # parameter sockets ("P: Roughness"), not attributes
 ITEM_TYPE = {'VALUE': 'FLOAT', 'VECTOR': 'VECTOR', 'RGBA': 'RGBA', 'INT': 'INT', 'BOOLEAN': 'BOOLEAN'}
 
 
-PARAMETERS = "Parameters"       # the bundle of a function's parameters ("P: name" / "V: name" inputs)
+PARAMETERS = "Parameters"       # bundle of a function's parameters ("P: name" / "V: name" inputs)
 
 
 def _attribute_sets(tree, in_out):
-    """{bundle name: [(interface socket, item name), ...]}, two or more a bundle: a Material
-    Attributes input's or output's sockets ("Material: Base Color" -> item "Base Color"), and a
-    function's parameter inputs ("P: Darkside", the item named so)."""
+    """{bundle name: [(interface socket, item name), ...]} for sets of two or more sockets.
+
+    Covers Material Attributes sockets ("Material: Base Color" -> item "Base Color") and
+    a function's parameter inputs ("P: Darkside" -> item "Darkside")."""
     sets = {}
     for it in tree.interface.items_tree:
         if it.item_type != 'SOCKET' or it.in_out != in_out or ": " not in it.name:
@@ -39,8 +38,7 @@ def _attribute_sets(tree, in_out):
         prefix, attribute = it.name.rsplit(": ", 1)
         if prefix in PARAMETER_PREFIXES:
             if in_out == 'INPUT' and it.socket_type in ('NodeSocketFloat', 'NodeSocketVector', 'NodeSocketColor'):
-                # (a bundle item's name takes no ":" - the parameter's own name; a vector one sharing
-                # a scalar's name told apart)
+                # bundle item names can't contain ":"; a vector parameter sharing a scalar's name gets a suffix
                 taken = {n for _i, n in sets.get(PARAMETERS, [])}
                 name = attribute if attribute not in taken else attribute + " (" + prefix + ")"
                 sets.setdefault(PARAMETERS, []).append((it, name))
@@ -73,8 +71,7 @@ def _set(sock, value):
 
 
 def _ref(sock):
-    """A socket kept by its node's name and its identifier: a socket reference goes stale when sockets
-    are rebuilt (a group's interface changing), and then points at another socket."""
+    """Socket as (node name, identifier, is_output): direct references go stale when a group's interface is rebuilt."""
     return None if sock is None else (sock.node.name, sock.identifier, sock.is_output)
 
 
@@ -88,8 +85,7 @@ def _sock(tree, ref):
 
 
 def _link(tree, out, ref_in=None, ref_out=None, into=None):
-    """A link from out (or from ref_out) to into (or to ref_in), the references looked up now; none when
-    either is gone."""
+    """Link out (or ref_out) to into (or ref_in), looking the references up now. Does nothing when either is gone."""
     src = out if out is not None else _sock(tree, ref_out)
     dst = into if into is not None else _sock(tree, ref_in)
     if src is not None and dst is not None and src.is_output and not dst.is_output:
@@ -101,8 +97,7 @@ def _users(group, trees):
 
 
 def _items(node, names, types):
-    """The node's bundle items, one per name; {name: the item's name as Blender keeps it} (it
-    rewrites some characters: "(", ":")."""
+    """Create one bundle item per name. Returns {name: item name as Blender stores it} (it rewrites "(" and ":")."""
     node.bundle_items.clear()
     for name in names:
         node.bundle_items.new(types[name], name)
@@ -122,7 +117,7 @@ def _bundle_group(group, trees):
             socks = [it for it, _name in pairs]
             idents = {it.identifier: name for it, name in pairs}
             names = [name for _it, name in pairs]
-            # what the group node's sockets carry, before they go: links and values
+            # record what the group nodes' sockets carry (links, values) before removing them
             types, recorded = {}, []
             for t, n in users:
                 rec = {}
@@ -137,7 +132,7 @@ def _bundle_group(group, trees):
                     else:
                         rec[name] = [_ref(l.to_socket) for l in s.links]
                 recorded.append((t, n, rec))
-            # and inside: the Group Inputs' links out of those sockets, the Group Output's into them
+            # and inside: Group Input links out of those sockets, Group Output links into them
             inside = []
             for n in group.nodes:
                 if in_out == 'INPUT' and n.bl_idname == "NodeGroupInput":
@@ -152,7 +147,7 @@ def _bundle_group(group, trees):
                             inside.append((n, idents[s.identifier], (_ref(s.links[0].from_socket) if s.is_linked else None, _value(s))))
             for name in names:
                 types[name] = ITEM_OF.get(name, types.get(name, 'FLOAT'))
-            # the bundle socket, where the first of them was
+            # the bundle socket takes the first socket's place
             first = socks[0]
             parent, position = first.parent, first.position
             bundle = iface.new_socket(prefix, in_out=in_out, socket_type='NodeSocketBundle')
@@ -234,9 +229,10 @@ def _zero(v):
 
 
 def _contents(sock, ctx=(), depth=0):
-    """{item: value, or None where computed} a bundle socket carries, traced back through Combine
-    and Join Bundles, group nodes (into their Group Output) and Group Inputs (out to the group
-    node that called, ctx); None when it can't be told (a bundle a group is given, unknown)."""
+    """{item: value, or None where computed} that a bundle socket carries.
+
+    Traces back through Combine/Join Bundles, group nodes (into their Group Output) and Group Inputs
+    (out to the calling group node, ctx). None when unknown (e.g. a bundle given to a group)."""
     if depth > 64:
         return None
     n = sock.node
@@ -246,7 +242,7 @@ def _contents(sock, ctx=(), depth=0):
         return {s.name: (None if s.is_linked else _value(s)) for s in n.inputs if s.name and s.identifier != "__extend__"}
     if n.bl_idname == "NodeJoinBundle":
         out = {}
-        # (a later link wins: merged in its order)
+        # later links win, merged in order
         for l in sorted(n.inputs[0].links, key=lambda l: l.multi_input_sort_id):
             c = _contents(l.from_socket, ctx, depth + 1)
             if c is None:
@@ -281,13 +277,12 @@ MISSING = object()
 
 
 def _collapse(trees):
-    """A Combine Bundle gathering what a module's bundle holds (through its Separate Bundle) takes
-    that bundle instead, with what differs joined over it (a "set" bundle: what a module between
-    changed, a value the bundle doesn't hold); the Separate goes once nothing else reads it."""
+    """Replace a Combine Bundle that regathers a module's bundle (via its Separate Bundle) with that bundle itself.
+
+    Differing items are joined over it as a "set" bundle. The Separate is removed once nothing else reads it."""
     n_done = 0
-    # a module's own output first - what it passes through unchanged rides its input bundle, only
-    # what it sets is set over it (FP's SetMaterialAttribute) - then where modules are used, so a
-    # caller sees the bundle its module really passes on
+    # A module's own output first (what it passes through rides its input bundle; only what it sets is set
+    # over it, like FP's SetMaterialAttribute), then where modules are used, so callers see what the module passes on.
     for kind, t in [(k, t) for k in ("out", "use_in") for t in trees]:
         for comb in [n for n in t.nodes if n.get(TAG) == kind]:
             items = [s for s in comb.inputs if s.name and s.identifier != "__extend__" and s.enabled]
@@ -303,7 +298,7 @@ def _collapse(trees):
             if counts[source] < 2 or not source.inputs[0].is_linked:
                 continue
             made = _contents(source.inputs[0].links[0].from_socket)
-            strict = made is None       # (a bundle whose items aren't known: every value set over it)
+            strict = made is None       # items unknown: set every value over the bundle
             made = made or {}
             overrides = []
             for s in items:
@@ -319,7 +314,7 @@ def _collapse(trees):
                     pass
                 elif pv is MISSING:
                     if _zero(v):
-                        continue        # (missing from the bundle: 0, the same)
+                        continue        # missing from the bundle reads as 0, the same
                 elif pv is not None and _same(v, pv):
                     continue
                 overrides.append((s, None, v))
@@ -342,7 +337,7 @@ def _collapse(trees):
                 join = t.nodes.new("NodeJoinBundle")
                 join.label, join[TAG] = comb.label, "join"
                 join.location = comb.location
-                # (the bundle first, what's set over it after: the later one wins)
+                # bundle first, then what's set over it: the later link wins
                 t.links.new(bundle, join.inputs[0])
                 t.links.new(put.outputs[0], join.inputs[0])
                 target = join.outputs[0]
@@ -356,9 +351,9 @@ def _collapse(trees):
 
 
 def _share_parameters(trees):
-    """In each tree, the modules' Parameters bundles that only gather the tree's own inputs (a
-    material's parameters, from its Group Input) become one: a Parameters Combine Bundle by the
-    Group Input, one wire to each module (an item a module reads elsewhere is set over it)."""
+    """Merge, per tree, the modules' Parameters bundles that only gather the tree's own Group Input values.
+
+    One Parameters Combine Bundle next to the Group Input feeds each module; items a module takes elsewhere are set over it."""
     n_done = 0
     for t in trees:
         combs = [n for n in t.nodes if n.get(TAG) == "use_in" and n.label == PARAMETERS]
@@ -435,9 +430,10 @@ def _all_trees():
 
 
 def bundle_attributes(groups, key_fp=None, known=None):
-    """The given function groups' attribute sockets as bundles (an import's, after pruning).
-    key_fp/known: the sharing fingerprint key and its cache (build.KEY_FP, build._KNOWN): a bundled
-    group no longer stands for its unbundled fingerprint. Returns (sets bundled, wires joined)."""
+    """Bundle the attribute sockets of the given function groups (an import's, after pruning).
+
+    key_fp/known: the sharing fingerprint key and its cache (build.KEY_FP, build._KNOWN); a bundled group
+    no longer stands for its unbundled fingerprint. Returns (sets bundled, wires joined)."""
     trees = _all_trees()
     made = 0
     for g in groups:

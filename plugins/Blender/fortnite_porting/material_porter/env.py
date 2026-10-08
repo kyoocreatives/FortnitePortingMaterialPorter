@@ -1,20 +1,14 @@
 """What a UE material reads from the world, for a material on a mesh in Blender.
 
-The translator (ue_graph) asks its env for everything outside the graph. This
-one answers for a FortnitePorting import:
+The translator (ue_graph) asks its env for everything outside the graph. This one answers for a FortnitePorting import:
 
-* UE space: FP mirrors Y and scales by 0.01, so a Blender world vector is
-  (x, -y, z) in UE, and a position that times 100 (cm).
-* A material's graph is one node group (its "root"); each parameter is an
-  input of it - a float, a colour (and its alpha) - holding the instance's
-  value on the material's group node, as a UE material instance shows them.
-  Inputs sit in panels named after the function they're read through
-  ("Material" for the master's own), alphabetical within; unused ones go.
-  Inside a function group a parameter is a socket of that group ("P: Name"),
-  so groups stay shareable between instances.
-* Static switches, component masks and texture parameters come from the
-  instance chain (the app merged it, child first).
-* Graphs and textures come from the app, as the build reaches them.
+* UE space: FP mirrors Y and scales by 0.01, so a Blender world vector is (x, -y, z) in UE, and positions are times 100 (cm).
+* A material's graph is one node group (its "root"). Each parameter is an input of it (a float, or a colour and its alpha)
+  holding the instance's value on the material's group node, like a UE material instance. Inputs sit in panels named
+  after the function they are read through ("Material" for the master's own), alphabetical within; unused ones are dropped.
+  Inside a function group a parameter is a socket of that group ("P: Name"), so groups stay shareable between instances.
+* Static switches, component masks and texture parameters come from the instance chain (merged by the app, child first).
+* Graphs and textures come from the app as the build reaches them.
 * Mesh inputs use FP's names: UV maps "UV0", "UV1"..., vertex colour "COL0".
 """
 import re
@@ -24,46 +18,44 @@ import bpy
 from . import world
 from .ue_graph import BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PART_BOUNDS_MIN, PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
 
-# a vector parameter that names a colour gets a colour socket (a picker); any other - an offset, a
-# direction, a channel, a size - a vector socket: a colour socket clamps negatives to 0 (a sprite
-# variant's sphere offset (0, -9.7, -23.5) was read as (0, 0, 0), its fade at the feet)
+# A vector parameter that names a colour gets a colour socket (a picker); any other (offset, direction, channel, size)
+# gets a vector socket, because a colour socket clamps negatives to 0
+# (a sprite variant's sphere offset (0, -9.7, -23.5) was read as (0, 0, 0)).
 COLOURISH = re.compile(r"colou?r|tint|albedo|emissive|diffuse|glow|light|fog|sky|fresnelcol", re.IGNORECASE)
 
 
 def vector_socket(name, *values):
-    """'NodeSocketColor' or 'NodeSocketVector' for a vector parameter (its known values: none negative
-    for a colour socket)."""
+    """'NodeSocketColor' or 'NodeSocketVector' for a vector parameter (a colour socket needs no negative known values)."""
     negative = any(float(x) < 0.0 for v in values if v is not None for x in tuple(v)[:3])
     return 'NodeSocketColor' if COLOURISH.search(name or "") and not negative else 'NodeSocketVector'
 
 
 def fit_socket(sock, value):
-    """A vector parameter's value (r, g, b, a) as the socket takes it (a vector socket: x, y, z)."""
+    """A vector parameter's value (r, g, b, a) in the form the socket takes (a vector socket: x, y, z)."""
     value = tuple(value)
     n = len(sock.default_value)
     return value[:n] + (1.0,) * (n - len(value))
 
 COLORSPACE_SRGB = "sRGB"
 COLORSPACE_DATA = "Non-Color"
-# a water surface's depth, baked by a map import (water.bake_water): x the
-# metres down to the ground under each vertex, y 1 where it was baked
+# a water surface's depth baked by a map import (water.bake_water): x is metres down to the ground
+# under each vertex, y is 1 where baked
 WATER_ATTRIBUTE = "mp_water"
 
-# images this session loaded, by file: a map's hundreds of materials share
-# textures, and images.load(check_existing=True) walks every image each time
+# images loaded this session, by file: a map's hundreds of materials share textures,
+# and images.load(check_existing=True) walks every image each time
 _LOADED = {}
 
 
 def _load(path, w, h):
-    """An image for this file: the one loaded before (still there), else loaded
-    (an older, smaller copy the file already had is reloaded; reading its size
-    decodes it, so a fresh load isn't asked)."""
+    """The image for this file: the one loaded before if still there, else load it.
+    An older, smaller copy already in the .blend is reloaded (reading its size decodes it, so a fresh load isn't asked)."""
     img = _LOADED.get(path)
     if img is not None:
         try:
             img.name
             return img
-        except ReferenceError:      # removed since
+        except ReferenceError:      # removed since loading
             pass
     known = len(bpy.data.images)
     img = bpy.data.images.load(path, check_existing=True)
@@ -95,10 +87,9 @@ class MaterialEnv:
         self._claimed = {}      # (image, channel) -> the channel mask guessed onto it
         self._panels = {}
         self._textures = {}         # texture spec -> (interface item, its Group Input socket, (key, image, own sampler, address))
-        # what another instance of the same shape needs to reuse this build (build.build_like):
-        # which parameters each texture came from, each parameter's graph default, normal maps;
-        # False when the trees hold more than parameter values (a guessed mask, the object's
-        # bounds, a texture array's slices, a baked value)
+        # What another instance of the same shape needs to reuse this build (build.build_like): which parameters
+        # each texture came from, each parameter's graph default, normal maps. False when the trees hold more
+        # than parameter values (guessed mask, object bounds, texture array slices, baked value).
         self.reusable = True
         self.tex_params = {}        # texture key -> {parameter names that resolved to it}
         self.tex_default = {}       # texture parameter -> its graph default key
@@ -135,9 +126,10 @@ class MaterialEnv:
 
     # ------------------------------------------------------------ view and world
     def _incoming(self):
-        """From the shaded point towards the camera (Blender's axes). A particle's material also
-        runs at the vertices (its World Position Offset), where the Geometry node's Incoming is
-        zero: there it is the camera's view vector, turned into the world and back on itself."""
+        """Direction from the shaded point towards the camera (Blender axes).
+
+        A particle's material also runs at the vertices (World Position Offset), where the Geometry node's Incoming
+        is zero; there it is the camera's view vector, turned into the world and back on itself."""
         if not self.entry.get("particle"):
             return Val(self._geo().outputs["Incoming"], 3)
 
@@ -147,8 +139,8 @@ class MaterialEnv:
             self.tr.L.new(cam.outputs["View Vector"], to_world.inputs[0])
             away = self.tr.vmath('NORMALIZE', Val(to_world.outputs[0], 3), out_w=3)
             seen = self.tr.vmath('SCALE', away, self.tr.const(-1.0), out_w=3)
-            # Cycles works out a displacement once per mesh, without a camera: there, the camera's
-            # direction the plugin keeps in the scene's ["mp_fx_cam_fwd"]
+            # Cycles evaluates displacement once per mesh without a camera: use the camera direction
+            # the plugin keeps in the scene's ["mp_fx_cam_fwd"]
             fwd = self._scene_vector("mp_fx_cam_fwd", "the camera's direction (Cycles)")
             back = self.tr.vmath('SCALE', self.tr.vmath('NORMALIZE', fwd, out_w=3), self.tr.const(-1.0), out_w=3)
             return self._when_cycles(seen, back)
@@ -184,7 +176,7 @@ class MaterialEnv:
             ray = self.tr.vmath('SCALE', self._incoming(), Val(cam.outputs["View Distance"], 1), out_w=3)
             at = self.tr.vmath('ADD', Val(geo.outputs["Position"], 3), ray, out_w=3)
             if self.entry.get("particle"):
-                # (under Cycles, the camera's position the plugin keeps in the scene's ["mp_fx_cam_pos"])
+                # under Cycles, the camera position the plugin keeps in the scene's ["mp_fx_cam_pos"]
                 at = self._when_cycles(at, self._scene_vector("mp_fx_cam_pos", "the camera's position (Cycles)"))
             return self._ue(at, 100.0)
         return self.once("campos", make)
@@ -197,28 +189,28 @@ class MaterialEnv:
         return self.tr.vmath('SUBTRACT', p, self.camera_position(), out_w=3) if camera_relative else p
 
     def light_direction(self):
-        """Towards the sun: the file's sun group (the scene's sun lamp, driven; a time of day's)."""
+        """Towards the sun: the file's sun group (driven by the scene's sun lamp or a time of day)."""
         return world.sun(self.tr)
 
     def light_color(self):
-        """The sun's colour times its strength (UE's DirectionalLightColor): the sun group's."""
+        """The sun's colour times strength (UE's DirectionalLightColor), from the sun group."""
         return world.sun(self.tr, "Color")
 
     def view_luminance(self, direction):
-        """The sky along a direction: the file's sky group (a time of day's atmosphere; a flat
-        sky colour without one)."""
+        """The sky along a direction: the file's sky group (a time of day's atmosphere, else a flat colour)."""
         return world.sky(self.tr, direction)
 
     def sky_light(self, direction, roughness):
-        """UE's sky light along a direction: the same sky."""
+        """UE's sky light along a direction (the same sky)."""
         return world.sky(self.tr, direction)
 
     def aerial_perspective(self, position):
-        """UE's SkyAtmosphereAerialPerspective at a point (UE cm): the light the air between the camera
-        and it scatters in, and how much of the point shows through. UE reads a froxel volume; here
-        the sky along the way, as much as the air crossed (an exponential atmosphere, 8 km scale
-        height: path = H (1 - exp(-d z / H)) / z km) scatters: in-scattering 1 - exp(-path / 10),
-        transmittance exp(-path / 30)."""
+        """UE's SkyAtmosphereAerialPerspective at a point (UE cm): the light the air between camera and point
+        scatters in, and how much of the point shows through.
+
+        UE reads a froxel volume; here it is the sky along the way, scattered by the air crossed
+        (exponential atmosphere, 8 km scale height: path = H (1 - exp(-d z / H)) / z km):
+        in-scattering 1 - exp(-path / 10), transmittance exp(-path / 30)."""
         tr = self.tr
         d = tr.vmath('SUBTRACT', tr.as3(position), self.camera_position(), out_w=3)
         km = tr.binop('DIVIDE', tr.vmath('LENGTH', d, out_w=1), tr.const(1e5))
@@ -231,8 +223,8 @@ class MaterialEnv:
         through = tr.math('EXPONENT', tr.binop('DIVIDE', path, tr.const(-30.0)))
         return tr.vmath('SCALE', world.sky(tr, dirn), inscatter, out_w=3), through
 
-    # the game's clock is never near zero: what a material times from a moment (a hit's
-    # flash, a spawn's fade: GameTime + the hit time, against Time) is over, as at rest
+    # the game's clock is never near zero, so effects timed from a moment (hit flash, spawn fade:
+    # GameTime + the hit time, against Time) are over, as at rest
     TIME_OFFSET = 100.0
 
     def time(self):
@@ -263,8 +255,8 @@ class MaterialEnv:
         return self.once("uv%d" % index, make)
 
     def _sub_image(self, u, v, across, down):
-        """A sprite's UV0 over a flipbook: the sub-image its particle shows (mp_subimage on the
-        object or the instance: the first where it has none), as UE's sprites carry it."""
+        """A sprite's UV0 over a flipbook: the sub-image its particle shows (mp_subimage on the object or,
+        failing that, the instance), as UE's sprites carry it."""
         tr = self.tr
         index = tr.math('FLOOR', self._particle_attr("mp_subimage")[2])
         column = tr.math('FLOORED_MODULO', index, tr.const(across))
@@ -274,17 +266,16 @@ class MaterialEnv:
 
     def landscape_layer(self, name):
         """Whether a layer is painted on the landscape component this material is built for
-        (the import's set, entry["landscape_layers"]: a LandscapeLayerSwitch compiles its
-        LayerNotUsed side otherwise, as UE does per component); unknown: as if it were."""
+        (entry["landscape_layers"]; otherwise a LandscapeLayerSwitch compiles its LayerNotUsed side, as UE does per
+        component). Unknown counts as painted."""
         layers = self.entry.get("landscape_layers")
         return True if layers is None else name in layers
 
     def landscape_weight(self, name):
-        """A landscape layer's weight: the exported landscape's colour layer of
-        that name (a grey weight: its red channel); on another mesh, or where
-        a component doesn't paint the layer, 0. A layer the component is known not
-        to paint: None - left out of the blend, its textures with it, as UE compiles
-        each component (the Ch4 jungle landscape's 43 samplers are past Eevee's 32)."""
+        """A landscape layer's weight: the exported landscape's colour layer of that name (a grey weight: its red
+        channel); 0 on another mesh or where a component doesn't paint the layer.
+        None for a layer the component is known not to paint: it is left out of the blend with its textures,
+        as UE compiles each component (the Ch4 jungle landscape's 43 samplers are past Eevee's 32)."""
         layers = self.entry.get("landscape_layers")
         if layers is not None and name not in layers:
             return None
@@ -296,8 +287,7 @@ class MaterialEnv:
         return self.once("layer " + name, make)
 
     def landscape_uv(self, index):
-        """A landscape's texture coordinates (UV0: landscape-wide quads, as the
-        export writes them)."""
+        """A landscape's texture coordinates (UV0: landscape-wide quads, as exported)."""
         return self.uv(index)
 
     def vertex_color(self):
@@ -308,10 +298,9 @@ class MaterialEnv:
         return self.once("col0", make)
 
     def water_depth(self):
-        """How deep the water is under a water surface's pixel, UE cm - at
-        run time the water info texture's water height less its ground
-        height: the depth a map import bakes onto the surface mesh (the
-        mp_water attribute), elsewhere the translator's default."""
+        """Water depth under a water surface's pixel, UE cm. At run time it is the water info texture's water height
+        minus ground height; here it is the depth a map import bakes onto the surface mesh (mp_water attribute),
+        elsewhere the translator's default."""
         tr = self.tr
 
         def make():
@@ -324,17 +313,16 @@ class MaterialEnv:
         return self.once("water depth", make)
 
     def local_bounds(self):
-        """The object's bounding box, in UE cm: read from the object (mp_bounds_min / max, which
-        the import sets on each object its material lands on), so a shared function's group holds
-        no object's numbers (baked, every object made its own copy of every group above them).
-        Unmarked: +-1 m."""
+        """The object's bounding box in UE cm, read from the object (mp_bounds_min / max, set by the import on each
+        object its material lands on) so shared function groups hold no object's numbers
+        (baked in, every object would need its own copy of every group above). Unmarked: +-1 m."""
         return self.once("local bounds", lambda: self._ue_bounds(*self._object_bounds()))
 
     def preskinned_bounds(self):
-        """UE's PreSkinnedLocalBounds: the mesh's own bounds, which for a character's part is the
-        part's - not the joined character's (Merge Armatures): Gummi Team Leader's head divides its
-        height by its own to blend pink into purple. A point attribute the import writes on each
-        part (PART_BOUNDS_*), which joining keeps; a mesh without it: the object's bounds."""
+        """UE's PreSkinnedLocalBounds: the mesh's own bounds, for a character part that part's, not the joined
+        character's (Merge Armatures); Gummi Team Leader's head divides its height by its own to blend pink into purple.
+        Read from a point attribute the import writes on each part (PART_BOUNDS_*), which joining keeps;
+        a mesh without it uses the object's bounds."""
         tr = self.tr
 
         def make():
@@ -346,7 +334,7 @@ class MaterialEnv:
         return self.once("preskinned bounds", make)
 
     def _object_bounds(self):
-        """The object's box as marked (local, Blender metres); unmarked: UE's default +-1 m."""
+        """The object's marked box (local, Blender metres); unmarked: UE's default +-1 m."""
         tr = self.tr
 
         def make():
@@ -358,7 +346,7 @@ class MaterialEnv:
         return self.once("object bounds", make)
 
     def _ue_bounds(self, lo, hi):
-        """A Blender box (local metres) in UE space (Y mirrored: Blender's top Y is UE's bottom), cm."""
+        """A Blender box (local metres) in UE space, cm (Y mirrored: Blender's top Y is UE's bottom)."""
         tr = self.tr
         lx, ly, lz = tr.comps(lo)
         hx, hy, hz = tr.comps(hi)
@@ -372,7 +360,7 @@ class MaterialEnv:
         return self.root is not None and self.tr.tree == self.root and self.tr.function is None
 
     def _root_input(self, key, label, socket_type, value, width, description):
-        """A parameter as an input of the material's group (made once)."""
+        """A parameter as an input of the material's group (created once)."""
         if key in self._params:
             return self._params[key][1]
         item = self.root.interface.new_socket(label, description=description, in_out='INPUT', socket_type=socket_type)
@@ -385,10 +373,9 @@ class MaterialEnv:
         return v
 
     def root_texture(self, spec, tname, sampler, img, own, address):
-        """A texture the material's group samples, as a Closure input of the group (Translator.
-        texture_closure): its image node goes in the material's own tree, outside the group
-        (build._texture_zones), the input in the group's Textures panel. Named for the texture
-        parameter, else the texture."""
+        """A texture the material's group samples, as a Closure input of the group (Translator.texture_closure).
+        The image node goes in the material's own tree outside the group (build._texture_zones), the input in the
+        group's Textures panel. Named for the texture parameter, else the texture."""
         if not self._at_root():
             return None
         if spec in self._textures:
@@ -407,14 +394,13 @@ class MaterialEnv:
         return sock
 
     def finish_parameters(self):
-        """Unused inputs go; the textures first, in their panel; the parameters in panels by
-        function ("Material" first), alphabetical within - or one alphabetical list when
-        there's one function and no texture (Blender keeps loose inputs above panels).
-        Returns [(identifier, value)] for the group node's sockets."""
+        """Drop unused inputs; textures first in their panel; parameters in panels by function ("Material" first),
+        alphabetical within, or one alphabetical list when there is one function and no texture
+        (Blender keeps loose inputs above panels). Returns [(identifier, value)] for the group node's sockets."""
         if self.root is None:
             return []
         iface = self.root.interface
-        # (a tree two envs translated into - a sky dome and its sun - has a group input node each)
+        # a tree two envs translated into (a sky dome and its sun) has a group input node each
         linked = {s.identifier for n in self.root.nodes if n.bl_idname == "NodeGroupInput" for s in n.outputs if s.is_linked}
         for key, (item, _v, _value, _panel) in list(self._params.items()):
             if item.identifier not in linked:
@@ -446,30 +432,29 @@ class MaterialEnv:
         return [(item.identifier, value) for item, _v, value, _panel in self._params.values()]
 
     def node_width(self):
-        """Wide enough for the longest input's name and its value."""
+        """Wide enough for the longest input name and its value."""
         names = [item.name for item, _v, _value, _panel in self._params.values()] + list(self._panels)
         longest = max((len(n) for n in names), default=10)
         return max(240, min(700, int(7.4 * longest + 110)))
 
-    # parameters the game drives as it plays (a hit's flash, an elimination's dissolve), which
-    # nothing in Blender plays: built in at the instance's value, so what they'd switch on folds
-    # away (merge_duplicates: a product with 0, a mix at 0)
+    # Parameters the game drives while playing (hit flash, elimination dissolve) that nothing in Blender plays:
+    # built in at the instance's value, so what they would switch on folds away (merge_duplicates: product with 0, mix at 0)
     GAME_DRIVEN = {"HitGlow", "HitGlowOuter", "NewDissolveGradient"}
 
     def function_key(self):
-        """What a function's group is built per beyond its static switches: the parameters the
-        import fixes (folded into every function that reads them)."""
+        """What a function's group is built per, beyond its static switches: the parameters the import fixes
+        (folded into every function that reads them)."""
         return tuple(sorted((self.entry.get("fixed") or {}).items()))
 
     def scalar(self, name, default):
         if not name:
-            # an unnamed parameter ("None" in UE): nothing can set it, its default stands
+            # an unnamed parameter ("None" in UE): nothing can set it, so its default stands
             return self.tr.const(float(default or 0.0))
         if name in self.GAME_DRIVEN:
             return self.tr.const(float(self.entry.get("scalars", {}).get(name, default or 0.0)))
         fixed = self.entry.get("fixed") or {}
         if name in fixed:
-            # one the import settles (its Rim Light off: baseBrightness 0): a value, not a control
+            # one the import settles (Rim Light off: baseBrightness 0): a value, not a control
             return self.tr.const(float(fixed[name]))
         v = float(self.entry.get("scalars", {}).get(name, default))
         self.graph_defaults.setdefault("P: " + name, float(default or 0.0))
@@ -526,13 +511,12 @@ class MaterialEnv:
         return self.once("V: " + name, make), alpha
 
     def primitive_data(self, v, index, w):
-        """UE's Custom Primitive Data: floats a placed component carries (a
-        tree's season tint), read from the object's custom properties
-        mp_cpd<index> (a map import sets them, with mp_cpd = 1); an object
-        without them keeps the material's own value `v`, and so does an index
-        past the array the component carries (mp_cpd_n floats: UE starts a
-        primitive's data from the parameters' defaults; an object imported
-        before mp_cpd_n existed reads 0 there and keeps covering them all)."""
+        """UE's Custom Primitive Data: floats a placed component carries (e.g. a tree's season tint), read from the
+        object's mp_cpd<index> properties (a map import sets them, with mp_cpd = 1).
+
+        An object without them keeps the material's own value `v`, and so does an index past the array the component
+        carries (mp_cpd_n floats; UE starts a primitive's data from the parameters' defaults). An object imported
+        before mp_cpd_n existed reads 0 there and keeps covering them all."""
         tr = self.tr
 
         def attr(name):
@@ -544,7 +528,7 @@ class MaterialEnv:
                 return Val(n.outputs["Fac"], 1)
             return self.once("attr " + name, make)
         flag = attr("mp_cpd")
-        # the indices this read touches, covered by the object's array
+        # indices this read touches that the object's array covers
         count = attr("mp_cpd_n")
         last = index if w == 1 else index + 2
         covered = tr.math('MAXIMUM', tr.math('GREATER_THAN', count, tr.const(float(last) + 0.5)),
@@ -557,9 +541,9 @@ class MaterialEnv:
         return tr.vmath('ADD', v, tr.vmath('SCALE', tr.vmath('SUBTRACT', data, v, out_w=3), flag, out_w=3), out_w=3)
 
     def _particle_attr(self, name):
-        """A particle's value (four floats) as (rgb, alpha, scalar) sockets: the instance's
-        attribute where geometry nodes instance the object (a replayed effect's particles), else
-        the object's own property. A ribbon's run along it: its mesh's attribute."""
+        """A particle's value (four floats) as (rgb, alpha, scalar) sockets: the instance attribute where geometry
+        nodes instance the object (a replayed effect's particles), else the object's own property.
+        For a ribbon the values run along it as a mesh attribute."""
         tr = self.tr
 
         def make():
@@ -571,9 +555,9 @@ class MaterialEnv:
         return self.once("attr4 " + name, make)
 
     def particle_color(self):
-        """UE's Particle Color: what a particle system gives each particle. An effect's objects
-        carry it as mp_particle_color (four floats), used where mp_particle is 1; anything else
-        is white and opaque, as a mesh outside a particle system is."""
+        """UE's Particle Color: what a particle system gives each particle. An effect's objects carry it as
+        mp_particle_color (four floats), used where mp_particle is 1; anything else is white and opaque,
+        like a mesh outside a particle system."""
         tr = self.tr
         rgb, alpha, _ = self._particle_attr("mp_particle_color")
         flag = self._particle_attr("mp_particle")[2]
@@ -591,10 +575,10 @@ class MaterialEnv:
         return self.tr.vmath('LENGTH', self._particle_attr("mp_velocity")[0], out_w=1)
 
     def depth_behind(self):
-        """For UE's DepthFade and SceneDepth: how far the surface behind this pixel is along the view
-        ray (UE cm) and whether there is one - Blender's Raycast node from the shading point away from
-        the camera (in EEVEE, against the screen's depth: a blended surface leaves it to what is
-        behind). None for an opaque or masked material, which is that surface itself."""
+        """For UE's DepthFade and SceneDepth: how far the surface behind this pixel is along the view ray (UE cm)
+        and whether there is one. Uses Blender's Raycast node from the shading point away from the camera
+        (in EEVEE against the screen depth; a blended surface leaves that to what is behind).
+        None for an opaque or masked material, which is that surface itself."""
         asset, over = self.entry.get("asset") or {}, self.entry.get("overrides") or {}
         blend = str(over.get("BlendMode", asset.get("BlendMode", "")) or "")
         if not blend or "Opaque" in blend or "Masked" in blend:
@@ -612,37 +596,37 @@ class MaterialEnv:
                 ray.inputs["Length"].default_value = 100.0
                 hit = Val(ray.outputs["Is Hit"], 1)
                 if self.entry.get("particle"):
-                    # Cycles' Raycast hits the other particles too (EEVEE's reads the screen's depth, which
-                    # blended surfaces leave to what is behind): there, no surface behind - the plugin
-                    # keeps the scene's ["mp_fx_cycles"] at 1 while it renders with Cycles
+                    # Cycles' Raycast also hits other particles (EEVEE's reads the screen depth, which blended
+                    # surfaces leave to what is behind), so there is no surface behind; the plugin keeps the
+                    # scene's ["mp_fx_cycles"] at 1 while rendering with Cycles
                     hit = tr.math('MULTIPLY', hit, tr.math('SUBTRACT', tr.const(1.0), self._cycles()))
             return (tr.math('MULTIPLY', Val(ray.outputs["Hit Distance"], 1), tr.const(100.0)), hit)
         return self.once("raycast behind", make)
 
     def decal_fade(self):
-        """UE's Decal Lifetime Opacity on an effect's decal: its particle's DecalFade (mp_decal_fade; the
-        still piece's own property, 1). None for anything else."""
+        """UE's Decal Lifetime Opacity on an effect's decal: its particle's DecalFade (mp_decal_fade;
+        1 for the still piece). None for anything else."""
         if not self.entry.get("particle"):
             return None
         return self._particle_attr("mp_decal_fade")[2]
 
     def particle_random(self):
-        """UE's Particle Random: a particle's own random number, the same for its whole life
-        (mp_random; an instance's index changes as particles die). None for anything else."""
+        """UE's Particle Random: a particle's random number, constant for its life (mp_random; an instance's
+        index changes as particles die). None for anything else."""
         if not self.entry.get("particle"):
             return None
         return self._particle_attr("mp_random")[2]
 
     def particle_rotation(self):
-        """UE's Particle Sprite Rotation: a sprite's turn in radians and in degrees (mp_spin, which
-        runs Blender's way round; 0 where there is none)."""
+        """UE's Particle Sprite Rotation: a sprite's turn in radians and degrees (mp_spin, which runs the Blender
+        way round; 0 where there is none)."""
         tr = self.tr
         turn = tr.math('MULTIPLY', self._particle_attr("mp_spin")[2], tr.const(-1.0))
         return tr.combine([turn, tr.math('MULTIPLY', turn, tr.const(57.29577951308232))])
 
     def particle_direction(self):
-        """UE's Particle Direction: the way a particle moves, in UE's axes (mp_velocity, which is
-        in Blender's; 0 where there is none)."""
+        """UE's Particle Direction: the way a particle moves, in UE axes (mp_velocity is in Blender axes;
+        0 where there is none)."""
         tr = self.tr
         ue = tr.vmath('MULTIPLY', self._particle_attr("mp_velocity")[0], tr.const((1.0, -1.0, 1.0), 3), out_w=3)
         return tr.vmath('NORMALIZE', ue, out_w=3)
@@ -656,9 +640,8 @@ class MaterialEnv:
         return tr.combine([tr.math('ADD', usual, tr.math('MULTIPLY', tr.math('SUBTRACT', v, usual), has)) for v in (x, y)])
 
     def dynamic_parameter(self, index, default=None):
-        """UE's Dynamic Parameter <index>: four floats a particle system sets per particle, from
-        mp_dynamic<index> where mp_dynamic (four flags, one per parameter) says the effect sets
-        it; the expression's default elsewhere."""
+        """UE's Dynamic Parameter <index>: four floats a particle system sets per particle, from mp_dynamic<index>
+        where mp_dynamic (four flags, one per parameter) says the effect sets it; the expression's default elsewhere."""
         if default is None:
             return None
         tr = self.tr
@@ -671,10 +654,9 @@ class MaterialEnv:
         return Val(out.s, 4, tr.math('ADD', da, tr.math('MULTIPLY', tr.math('SUBTRACT', alpha, da), flag)))
 
     def instance_data(self, v, index, w):
-        """UE's PerInstanceCustomData: an instanced mesh's own floats, from
-        the object's mp_pic<index> properties; the material's default `v`
-        where the instance has fewer than index + w of them (mp_pic: how
-        many, 0 on other objects), as UE reads past NumCustomDataFloats."""
+        """UE's PerInstanceCustomData: an instanced mesh's own floats, from the object's mp_pic<index> properties.
+        The material's default `v` is used where the instance has fewer than index + w of them
+        (mp_pic holds the count, 0 on other objects), as UE reads past NumCustomDataFloats."""
         tr = self.tr
 
         def attr(name):
@@ -693,11 +675,11 @@ class MaterialEnv:
         return tr.vmath('ADD', v, tr.vmath('SCALE', tr.vmath('SUBTRACT', data, v, out_w=w), has, out_w=w), out_w=w)
 
     def view_size(self):
-        """The render's size, followed (world.view_group: its drivers)."""
+        """The render size, kept current by world.view_group's drivers."""
         return self.once("view size", lambda: world.view(self.tr, "View Size"))
 
     def view_property(self, name):
-        """The camera's field of view, followed (world.view_group); None: the translator's own."""
+        """The camera's field of view, kept current by world.view_group; None: the translator's own."""
         if name == "TanHalfFieldOfView":
             return self.once("tan half fov", lambda: world.view(self.tr, "Tan Half FOV"))
         if name == "FieldOfView":
@@ -711,14 +693,14 @@ class MaterialEnv:
         return None
 
     def normal_mode(self):
-        """(whether the Normal is lit, whether it's in tangent space): UE compiles an unlit
-        material's Normal out (its PixelNormalWS is the vertex normal)."""
+        """(whether the Normal is lit, whether it is in tangent space). UE compiles an unlit material's Normal out
+        (its PixelNormalWS is the vertex normal)."""
         asset, over = self.entry.get("asset") or {}, self.entry.get("overrides") or {}
         shading = str(over.get("ShadingModel", asset.get("ShadingModel")) or "").split("::")[-1]
         return shading != "MSM_Unlit", bool(asset.get("bTangentSpaceNormal", True))
 
     def group_input(self, key):
-        """A function group's parameter socket, fed from where it's called."""
+        """A function group's parameter socket, fed from where the group is called."""
         if key == PIXEL_NORMAL:
             return self.tr.pixel_normal()
         if key.startswith("P: "):
@@ -731,25 +713,24 @@ class MaterialEnv:
         return bool(self.entry.get("switches", {}).get(name, default))
 
     def static_mask(self, name, default):
-        """The instance chain's mask, if it states one (None: it doesn't)."""
+        """The instance chain's mask, or None if it states none."""
         m = self.entry.get("masks", {}).get(name)
         return tuple(m) if m else None
 
     def guess_mask(self, name, default, v):
-        """A channel mask the instance doesn't state (its editor-only data, where UE 5 keeps the
-        choice, missing from the game files). When its default channel
-        is empty in the one texture behind it and another channel isn't, the
-        artist picked that one (Dark Shield's cube mask: R empty, G painted)."""
+        """Guess a channel mask the instance doesn't state (UE 5 keeps the choice in editor-only data, missing from
+        the game files). If the default channel is empty in the one texture behind it and another channel isn't,
+        the artist picked that one (Dark Shield's cube mask: R empty, G painted)."""
         name = name or "(unnamed)"
         on = [i for i, b in enumerate(default[:3]) if b]
         sock = getattr(v, "s", None) if v is not None and not v.const else None
-        # UV-offset masks shift an effect rather than place it: never guessed
+        # UV-offset masks shift an effect rather than place it: never guess
         if len(on) != 1 or not hasattr(sock, "node") or "offset" in name.lower():
             return None
         images = self._images_upstream(sock)
         if len(images) != 1:
             return None
-        # from here the choice depends on the texture's pixels: another instance's may differ
+        # from here the choice depends on the texture's pixels, so another instance may differ
         self.reusable = False
         means = self._channel_means(images[0])
         if means is None or means[on[0]] > 0.003:
@@ -758,7 +739,7 @@ class MaterialEnv:
         if means[best] < 0.02:
             return None
         # one painted channel places one effect: the first mask reaching it takes it
-        # (another effect left on its empty default channel was likely unused)
+        # (another one left on its empty default channel was likely unused)
         claim = (images[0].name, best)
         if self._claimed.setdefault(claim, name) != name:
             return None
@@ -812,8 +793,8 @@ class MaterialEnv:
         return key
 
     def collection(self, name, path=None):
-        """A material parameter collection's value for `name`: through the file's group of that
-        collection, which a time of day makes follow its hour where its day sequence keys it."""
+        """A material parameter collection's value for `name`, through the file's group for that collection
+        (a time of day makes it follow its hour where its day sequence keys the value)."""
         if not path:
             self.note("collection parameter %s without its collection: 0" % name)
             return self.tr.const(0.0)
@@ -821,9 +802,9 @@ class MaterialEnv:
         for kind in ("scalars", "vectors"):
             if name in c.get(kind, {}):
                 default = float(c[kind][name]) if kind == "scalars" else tuple(c[kind][name])
-                # without a time of day in the file a collection only holds its defaults (the
-                # sun's direction aside: it follows the scene's lamp) - folded in as values, what
-                # reads them folds away too (a character's TODColor Adjustment, Scalar Time of Day)
+                # Without a time of day in the file a collection only holds its defaults (the sun's direction
+                # aside: it follows the scene's lamp). They are folded in as values so what reads them folds
+                # away too (a character's TODColor Adjustment, Scalar Time of Day).
                 if name not in world.LIVE and not world.has_day():
                     return self.tr.const(default)
                 return world.collection(self.tr, path, name, default)
@@ -858,14 +839,14 @@ class MaterialEnv:
                 srgb = srgb and data != "normal"
             space = COLORSPACE_SRGB if srgb else COLORSPACE_DATA
             try:
-                # setting it (even to what it is) makes Blender refresh the image
+                # setting it, even to its current value, makes Blender refresh the image
                 if img.colorspace_settings.name != space:
                     img.colorspace_settings.name = space
             except TypeError:
                 pass
-            # UE reads alpha as its own channel; Blender's default (straight alpha,
-            # premultiplied inside) loses a texel's colour where its alpha is 0 - the
-            # LEGO colour LUT (alpha: metallic, 0 for nearly all colours) read black
+            # UE reads alpha as its own channel; Blender's default (straight alpha, premultiplied inside)
+            # loses a texel's colour where alpha is 0 (the LEGO colour LUT, alpha = metallic, 0 for nearly
+            # all colours, read black)
             if img.alpha_mode != 'CHANNEL_PACKED':
                 img.alpha_mode = 'CHANNEL_PACKED'
         if img is None:
@@ -879,16 +860,15 @@ class MaterialEnv:
             self.tex_normal.add(key)
         return self._image(key, self._record(key), "normal" if normal else None)
 
-    # a skinned mesh's importer turns on Object.add_rest_position_attribute: its vertices before
-    # the armature (and shape keys) moved them, as the "rest_position" attribute
+    # a skinned mesh's importer turns on Object.add_rest_position_attribute: the "rest_position" attribute holds
+    # its vertices before the armature (and shape keys) moved them
     REST_POSITION = "rest_position"
 
     def local_position(self):
-        """UE's LocalPosition, and its PreSkinnedPosition: on a skinned mesh both are the vertex in
-        the reference pose (the GPU skin vertex factory's unskinned position; a LEGO face's
-        front/back and left/right print masks, saturate(position + 0.5), stay on the head while
-        the figure sits or leans) - the "rest_position" attribute its importer keeps. Elsewhere
-        (a static mesh, an object imported without it) the object-space position."""
+        """UE's LocalPosition and PreSkinnedPosition. On a skinned mesh both are the vertex in the reference pose
+        (the GPU skin vertex factory's unskinned position; LEGO face print masks, saturate(position + 0.5),
+        stay on the head while the figure sits or leans), read from the "rest_position" attribute the importer keeps.
+        Elsewhere (static mesh, object imported without it) it is the object-space position."""
         tr = self.tr
 
         def make():
@@ -906,14 +886,14 @@ class MaterialEnv:
         return self.local_position()
 
     def texture_address(self, key):
-        """UE's addressing of a texture per axis (the app's record: AddressX, AddressY)."""
+        """UE's texture addressing per axis (app record: AddressX, AddressY)."""
         rec = self._record(key)
         if not rec:
             return ("Wrap", "Wrap")
         return (rec.get("AddressX") or "Wrap", rec.get("AddressY") or "Wrap")
 
     def texture_nearest(self, key):
-        """Whether UE samples the texture unfiltered (the app's record: its Filter TF_Nearest)."""
+        """Whether UE samples the texture unfiltered (app record: Filter TF_Nearest)."""
         rec = self._record(key)
         return bool(rec and rec.get("Nearest"))
 
@@ -931,8 +911,7 @@ class MaterialEnv:
         return img, int(rec.get("Width", 1)), int(rec.get("Depth", 1))
 
     def texture_slices(self, key, sampler):
-        """A texture array: the app exports it as a stack of slices (slice 0 on
-        top); each becomes an image of its own."""
+        """A texture array: the app exports a stack of slices (slice 0 on top); each becomes its own image."""
         self.reusable = False
         rec = self._record(key)
         if rec is None or rec.get("Kind") != "array" or int(rec.get("Depth", 1)) < 2:
@@ -947,7 +926,7 @@ class MaterialEnv:
             name = "%s [%d]" % (key.split("/")[-1].split(".")[0], i)
             img = bpy.data.images.get(name) or bpy.data.images.new(name, w, sh, alpha=True, float_buffer=stack.is_float)
             img.alpha_mode = 'CHANNEL_PACKED'     # alpha is data, as in UE (see _image)
-            # Blender's pixel rows run bottom up: slice 0 (the top) is the last rows
+            # Blender's pixel rows run bottom up, so slice 0 (the top) is the last rows
             top = h - (i + 1) * sh
             img.pixels[:] = px[top * w * 4:(top + sh) * w * 4]
             img.colorspace_settings.name = stack.colorspace_settings.name

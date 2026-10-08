@@ -1,17 +1,15 @@
 """Node-building helpers for the FPv4 Baked Clouds builder.
 
-A copy of fpv4_sprite/tools/nodelib.py (same names and signatures), minus the
-sprite's tuned defaults. Keep the two in step when either changes.
+Copy of fpv4_sprite/tools/nodelib.py (same names and signatures) without the sprite's tuned defaults.
+Keep the two in step.
 """
 import bpy
 from types import SimpleNamespace
 
-# the node property sec() tags a section into; tools/layout.py reads and
-# removes it, so it never ships
+# node property sec() tags a section into; tools/layout.py reads and removes it
 SECTION_KEY = "fpv4_section"
 
-# Artist-tuned defaults would override the UE-sourced sock() values here, as
-# they do in fpv4_sprite. The clouds have none yet.
+# Tuned defaults overriding sock() values, as in fpv4_sprite. The clouds have none.
 TUNED = {}
 
 
@@ -19,7 +17,7 @@ def sock(tree, name, kind, panel=None, default=None, lo=None, hi=None,
          desc="", toggle=False):
     if name in TUNED:
         default = TUNED[name]
-    # the interface enum has no Factor socket; it's a Float with subtype FACTOR
+    # no Factor socket type in the interface enum: use Float with subtype FACTOR
     factor = kind == 'NodeSocketFloatFactor'
     if factor:
         kind = 'NodeSocketFloat'
@@ -45,9 +43,7 @@ def sock(tree, name, kind, panel=None, default=None, lo=None, hi=None,
 def evaluator(tree, x, y, label=""):
     """Evaluate Closure taking a Vector, returning Color + Alpha.
 
-    Matches the signature FPv4's own texture closures are built with
-    (processing/material/utils.py setup_closure), so an FP-wired texture drops
-    straight into one of our sockets.
+    Same signature as FPv4's texture closures (processing/material/utils.py setup_closure).
     """
     ev = tree.nodes.new("NodeEvaluateClosure")
     ev.input_items.new('VECTOR', 'Vector')
@@ -58,9 +54,8 @@ def evaluator(tree, x, y, label=""):
     return ev
 
 
-# The attribute list FPv4 Material Attributes packs into its bundle, in order.
-# Combine Bundle is order-sensitive: a bundle assembled in a different order is
-# a different type and will not connect.
+# Items FPv4 Material Attributes packs into its bundle, in order.
+# Combine Bundle is order-sensitive: a different order is a different type and won't connect.
 BUNDLE_ITEMS = [
     ("FX Mask", 'RGBA'),
     ("FX Mask Alpha", 'FLOAT'),
@@ -87,8 +82,7 @@ BUNDLE_ITEMS = [
 def bundle_io(tree, gi, go, x_in, x_out):
     """Separate/Combine pair carrying FPv4's MaterialAttributes through a module.
 
-    Returns (separate_node, combine_node). Every item is pre-linked straight
-    across, so a module only has to re-link the handful it actually changes.
+    Returns (separate_node, combine_node). Every item is pre-linked straight across.
     """
     IF = tree.interface
     IF.new_socket("MaterialAttributes", in_out='OUTPUT', socket_type='NodeSocketBundle')
@@ -111,7 +105,7 @@ def bundle_io(tree, gi, go, x_in, x_out):
 
 
 def helpers(tree, gi):
-    """The node wrappers build_sprite_shader.py's maths is written against."""
+    """Node wrappers used by build_sprite_shader.py."""
     N, L, IF = tree.nodes, tree.links, tree.interface
 
     def node(kind, x, y, label="", **kw):
@@ -128,9 +122,8 @@ def helpers(tree, gi):
     def menu(name, items, data_type, panel, x, y, label="", desc="", default=None):
         """Menu Switch whose Menu input is exposed as a group enum socket.
 
-        The socket must be created as NodeSocketMenu *first*; linking from the
-        Group Input node's virtual socket does not create one (it silently
-        rebinds an existing socket instead).
+        Create the NodeSocketMenu first: linking from the Group Input's virtual socket
+        doesn't create one (it rebinds an existing socket instead).
         """
         ms = node("GeometryNodeMenuSwitch", x, y, label or name, data_type=data_type)
         ms.enum_definition.enum_items.clear()
@@ -223,13 +216,11 @@ def helpers(tree, gi):
     current = [""]
 
     def sec(*path):
-        """Start a layout section: tools/layout.py frames every node made from
-        here to the next sec() under `path` ("Reaper", "Matcap UV" is a Matcap
-        UV frame inside a Reaper frame). Tagging sweeps the whole tree, so
-        nodes made through N.new or evaluator() are caught too, and a path can
-        be re-entered later. Nodes made before the first call stay unframed.
-        sec() with no path closes the last section: nodes an insertion pass
-        adds afterwards are placed next to what they read instead.
+        """Start a layout section: tools/layout.py frames every node made until the next sec() under `path`
+        ("Reaper", "Matcap UV" is a Matcap UV frame inside a Reaper frame).
+        Tagging sweeps the whole tree, so nodes made via N.new or evaluator() are caught and a path can be
+        re-entered. Nodes made before the first call stay unframed.
+        sec() with no path closes the section: nodes added afterwards are placed next to what they read.
         """
         if current[0] is not None:
             for n in N:

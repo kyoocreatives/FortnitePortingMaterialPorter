@@ -1,5 +1,5 @@
-"""Whether FP's material import builds an exact material, reuses one, or leaves the material to FP's shaders
-(processing/context/material_context.py calls these)."""
+"""Decides per material slot whether to build an exact material, reuse one, or leave it to FP's shaders
+(called from processing/context/material_context.py)."""
 import json
 
 import bpy
@@ -17,8 +17,7 @@ FP_SHADER_TYPES = [EExportType.OUTFIT, EExportType.BACKPACK, EExportType.PICKAXE
 
 
 def has_fp_shader(material_data):
-    """Whether one of FP's shaders is made for a material: a base shader its parameters call for, or FP's default
-    knowing its base colour."""
+    """Whether FP has a shader for the material: a matching base mapping, or a known default diffuse texture."""
     if any(find_all_matching_mappings(material_data), lambda m: m.type == ENodeType.NT_Base):
         return True
     diffuse = {s.name.casefold() for s in DefaultMappings.textures if s.slot == "Diffuse"}
@@ -26,15 +25,13 @@ def has_fp_shader(material_data):
 
 
 def is_toon(material_data):
-    """Whether FP picks its toon shader for a material (the last base mapping): a cel-shaded material gets FP's
-    outline whoever builds it."""
+    """Whether FP picks its toon shader (the last matching mapping). Such materials get FP's outline whoever builds them."""
     mappings = find_all_matching_mappings(material_data)
     return bool(mappings) and mappings[-1].node_name == "FPv4 Base Toon"
 
 
 class ExactChoice:
-    """One material slot's choice. A material built under other settings (FP's shader preferred, Rim Light,
-    subsurface, a landscape proxy's painted layers) isn't reused."""
+    """One slot's choice. A material built under different settings (prefer FP, Rim Light, subsurface, landscape layers) isn't reused."""
 
     def __init__(self, ctx, material_data, material_slot, as_material_data):
         from .hook import subsurface as subsurface_of
@@ -42,7 +39,7 @@ class ExactChoice:
         self.prefer_fp = bool(ctx.options.get("PreferFPShaders") and ctx.type in FP_SHADER_TYPES and has_fp_shader(material_data))
         self.rim_light = bool(ctx.options.get("RimLight"))
         self.subsurface = "%g %g" % subsurface_of(ctx, material_data)
-        # a landscape proxy's exact material is built per set of the layers painted on it (hook.build_exact)
+        # a landscape proxy gets one material per set of painted layers (see hook.build_exact)
         slot_object = None if as_material_data else material_slot.id_data
         self.landscape = "+".join(sorted(a.name for a in slot_object.data.color_attributes if a.name != "COL0")) \
             if slot_object is not None and slot_object.type == 'MESH' and slot_object.get("mp_landscape") else None
@@ -54,7 +51,7 @@ class ExactChoice:
                 and existing.get("MPLandscapeLayers") == self.landscape)
 
     def reused(self, material_slot, existing, material_data):
-        """A reused material still gets this mesh the UV maps it reads, its outline and its hidden elements."""
+        """A reused material still needs this mesh's UV maps, outline and hidden elements."""
         from .placement import ensure_slot_uvs
         ensure_slot_uvs(material_slot, existing)
         if is_toon(material_data):
@@ -63,7 +60,7 @@ class ExactChoice:
             self.ctx.partial_vertex_crunch_materials[existing] = json.loads(hide)
 
     def use_exact(self, material):
-        # a time of day's sky and clouds get theirs once the day is known (material_porter.sky)
+        # time of day gets its sky and clouds later, once the day is known (material_porter.sky)
         from .hook import exact_available
         if self.prefer_fp:
             material["MPPreferFP"] = True
@@ -77,7 +74,7 @@ class ExactChoice:
                             None if as_material_data else material_slot.id_data)
         if not exact:
             return False
-        # a cel-shaded material's outline: FP's (a Solidify shell drawn with M_FP_Outline)
+        # outline is FP's: a Solidify shell drawn with M_FP_Outline
         if is_toon(material_data):
             self.ctx.add_toon_outline = True
         exact["Hash"] = hash_code(material_hash)
@@ -88,7 +85,7 @@ class ExactChoice:
             exact["MPLandscapeLayers"] = self.landscape
         elif "MPLandscapeLayers" in exact:
             del exact["MPLandscapeLayers"]
-        # the elements a style hides (Hide Element 0X, by vertex colour): FP's vertex crunch removes their faces
+        # elements a style hides (Hide Element 0X, by vertex colour): FP's vertex crunch removes their faces
         if get_param(switches, "Use Vertex Colors for Mask"):
             hide = {scalar.get("Name"): scalar.get("Value") for scalar in scalars if "Hide Element" in scalar.get("Name")}
             self.ctx.partial_vertex_crunch_materials[exact] = hide

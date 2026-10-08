@@ -1,10 +1,8 @@
-"""Materials from the app's bundles: translated, assembled into a Principled
-BSDF the way UE's blend mode and shading model ask, laid out, and put where
-the bundle says (the selected objects, or in place of an FP material).
+"""Builds materials from the app's bundles: translate the graph, assemble a Principled BSDF as UE's blend mode
+and shading model ask, lay it out, and put it on the selected objects or in place of an FP material.
 
-A material holds one group node - its graph, a node group ("root") - into
-the Material Output; the parameters are that node's inputs, with the
-instance's values in them (env.MaterialEnv)."""
+A material is one group node (its graph, the "root" node group) into the Material Output;
+the parameters are that node's inputs, holding the instance's values (env.MaterialEnv)."""
 import hashlib
 import json
 
@@ -17,30 +15,26 @@ from .env import MaterialEnv, fit_socket
 from .nodelib import SECTION_KEY
 from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PART_BOUNDS_MIN, HEAD_SOCKET, CARRIED, SHADING_MODELS, Translator, Val, merge_duplicates
 
-PREFIX = "MP "            # built materials: "MP MI_Foo"
-KEY_PATH = "mp_path"      # the game object a built material translates
-KEY_REV = "mp_rev"        # the build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 64       # 64: long wires routed level through reroutes on the finished layout (bend once, clear of nodes; no up-down detours), a long slanted wire to the next column too; 63: a function input or output named by its "ID" (older builds' dumps, 28.00) matched (every call's inputs read as unconnected); attribute bundling looks sockets up again before linking (a stale one crashed it, leaving the material half rewired); 62: the tangent frame's bitangent Blender's own (its Normal Map node's +Y): signed by mirrored UV islands and mirrored objects (a prefab's mirrored roof lit upside down); 61: a per-pixel shading model builds only the lobes of the models the material compiles (UE's ShadingModels): no subsurface, nor its controls, on a building that picks lit or clear coat; 60: custom primitive data an object's array doesn't cover reads the parameter default (mp_cpd_n); 59: a landscape's material built per set of the layers painted on the component (the others left out, as UE compiles it: under Eevee's 32 samplers); 58: a vector put together and read apart again reads its parts (no append-then-split wires); 57: PreSkinnedLocalBounds a mesh part's own (a point attribute joining keeps: Gummi Team Leader's head), separate parts share the whole outfit's object bounds; 56: Rim Light off folds Rim V3 (baseBrightness fixed at 0), lerps between a value and itself and by 0 or 1 folded (Hit Glow at rest), so Post FX goes; the emissive clamp and subsurface controls in the Output frame; 55: without a time of day in the file, material parameter collections folded in as their defaults (the sun aside); 54: a function links only the inputs the outputs it gives depend on, through nested groups too (the Normal pass no longer copies the material); 53: one group node per function call, whichever outputs are read (a node per output only where one would loop); 52: a function passes Material Attributes through as Join(input, what it sets), no pass-through wires; 51: functions' parameters as a Parameters bundle, one shared per tree; 50: functions' Material Attributes as bundles (bundles.py, after pruning); 49: a head's lit parts (lips) scatter as its skin; 48: Subsurface Intensity over the game's amount relative to SkinSubsurfaceIntensity (soft edges kept); 47: skin's Subsurface Radius on the group node, 1, 0.8, 0.65 without a profile; 46: shell fur's Subsurface Radius 1, 0.8, 0.65; 45: shell fur's own Subsurface Radius (even); 44: Subsurface Intensity a flat amount where the game's scatters (all over shell fur), no minimum; 43: the subsurface inputs in the game's subsurface parameter's panel; 42: shell fur's Subsurface Minimum; 41: a scattering surface's Subsurface Intensity beside its Scale; 40: its Subsurface Scale on its group node; 39: Material Attributes functions carry a moving material's World Position Offset (shell fur), FP mesh camera offset and NaN culling Customs; 38: one-node and pass-through function groups inlined, parameters nothing reads dropped (after an import); 37: values known at build folded, game-driven parameters (hit flash, elimination dissolve) built in, group outputs no material reads pruned (after an import); 36: the camera's field of view and the render's size followed (MP World View), the joined mesh's bounds and head (HeadFX) after Merge Armatures; 35: whole function groups shared by structure, a joined part's own bounds, HeadSocketLocation from the head bone; 34: textures in the material's own tree (Closure inputs, a Textures panel), PixelNormalWS with the normal map; 33: textures at the root (functions sample them through closures), duplicate nodes merged, UE texture addressing; 32: emissive clamped at 0 as UE; 31: DepthFade by max(FadeDistance, 0.0001) as UE; 30: a baked tangent where Blender gives none; 29: particle camera from the scene under Cycles; 28: effects' soft fade off under Cycles; 2: UE 5 translucent blend modes (glass); 3: custom primitive data; 5: landscape layers; 7: per-instance custom data; 9: images channel-packed (alpha as data); 10: Time runs from 100 s (hit flashes over), unfiltered textures sampled Closest; 11: LocalPosition and PreSkinnedPosition from the rest position (skinned meshes); 12: an additive material's light is Emissive * Opacity; 13: a particle's values from its instance (a replayed effect), a sprite's sub-image; 14: SphereMask and Distance between a float2 and a scalar (Z stays 0); 15: a particle's sprite rotation and direction, the 2D light march of raymarched smoke; 16: the ambient cubemap tint is white; 17: a particle material's World Position Offset (displacement), UE's division by zero; 18: a smoothstep over an empty range is a hard edge, Particle Random from the particle; 19: a Niagara decal's colour and fade (DecalColor, DecalLifetimeOpacity); 20: division by zero per component (a vector divisor); 21: view space is the shader camera space as is (Z forward), Object Position the bounds' centre; 22: Power clamps a negative base to 0 (PositiveClampedPow); 23: vector parameters that aren't colours on vector sockets (a colour socket clamps negatives); 24: BLEND_ColoredTransmittanceOnly is Modulate; 25: DepthFade and SceneDepth by a raycast behind a see-through pixel (Blender's Raycast node); 26: translucency lit from UE's volume: diffuse only, the Normal unused unless per-pixel directional; 27: the sun, the sky and collection values through the file's world groups (a time of day drives them), its height fog
-                          # 4: instance overrides to the default (Opaque, DefaultLit, one-sided) honoured
-                          # 6: vector parameters without a stored default are (0, 0, 0, 0), not alpha 1
-                          # 8: single layer water (the medium, refraction, water info stand-ins); graph clip()s
+PREFIX = "MP "            # prefix of built materials: "MP MI_Foo"
+KEY_PATH = "mp_path"      # game object the material translates
+KEY_REV = "mp_rev"        # build revision that made it (older ones are rebuilt, not reused)
+BUILD_REVISION = 64       # bump when a builder change should rebuild existing materials
 KEY_REPLACES = "mp_replaces"
-KEY_REPLACED_BY = "mp_replaced_by"
-KEY_FP = "mp_fp"          # a function group's fingerprint, to share it
-KEY_VARIANT = "mp_variant"  # a style's parameter values over the instance (their hash)
+KEY_FP = "mp_fp"          # function group fingerprint, for sharing groups
+KEY_VARIANT = "mp_variant"  # hash of a style's parameter values over the instance
 KEY_SHAPE = "mp_shape"    # what decides a build's trees beyond parameter values (build_like reuses it)
-KEY_LAYOUT = "mp_layout_pending"  # a tree built without its layout: arranged when a node editor first shows it
+KEY_LAYOUT = "mp_layout_pending"  # tree built without layout; arranged when a node editor first shows it
 
-# Map imports build hundreds of materials nobody opens: laying their trees out
-# (cosmetic, and two thirds of a build) waits until a node editor shows one.
+# Map imports build hundreds of materials nobody opens: layout (cosmetic, two thirds of a build) waits
+# until a node editor shows one.
 LAZY_LAYOUT = False
-KEY_WATER = "mp_water"    # a water material (MSM_SingleLayerWater): its objects get the depth under them
-KEY_SUBSURFACE = "mp_subsurface_scale"  # the game's scattering distance (metres), its group node's input's at build
+KEY_WATER = "mp_water"    # water material (MSM_SingleLayerWater): its objects get the depth under them
+KEY_SUBSURFACE = "mp_subsurface_scale"  # the game's scattering distance (metres), set on the group node input at build
 SUBSURFACE_SCALE = "Subsurface Scale"   # that input
-SUBSURFACE_INTENSITY = "Subsurface Intensity"   # and how much (where the game's scatters any)
-SUBSURFACE_RADIUS = "Subsurface Radius"         # and each colour's distance (skin's, shell fur's)
-FUR_RADIUS = (1.0, 0.8, 0.65)                   # (that radius by default)
-SKIN_SUBSURFACE = "SkinSubsurfaceIntensity"     # a character's skin scattering parameter (the game's amount on skin)
+SUBSURFACE_INTENSITY = "Subsurface Intensity"   # amount where the game's shading model scatters
+SUBSURFACE_RADIUS = "Subsurface Radius"         # per-colour distance (skin, shell fur)
+FUR_RADIUS = (1.0, 0.8, 0.65)                   # default radius for fur
+SKIN_SUBSURFACE = "SkinSubsurfaceIntensity"     # a character's skin scattering parameter
 
 
 def _enum(v, default):
@@ -52,7 +46,7 @@ def _is_head(entry):
 
 
 def _models(field):
-    """UE's FMaterialShadingModelField - a bit per EMaterialShadingModel - as model names."""
+    """UE's FMaterialShadingModelField (a bit per EMaterialShadingModel) as model names."""
     bits = field.get("ShadingModelField") if isinstance(field, dict) else None
     if not isinstance(bits, int):
         return None
@@ -60,34 +54,33 @@ def _models(field):
 
 
 def settings(entry):
-    """Blend mode, shading model and the rest: the instance's overrides,
-    else the master's asset, else UE's defaults."""
+    """Blend mode, shading model and the rest: instance overrides, else the master's asset, else UE's defaults."""
     asset, over = entry.get("asset") or {}, entry.get("overrides") or {}
     pick = lambda k, d: over.get(k, asset.get(k, d))
     return {
         "blend": _enum(pick("BlendMode", None), "BLEND_Opaque"),
         "shading": _enum(pick("ShadingModel", None), "MSM_DefaultLit"),
-        # the shading models it compiles (UE's ShadingModels; None from an app that doesn't say)
+        # shading models it compiles (UE's ShadingModels; None if the app doesn't say)
         "models": _models(asset.get("ShadingModels")),
         "two_sided": bool(pick("TwoSided", False)),
         "clip": float(pick("OpacityMaskClipValue", 0.3333)),
         "tangent_normal": bool(asset.get("bTangentSpaceNormal", True)),
-        # how a lit translucent material is lit (None from an app that doesn't say: as a surface)
+        # how a lit translucent material is lit (None if the app doesn't say: as a surface)
         "lighting": _enum(asset["TranslucencyLightingMode"], "") if "TranslucencyLightingMode" in asset else None,
         # the Subsurface Profile skin scatters by: {"radius": [r, g, b], "scale": metres}
         "profile": entry.get("subsurface"),
-        # a shell fur layer's (the FP fork's shells): it all scatters, as fur
+        # shell fur layer (shells): scatters fully, as fur
         "shell": bool(entry.get("shell")),
-        # a character's head (its lips: lit, not skin, in the game's shading - _per_pixel_models)
+        # a character's head (lips are lit, not skin, in the game's shading; see _per_pixel_models)
         "head": _is_head(entry),
     }
 
 
 # ------------------------------------------------------------------ assembly
 def assemble(tr, mat, a, s):
-    """The attributes onto a Principled BSDF, UE -> Blender, into the tree's
-    output: the Material Output, or a node group's "Surface" output."""
-    moved = False       # whether its World Position Offset moves its vertices
+    """Put the attributes on a Principled BSDF (UE -> Blender) feeding the tree's output:
+    the Material Output, or a node group's "Surface" output."""
+    moved = False       # whether World Position Offset moves its vertices
     with tr.at("Output"):
         bsdf = tr.node("ShaderNodeBsdfPrincipled", "UE surface")
         if tr.tree == mat.node_tree:
@@ -101,20 +94,19 @@ def assemble(tr, mat, a, s):
         if shading == "MSM_FromMaterialExpression":
             sm = a.get("ShadingModel")
             if sm is not None and not sm.const:
-                # the graph picks the model per pixel (skin here, lit there): masks below
+                # the graph picks the model per pixel (skin here, lit there); masks below
                 per_pixel = sm
             shading = SHADING_MODELS[int(sm.s)] if sm is not None and sm.const and 0 <= int(sm.s) < len(SHADING_MODELS) \
                 else "MSM_DefaultLit"
-        # the water medium comes with the graph's SingleLayerWaterMaterialOutput
+        # the water medium comes from the graph's SingleLayerWaterMaterialOutput
         water = shading == "MSM_SingleLayerWater" and "WaterAbsorption" in a
 
-        # a translucent material UE lights from its translucency volume gets diffuse light only (no
-        # specular; Metallic only darkens), and lit per vertex or without a direction its Normal goes
-        # unused (smoke sprites' sphere normals would shade each puff as a ball)
+        # UE lights translucent materials from the translucency volume: diffuse only (no specular; Metallic only darkens).
+        # Lit per vertex or without direction, the Normal is unused (smoke sprites' sphere normals would shade each puff as a ball).
         volumetric = s["blend"] in TRANSLUCENT and s.get("lighting") in VOLUMETRIC_LIGHTING
         flat = volumetric and s["lighting"] in NORMAL_UNUSED
         if not water:
-            # (water: BaseColor and Metallic are its surface layer's, below)
+            # water: BaseColor and Metallic belong to the surface layer, below
             if volumetric:
                 base, metal = a["BaseColor"], a["Metallic"]
                 if base is not None and metal is not None and not (metal.const and _comps(metal.s)[0] == 0.0):
@@ -127,7 +119,7 @@ def assemble(tr, mat, a, s):
         if volumetric:
             bsdf.inputs["Specular IOR Level"].default_value = 0.0
         elif not water:
-            # UE's Specular 0.5 is F0 0.04, as is Blender's Specular IOR Level 0.5 (IOR 1.5)
+            # UE's Specular 0.5 is F0 0.04, same as Blender's Specular IOR Level 0.5 (IOR 1.5)
             link(a["Specular"], "Specular IOR Level")
         emissive = a["EmissiveColor"]
         if not (emissive.const and not any(_comps(emissive.s)[:3])):
@@ -138,18 +130,18 @@ def assemble(tr, mat, a, s):
         bsdf_n = None
         if not flat and not (n.const and _comps(n.s)[:3] == (0.0, 0.0, 1.0)):
             # UE's tangent space is DirectX (green down); a world-space normal is in UE space
-            # (the node PixelNormalWS reads, when the material reads it)
+            # (read by the PixelNormalWS node, when the material uses it)
             bsdf_n = tr.material_normal(n, s["tangent_normal"])
             tr.link(bsdf_n, bsdf.inputs["Normal"])
 
         if per_pixel is not None:
             _per_pixel_models(tr, bsdf, a, per_pixel, s["profile"], s.get("head"), s.get("models"))
         elif shading in ("MSM_Subsurface", "MSM_TwoSidedFoliage"):
-            # UE's subsurface models read Opacity as the scattering amount, SubsurfaceColor as its colour
+            # UE's subsurface models read Opacity as scattering amount and SubsurfaceColor as its colour
             link(a["Opacity"], "Subsurface Weight")
             link(a["SubsurfaceColor"], "Subsurface Radius")
         elif shading in ("MSM_SubsurfaceProfile", "MSM_PreintegratedSkin"):
-            # skin: the scattering comes from the Subsurface Profile, not SubsurfaceColor
+            # skin: scattering comes from the Subsurface Profile, not SubsurfaceColor
             link(a["Opacity"], "Subsurface Weight")
             _profile(bsdf, s["profile"])
         elif shading == "MSM_ClearCoat":
@@ -175,7 +167,7 @@ def assemble(tr, mat, a, s):
             if cut.const:
                 cut = tr.const(1.0 if cut.s > s["clip"] else 0.0)
             for keep in tr.clips:
-                # the graph's own clip()s: not drawn where one is 0
+                # the graph's clip()s: not drawn where one is 0
                 cut = tr.binop('MULTIPLY', cut, keep, label="clip()")
             if not (cut.const and cut.s == 1.0):
                 if shading == "MSM_Unlit" or water:
@@ -190,7 +182,7 @@ def assemble(tr, mat, a, s):
             else:
                 link(a["Opacity"], "Alpha")
         elif blend in MODULATE:
-            # the scene behind, multiplied by the emissive colour
+            # scene behind, multiplied by the emissive colour
             mat.surface_render_method = 'BLENDED'
             _see_through_shadows(mat)
             tp = tr.node("ShaderNodeBsdfTransparent", "modulate")
@@ -213,8 +205,8 @@ def assemble(tr, mat, a, s):
         tr.L.new(surface.s, out.inputs["Surface"])
         offset = a.get("WorldPositionOffset")
         if offset is not None and not (offset.const and not any(_comps(offset.s)[:3])) and tr.tree != mat.node_tree:
-            # UE's World Position Offset (cm, UE's axes) moves each vertex: Eevee's displacement
-            # does as much (no bump: the offset isn't a height)
+            # UE's World Position Offset (cm, UE axes) moves each vertex; Eevee's displacement does the same
+            # (no bump: the offset isn't a height)
             with tr.at("World Position Offset"):
                 metres = tr.vmath('MULTIPLY', tr.as3(offset), tr.const((0.01, -0.01, 0.01), 3), out_w=3)
                 move = tr.node("ShaderNodeVectorDisplacement", "world position offset", space='WORLD')
@@ -227,11 +219,10 @@ def assemble(tr, mat, a, s):
             if hasattr(mat, "max_vertex_displacement"):
                 mat.max_vertex_displacement = 50.0
             moved = True
-    # how much and how far light scatters under a scattering surface (skin, fur): on the material's
-    # own group node, where an artist tunes it (and the FP fork's import settings set it). The amount
-    # is flat - Subsurface Intensity wherever the game's scatters at all (its shading model's mask),
-    # all over a shell fur layer (it is the fur) - the distance the game's
-    # (in the Output frame with the surface it feeds: on their own they came after the output)
+    # Amount and distance of light scattering under skin or fur sit on the material's own group node so an artist
+    # can tune them (the import settings set them too). The amount is flat: Subsurface Intensity wherever the game's
+    # shading model scatters, everywhere on a shell fur layer. The distance is the game's.
+    # These nodes go in the Output frame with the surface they feed (on their own they came after the output).
     with tr.at("Output"):
         weight = bsdf.inputs["Subsurface Weight"]
         if tr.tree != mat.node_tree and (weight.is_linked or weight.default_value > 0.0 or s.get("shell")):
@@ -247,8 +238,8 @@ def assemble(tr, mat, a, s):
             if s.get("shell") or game is None:
                 tr.L.new(intensity, weight)
             if not s.get("shell"):
-                # skin's radius (its Subsurface Profile's, else SKIN_RADIUS) on the group node too; a
-                # radius the graph makes (Subsurface's SubsurfaceColor) stays the graph's
+                # skin radius (Subsurface Profile's, else SKIN_RADIUS) goes on the group node too;
+                # a radius the graph makes (Subsurface's SubsurfaceColor) stays the graph's
                 radius = bsdf.inputs["Subsurface Radius"]
                 target = radius if not radius.is_linked else None
                 if radius.is_linked and radius.links[0].from_node.bl_idname == "ShaderNodeMix"                     and radius.links[0].from_node.label == "subsurface radius"                     and not radius.links[0].from_node.inputs[5].is_linked:
@@ -260,19 +251,18 @@ def assemble(tr, mat, a, s):
                     gi = tr.node("NodeGroupInput", "subsurface radius")
                     tr.L.new(next(o for o in gi.outputs if o.identifier == sock.identifier), target)
             if s.get("shell"):
-                # (the game's fur scatters no light: its radius, the Post FX's SubsurfaceColor, is about
-                # black - nothing to spread; a near-neutral one, red a little the furthest, as through skin)
+                # the game's fur radius (Post FX SubsurfaceColor) is about black, so use a near-neutral one,
+                # red furthest, as through skin
                 sock = tr.tree.interface.new_socket(SUBSURFACE_RADIUS, in_out='INPUT', socket_type='NodeSocketVector')
                 sock.default_value, sock.min_value = FUR_RADIUS, 0.0
                 sock.description = "How far each colour scatters, times the scale"
                 gi = tr.node("NodeGroupInput", "subsurface radius")
                 tr.L.new(next(o for o in gi.outputs if o.identifier == sock.identifier), bsdf.inputs["Subsurface Radius"])
             elif game is not None:
-                # the game's amount over its skin's (a character's SkinSubsurfaceIntensity: Helsie's face 0.4,
-                # her lips 0): 1 on the skin, the game's ratio elsewhere - its soft edges kept - then times
-                # Subsurface Intensity; without that parameter the game's amount itself. (A weight the graph
-                # leaves a constant, a tree's leaf: no game amount to take a ratio of - the flat Subsurface
-                # Intensity, linked above)
+                # The game's amount relative to its skin's (SkinSubsurfaceIntensity, e.g. Helsie's face 0.4, lips 0):
+                # 1 on skin, the game's ratio elsewhere (keeps soft edges), times Subsurface Intensity.
+                # Without that parameter, the game's amount itself. A constant weight has no ratio:
+                # the flat Subsurface Intensity linked above is used.
                 skin = next((it for it in tr.tree.interface.items_tree if it.item_type == 'SOCKET'
                              and it.in_out == 'INPUT' and it.name == SKIN_SUBSURFACE), None)
                 ratio = tr.node("ShaderNodeMath", "game's scattering over its skin's", operation='DIVIDE', use_clamp=True)
@@ -292,36 +282,36 @@ def assemble(tr, mat, a, s):
             tr.L.new(new_input(SUBSURFACE_SCALE, scale, "How far light scatters under the surface (metres)"),
                      bsdf.inputs["Subsurface Scale"])
             mat[KEY_SUBSURFACE] = scale
-    # (a strip its material thickens towards the camera has no side of its own, and the mirrored
-    # import turns the one it is given away: both sides drawn)
+    # a strip its material thickens towards the camera has no side of its own, and the mirrored import
+    # turns away the one it has: draw both sides
     mat.use_backface_culling = not s["two_sided"] and not moved
 
 
-# UE 5 names plain translucency BLEND_TranslucentGreyTransmittance (Substrate
-# adds the coloured one); all of them blend by Opacity
+# UE 5 names plain translucency BLEND_TranslucentGreyTransmittance (Substrate adds the coloured one);
+# all blend by Opacity
 TRANSLUCENT = ("BLEND_Translucent", "BLEND_TranslucentGreyTransmittance", "BLEND_TranslucentColoredTransmittance",
                "BLEND_AlphaComposite", "BLEND_AlphaHoldout")
-# and Modulate BLEND_ColoredTransmittanceOnly (the same value: Tempest's eye glow multiplies its helmet)
+# Modulate is also BLEND_ColoredTransmittanceOnly (same value; Tempest's eye glow multiplies its helmet)
 MODULATE = ("BLEND_Modulate", "BLEND_ColoredTransmittanceOnly")
-# translucency lighting from the translucency volume (UE's default the first): diffuse only; all but
-# the per-pixel directional one leave the Normal unused
+# Translucency lighting from the translucency volume (UE's default is the first): diffuse only;
+# all but the per-pixel directional one leave the Normal unused
 VOLUMETRIC_LIGHTING = ("TLM_VolumetricNonDirectional", "TLM_VolumetricPerVertexNonDirectional",
                        "TLM_VolumetricPerVertexDirectional", "TLM_VolumetricDirectional")
 NORMAL_UNUSED = VOLUMETRIC_LIGHTING[:3]
 
 
 def _see_through_shadows(mat):
-    """A blended material's shadow follows its alpha, not its whole surface."""
+    """Make a blended material's shadow follow its alpha, not its whole surface."""
     for prop in ("use_transparent_shadow", "use_transparency_overlap"):
         if hasattr(mat, prop):
             setattr(mat, prop, True)
 
 
-SKIN_RADIUS = (1.0, 0.8, 0.65)     # (a near-neutral skin's: red a little the furthest)
+SKIN_RADIUS = (1.0, 0.8, 0.65)     # near-neutral skin radius, red furthest
 
 
 def _profile(bsdf, profile):
-    """A Subsurface Profile's radius and scale on the BSDF (none: SKIN_RADIUS)."""
+    """Set a Subsurface Profile's radius and scale on the BSDF (no profile: SKIN_RADIUS)."""
     radius = tuple(profile["radius"]) if profile else SKIN_RADIUS
     bsdf.inputs["Subsurface Radius"].default_value = radius
     if profile:
@@ -330,11 +320,10 @@ def _profile(bsdf, profile):
 
 
 def _per_pixel_models(tr, bsdf, a, sm, profile=None, head=False, models=None):
-    """A shading model the graph picks per pixel: each model's lobe, weighted
-    by a mask of where it's picked (subsurface, clear coat, cloth). Only the
-    models the material compiles (`models`, UE's ShadingModels; None: any):
-    a building that picks lit or clear coat gets no subsurface, nor its
-    controls (assemble adds them where the weight is linked)."""
+    """A shading model the graph picks per pixel: each model's lobe weighted by a mask of where it is picked
+    (subsurface, clear coat, cloth). Only models the material compiles (`models`, UE's ShadingModels; None: any)
+    are built: a building that picks lit or clear coat gets no subsurface or its controls
+    (assemble adds them where the weight is linked)."""
     def mask(*names):
         m = None
         for name in names:
@@ -349,15 +338,15 @@ def _per_pixel_models(tr, bsdf, a, sm, profile=None, head=False, models=None):
         if v is not None:
             tr.link(v, bsdf.inputs[name])
 
-    # (a head's lips are lit, not skin, in the game - Sand Witch Helsie's: unscattered next to scattered
-    # skin, a hard edge; they scatter as the skin, their Opacity full - where there's skin)
+    # A head's lips are lit, not skin, in the game (Sand Witch Helsie's: unscattered next to scattered skin,
+    # a hard edge). They scatter as skin with full Opacity wherever there is skin.
     skin_models = ("MSM_SubsurfaceProfile", "MSM_PreintegratedSkin")
     if head and (models is None or any(m in models for m in skin_models)):
         skin_models += ("MSM_DefaultLit",)
     sss = mask("MSM_Subsurface", "MSM_TwoSidedFoliage", *skin_models)
     if sss is not None:
         link(tr.math('MULTIPLY', sss, a["Opacity"], label="subsurface amount"), "Subsurface Weight")
-        # SubsurfaceColor for Subsurface / foliage; skin's profile radius elsewhere (its scale for all)
+        # SubsurfaceColor for Subsurface / foliage; the skin profile radius elsewhere (its scale for all)
         skin = mask(*skin_models)
         radius = _profile(bsdf, profile)
         link(a["SubsurfaceColor"] if skin is None else
@@ -374,29 +363,22 @@ def _per_pixel_models(tr, bsdf, a, sm, profile=None, head=False, models=None):
 
 
 IOR_WATER = 1.333
-# a dielectric's reflectance at normal incidence from its IOR, as Blender's
-# Principled BSDF makes it: ((n - 1) / (n + 1))^2
+# dielectric reflectance at normal incidence from the IOR, as Blender's Principled BSDF: ((n - 1) / (n + 1))^2
 F0_WATER = ((IOR_WATER - 1.0) / (IOR_WATER + 1.0)) ** 2
 
 
 def _water(tr, mat, a, bsdf, normal, out):
-    """UE's single layer water (MSM_SingleLayerWater) in Eevee.
+    """UE's single layer water (MSM_SingleLayerWater) in Eevee. Returns the surface shader.
 
-    UE lights the water surface itself (specular from Specular and
-    Roughness, and a surface layer of BaseColor where Opacity > 0), then
-    adds the water the view ray crosses to the scene behind it, per colour
-    channel (coefficients per cm, path in cm):
+    UE lights the surface itself (specular from Specular and Roughness, a BaseColor surface layer where Opacity > 0),
+    then adds the water the view ray crosses to the scene behind it, per colour channel (coefficients per cm, path in cm):
         T = exp(-(Scattering + Absorption) * path)
         the scene behind * T * ColorScaleBehindWater
         + (1 - F) * Scattering (1 - T) / (Scattering + Absorption) * (sun * phase + ambient / 4 pi)
-    Here the surface is a Principled BSDF refracting at water's IOR (Eevee's
-    raytraced transmission shows the ground through it) with its
-    transmission tinted T * ColorScaleBehindWater; the in-scattered light is
-    a diffuse lobe lit by the scene, its albedo the scattered amount / 4
-    (the isotropic phase 1 / 4 pi against a diffuse lobe's 1 / pi) * (1 - F).
-    The path is the translator's (the env's depth over the view's
-    steepness). Like UE's water meshes it casts no shadow (the ground under
-    it stays lit). Returns the surface shader."""
+    Here the surface is a Principled BSDF refracting at water's IOR (Eevee's raytraced transmission shows the ground)
+    with transmission tinted T * ColorScaleBehindWater. The in-scattered light is a diffuse lobe lit by the scene,
+    albedo = scattered amount / 4 * (1 - F) (isotropic phase 1 / 4 pi against a diffuse lobe's 1 / pi).
+    The path comes from the translator (env depth over view steepness). Like UE's water meshes it casts no shadow."""
     path = tr.water_path()
     zero3, one3 = tr.const((0.0, 0.0, 0.0), 3), tr.const((1.0, 1.0, 1.0), 3)
     # UE: max(0, coefficients)
@@ -412,7 +394,7 @@ def _water(tr, mat, a, bsdf, normal, out):
     if not (cs.const and _comps(cs.s)[:3] == (1.0, 1.0, 1.0)):
         tint = tr.vmath('MULTIPLY', trans, tr.vmath('MAXIMUM', tr.as3(cs), zero3, out_w=3), label="colour behind water",
                         out_w=3)
-    # the surface: reflects, refracts the ground through the water's tint
+    # the surface: reflects, and refracts the ground through the water's tint
     tr.link(tint, bsdf.inputs["Base Color"])
     bsdf.inputs["Transmission Weight"].default_value = 1.0
     bsdf.inputs["IOR"].default_value = IOR_WATER
@@ -420,7 +402,7 @@ def _water(tr, mat, a, bsdf, normal, out):
     # UE's F0 is 0.08 * Specular; Blender's is F0(IOR) * 2 * Specular IOR Level
     tr.link(tr.binop('MULTIPLY', a["Specular"], tr.const(0.08 / (2.0 * F0_WATER)), label="specular level"),
             bsdf.inputs["Specular IOR Level"])
-    # the water under the surface, lit
+    # the lit water under the surface
     fres = tr.node("ShaderNodeFresnel", "water fresnel")
     fres.inputs["IOR"].default_value = IOR_WATER
     if normal is not None:
@@ -447,7 +429,7 @@ def _water(tr, mat, a, bsdf, normal, out):
         tr.L.new(add.outputs[0], mix.inputs[1])
         tr.L.new(layer.outputs[0], mix.inputs[2])
         surface = Val(mix.outputs[0], 3)
-    # UE's water meshes cast no shadow: the ground under the water stays sunlit
+    # UE's water meshes cast no shadow; the ground under the water stays sunlit
     path_node = tr.node("ShaderNodeLightPath", "light path")
     no_shadow = tr.node("ShaderNodeMixShader", "casts no shadow")
     see = tr.node("ShaderNodeBsdfTransparent", "see-through")
@@ -456,7 +438,7 @@ def _water(tr, mat, a, bsdf, normal, out):
     tr.L.new(see.outputs[0], no_shadow.inputs[2])
     surface = Val(no_shadow.outputs[0], 3)
     _see_through_shadows(mat)
-    # one refracting interface (the thickness 0), traced through the scene
+    # one refracting interface (thickness 0), traced through the scene
     zero = tr.node("ShaderNodeValue", "thickness: one interface")
     zero.outputs[0].default_value = 0.0
     if tr.tree == mat.node_tree:
@@ -481,8 +463,7 @@ def _with_alpha(tr, surface, alpha):
 
 
 def _material_node(mat, root, label, values, width):
-    """The material's tree: its group node, the parameters' values in its
-    sockets, into the Material Output."""
+    """The material's tree: the group node with the parameter values in its sockets, feeding the Material Output."""
     tree = mat.node_tree
     node = tree.nodes.new("ShaderNodeGroup")
     node.node_tree = root
@@ -502,21 +483,21 @@ def _material_node(mat, root, label, values, width):
     node.location = (-width - 60.0, 0.0)
     out.location = (0.0, 0.0)
     tree.nodes.active = node
-    # the layout's sections: these two at the top level (the textures make a frame of their own)
+    # layout sections: these two at top level (the textures get a frame of their own)
     node[SECTION_KEY] = out[SECTION_KEY] = ""
     return node
 
 
 def _texture_zones(mat, node, env):
-    """The textures the material's group samples, outside it: each a closure zone around its
-    image node in the material's own tree (a Textures frame), into the group's Closure input."""
+    """Textures the material's group samples live outside it: each is a closure zone around an image node
+    in the material's own tree (Textures frame), feeding the group's Closure input."""
     if not env._textures:
         return False
     tr = Translator(mat.node_tree, env)
     prev = tr.activate()
     try:
         by_id = {s.identifier: s for s in node.inputs}
-        # in the order of the group's Textures panel: the wires run straight across
+        # in the group's Textures panel order so the wires run straight across
         for item, _sock, (tname, img, own, address) in sorted(env._textures.values(), key=lambda t: t[0].name.lower()):
             target = by_id.get(item.identifier)
             if target is not None:
@@ -533,11 +514,9 @@ def _comps(s):
 
 # ------------------------------------------------------------------ sharing
 def _fingerprint(tree, memo):
-    """What a group computes (nodes, settings, values, wiring, images) - not where its nodes
-    sit or what Blender named them - so two builds of one function compare equal. Each node is
-    hashed with what feeds it (sources first), the group by what reaches its outputs and its
-    interface: two trees alike but for their node names' numbering (one made its nodes in
-    another order) are twins."""
+    """Hash what a group computes (nodes, settings, values, wiring, images), not node positions or Blender names,
+    so two builds of one function compare equal. Each node is hashed with what feeds it (sources first), the group
+    by what reaches its outputs and its interface. Trees differing only in node name numbering are twins."""
     if tree.name in memo:
         return memo[tree.name]
     skip = {"location", "width", "height", "dimensions", "select", "name", "label", "parent", "color",
@@ -548,7 +527,7 @@ def _fingerprint(tree, memo):
     done = {}
 
     def node_hash(root):
-        # sources first, without recursion (a function's chains run hundreds of nodes deep)
+        # sources first, without recursion (function chains run hundreds of nodes deep)
         stack = [root]
         while stack:
             n = stack[-1]
@@ -566,8 +545,8 @@ def _fingerprint(tree, memo):
                     continue
                 v = getattr(n, prop.identifier, None)
                 if prop.identifier == "node_tree" and v is not None:
-                    # the file's world and collection groups: one each, which grows as materials ask
-                    # it for more (its contents would make every group around it differ)
+                    # world and collection groups: one each per file, growing as materials ask for more
+                    # (hashing their contents would make every group around them differ)
                     world = "mp_path" in v or v.name.startswith(("MP World", "MP Collection"))
                     v = "world:" + v.name if world else v.get(KEY_FP) or _fingerprint(v, memo)
                 elif prop.identifier == "image" and v is not None:
@@ -576,7 +555,7 @@ def _fingerprint(tree, memo):
                     continue
                 parts.append("%s=%r" % (prop.identifier, v))
             for k in n.keys():
-                # (mp_image: which image a texture read read when built - a twin reads its own)
+                # mp_image: which image a texture read when built (a twin reads its own)
                 if k not in (SECTION_KEY, "fpv4_group_input", "mp_image"):
                     parts.append("%s:%r" % (k, n[k]))
             for sock in n.inputs:
@@ -601,22 +580,21 @@ def _fingerprint(tree, memo):
 
 
 def drop_unread_inputs(tree):
-    """A function group's inputs nothing in it reads (what read them went in merge_duplicates):
-    gone, as the twin it would otherwise differ from never had them."""
+    """Remove a function group's inputs nothing in it reads (their readers went in merge_duplicates),
+    so it matches the twin that never had them."""
     read = {s.identifier for n in tree.nodes if n.bl_idname == "NodeGroupInput" for s in n.outputs if s.is_linked}
     for it in [it for it in tree.interface.items_tree
                if it.item_type == 'SOCKET' and it.in_out == 'INPUT' and it.identifier not in read]:
         tree.interface.remove(it)
 
 
-# fingerprint -> group, kept between builds: reading every group's fingerprint
-# for each material grew with the scene (a map's hundreds of materials)
+# fingerprint -> group, kept between builds: reading every group's fingerprint per material
+# grew with the scene (hundreds of materials per map)
 _KNOWN = None
 
 
 def begin_session():
-    """A new job: the known groups are read again from the file (groups may
-    have come or gone since the last one), images checked against their files again."""
+    """Start a new job: re-read the known groups from the file (they may have come or gone) and recheck images against their files."""
     global _KNOWN
     _KNOWN = None
     from . import env
@@ -638,12 +616,11 @@ def _alive(g, fp):
 
 
 def share_groups(trees, owners=()):
-    """Groups identical to one an earlier build made are replaced by it (in
-    these trees and the owners', the only places a new group is used).
-    Returns (how many were replaced, the ones kept)."""
+    """Replace groups identical to one an earlier build made with that one (in these trees and the owners',
+    the only places a new group is used). Returns (how many were replaced, the ones kept)."""
     memo = {}
     known = _known()
-    # innermost first: an outer group's fingerprint names its inner groups'
+    # innermost first: an outer group's fingerprint includes its inner groups
     order, seen = [], set()
 
     def visit(t):
@@ -656,8 +633,8 @@ def share_groups(trees, owners=()):
         order.append(t)
     for t in trees:
         visit(t)
-    # the group nodes that may point at a new group; repointing them is what
-    # user_remap did, without its walk over every datablock of the file
+    # group nodes that may point at a new group; repointing just these replaces user_remap,
+    # which walks every datablock of the file
     users = [n for tr in list(trees) + list(owners) for n in tr.nodes
              if n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None]
     shared, kept, gone = 0, [], []
@@ -668,7 +645,7 @@ def share_groups(trees, owners=()):
             del known[fp]
             twin = None
         if twin is not None and twin != t and not _outputs_cover(twin, t, users):
-            # pruned of an output this build reads (prune_groups): this one is kept, whole
+            # twin was pruned of an output this build reads (prune_groups): keep this one whole
             twin = None
         if twin is not None and twin != t:
             for n in users:
@@ -700,9 +677,8 @@ _OUTPUT_NODES = ("ShaderNodeOutputMaterial", "ShaderNodeOutputWorld", "ShaderNod
 
 
 def _live_outputs():
-    """{group: output identifiers a live node reads}, over the file: from every material's,
-    world's and light's outputs through the group nodes they reach (a group node read at all
-    reads all its inputs)."""
+    """{group: output identifiers a live node reads}, over the file: from every material, world and light output
+    through the group nodes they reach (a group node that is read at all reads all its inputs)."""
     used, live = {}, {}
 
     def walk(tree, starts):
@@ -746,8 +722,8 @@ def _live_outputs():
 
 
 def _drop_dead(tree, kinds=None):
-    """Nodes that reach none of the tree's outputs go (and Group Input nodes left unread) - of
-    those kinds only, when given (a material's own tree: a texture's zone nothing reads)."""
+    """Remove nodes that reach none of the tree's outputs, and unread Group Input nodes.
+    With `kinds`, only nodes of those kinds (a material's own tree: texture zones nothing reads)."""
     outs = ("NodeGroupOutput",) + _OUTPUT_NODES
     feeds = {}
     for l in tree.links:
@@ -762,7 +738,7 @@ def _drop_dead(tree, kinds=None):
             and (kinds is None or n.bl_idname in kinds)]
     inputs = [n for n in tree.nodes if n.bl_idname == "NodeGroupInput"]
     if inputs and all(n in dead for n in inputs):
-        dead.remove(inputs[0])          # one Group Input stays, for the interface to show on
+        dead.remove(inputs[0])          # keep one Group Input so the interface shows
     for n in dead:
         tree.nodes.remove(n)
     for f in [n for n in tree.nodes if n.bl_idname == "NodeFrame"]:
@@ -772,11 +748,12 @@ def _drop_dead(tree, kinds=None):
 
 
 def prune_groups(names):
-    """After an import: the function groups it made (by name) lose the outputs no material
-    in the file reads - each was built whole, so a later material's call shares it, unless
-    that call reads an output gone (share_groups keeps that call's own copy) - with the
-    nodes only those fed, the inputs nothing reads any more, and the groups no one uses; the
-    materials' own groups lose what fed those inputs. Returns how many nodes went."""
+    """After an import, prune the function groups it made (by name): drop outputs no material in the file reads,
+    the nodes only those fed, inputs nothing reads any more, and unused groups; the materials' own groups lose
+    what fed those inputs. Returns how many nodes went.
+
+    Each group was built whole, so a later material's call shares it unless that call reads a dropped output
+    (share_groups then keeps that call's own copy)."""
     made = [g for g in (bpy.data.node_groups.get(n) for n in names) if g is not None]
     groups = [g for g in made if KEY_FP in g]
     roots = [g for g in made if KEY_FP not in g and bpy.data.materials.get(g.name) is not None]
@@ -789,7 +766,7 @@ def prune_groups(names):
                 continue
             drop = [it for it in _outputs(g) if it.identifier not in used.get(g, set())]
             if not drop or len(drop) == len(_outputs(g)):
-                # (read by nothing at all: only by dead nodes, which go below - then it does)
+                # read only by dead nodes, which go below, so then nothing reads it
                 continue
             for it in drop:
                 g.interface.remove(it)
@@ -808,13 +785,13 @@ def prune_groups(names):
                         drop_unread_inputs(t)
         if not changed:
             break
-    # groups that hand their inputs on, or wrap one node: that node (or the wire) in their stead
+    # groups that only pass inputs on, or wrap one node, are replaced by that node (or the wire)
     for _ in range(8):
         k = _inline_trivial([g for g in groups if g.users], touched)
         if not k:
             break
         gone += k
-    # the materials' parameters and textures nothing reads any more (an effect folded away)
+    # materials' parameters and textures nothing reads any more (an effect folded away)
     for t in roots:
         read = {s.identifier for n in t.nodes if n.bl_idname == "NodeGroupInput" for s in n.outputs if s.is_linked}
         drop = [it for it in _outputs(t, 'INPUT') if it.identifier not in read]
@@ -834,7 +811,7 @@ def prune_groups(names):
         t = bpy.data.node_groups.get(name)
         if t is None:
             continue
-        if LAZY_LAYOUT or KEY_LAYOUT in t:      # (one waiting to be seen is laid out then)
+        if LAZY_LAYOUT or KEY_LAYOUT in t:      # a tree waiting to be seen is laid out then
             t[KEY_LAYOUT] = 1
             continue
         try:
@@ -863,7 +840,7 @@ _INLINE = {"ShaderNodeGroup", "ShaderNodeMath", "ShaderNodeVectorMath", "ShaderN
 
 
 def _through(sock):
-    """The output a link into sock comes from, past reroutes (None: unlinked)."""
+    """The output a link into sock comes from, past reroutes (None if unlinked)."""
     while sock.is_linked:
         frm = sock.links[0].from_socket
         if frm.node.bl_idname != "NodeReroute":
@@ -873,10 +850,9 @@ def _through(sock):
 
 
 def _inline_trivial(groups, touched):
-    """Instances of a group that only hands inputs on (a function whose work folded away) or
-    holds one plain node (UE's Break Out Float3 Components: one Separate XYZ; a wrapper of
-    one call) replaced by the wire, or by a copy of that node in the caller - where every
-    value it hands on keeps its type. Returns how many group nodes went."""
+    """Replace instances of a group that only passes inputs on (its work folded away) or holds one plain node
+    (UE's Break Out Float3 Components: one Separate XYZ; a wrapper of one call) with the wire, or a copy of that node
+    in the caller, where every value passed on keeps its type. Returns how many group nodes went."""
     from .ue_graph import _socket_value
     gone = 0
     users = {}
@@ -903,14 +879,14 @@ def _inline_trivial(groups, touched):
 
 def _inline_one(t, node, g, go, inner, socket_value):
     def outer_source(gi_out):
-        """What feeds the group node's input gi_out names: (output socket, None) or (None, value)."""
+        """What feeds the group node input named by gi_out: (output socket, None) or (None, value)."""
         sock = next(s for s in node.inputs if s.identifier == gi_out.identifier)
         src = _through(sock)
         return (src, None) if src is not None else (None, getattr(sock, "default_value", None)), sock
     plan_links, plan_values = [], []
     copy = None
     if inner is not None:
-        # the node's inputs: what the caller feeds the group's, or the node's own values
+        # the node's inputs: what the caller feeds the group, or the node's own values
         feeds = []
         for s in inner.inputs:
             src = _through(s)
@@ -923,7 +899,7 @@ def _inline_one(t, node, g, go, inner, socket_value):
             if outer.type != s.type:
                 return False
             feeds.append((s, osrc, value))
-    # the group node's outputs: what the wire or the node gives
+    # the group node's outputs: what the wire or node gives
     readers = []
     for j, out in enumerate(node.outputs):
         if not out.is_linked:
@@ -995,7 +971,7 @@ def _inline_one(t, node, g, go, inner, socket_value):
 
 
 class pruning:
-    """An import's with-block: the function groups made in it pruned after (prune_groups)."""
+    """With-block for an import: prunes the function groups made in it afterwards (prune_groups)."""
 
     def __enter__(self):
         self.before = {g.name for g in bpy.data.node_groups}
@@ -1005,7 +981,7 @@ class pruning:
     def __exit__(self, kind, _value, _tb):
         if kind is None:
             self.gone = prune_groups([g.name for g in bpy.data.node_groups if g.name not in self.before])
-            # then their Material Attributes as bundles, module to module (bundles.py)
+            # then bundle their Material Attributes, module to module (bundles.py)
             from . import bundles
             new = [g for g in bpy.data.node_groups if g.name not in self.before and KEY_FP in g]
             self.bundled = bundles.bundle_attributes(new, KEY_FP, _KNOWN)
@@ -1014,7 +990,7 @@ class pruning:
 
 # ------------------------------------------------------------------ layout when seen
 def arrange_pending(tree):
-    """Lay out a tree built with LAZY_LAYOUT (once; a failure only leaves it unarranged)."""
+    """Lay out a tree built with LAZY_LAYOUT (once; a failure just leaves it unarranged)."""
     if tree is None or KEY_LAYOUT not in tree:
         return False
     del tree[KEY_LAYOUT]
@@ -1026,7 +1002,7 @@ def arrange_pending(tree):
 
 
 def _layout_in_view():
-    """Timer: the trees node editors show (a material, the group entered) laid out if pending."""
+    """Timer: lay out the trees node editors show (a material, the entered group) if pending."""
     try:
         for win in bpy.context.window_manager.windows:
             for area in win.screen.areas:
@@ -1039,7 +1015,7 @@ def _layout_in_view():
                 if done:
                     area.tag_redraw()
     except Exception:
-        pass        # no window (background), a closing file
+        pass        # no window (background mode) or the file is closing
     return 0.5
 
 
@@ -1050,22 +1026,21 @@ def ensure_layout_timer():
 
 # ------------------------------------------------------------------ one material
 def mark_bounds(objects):
-    """UE's Object Position is an object's bounds centre: each mesh object carries its own (local,
-    Blender metres), which its materials read (the materials stay shared between objects)."""
+    """UE's Object Position is an object's bounds centre. Each mesh object carries its own (local, Blender metres)
+    for its materials to read, so materials stay shared between objects."""
     for o in objects:
         if o is not None and o.type == 'MESH':
             o[BOUNDS_CENTRE] = [sum(c[i] for c in o.bound_box) / 8.0 for i in range(3)]
             o[BOUNDS_MIN] = [min(c[i] for c in o.bound_box) for i in range(3)]
             o[BOUNDS_MAX] = [max(c[i] for c in o.bound_box) for i in range(3)]
-            # the same box on the mesh's points (UE's PreSkinnedLocalBounds, env.preskinned_bounds):
-            # a part keeps its own when parts are joined - a joined mesh isn't marked over
+            # the same box on the mesh's points (UE's PreSkinnedLocalBounds, env.preskinned_bounds);
+            # a part keeps its own when parts are joined, a joined mesh isn't marked over
             me = o.data
             if PART_BOUNDS_MIN not in me.attributes and len(me.vertices):
                 for name, v in ((PART_BOUNDS_MIN, o[BOUNDS_MIN]), (PART_BOUNDS_MAX, o[BOUNDS_MAX])):
                     me.attributes.new(name, 'FLOAT_VECTOR', 'POINT').data.foreach_set("vector", list(v) * len(me.vertices))
-            # its armature's head (local, Blender metres): what the game sets HeadSocketLocation to -
-            # the head's effects bone where it has one (Cyclo's HeadFX: his dome's centre), else the
-            # head bone (its joint, at the neck)
+            # the armature's head (local, Blender metres), what the game sets HeadSocketLocation to:
+            # the head's effects bone if it has one (Cyclo's HeadFX: his dome's centre), else the head bone (at the neck)
             arm = o.find_armature()
             bones = {b.name.lower(): b for b in arm.data.bones} if arm is not None else {}
             bone = bones.get("headfx") or bones.get("head")
@@ -1074,10 +1049,10 @@ def mark_bounds(objects):
 
 
 def mark_shared_bounds(objects):
-    """An outfit's parts, each its own object: in the game they all take the body's bounds - the
-    whole character's (a gradient from the feet to the top of the head runs over the head too:
-    Gummi Team Leader's pink to purple) - so each gets the union of all of theirs, in its own space.
-    (Merge Armatures' joined mesh has it already.)"""
+    """Give each part of an outfit (each its own object) the union of all parts' bounds, in its own space.
+
+    In the game every part takes the whole character's bounds (a feet-to-head gradient runs over the head too:
+    Gummi Team Leader's pink to purple). Merge Armatures' joined mesh already has it."""
     from mathutils import Vector
     objs = [o for o in objects if o is not None and o.type == 'MESH']
     if len(objs) < 2:
@@ -1095,11 +1070,12 @@ def mark_shared_bounds(objects):
 
 
 def build_one(entry, app, objects=(), make_env=None):
-    """A Blender material for one bundle entry. Returns (material, notes). make_env(app, entry,
-    objects): an env of the caller's own (a time of day's, whose values follow its hour)."""
+    """Build a Blender material for one bundle entry. Returns (material, notes).
+
+    make_env(app, entry, objects) supplies the caller's own env (a time of day's, whose values follow its hour)."""
     mark_bounds(objects)
     if not entry.get("graph"):
-        # a master cooked without its graph (a UEFN island's own): an approximation
+        # master cooked without its graph (UEFN island material): approximate it
         from .fallback import build_fallback
         return build_fallback(entry, app, objects, MaterialEnv, settings,
                               (PREFIX, KEY_PATH, KEY_REV, BUILD_REVISION, KEY_VARIANT))
@@ -1111,13 +1087,12 @@ def build_one(entry, app, objects=(), make_env=None):
     env.root = root
     tr = Translator(root, env)
     env.h[0] = tr
-    # a particle's material also moves its vertices (World Position Offset: a zero-width lightning
-    # strip thickened towards the camera, a mesh bent along a spline)
+    # a particle's material also moves its vertices (World Position Offset: a zero-width lightning strip
+    # thickened towards the camera, a mesh bent along a spline)
     names = CARRIED + ("WorldPositionOffset",) if entry.get("particle") or entry.get("moves") else CARRIED
     vals = tr.material_attributes(app.local(entry["graph"]), names)
-    # UE clamps a material's emissive at 0 unless it allows a negative one (bAllowNegativeEmissiveColor):
-    # a negative glow (a weapon's time-of-day emissive, -5 by day: the Bonerattler SMG) took its colour
-    # away here, turning green magenta
+    # UE clamps emissive at 0 unless bAllowNegativeEmissiveColor is set; a negative glow
+    # (a weapon's time-of-day emissive, -5 by day: Bonerattler SMG) lost its colour here, turning green into magenta
     emissive = vals.get("EmissiveColor")
     if emissive is not None and not (entry.get("asset") or {}).get("bAllowNegativeEmissiveColor") \
             and not (emissive.const and min(_comps(emissive.s)[:3]) >= 0.0):
@@ -1125,10 +1100,9 @@ def build_one(entry, app, objects=(), make_env=None):
             vals["EmissiveColor"] = tr.vmath('MAXIMUM', tr.as3(emissive), tr.const((0.0, 0.0, 0.0), 3), out_w=3)
     assemble(tr, mat, vals, settings(entry))
     groups = [ft.tree for ft in tr.functions.values()]
-    # one node where translation made several alike (a texture per pin read, a group node per
-    # output of one call), none that reaches no output; before sharing, so the folded groups
-    # are what twins compare, and before the parameters are settled (one only a dropped node
-    # read goes with it)
+    # Merge alike nodes translation made (a texture per pin read, a group node per output of one call) and
+    # drop nodes reaching no output. Runs before sharing, so twins compare folded groups, and before the
+    # parameters are settled (a parameter only a dropped node read goes with it).
     memo = {}
     for t in groups + [root]:
         merge_duplicates(t, memo)
@@ -1136,8 +1110,8 @@ def build_one(entry, app, objects=(), make_env=None):
         drop_unread_inputs(t)
     values = env.finish_parameters()
     _subsurface_panel(root)
-    # twins of earlier materials' groups go first: laying out a group that's
-    # about to be thrown away was half of all layout time
+    # twins of earlier materials' groups go first: laying out a group about to be thrown away
+    # was half of all layout time
     shared, kept = share_groups(groups, owners=[root])
     if LAZY_LAYOUT:
         for t in kept + [root]:
@@ -1147,7 +1121,7 @@ def build_one(entry, app, objects=(), make_env=None):
         for t in kept + [root]:
             try:
                 layout.arrange(t)
-            except Exception as e:     # layout is cosmetic: never lose a build to it
+            except Exception as e:     # cosmetic: never lose a build to layout
                 env.note("layout of %s: %s" % (t.name, e))
     node = _material_node(mat, root, entry["name"], values, env.node_width())
     if _texture_zones(mat, node, env):
@@ -1168,15 +1142,14 @@ def build_one(entry, app, objects=(), make_env=None):
                                                                     for w in ft.tr.warnings]))
     if shared:
         notes.append("%d function groups shared with earlier materials" % shared)
-    # a time of day's height fog, where the file has one
+    # the time of day's height fog, if the file has one
     world.apply_fog(mat)
     return mat, notes
 
 
 def _subsurface_panel(root):
-    """The subsurface inputs (assemble) in the Pre FX function's panel where there's one (a
-    character's: beside its SkinSubsurfaceIntensity), else beside the game's own subsurface
-    parameter in its panel."""
+    """Put the subsurface inputs (see assemble) in the Pre FX function's panel if there is one
+    (a character's: beside SkinSubsurfaceIntensity), else beside the game's own subsurface parameter."""
     iface = root.interface
     items = list(iface.items_tree)
     names = (SUBSURFACE_INTENSITY, SUBSURFACE_SCALE, SUBSURFACE_RADIUS)
@@ -1202,14 +1175,12 @@ def _subsurface_panel(root):
 
 # ------------------------------------------------------------------ same shape, other values
 def shape_key(entry):
-    """What decides a build's node trees beyond its parameter values: its
-    master's graph, static switches and masks, blend/shading overrides and
-    subsurface profile. Instances alike in all of it differ only in their
-    parameters' values (the material's group-node inputs) and their
-    textures' images."""
+    """What decides a build's node trees beyond its parameter values: the master's graph, static switches and masks,
+    blend/shading overrides and subsurface profile. Instances alike in all of it differ only in parameter values
+    (the material's group-node inputs) and texture images."""
     k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "shell", "fixed", "landscape_layers")}
     k["head"] = _is_head(entry)
-    # (a time of day in the file keeps the collections live; without one they're folded in)
+    # with a time of day in the file collections stay live; without one they are folded in
     k["day"] = world.has_day()
     return hashlib.sha1(json.dumps(k, sort_keys=True, default=str).encode()).hexdigest()[:16]
 
@@ -1226,9 +1197,8 @@ def _reachable(root):
 
 
 def _record_shape(mat, root, env, entry):
-    """Marks a build another instance of its shape can copy: each image node
-    with the texture parameters it came from, each input with its parameter
-    and graph default."""
+    """Mark a build as copyable by other instances of its shape: each image node with the texture parameters it came
+    from, each input with its parameter and graph default."""
     key_of = {img.name: key for key, img in env._images.items() if img is not None}
     for t in [mat.node_tree] + _reachable(root):
         for n in t.nodes:
@@ -1236,7 +1206,7 @@ def _record_shape(mat, root, env, entry):
                 continue
             key = key_of.get(n.image.name)
             if key in env.tex_params:
-                # the parameter the translator says it samples; else every one that gave this texture
+                # the parameter the translator says it samples, else every one that gave this texture
                 exact = n.get("mp_tex_param")
                 n["mp_tex"] = [exact] if exact else sorted(env.tex_params[key])
                 n["mp_key"] = key
@@ -1263,10 +1233,9 @@ def find_shape(shape):
 
 
 def build_like(src, entry, app):
-    """Another instance of src's shape without translating it: src's trees
-    copied where its images differ (the images swapped), shared where they
-    don't; the parameters' values on its own group node. None when a node's
-    parameters now point at different textures (can't tell which it is)."""
+    """Another instance of src's shape without translating it: src's trees are copied with swapped images where
+    images differ and shared where they don't, with the parameter values on its own group node.
+    None when a node's parameters now point at different textures (can't tell which one it is)."""
     root1 = _root_of(src)
     if root1 is None:
         return None
@@ -1276,7 +1245,7 @@ def build_like(src, entry, app):
         params = json.loads(root1["mp_params"])
     except (ValueError, KeyError):
         return None
-    # a colour socket would clamp a negative value of this instance's: it is built anew
+    # a colour socket would clamp a negative value of this instance's, so build anew
     colour = {it.identifier for it in root1.interface.items_tree
               if it.item_type == 'SOCKET' and it.in_out == 'INPUT' and it.socket_type == 'NodeSocketColor'}
     vectors = entry.get("vectors") or {}
@@ -1293,7 +1262,7 @@ def build_like(src, entry, app):
     def changes(tree):
         if tree.name in changed:
             return changed[tree.name]
-        changed[tree.name] = False      # a cycle can't change anything twice
+        changed[tree.name] = False      # guards against cycles
         c = False
         for n in tree.nodes:
             if n.bl_idname == "ShaderNodeTexImage" and "mp_tex" in n:
@@ -1309,7 +1278,7 @@ def build_like(src, entry, app):
         changes(root1)
     except LookupError:
         return None
-    # the material's own tree: its textures (the group holds none)
+    # the material's own tree holds the textures (the group has none)
     if any(new_key(list(n["mp_tex"])) is ambiguous for n in src.node_tree.nodes
            if n.bl_idname == "ShaderNodeTexImage" and "mp_tex" in n):
         return None
@@ -1324,7 +1293,7 @@ def build_like(src, entry, app):
         t2 = tree.copy()
         copies[tree.name] = t2
         if KEY_FP in t2:
-            del t2[KEY_FP]      # not the twin of what it was copied from
+            del t2[KEY_FP]      # no longer the twin of its source
         for n in t2.nodes:
             if n.bl_idname == "ShaderNodeTexImage" and "mp_tex" in n:
                 k = new_key(list(n["mp_tex"]))
@@ -1375,76 +1344,3 @@ def build_like(src, entry, app):
     world.apply_fog(mat)
     return mat, list(env.notes) + ["same shape as %s: copied, %d texture(s) and %d group(s) with other images"
                                    % (src.name, swapped, len(copies))]
-
-
-# ------------------------------------------------------------------ bundles
-def build_bundle(payload):
-    """The app's POST /build: every material built and put in place."""
-    app = AppClient(payload["app"])
-    begin_session()
-    built = []
-    with pruning():
-        _build_into(payload, app, built)
-    return {"built": built}
-
-
-def _build_into(payload, app, built):
-    for entry in payload.get("materials", []):
-        target = entry.get("target") or {}
-        try:
-            if "replace" in target:
-                old = bpy.data.materials.get(target["replace"])
-                objects = [o for o in bpy.data.objects
-                           if old is not None and any(s.material == old for s in getattr(o, "material_slots", []))]
-                mat, notes = build_one(entry, app, objects)
-                if old is not None:
-                    old.user_remap(mat)
-                    old.use_fake_user = True          # kept, for Revert
-                    old[KEY_REPLACED_BY] = mat.name
-                    mat[KEY_REPLACES] = old.name
-                built.append({"name": mat.name, "replaced": target["replace"], "notes": notes})
-            else:
-                objects = [o for o in bpy.context.selected_objects if o.type == 'MESH']
-                mat, notes = build_one(entry, app, objects)
-                for o in objects:
-                    if not o.material_slots:
-                        o.data.materials.append(mat)
-                    else:
-                        o.material_slots[o.active_material_index].material = mat
-                built.append({"name": mat.name, "assigned": [o.name for o in objects], "notes": notes})
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            built.append({"name": entry.get("name"), "error": "%s: %s" % (type(e).__name__, e)})
-
-
-def scene_materials():
-    """The app's GET /scene: FP-imported materials still in use, with the
-    textures FP loaded for them (to tell same-named game materials apart)."""
-    out = []
-    for m in bpy.data.materials:
-        if "OriginalName" not in m or KEY_REPLACED_BY in m:
-            continue
-        users = m.users - (1 if m.use_fake_user else 0)
-        if users <= 0:
-            continue
-        images = sorted({n.image.name.rsplit(".", 1)[0] for n in (m.node_tree.nodes if m.node_tree else [])
-                         if n.type == 'TEX_IMAGE' and n.image is not None})
-        out.append({"name": m.name, "original": m["OriginalName"], "users": users, "images": images})
-    return {"materials": out}
-
-
-def revert_all():
-    """Every converted material back to FP's."""
-    n = 0
-    for m in [m for m in bpy.data.materials if KEY_REPLACES in m]:
-        old = bpy.data.materials.get(m[KEY_REPLACES])
-        if old is None:
-            continue
-        m.user_remap(old)
-        old.use_fake_user = False
-        if KEY_REPLACED_BY in old:
-            del old[KEY_REPLACED_BY]
-        bpy.data.materials.remove(m)
-        n += 1
-    return n

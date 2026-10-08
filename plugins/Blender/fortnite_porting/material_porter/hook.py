@@ -1,11 +1,9 @@
-"""Material Porter fork: FP's materials rebuilt exactly from their UE graphs.
+"""FP's materials rebuilt exactly from their UE graphs.
 
-FP's material import calls build_exact() once its parameters are merged. The
-FP app's Material Porter bridge (localhost:24320) describes the material and
-serves its graph, functions, textures and parameter collections; the builder
-(build.py, translated by ue_graph.py) makes the node trees. When that can't
-be done (no bridge, Blender before 5.0, a failed build) it returns None and
-FP builds its own preset material as usual.
+FP's material import calls build_exact() once its parameters are merged. The app's bridge (localhost:24320)
+serves the material, its graph, functions, textures and parameter collections; build.py (with ue_graph.py)
+makes the node trees. When that can't be done (no bridge, Blender before 5.0, failed build) it returns None
+and FP builds its own preset material.
 """
 import hashlib
 import json
@@ -20,21 +18,20 @@ from ..logger import Log
 
 URL = os.environ.get("MATERIAL_PORTER_BRIDGE", "http://localhost:24320")
 
-# one FP import at a time: its client (a memo of what the app answered), what
-# it built, and the shapes new instances can copy
+# state of the current FP import: client (memoises app answers), built materials, shapes new instances can copy
 _job = {"key": None, "app": None, "down": False, "built": {}, "shapes": {}, "notes": []}
 
 
-KEY_OVERLAY = "mp_overlay"    # the values a material was built with (JSON), but for its wrap's
-KEY_WRAP = "mp_wrap"          # the wrap over it (its item's name)
+KEY_OVERLAY = "mp_overlay"    # values the material was built with (JSON), excluding its wrap's
+KEY_WRAP = "mp_wrap"          # name of the wrap item over it
 
 
 def _session(context):
-    """The current import's state, begun afresh for each import (context)."""
+    """State of the current import, reset when a new import (context) starts."""
     if _job["key"] is not context:
         build.begin_session()
         _job.update(key=context, app=AppClient(URL), down=False, built={}, shapes={}, notes=[])
-        # the export's texture size cap (Blender settings: Max Texture Size), asked of the app with each texture
+        # texture size cap (Max Texture Size setting), sent to the app with each texture request
         try:
             _job["app"].max_texture = int((getattr(context, "options", None) or {}).get("MaxTextureSize") or 0)
         except (TypeError, ValueError):
@@ -55,10 +52,8 @@ def _texture_path(texture):
 
 
 def _overlay(texture_data, override_parameters, values=None):
-    """What FP puts over the material's own values: a building's texture data
-    (by layer, like FP), a style's parameter overrides, and the fork map
-    reader's values (a dynamic instance's, a building's texture data, a
-    weapon wrap's: those set static switches too)."""
+    """Values FP puts over the material's own: building texture data (by layer), style parameter overrides,
+    and `values` from the fork's map reader (dynamic instances, building texture data, weapon wraps; these set static switches too)."""
     textures, scalars, vectors, switches = {}, {}, {}, {}
     if values:
         textures.update(values.get("Textures") or {})
@@ -86,7 +81,7 @@ def _overlay(texture_data, override_parameters, values=None):
 
 
 def _built(path, variant):
-    # a fallback (an island's material, no graph) an older fallback builder made is built again
+    # fallbacks (island materials without a graph) from an older fallback builder are rebuilt
     return next((m for m in bpy.data.materials if m.get(build.KEY_PATH) == path
                  and m.get(build.KEY_VARIANT, "") == variant and build.KEY_REPLACES not in m
                  and m.get(build.KEY_REV, 1) >= build.BUILD_REVISION
@@ -94,8 +89,7 @@ def _built(path, variant):
 
 
 def _material(job, entry, obj):
-    """Built once per (path, variant) and import; an instance of a shape
-    already built is a copy of it with its own values and images."""
+    """Build once per (path, variant) and import. An instance of an already built shape is a copy with its own values and images."""
     app, built, shapes, notes = job["app"], job["built"], job["shapes"], job["notes"]
     variant = entry.get("variant", "")
     key = (entry["path"], variant)
@@ -123,9 +117,9 @@ def _material(job, entry, obj):
 
 
 def subsurface(context, material_data):
-    """The FP app's subsurface settings for a material: (how much light scatters where it scatters
-    any, times the game's distance). Skin: Subsurface Intensity and Scale; a shell fur layer and its
-    base (material_porter.shells): Fur Subsurface Intensity and Scale."""
+    """Subsurface settings (intensity, scale) from the app options, applied on top of the game's values.
+
+    Skin uses Subsurface Intensity/Scale; shell fur layers and their base (material_porter.shells) use Fur Subsurface Intensity/Scale."""
     options = getattr(context, "options", None) or {}
     prefix = "FurSubsurface" if material_data.get("MPMoves") else "Subsurface"
 
@@ -141,9 +135,10 @@ def exact_available(context):
 
 
 def _sampler_limit():
-    """Image nodes Eevee can draw a material through, or None for no limit: 30 on OpenGL (its 32
-    texture units, two of them Eevee's own; past that "too many samplers" leaves the material
-    magenta); Vulkan and Metal bind textures without the cap."""
+    """Max image nodes Eevee can draw a material through, or None for no limit.
+
+    OpenGL has 32 texture units, two used by Eevee, so 30; past that the material renders magenta ("too many samplers").
+    Vulkan and Metal have no such cap."""
     try:
         import gpu
         backend = gpu.platform.backend_type_get()
@@ -155,7 +150,7 @@ def _sampler_limit():
 
 
 def _samplers(mat):
-    """The image nodes that reach a material's output, through its groups: what Eevee binds."""
+    """Count the image nodes that reach the material output, through groups (what Eevee binds)."""
     seen, count = set(), 0
 
     def walk(tree, outs):
@@ -180,7 +175,7 @@ def _samplers(mat):
 
 
 def _lightest_layer(obj, layers):
-    """Of a landscape proxy's painted layers, the one with the least weight over it."""
+    """The painted layer of a landscape proxy with the least total weight."""
     import numpy as np
     total = {}
     for name in layers:
@@ -201,7 +196,7 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     job = _session(context)
     if job["down"]:
         return None
-    build.mark_bounds([obj] if obj else [])     # (UE's Object Position: each object's own, a shared material)
+    build.mark_bounds([obj] if obj else [])     # UE's Object Position is per object even for a shared material
     path = material_data.get("Path")
     if not path:
         return None
@@ -215,12 +210,12 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
             _log("%s: %s - FP's own material" % (material_data.get("Name"), e))
         return None
     overlay = _overlay(texture_data, override_parameters, material_data.get("MPValues"))
-    # a material built before, built again (wrap.py): what it was built with then
+    # rebuilding a material (wrap.py): reapply the values it was built with
     for kind, values in (material_data.get("MPOverlay") or {}).items():
         overlay[kind] = dict(values, **(overlay.get(kind) or {}))
     base = json.dumps(overlay, sort_keys=True) if overlay else ""
-    # a wrap: its values over those, but for the textures the material (or its style) sets itself -
-    # a weapon's diffuse, normals, masks and customization mask stay its own
+    # wrap values go over those, except textures the material (or its style) sets itself
+    # (weapon diffuse, normals, masks, customization mask)
     wrap = material_data.get("MPWrap")
     if wrap:
         own = set(entry.get("textures") or {}) | set(overlay.get("textures") or {})
@@ -228,57 +223,54 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
             if kind == "textures":
                 values = {k: v for k, v in values.items() if k not in own}
             overlay[kind] = dict(overlay.get(kind) or {}, **values)
-    # "Rim Light" off (the default): the character materials' rim light (MF_RimV3's baseBrightness) at 0
+    # Rim Light off (default): zero the rim light of character materials (MF_RimV3 baseBrightness)
     if not (getattr(context, "options", None) or {}).get("RimLight"):
         overlay.setdefault("scalars", {})["baseBrightness"] = 0.0
-        # (fixed, not a control: Rim V3 folds away, and Post FX with it when nothing else is on)
+        # fixed, not a control: Rim V3 folds away, and Post FX with it when nothing else is on
         entry["fixed"] = {"baseBrightness": 0.0}
     if overlay:
         for kind, values in overlay.items():
             entry[kind] = dict(entry.get(kind) or {}, **values)
         entry["variant"] = _digest(json.dumps(overlay, sort_keys=True))
-    # a sprite with a flipbook: its UV0 is the sub-image its particle shows (env.uv)
+    # flipbook sprite: UV0 is the sub-image the particle shows (env.uv)
     if sprite := material_data.get("MPSprite"):
         entry["sprite"] = [float(x) for x in sprite]
         entry["variant"] = _digest("%s %s" % (entry.get("variant", ""), entry["sprite"]))
-    # a ribbon's: its particles' values are its mesh's attributes (env._particle_attr)
+    # ribbon: particle values are mesh attributes (env._particle_attr)
     if material_data.get("MPRibbon"):
         entry["ribbon"] = True
         entry["variant"] = _digest("%s ribbon" % entry.get("variant", ""))
-    # a particle effect's piece: its material's World Position Offset moves its vertices too (build.build_one)
+    # particle effect piece: World Position Offset also moves its vertices (build.build_one)
     if obj is not None and obj.get("mp_effect") in ("Sprite", "Ribbon", "Mesh", "Decal"):
         entry["particle"] = True
         entry["variant"] = _digest("%s particle" % entry.get("variant", ""))
-    # a shell fur layer's or its base's (material_porter.shells): its World Position Offset puts it
-    # where the game draws it
+    # shell fur layer or its base (material_porter.shells): World Position Offset puts it where the game draws it
     if material_data.get("MPMoves"):
         entry["moves"] = True
         entry["variant"] = _digest("%s moves" % entry.get("variant", ""))
-    # the import's subsurface intensity and scale (shell fur's own): times the game's
+    # import's subsurface intensity and scale (separate ones for shell fur), multiplied with the game's
     sss = subsurface(context, material_data)
-    # a shell fur layer (material_porter.shells): it all scatters, as fur
+    # shell fur layer (material_porter.shells): scatters fully
     if material_data.get("MPShell"):
         entry["shell"] = True
         entry["variant"] = _digest("%s shell" % entry.get("variant", ""))
     if sss != (1.0, 1.0):
         entry["variant"] = _digest("%s sss %g %g" % ((entry.get("variant", ""),) + sss))
-    # a landscape proxy (placement.after_import marks it; FP exports the layers painted on it as
-    # colour attributes): its material built per set of those layers, as UE compiles each component -
-    # the other layers' textures fold away (the Ch4 jungle landscape samples 43 over all its layers,
-    # past Eevee's 32: it rendered magenta)
+    # Landscape proxy (marked by placement.after_import; FP exports painted layers as colour attributes):
+    # one material per set of layers, as UE compiles each component, so other layers' textures fold away
+    # (the Ch4 jungle landscape samples 43 textures over all layers, past Eevee's 32, and rendered magenta)
     landscape_base = (entry.get("variant", ""), entry["name"])
     if obj is not None and obj.type == 'MESH' and obj.get("mp_landscape"):
         layers = sorted(a.name for a in obj.data.color_attributes if a.name != "COL0")
         entry["landscape_layers"] = layers
         entry["name"] = "%s (%s)" % (landscape_base[1], "+".join(layers) if layers else "no layers")
         entry["variant"] = _digest("%s layers %s" % (landscape_base[0], " ".join(layers)))
-    # each tree laid out when a node editor first shows it: two fifths of a build, and cosmetic
+    # lay out each tree when a node editor first shows it (two fifths of build time, cosmetic)
     build.LAZY_LAYOUT = True
     try:
         mat = _material(job, entry, obj)
-        # on OpenGL Eevee draws a material through a limited number of image samplers (past it,
-        # "too many samplers" leaves the material magenta): a proxy whose painted layers' textures
-        # are still past that drops the layer it paints the least, as often as it takes
+        # On OpenGL Eevee limits image samplers per material (past it: magenta). A proxy still over the limit
+        # drops its least painted layer, repeatedly.
         limit = _sampler_limit() if entry.get("landscape_layers") else None
         while limit and len(entry["landscape_layers"]) > 1 and (samplers := _samplers(mat)) > limit:
             lightest = _lightest_layer(obj, entry["landscape_layers"])
@@ -300,15 +292,15 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         _log(note)
     job["notes"].clear()
     if build.KEY_SUBSURFACE in mat:
-        # (its root group's node: the only one in its own tree with those inputs)
+        # the root group node is the only one in its tree with those inputs
         for n in mat.node_tree.nodes:
             if n.bl_idname == "ShaderNodeGroup" and build.SUBSURFACE_SCALE in n.inputs and build.SUBSURFACE_INTENSITY in n.inputs:
                 n.inputs[build.SUBSURFACE_INTENSITY].default_value = sss[0]
                 n.inputs[build.SUBSURFACE_SCALE].default_value = mat[build.KEY_SUBSURFACE] * sss[1]
-    # a LEGO figure's face: where its rig puts the character accents for each mouth pose (face_anim.py)
+    # LEGO face: rig placement of the character accents per mouth pose (face_anim.py)
     if rig := material_data.get("MPFaceRig"):
         mat["mp_face_rig"] = rig
-    # what it was built with under its wrap, and the wrap's name: to change or remove the wrap later
+    # remember the values under the wrap and the wrap's name, to change or remove it later
     for key, value in ((KEY_OVERLAY, base), (KEY_WRAP, str(wrap.get("Label") or "wrap") if wrap else "")):
         if value:
             mat[key] = value
