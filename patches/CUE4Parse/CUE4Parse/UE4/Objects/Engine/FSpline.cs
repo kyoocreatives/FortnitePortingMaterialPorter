@@ -5,10 +5,7 @@ using CUE4Parse.UE4.Readers;
 
 namespace CUE4Parse.UE4.Objects.Engine;
 
-/// <summary>
-/// A knot of a spline channel: its parameter and how many control values share it
-/// (4 at a clamped end, 3 between the segments of a cubic poly-Bezier).
-/// </summary>
+/// <summary>MP: knot of a spline channel: parameter and number of control values sharing it (4 at a clamped end, 3 between cubic Bezier segments).</summary>
 public readonly struct FSplineKnot(float value, int multiplicity)
 {
     public readonly float Value = value;
@@ -16,9 +13,8 @@ public readonly struct FSplineKnot(float value, int multiplicity)
 }
 
 /// <summary>
-/// One channel of the UE 5.6+ spline (the position curve, or a named attribute such as
-/// Rotation or Scale): per point its arrive handle, value and leave handle, in that order,
-/// then the knots and each point's interp mode.
+/// MP: one channel of the UE 5.6+ spline (position or a named attribute like Rotation).
+/// Per point: arrive handle, value, leave handle; then the knots and each point's interp mode.
 /// </summary>
 public class FSplineChannel
 {
@@ -26,7 +22,7 @@ public class FSplineChannel
     public FSplineKnot[] Knots = [];
     public byte[] InterpModes = [];
 
-    /// <summary>A point's value (the middle of its three control values).</summary>
+    /// <summary>A point's value, the middle of its three control values.</summary>
     public T Point<T>(int i) => (T) Values[i * 3 + 1];
     public int PointCount => Values.Length / 3;
 
@@ -66,7 +62,7 @@ public class FSplineChannel
         Ar.Read<int>();
     }
 
-    /// <summary>An attribute channel of an unknown type: the value size its knots follow.</summary>
+    /// <summary>Guesses the value size of an unknown attribute channel from where valid knots follow.</summary>
     private static int InferValueSize(FArchive Ar, int count)
     {
         var start = Ar.Position;
@@ -100,9 +96,9 @@ public class FSplineChannel
 
 public struct FSpline : IUStruct
 {
-    /// <summary>The spline's positions (UE 5.6+ "new" spline, else null).</summary>
+    /// <summary>MP: positions of the UE 5.6+ spline, else null.</summary>
     public FSplineChannel? Position;
-    /// <summary>Its attribute channels by name (Rotation, Scale...).</summary>
+    /// <summary>MP: attribute channels by name (Rotation, Scale...).</summary>
     public Dictionary<string, FSplineChannel>? Attributes;
 
     public FSpline(FArchive Ar)
@@ -131,6 +127,6 @@ public struct FSpline : IUStruct
             Ar.Read<float>();
             Attributes[name] = new FSplineChannel(Ar, name);
         }
-        Ar.Read<int>();     // 10 (the reparameterization's steps per segment?)
+        Ar.Read<int>();     // 10, maybe reparameterization steps per segment
     }
 }

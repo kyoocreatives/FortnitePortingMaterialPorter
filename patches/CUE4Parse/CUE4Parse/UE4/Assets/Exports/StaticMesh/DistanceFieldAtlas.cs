@@ -25,7 +25,7 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
 
         public FSparseDistanceFieldMip(FArchive Ar) : this(Ar, Ar.Game >= GAME_UE5_4) { }
 
-        // Material Porter fork: in the layout given (single-precision vectors: UE 5.4's)
+        // MP: layout passed in (single-precision vectors = UE 5.4)
         public FSparseDistanceFieldMip(FArchive Ar, bool singlePrecision)
         {
             IndirectionDimensions = Ar.Read<FIntVector>();
@@ -48,7 +48,7 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
             BulkSize = Ar.Read<uint>();
         }
 
-        // Material Porter fork: what a mip read in its own layout looks like
+        // MP: whether a mip read in its own layout looks valid
         public bool IsPlausible()
         {
             static bool Small(double d) => double.IsFinite(d) && Math.Abs(d) < 1e6;
@@ -120,12 +120,10 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
 
         public FDistanceFieldVolumeData5(FAssetArchive Ar) : this(Ar, null) { }
 
-        // Material Porter fork: a build between engine releases mixes their layouts (Fortnite 28.00: 5.3's
-        // double-precision bounds, 5.4's single-precision mips). Each combination is read, the engine version's
-        // first, and kept when the whole block reads plausibly and what follows it does too: the LODs after it
-        // (lodsAfter) - their flags, and when none has a distance field, the render data's bounds, a real sphere (a
-        // block of zeros reads the same in every layout: the bounds after it tell). When none does, the engine
-        // version's is read as before.
+        // MP: builds between releases mix layouts (28.00: 5.3 double bounds, 5.4 single mips).
+        // Try each combination, engine version's first, and keep the first that reads plausibly and is
+        // followed by valid data: the next LODs' flags (lodsAfter), or the render data's bounds if none has
+        // a distance field. Otherwise read the engine version's layout.
         public FDistanceFieldVolumeData5(FAssetArchive Ar, int? lodsAfter)
         {
             var singleBounds = Ar.Game >= GAME_UE5_4 || Ar.Game is GAME_Highguard;
@@ -143,7 +141,7 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
                     }
                     catch
                     {
-                        // (not this layout)
+                        // wrong layout, try the next
                     }
                 }
                 Ar.Position = start;
@@ -186,7 +184,7 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
                    && box.Min.X <= box.Max.X && box.Min.Y <= box.Max.Y && box.Min.Z <= box.Max.Z;
         }
 
-        // the LODs after this one: each one's flag; when none has a distance field, the render data's bounds next
+        // MP: check the following LODs' flags; if none has a distance field, the render data's bounds come next
         private static bool FollowedRight(FAssetArchive Ar, int lodsAfter)
         {
             var saved = Ar.Position;
@@ -197,7 +195,7 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
                     if (Ar.Position + 4 > Ar.Length) return false;
                     var flag = Ar.Read<int>();
                     if (flag is not (0 or 1)) return false;
-                    if (flag == 1) return true;     // (its own distance field follows: not walked)
+                    if (flag == 1) return true;     // its distance field follows, not walked
                 }
                 return IsBoundsSphere(Ar);
             }
@@ -207,8 +205,7 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
             }
         }
 
-        // the render data's bounds that follow the last LOD's distance field: a real mesh's (not zeros), its sphere
-        // around its box
+        // MP: render data bounds after the last LOD's distance field: a non-zero sphere around its box
         private static bool IsBoundsSphere(FAssetArchive Ar)
         {
             var saved = Ar.Position;
@@ -234,7 +231,7 @@ namespace CUE4Parse.UE4.Assets.Exports.StaticMesh
 
         private static FBox ReadBounds(FAssetArchive Ar, bool singlePrecision) => singlePrecision ? Ar.Read<FBox>() : new FBox(Ar);
 
-        // the bool that follows the bounds: 0 or 1 when they were read in the right layout
+        // MP: the bool after the bounds is 0 or 1 when the layout is right
         private static bool IsBool(FAssetArchive Ar)
         {
             if (Ar.Position + 4 > Ar.Length) return false;

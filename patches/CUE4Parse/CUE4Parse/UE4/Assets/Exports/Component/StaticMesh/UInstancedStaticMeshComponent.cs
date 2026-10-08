@@ -135,8 +135,7 @@ public class UInstancedStaticMeshComponent : UStaticMeshComponent
         if (bCooked && (FFortniteMainBranchObjectVersion.Get(Ar) >= FFortniteMainBranchObjectVersion.Type.SerializeInstancedStaticMeshRenderData ||
                         FEditorObjectVersion.Get(Ar) >= FEditorObjectVersion.Type.SerializeInstancedStaticMeshRenderData))
         {
-            // Material Porter fork: a build between engine releases (Fortnite 28.00) still writes the size-prefixed
-            // render data: 5.4's flag is taken only when one is there
+            // MP: builds between releases (28.00) still write the size-prefixed render data; take 5.4's flag only if present
             if (Ar.Game >= GAME_UE5_4 && Ar.Position + 4 <= validPos && PeekInt(Ar) is 0 or 1)
             {
                 var bHasCookedData = Ar.ReadBoolean();

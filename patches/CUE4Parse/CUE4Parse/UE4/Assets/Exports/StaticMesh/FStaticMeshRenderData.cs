@@ -115,7 +115,7 @@ public class FStaticMeshRenderData
                     {
                         if (Ar.Game is >= GAME_UE5_0 or GAME_TerminullBrigade or GAME_WutheringWaves)
                         {
-                            _ = new FDistanceFieldVolumeData5(Ar, LODs.Length - 1 - i);     // Material Porter fork: what follows it
+                            _ = new FDistanceFieldVolumeData5(Ar, LODs.Length - 1 - i);     // MP: LODs left, for the layout check
                         }
                         else
                         {
@@ -243,8 +243,8 @@ public class FStaticMeshRenderData
             }
         }
 
-        // Material Porter fork: a build between engine releases (Fortnite 28.00) doesn't write 5.4's strip flags here -
-        // read when the mesh's SpeedTree flag follows them, or doesn't follow without them
+        // MP: 28.00 doesn't write 5.4's strip flags here; read them if the SpeedTree flag follows them,
+        // or doesn't follow without them
         if (Ar.Game >= GAME_UE5_4 && (IsBoolAt(Ar, Ar.Position + 2) || !IsBoolAt(Ar, Ar.Position)))
             _ = new FStripDataFlags(Ar);
     }
