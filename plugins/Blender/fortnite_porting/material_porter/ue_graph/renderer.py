@@ -272,7 +272,9 @@ class RendererMixin:
         if t == "ParticlePositionWS":
             return env.actor_position("CameraRelative" in str(p.get("OriginType", "")))
         if t == "ParticleRadius":
-            return self.evaluate_geometry(g, x, "ObjectRadius", out, scope, p, P)
+            def object_radius():
+                return self.evaluate_geometry(g, x, "ObjectRadius", out, scope, p, P)
+            return self._hook("particle_radius", object_radius, object_radius)
         if t == "ParticleMacroUV":
             return self.evaluate_geometry(g, x, "ScreenPosition", 0, scope, p, P)
         if t == "ParticleRelativeTime":

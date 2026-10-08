@@ -639,6 +639,18 @@ class MaterialEnv:
         usual = tr.const(100.0)
         return tr.combine([tr.math('ADD', usual, tr.math('MULTIPLY', tr.math('SUBTRACT', v, usual), has)) for v in (x, y)])
 
+    def particle_radius(self, object_radius):
+        """UE's Particle Radius: a sprite's is half its larger side (mp_size), at least 0.001 as UE clamps it;
+        a particle without a size (a mesh's) and anything else take the object's. None off an effect."""
+        if not self.entry.get("particle"):
+            return None
+        tr = self.tr
+        x, y = tr.comps(self._particle_attr("mp_size")[0])[:2]
+        sprite = tr.math('MAXIMUM', tr.math('MULTIPLY', tr.math('MAXIMUM', x, y), tr.const(0.5)), tr.const(0.001))
+        has = tr.math('GREATER_THAN', tr.math('ADD', x, y), tr.const(0.0))
+        other = object_radius()
+        return tr.math('ADD', other, tr.math('MULTIPLY', tr.math('SUBTRACT', sprite, other), has))
+
     def dynamic_parameter(self, index, default=None):
         """UE's Dynamic Parameter <index>: four floats a particle system sets per particle, from mp_dynamic<index>
         where mp_dynamic (four flags, one per parameter) says the effect sets it; the expression's default elsewhere."""
