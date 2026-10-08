@@ -9,32 +9,27 @@ using Serilog;
 
 namespace FortnitePorting.Models.Assets.Loading;
 
-/// <summary>
-/// Material Porter fork: assets listed unread, the asset registry's and others. The cooked registry
-/// keeps few of the game's own Niagara systems (the Effects tab listed 1,379, nearly all islands');
-/// the others are only reachable by file path, and holding them all read took over 40 GB.
-/// </summary>
+/// <summary>Assets listed unread: the asset registry's, and others reachable only by file path.</summary>
+// The cooked registry keeps few of the game's own Niagara systems (the Effects tab listed 1,379, nearly all islands'),
+// and holding every one of the rest read took over 40 GB.
 public partial class AssetLoader
 {
-    /// <summary>
-    /// The packages to list, given the registry's entries of this loader's classes: (package path,
-    /// object name). Each one whose object's class (read from the package's export map, with an
-    /// outline of the system: Effects.Outline) is one of <see cref="ClassNames"/> is listed unread
-    /// (<see cref="Unloaded"/>): the export reads it. The registry's entries aren't listed otherwise.
-    /// </summary>
+    /// <summary>Picks the packages to list from the registry's entries (package path, object name) of this loader's classes.</summary>
+    // An entry whose object's class (read from the package's export map, with an outline of the system: Effects.Outline)
+    // is one of ClassNames is listed unread (Unloaded); the export reads it. Other registry entries aren't listed.
     public Func<IReadOnlyList<(string Package, string Name)>, IReadOnlyList<(string Package, string Name)>>? MPUnregistered;
 
     /// <summary>Before and after the listing (an outline cache to read, then write).</summary>
     public Func<Task>? MPBeforeListing;
     public Action? MPAfterListing;
 
-    /// <summary>Once every package's outline is read, before the items are made: what needs them all (an owner found for one, given to its folder).</summary>
+    /// <summary>Once every package's outline is read, before the items are made: for what needs them all (an owner found for one, given to its folder).</summary>
     public Action<IReadOnlyList<Unloaded.IOutline>>? MPOutlined;
 
-    /// <summary>An item's icon's path, where the asset's own data can't say (one listed unread).</summary>
+    /// <summary>An item's icon path, where the asset's own data can't say (one listed unread).</summary>
     public Func<UObject, string?>? MPIconPath;
 
-    /// <summary>Each listed package's outline (its class first), from its package's maps.</summary>
+    /// <summary>Each listed package's outline (class first), from its package's maps.</summary>
     public Func<string, string, Task<Unloaded.IOutline?>> MPOutline = async (package, name) =>
         await Effects.ReadOutline(UEParse.Provider, package, name);
 

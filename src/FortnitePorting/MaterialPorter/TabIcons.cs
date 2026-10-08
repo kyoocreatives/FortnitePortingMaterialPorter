@@ -5,11 +5,9 @@ using FortnitePorting.Extensions;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// Material Porter fork: an export type's icon (Assets/FN/&lt;type&gt;.png). A type without one of its
-/// own takes the plain icon: a missing resource threw while the Assets page was being built, and
-/// the page never came up (the fork's Effects and Contrails tabs had none).
-/// </summary>
+/// <summary>An export type's icon (Assets/FN/&lt;type&gt;.png), or the plain icon for a type without one.</summary>
+// A missing resource threw while the Assets page was being built, so the page never came up
+// (the Effects and Contrails tabs had no icon).
 public static class TabIcons
 {
     private const string Plain = "avares://FortnitePorting/Assets/FN/Misc.png";

@@ -9,17 +9,15 @@ using Serilog;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// The fork's releases (GitHub, tagged v4.0.0-mp.N). FP's updater would install upstream FP over the
-/// fork; a release's "-mp.N" makes it a dev build to FP, so FP's never asks and this one does.
-/// </summary>
+/// <summary>Checks the fork's GitHub releases (tagged v4.0.0-mp.N).</summary>
+// FP's updater would install upstream over the fork; "-mp.N" makes a release a dev build to FP, so FP never asks.
 public static class ForkUpdates
 {
     public const string Repository = "kyoocreatives/FortnitePortingMaterialPorter";
 
     public static async Task CheckAsync(InfoService info, AppService app)
     {
-        // builds that aren't releases (-dev, a commit's) don't ask
+        // non-release builds (-dev, commit builds) don't check
         if (Release(Globals.Version) is not (var currentBase, var currentBuild)) return;
         try
         {
@@ -48,7 +46,7 @@ public static class ForkUpdates
         }
     }
 
-    /// <summary>A release's FP version and build (N of "mp.N"); identifiers compare as text, so mp.10 would sort before mp.9.</summary>
+    /// <summary>A release's FP version and build (N of "mp.N"), compared numerically since mp.10 sorts before mp.9 as text.</summary>
     private static (FPVersion Base, int Build)? Release(FPVersion version) =>
         version.Identifier.StartsWith("mp.") && int.TryParse(version.Identifier[3..], out var build)
             ? (new FPVersion(version.Release, version.Major, version.Minor, version.Patch), build)

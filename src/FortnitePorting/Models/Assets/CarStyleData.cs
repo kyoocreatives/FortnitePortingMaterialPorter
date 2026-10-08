@@ -1,6 +1,6 @@
 namespace FortnitePorting.Models.Assets;
 
-/// <summary>A car channel's option (Material Porter fork): which channel, which option.</summary>
+/// <summary>A car channel's option: which channel, which option.</summary>
 public partial class CarStyleData : BaseStyleData
 {
     public int Channel { get; }

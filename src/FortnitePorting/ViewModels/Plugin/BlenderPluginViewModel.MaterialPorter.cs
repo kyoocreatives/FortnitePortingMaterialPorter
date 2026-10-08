@@ -12,10 +12,9 @@ using Serilog;
 
 namespace FortnitePorting.ViewModels.Plugin;
 
-// Material Porter fork.
 public partial class BlenderPluginViewModel
 {
-    // a process whose modules can't be read (Win32 error 299: exiting, or another session's): skipped
+    // a process whose modules can't be read (Win32 error 299: exiting, or another session's) is skipped
     // instead of failing the whole plugin sync
     private static string? ExecutablePath(Process process)
     {

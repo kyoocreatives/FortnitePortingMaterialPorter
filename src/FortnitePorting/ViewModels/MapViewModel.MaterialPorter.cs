@@ -8,13 +8,9 @@ using FortnitePorting.MaterialPorter;
 
 namespace FortnitePorting.ViewModels;
 
-/// <summary>
-/// Material Porter fork: a UEFN island opened by its map code. The user's key
-/// tool gets the island's key from Epic (a sign-in page opens when it asks);
-/// the key is kept with Material Porter's (never shown or logged), the island
-/// Fortnite downloaded is mounted, and the map list reloads with it. Only in
-/// the owner's builds (Fork.Islands).
-/// </summary>
+/// <summary>A UEFN island opened by its map code (owner builds only, Fork.Islands).</summary>
+// The user's key tool gets the island's key from Epic (a sign-in page opens when it asks); the key is kept with
+// Material Porter's (never shown or logged), the island Fortnite downloaded is mounted, and the map list reloads.
 public partial class MapViewModel
 {
     public bool CanUnlockIslands => Fork.Islands;

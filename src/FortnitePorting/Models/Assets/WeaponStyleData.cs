@@ -1,6 +1,6 @@
 namespace FortnitePorting.Models.Assets;
 
-/// <summary>A wrap option on an asset's page (Material Porter fork): a wrap item's path, "" for no wrap, null for the item as it is.</summary>
+/// <summary>A wrap option on an asset's page: a wrap item's path, "" for no wrap, null for the item as it is.</summary>
 public partial class WrapStyleData : BaseStyleData
 {
     public string? Path { get; }
@@ -13,7 +13,7 @@ public partial class WrapStyleData : BaseStyleData
     }
 }
 
-/// <summary>A pickaxe's Effects option (Material Porter fork): without its own effects, or with them.</summary>
+/// <summary>A pickaxe's Effects option: without its own effects, or with them.</summary>
 public partial class EffectsStyleData : BaseStyleData
 {
     public bool On { get; }
@@ -26,7 +26,7 @@ public partial class EffectsStyleData : BaseStyleData
     }
 }
 
-/// <summary>A weapon mod option for a slot (Material Porter fork): a mod item's path, "" for none, null for the weapon's own.</summary>
+/// <summary>A weapon mod option for a slot: a mod item's path, "" for none, null for the weapon's own.</summary>
 public partial class WeaponModStyleData : BaseStyleData
 {
     public string Slot { get; }

@@ -19,13 +19,10 @@ using SixLabors.ImageSharp;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// Material Porter fork: a top-down picture of a map that has no minimap of its own (a UEFN island, a mode's map
-/// whose listed minimap is another map's). Its landscape shaded by height, then what stands on it - each placed
-/// mesh's bounds seen from above, at its top's height - lit from the north-west so buildings stand out. Image x
-/// runs along +X and y along +Y, as the game's own map pictures. Drawn from the map's levels (the cells streaming
-/// in its World Partition, an island's cells beside it), refined as they're read, and kept on disk.
-/// </summary>
+/// <summary>Top-down picture of a map without its own minimap (a UEFN island, or a mode whose minimap is another map's).</summary>
+// Landscape shaded by height, then each placed mesh's bounds seen from above at its top height, lit from the
+// north-west. Image x runs along +X and y along +Y, like the game's own map pictures. Drawn from the map's levels
+// (World Partition cells, an island's cells beside it), refined as they're read, and cached on disk.
 public static class MapPreview
 {
     public const int Size = 2048;
@@ -45,11 +42,9 @@ public static class MapPreview
     private static Dictionary<string, string>? _owners;
     private static readonly SemaphoreSlim OwnersLock = new(1, 1);
 
-    /// <summary>
-    /// Whether a minimap texture is the picture of a map other than this one: the game's map UI data names each
-    /// picture's map, and Battle Royale's picture (Apollo_Terrain_Minimap) is the current island's, whatever map
-    /// lists it.
-    /// </summary>
+    /// <summary>Whether a minimap texture belongs to a map other than this one.</summary>
+    // The game's map UI data names each picture's map; Battle Royale's picture (Apollo_Terrain_Minimap)
+    // is the current island's, whichever map lists it.
     public static async Task<bool> IsAnotherMapsAsync(IFileProvider provider, string? minimapPath, string mapPath)
     {
         if (string.IsNullOrEmpty(minimapPath)) return false;
@@ -75,7 +70,7 @@ public static class MapPreview
                     if (data is null || !data.TryGetValue(out string map, "MapPath")
                                      || !data.TryGetValue(out FSoftObjectPath material, "MapMaterial")) continue;
                     var materialObject = await material.LoadAsync();
-                    // the textures its map material samples
+                    // textures sampled by its map material
                     var json = JsonConvert.SerializeObject(materialObject, settings);
                     foreach (System.Text.RegularExpressions.Match m in System.Text.RegularExpressions.Regex.Matches(json, "Texture2D'([^']+)'"))
                         owners.TryAdd(Name(m.Groups[1].Value), Name(map));
@@ -148,10 +143,9 @@ public static class MapPreview
 
     // ------------------------------------------------------------ drawing
 
-    /// <summary>
-    /// Reads the levels (the map's first) and draws them, showing each stage through `show`: the landscape once the
-    /// first level is read (when it has one, its extent is the picture's), then what stands on it every few seconds.
-    /// </summary>
+    /// <summary>Reads the levels (the map's first) and draws them, reporting each stage through `show`.</summary>
+    // The landscape is drawn once the first level is read (its extent, if it has one, is the picture's),
+    // then what stands on it every few seconds.
     public static async Task<Picture?> DrawAsync(IFileProvider provider, string mapPath, IReadOnlyList<string> levels, string folder, string key,
         Action<Picture?, string> show, CancellationToken ct)
     {
@@ -189,9 +183,9 @@ public static class MapPreview
             if (area is null) return null;
             canvas.Begin(area);
         }
-        else canvas.Begin(area);     // (landscapes found in the cells)
+        else canvas.Begin(area);     // landscapes found in the cells
 
-        // each mesh's bounds, read once; drawn in batches so the picture fills in
+        // each mesh's bounds are read once; drawn in batches so the picture fills in
         var meshes = placed.Select(p => p.Mesh).Where(m => !string.IsNullOrEmpty(m)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var read = 0;
         var lastShown = DateTime.MinValue;
@@ -246,7 +240,7 @@ public static class MapPreview
 
     private static readonly string[] FoliageWords = ["Tree", "Bush", "Foliage", "Plant", "Grass", "Flower", "Leaf", "Leaves", "Palm", "Shrub", "Fern", "Hedge", "Pine", "Ivy", "Weed", "Reed"];
 
-    // what isn't ground seen from above: sky and backdrop cards, the ocean's floor, effect volumes
+    // not ground seen from above: sky and backdrop cards, the ocean floor, effect volumes
     private static readonly string[] Backdrop = ["Cloud", "Sky", "BGMountain", "Backdrop", "Background", "Vista", "OceanFloor", "Dust", "Inverted", "FakeLight", "Fog", "Smoke", "BoxWall", "Blocker", "Collision"];
     private static readonly string[] RockWords = ["Cliff", "Rock", "Boulder", "Stone", "Blob", "Mountain", "Hill", "Mesa", "Ridge", "Canyon"];
 
@@ -259,7 +253,7 @@ public static class MapPreview
         return FoliageWords.Any(w => name.Contains(w, StringComparison.OrdinalIgnoreCase)) ? 1 : 0;
     }
 
-    /// <summary>Where most placements are (a few far off - a sky box, a lobby - would squeeze the rest into a corner).</summary>
+    // Where most placements are; a few far off (sky box, lobby) would squeeze the rest into a corner.
     private static Area? PlacementArea(List<MapMesh> placed)
     {
         if (placed.Count == 0) return null;
@@ -301,7 +295,7 @@ public static class MapPreview
                 }
                 catch
                 {
-                    // (a component we can't read: a hole in the picture)
+                    // unreadable component: a hole in the picture
                 }
             }
         }
@@ -384,11 +378,11 @@ public static class MapPreview
             }
             float Height(int x, int y)
             {
-                var i = ((offY + Tex(y)) * texW + offX + Tex(x)) * 4;     // BGRA: the height is R << 8 | G
+                var i = ((offY + Tex(y)) * texW + offX + Tex(x)) * 4;     // BGRA; height is R << 8 | G
                 return ((data[i + 2] << 8 | data[i + 1]) - 32768) / 128f;
             }
 
-            // the component's corners in pixels, then each pixel back to the component's quads (an affine map)
+            // the component's corners in pixels, then each pixel back to its quads (affine map)
             var o = ToWorld(l, c, 0, 0, 0);
             var ax = ToWorld(l, c, quads, 0, 0) - o;
             var ay = ToWorld(l, c, 0, quads, 0) - o;
@@ -441,12 +435,12 @@ public static class MapPreview
                 minX = Math.Min(minX, p.X); maxX = Math.Max(maxX, p.X);
                 minY = Math.Min(minY, p.Y); maxY = Math.Max(maxY, p.Y);
             }
-            // off the picture, or one that would cover most of it (a sky sphere, an ocean plane)
+            // off the picture, or covering most of it (sky sphere, ocean plane)
             var share = Math.Max(maxX - minX, maxY - minY) / Size;
             if (maxX < 0 || maxY < 0 || minX >= Size || minY >= Size) return share;
-            // a volume or a backdrop more than a few blocks wide, or something floating well above the ground (a cloud)
+            // a volume or backdrop several blocks wide, or floating well above the ground (cloud)
             if (share > 0.15f || bottom > _groundTop + 20000) return share;
-            // the engine's cube and sphere stretched over a block: a blocking volume, not something built
+            // engine cube/sphere stretched over a block: a blocking volume, not something built
             if (engine && share > 0.02f) return share;
             if (maxX - minX < 1.5f && maxY - minY < 1.5f)
             {
@@ -455,8 +449,7 @@ public static class MapPreview
             }
             if (kind is 1 or 3)
             {
-                // a tree's crown, a rock: a dome inside its bounds (round for a crown), so a wood reads as trees and
-                // a cliff as rock rather than tiles
+                // a tree crown or rock: a dome inside its bounds (round for a crown), so woods read as trees and cliffs as rock
                 float cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
                 float rx = (maxX - minX) * 0.45f, ry = (maxY - minY) * 0.45f;
                 if (kind == 1) rx = ry = (rx + ry) / 2;
@@ -497,7 +490,7 @@ public static class MapPreview
         {
             if ((uint) x >= Size || (uint) y >= Size) return;
             var i = y * Size + x;
-            if (!(top <= _top[i]))      // (NaN: nothing yet)
+            if (!(top <= _top[i]))      // NaN: nothing yet
             {
                 _top[i] = top;
                 _kind[i] = (byte) (kind + 1);
@@ -523,8 +516,8 @@ public static class MapPreview
             return hull.Take(Math.Max(k - 1, 1)).ToList();
         }
 
-        // ground by height (low green to high rock), what stands on it neutral (foliage green, water blue), all
-        // lit from the north-west by the combined height's slope
+        // ground by height (low green to high rock); what stands on it is neutral (foliage green, water blue);
+        // all lit from the north-west by the combined height's slope
         private static readonly (float T, Vector3 C)[] Ground =
         [
             (0f, new Vector3(52, 84, 58)), (0.35f, new Vector3(92, 122, 72)), (0.65f, new Vector3(138, 130, 96)), (1f, new Vector3(205, 200, 190)),
@@ -583,7 +576,7 @@ public static class MapPreview
                         Put(rgba, i, new Vector3(22, 24, 29));
                         continue;
                     }
-                    // the slope from the neighbours' heights (missing ones read as this one)
+                    // slope from the neighbours' heights (missing ones read as this one)
                     float H(int xx, int yy)
                     {
                         if ((uint) xx >= Size || (uint) yy >= Size) return height[i];

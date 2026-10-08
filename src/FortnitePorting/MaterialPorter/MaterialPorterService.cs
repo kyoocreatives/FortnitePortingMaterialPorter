@@ -24,13 +24,10 @@ using Serilog;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// What Material Porter's ported code (MaterialService, Bridge) reads of the
-/// game: FP's provider, the build it mounted, where its cache lives.
-/// </summary>
+/// <summary>What the ported Material Porter code (MaterialService, Bridge) reads of the game: FP's provider, the mounted build, the cache location.</summary>
 public class GameContext
 {
-    /// <summary>Material Porter's data folder: its cache (graphs, textures) is shared with the Material Porter app.</summary>
+    /// <summary>Material Porter's data folder; its cache (graphs, textures) is shared with the Material Porter app.</summary>
     public static string DataDir { get; set; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MaterialPorter");
 
@@ -39,19 +36,14 @@ public class GameContext
     public bool Mounted => Provider != null;
 }
 
-/// <summary>Material Porter's timing lines, into FP's log at debug level.</summary>
+/// <summary>Material Porter's timing lines, written to FP's debug log.</summary>
 public static class Timing
 {
     public static void Log(string what, Stopwatch sw) =>
         Serilog.Log.Debug("[Material Porter] {What}: {Ms:0} ms", what, sw.Elapsed.TotalMilliseconds);
 }
 
-/// <summary>
-/// Exact materials: while FP's Blender plugin imports, it asks this app on
-/// localhost (Material Porter's bridge) for each material's description, its
-/// graph and its functions' graphs, textures and parameter collections, and
-/// rebuilds the material from its UE graph instead of FP's presets.
-/// </summary>
+/// <summary>Exact materials: serves each material's description, graph and dependencies to FP's Blender plugin over the localhost bridge.</summary>
 public partial class MaterialPorterService : IService
 {
     public static int Port => Fork.BridgePort;
@@ -77,7 +69,7 @@ public partial class MaterialPorterService : IService
         IslandProjects.Debug = message => Log.Debug("[Material Porter] {Message}", message);
         ApplyProjectFolders();
         FigureRecipe.GeneratedDir = Materials.GeneratedDir;    // LEGO figures' colour grids, served by the bridge
-        // cars: the registry's decals and wheel sets, read once in the background
+        // cars: registry decals and wheel sets, read once in the background
         _carSkins = _carWheels = null;
         Cars.Items = CarItemsAsync;
         _ = Task.Run(CarItemsAsync);
@@ -89,14 +81,13 @@ public partial class MaterialPorterService : IService
             _bridge.Extra = ExtraRouteAsync;
             _bridge.Start(Port);
             Log.Information("[Material Porter] exact materials served on localhost:{Port} ({Build})", Port, Game.BuildVersion);
-            // exact materials are translated from the masters' editor graphs (<master>.o.uasset), which only an
-            // install with Unreal Editor for Fortnite has (its editor data, about 5 GB in the game's Paks): say so
-            // once, rather than every material coming out approximated
+            // Exact materials are translated from the masters' editor graphs (<master>.o.uasset), which only an install with
+            // Unreal Editor for Fortnite has (about 5 GB of editor data in the Paks). Warn once instead of approximating silently.
             _ = Task.Run(() =>
             {
                 if (provider.Files.Keys.Any(k => k.EndsWith(".o.uasset", StringComparison.OrdinalIgnoreCase))) return;
                 Log.Warning("[Material Porter] no editor graphs in this install: materials are approximated (install Unreal Editor for Fortnite)");
-                // (a build downloaded from its manifest gets them from its UEFN manifest instead)
+                // a build downloaded from its manifest gets them from its UEFN manifest instead
                 var downloaded = AppServices.AppSettings.Installation.CurrentProfile.IsCustomOnDemand;
                 Avalonia.Threading.Dispatcher.UIThread.Post(() => AppServices.Info.Message("Exact materials need UEFN",
                     downloaded
@@ -115,21 +106,16 @@ public partial class MaterialPorterService : IService
     }
 
     // ------------------------------------------------------------ islands
-    /// <summary>
-    /// The folders of the user's UEFN projects (Settings > Application) to Material Porter's core, which reads an
-    /// island's master graphs from the matching project. Owner builds only, as islands are; the core also
-    /// takes MATERIAL_PORTER_PROJECTS whatever the settings say.
-    /// </summary>
+    /// <summary>Passes the user's UEFN project folders (Settings > Application) to the core, which reads island master graphs from the matching project.</summary>
+    // Owner builds only; the core also takes MATERIAL_PORTER_PROJECTS regardless of the settings.
     public static void ApplyProjectFolders() =>
         IslandProjects.Roots = Fork.Islands
             ? AppSettings.Application.UefnProjectFolders.Concat(DetectedProjectRoots()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
             : [];
 
-    /// <summary>
-    /// Where UEFN itself keeps the user's projects: the default Fortnite Projects folder, and the folders of the
-    /// projects it lists outside it (its EditorPerProjectUserSettings.ini: AdditionalProjectFiles=X:/.../P/P.uefnproject,
-    /// each one's parent, so the projects beside it count too). Found by themselves; the settings add to them.
-    /// </summary>
+    // Where UEFN keeps the user's projects: the default Fortnite Projects folder, plus the parent of each project listed in
+    // its EditorPerProjectUserSettings.ini (AdditionalProjectFiles=X:/.../P/P.uefnproject), so sibling projects count too.
+    // Detected automatically; the settings add to them.
     static IEnumerable<string> DetectedProjectRoots()
     {
         var defaultRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Fortnite Projects");
@@ -149,7 +135,7 @@ public partial class MaterialPorterService : IService
         }
     }
 
-    /// <summary>A key the user's key tool gave for an island (shared with the Material Porter app).</summary>
+    // A key the user's key tool gave for an island (shared with the Material Porter app).
     private sealed class IslandKey
     {
         public string Code { get; set; } = "";
@@ -219,10 +205,8 @@ public partial class MaterialPorterService : IService
         return true;
     }
 
-    /// <summary>
-    /// The key tool (Node.js, `node .` in its folder) run for one code: its sign-in link goes to
-    /// signIn, its progress to status; its "AES Key:" and "GUID:" lines come back, never logged.
-    /// </summary>
+    // Runs the key tool (Node.js, `node .` in its folder) for one code: its sign-in link goes to signIn, its progress
+    // to status; its "AES Key:" and "GUID:" lines come back and are never logged.
     private static async Task<(string Guid, string Key)> RunKeyToolAsync(string toolDir, string code, Action<string> status, Action<string> signIn)
     {
         if (string.IsNullOrWhiteSpace(toolDir) || !File.Exists(Path.Combine(toolDir, "index.js")))
@@ -266,10 +250,10 @@ public partial class MaterialPorterService : IService
         }
         var output = Task.Run(async () => { while (await proc.StandardOutput.ReadLineAsync() is { } l) Line(l, false); });
         var errors = Task.Run(async () => { while (await proc.StandardError.ReadLineAsync() is { } l) Line(l, true); });
-        // the tool reads the code after signing in; the pipe holds it till then
+        // the tool reads the code after signing in; the pipe holds it until then
         await proc.StandardInput.WriteLineAsync(code);
         proc.StandardInput.Close();
-        using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(6));   // an unanswered sign-in expires
+        using var timeout = new System.Threading.CancellationTokenSource(TimeSpan.FromMinutes(6));   // sign-in expires if unanswered
         try { await proc.WaitForExitAsync(timeout.Token); }
         catch (OperationCanceledException)
         {
@@ -330,11 +314,11 @@ public partial class MaterialPorterService : IService
     }
     private async Task<object?> ExtraRouteAsync(string route, NameValueCollection query)
     {
-        // what this build does: the Blender plugin's Material Fixer shows island recovery only where islands are
+        // what this build does: the Material Fixer shows island recovery only where islands are
         if (route == "fork-caps") return new { islands = Fork.Islands };
         if (route.StartsWith("fork-island-"))
         {
-            // the Material Fixer's island texture recovery (IslandMaterials): island content, the owner's builds only
+            // the Material Fixer's island texture recovery (IslandMaterials): owner builds only
             if (!Fork.Islands) throw new InvalidOperationException("island texture recovery is only in the owner's builds");
             var asked = query["path"] ?? throw new ArgumentException("path missing");
             return route switch
@@ -347,7 +331,7 @@ public partial class MaterialPorterService : IService
         }
         if (route == "log")
         {
-            // the Blender plugin telling what it does while it imports (status.py): a JSON list of lines, begin/end
+            // the Blender plugin reporting what it does while importing (status.py): a JSON list of lines, begin/end
             var lines = JsonConvert.DeserializeObject<string[]>(query["lines"] ?? "[]") ?? [];
             StatusLog.Instance.FromBlender(query["state"], lines);
             return "ok";

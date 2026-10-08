@@ -8,12 +8,9 @@ using Serilog.Events;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// Material Porter fork: what an export does, as Material Porter's app shows it - the app's
-/// export steps (FP's own log while an export runs, the bridge's answers to Blender, any
-/// warning) and what the Blender plugin reports while it imports (the bridge's "log" route),
-/// newest first under a status line.
-/// </summary>
+/// <summary>What an export does, as Material Porter's app shows it, newest first under a status line.</summary>
+// Sources: FP's own log while an export runs, the bridge's answers to Blender, any warning, and what the Blender
+// plugin reports while importing (the bridge's "log" route).
 public partial class StatusLog : ObservableObject, ILogEventSink
 {
     public static StatusLog Instance { get; } = new();

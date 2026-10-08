@@ -12,7 +12,6 @@ using Newtonsoft.Json;
 
 namespace FortnitePorting.Models.Plugin;
 
-// Material Porter fork.
 public partial class BlenderInstallation
 {
     // whether Blender's copy of the plugin differs from this build's (a file missing or changed)

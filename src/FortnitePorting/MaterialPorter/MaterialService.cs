@@ -7,11 +7,7 @@ using Newtonsoft.Json.Linq;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// Everything a Blender build needs about one material instance: its chain to
-/// the master, the master's graph (dumped as ue_graph reads it) and asset
-/// settings, and the parameter values the instance chain sets (child first).
-/// </summary>
+/// <summary>Everything a Blender build needs about one material instance: its chain, the master's graph and settings, and the chain's parameter values (child first).</summary>
 public sealed class MaterialInfo
 {
     public string Name { get; set; }
@@ -26,17 +22,13 @@ public sealed class MaterialInfo
     public Dictionary<string, string> Textures { get; set; } = new();
     public Dictionary<string, bool> Switches { get; set; } = new();
     public Dictionary<string, bool[]> Masks { get; set; } = new();
-    /// <summary>The Subsurface Profile skin scatters by (the nearest instance overriding it, else the master's).</summary>
+    /// <summary>The Subsurface Profile skin scatters by (nearest instance overriding it, else the master's).</summary>
     public SubsurfaceInfo Subsurface { get; set; }
-    /// <summary>
-    /// The master was cooked without its editor graph (a UEFN island's own
-    /// material): nothing to translate, Blender builds an approximation from
-    /// the textures and values.
-    /// </summary>
+    /// <summary>True when the master was cooked without its editor graph (a UEFN island's material): Blender approximates from the textures and values.</summary>
     public bool Fallback { get; set; }
-    /// <summary>Every texture the master samples, parameter or hard-coded (a fallback's only way to know the fixed ones).</summary>
+    /// <summary>Every texture the master samples, parameter or hard-coded (the only way a fallback knows the fixed ones).</summary>
     public List<string> ReferencedTextures { get; set; } = new();
-    /// <summary>What the master's compiled shader uses (its inline shader map): the textures it samples, the parameters it reads (a fallback's).</summary>
+    /// <summary>What the master's compiled shader (inline shader map) uses: textures sampled, parameters read (for fallbacks).</summary>
     public ShaderHints Shader { get; set; }
 
     static readonly JsonSerializer Snake = JsonSerializer.Create(new JsonSerializerSettings
@@ -51,13 +43,9 @@ public sealed class MaterialInfo
     public JObject ToJson() => JObject.FromObject(this, Snake);
 }
 
-/// <summary>
-/// A Subsurface Profile, as Blender's subsurface wants it: Radius (per
-/// channel, relative) and Scale (metres). UE's Burley profile scatters over
-/// MeanFreePathColor x MeanFreePathDistance / WorldUnitScale cm (Fortnite's
-/// skin: ~2.6 / 1.5 / 0.7 mm, measured skin's range); the legacy one over
-/// FalloffColor x ScatterRadius x WorldUnitScale cm.
-/// </summary>
+/// <summary>A Subsurface Profile as Blender's subsurface wants it: Radius (per channel, relative) and Scale (metres).</summary>
+// UE's Burley profile scatters over MeanFreePathColor x MeanFreePathDistance / WorldUnitScale cm (Fortnite skin: ~2.6 / 1.5 / 0.7 mm);
+// the legacy one over FalloffColor x ScatterRadius x WorldUnitScale cm.
 public sealed class SubsurfaceInfo
 {
     public string Profile { get; set; }
@@ -76,7 +64,7 @@ public sealed class TextureFile
     public string Kind { get; set; } = "2d";
     public int Depth { get; set; } = 1;
     public bool Hdr { get; set; }
-    /// <summary>Sampled unfiltered (its Filter TF_Nearest, or the Pixels2D group): a LUT, a pixel grid.</summary>
+    /// <summary>Sampled unfiltered (Filter TF_Nearest, or the Pixels2D group): a LUT, a pixel grid.</summary>
     public bool Nearest { get; set; }
     /// <summary>How UE addresses it past 0..1, per axis (AddressX, AddressY): "Wrap", "Clamp" or "Mirror".</summary>
     public string AddressX { get; set; } = "Wrap";
@@ -89,7 +77,7 @@ public sealed class MaterialService
 {
     readonly GameContext game;
     readonly string cache;
-    readonly SemaphoreSlim gate = new(1, 1);   // CUE4Parse loads, one at a time
+    readonly SemaphoreSlim gate = new(1, 1);   // CUE4Parse loads one at a time
     readonly Dictionary<string, object> memo = new();
 
     static readonly JsonSerializerSettings Ser = new() { ReferenceLoopHandling = ReferenceLoopHandling.Ignore };
@@ -106,10 +94,7 @@ public sealed class MaterialService
         string.Join("~", key.Replace(".o.uasset", "").Replace(".uasset", "").Split('/', StringSplitOptions.RemoveEmptyEntries));
 
     // ------------------------------------------------------------ paths
-    /// <summary>
-    /// "/Game/..", "/Engine/..", "/Plugin/..", "Pkg.Object", "Pkg.0" or a file
-    /// key -> the file key of "&lt;package&gt;&lt;ext&gt;" if the game has it.
-    /// </summary>
+    /// <summary>Resolves "/Game/..", "/Engine/..", "/Plugin/..", "Pkg.Object", "Pkg.0" or a file key to the file key of "package+ext", if the game has it.</summary>
     public string ResolveKey(string p, string ext)
     {
         var provider = game.Provider;
@@ -131,7 +116,7 @@ public sealed class MaterialService
             if (provider.Files.TryGetValue(k, out var f)) return f.Path;
         }
         // a plugin mount: "/Plugin/Rest/Name" -> a key ending ".../Rest/Name<ext>" under that plugin
-        // (a walk over every key: remembered, until an island mounted since adds keys)
+        // (walks every key; remembered until a newly mounted island adds keys)
         if (p.StartsWith("/"))
         {
             var scan = p + "|" + ext;
@@ -170,7 +155,7 @@ public sealed class MaterialService
         finally { gate.Release(); }
     }
 
-    /// <summary>A package's main export (the one named after it), as JSON.</summary>
+    // A package's main export (the one named after it), as JSON.
     async Task<JObject> MainExportAsync(string path)
     {
         var key = ResolveKey(path, ".uasset") ?? throw new FileNotFoundException("No package for " + path);
@@ -181,10 +166,7 @@ public sealed class MaterialService
     }
 
     // ------------------------------------------------------------ graphs
-    /// <summary>
-    /// The expression graph of a material or material function (it lives in the
-    /// editor-only package, &lt;path&gt;.o.uasset), dumped as ue_graph reads it.
-    /// </summary>
+    /// <summary>The expression graph of a material or function (in the editor-only .o.uasset), dumped as ue_graph reads it.</summary>
     public Task<string> GraphAsync(string path) => Locked(async () =>
     {
         var key = ResolveKey(path, ".o.uasset");
@@ -201,24 +183,19 @@ public sealed class MaterialService
         return file;
     });
 
-    /// <summary>
-    /// What the editor-only package (&lt;path&gt;.o.uasset) holds of an uncooked package: its expressions and
-    /// editor data. The Material or function itself, the instance and the thumbnail are in the cooked one.
-    /// </summary>
+    // What the editor-only package (<path>.o.uasset) holds of an uncooked package: expressions and editor data.
+    // The Material or function itself, the instance and the thumbnail are in the cooked one.
     static readonly HashSet<string> NotGraph = new(StringComparer.Ordinal)
         { "Material", "MaterialFunction", "MaterialFunctionInstance", "MaterialInstanceConstant", "SceneThumbnailInfoWithPrimitive", "SceneThumbnailInfo" };
 
-    /// <summary>Bumped when what a project graph is dumped as changes (a cached one of an older form isn't reused).</summary>
+    // Bumped when the dump format of a project graph changes (older cached ones aren't reused).
     const int ProjectGraphRev = 3;
 
-    /// <summary>
-    /// The graph of an island's master or function, from the uncooked package in the creator's UEFN project
-    /// (IslandProjects): its exports as GraphAsync dumps an .o.uasset (enum values qualified as the cooked
-    /// path writes them), the project's mount named as the island's ("/Cristaline/X/T_A" ->
-    /// "/&lt;guid&gt;/X/T_A": the cooked pak has the textures and the functions by those paths; the
-    /// project's uncooked textures are never read). Cached beside the others, dropped
-    /// when the project's file is newer. Null: no project has it. Call inside the gate.
-    /// </summary>
+    // The graph of an island's master or function, from the uncooked package in the creator's UEFN project (IslandProjects).
+    // Exports are dumped as GraphAsync does for an .o.uasset (enum values qualified as the cooked path writes them), with
+    // the project's mount renamed to the island's ("/Cristaline/X/T_A" -> "/<guid>/X/T_A"), since the cooked pak has the
+    // textures and functions under those paths; the project's uncooked textures are never read.
+    // Cached beside the others, dropped when the project file is newer. Null if no project has it. Call inside the gate.
     async Task<string> ProjectGraphAsync(string path)
     {
         var hit = IslandProjects.Find(game.Provider, path);
@@ -242,7 +219,7 @@ public sealed class MaterialService
         await Locked(async () => { SkyValues(info, await DayValuesAsync()); return true; });
         if (info.Master != null && ResolveKey(info.Master, ".o.uasset") == null)
         {
-            // an island's own master: the creator's project, when one is set up and has it, else an approximation
+            // an island's own master: the creator's project if set up and it has it, else an approximation
             var project = await Locked(() => ProjectGraphAsync(info.Master));
             if (project != null) info.Graph = project;
             else
@@ -256,11 +233,8 @@ public sealed class MaterialService
         return info;
     }
 
-    /// <summary>
-    /// A sky dome's material (a master named M_Sky*) and its sun and moon's (a master
-    /// naming a moon) get what the day sequence gives the sky mesh's "Skydome" and "SunMoon"
-    /// slots: the season's dome, whose parameters every M_Sky master shares.
-    /// </summary>
+    // A sky dome's material (a master named M_Sky*) and its sun/moon's (a master naming a moon) get what the day sequence
+    // gives the sky mesh's "Skydome" and "SunMoon" slots: the season's dome, whose parameters every M_Sky master shares.
     static void SkyValues(MaterialInfo info, DayValues day)
     {
         var master = (info.Master ?? "").Split('/').Last().Split('.')[0];
@@ -291,9 +265,9 @@ public sealed class MaterialService
                                           "bTangentSpaceNormal", "MaterialDomain", "bIsSky", "bUsedWithSkeletalMesh",
                                           "TranslucencyLightingMode", "bAllowNegativeEmissiveColor", "DecalBlendMode", "ShadingModels" })
                     if (p[k] != null) info.Asset[k] = p[k].ToObject<object>();
-                // UE's default, which the cooked asset leaves out (the add-on tells it from an older app's silence)
+                // UE's default, which the cooked asset leaves out (the add-on can't tell it from an older app's silence)
                 info.Asset.TryAdd("TranslucencyLightingMode", "ETranslucencyLightingMode::TLM_VolumetricNonDirectional");
-                // a master's own parameters are its graph's defaults: the translator reads those
+                // a master's own parameters are its graph's defaults, which the translator reads
                 break;
             }
             Collect(p, info);
@@ -308,11 +282,8 @@ public sealed class MaterialService
         return info;
     }
 
-    /// <summary>
-    /// A cooked master's parameter defaults (CachedExpressionData: each runtime
-    /// parameter type's names beside its values) where the instances set none,
-    /// and every texture it references.
-    /// </summary>
+    // A cooked master's parameter defaults (CachedExpressionData: names of each runtime parameter type beside values)
+    // where the instances set none, plus every texture it references.
     async Task<bool> CookedDefaultsAsync(MaterialInfo info)
     {
         var obj = await MainExportAsync(info.Master);
@@ -341,7 +312,7 @@ public sealed class MaterialService
                 m.AppendReferencedTextures(list, false);
                 foreach (var t in list.OfType<UTexture>().Concat(ImportedTextures(m)))
                     if (t.GetPathName() is { } tp && !info.ReferencedTextures.Contains(tp)) info.ReferencedTextures.Add(tp);
-                // what the compiled shader really uses (its shader map): the textures it samples, the parameters it reads
+                // what the compiled shader really uses (its shader map): textures sampled, parameters read
                 info.Shader = ShaderMapHints.For(ShaderMapHints.From(game.Provider, info.Master, m, info.ReferencedTextures), info.Scalars, info.Vectors);
             }
         }
@@ -351,11 +322,8 @@ public sealed class MaterialService
         return true;
     }
 
-    /// <summary>
-    /// The textures a cooked material's package imports: the ones its graph samples
-    /// directly. CUE4Parse fills ReferencedTextures this way only when the provider
-    /// allows it (FortnitePorting's skips it), and an island's masters have no others.
-    /// </summary>
+    /// <summary>The textures a cooked material's package imports, i.e. those its graph samples directly.</summary>
+    // CUE4Parse fills ReferencedTextures this way only if the provider allows it (FortnitePorting's doesn't), and island masters have no others.
     public static List<UTexture> ImportedTextures(global::CUE4Parse.UE4.Assets.Exports.UObject material)
     {
         var found = new List<UTexture>();
@@ -393,17 +361,13 @@ public sealed class MaterialService
 
     static string ParamName(JToken e) => (string)e["ParameterInfo"]?["Name"] ?? (string)e["ParameterName"];
 
-    /// <summary>
-    /// An instance's static component masks. UE 5 keeps them editor-only (FStaticParameterSetEditorOnlyData),
-    /// in the MaterialInstanceEditorOnlyData of its optional package (&lt;path&gt;.o.uasset), which Fortnite
-    /// ships beside the graphs: without them a mask fell back to its default (Galaxy Scout's head took its
-    /// whole FX mask as glow where the instance picks its blue channel). One the instance doesn't
-    /// override (bOverride false) is left to its parent.
-    /// </summary>
+    // An instance's static component masks. UE 5 keeps them editor-only (FStaticParameterSetEditorOnlyData) in the
+    // MaterialInstanceEditorOnlyData of its optional <path>.o.uasset, which Fortnite ships beside the graphs; without
+    // them a mask fell back to its default. A mask the instance doesn't override (bOverride false) is left to its parent.
     async Task EditorMasksAsync(string path, MaterialInfo info)
     {
         var key = ResolveKey(path, ".o.uasset");
-        // an island's instance has no editor package in the cooked pak: the creator's project's own
+        // an island's instance has no editor package in the cooked pak: use the creator's project's
         var hit = key == null ? IslandProjects.Find(game.Provider, path) : null;
         if (key == null && hit == null) return;
         try
@@ -420,7 +384,7 @@ public sealed class MaterialService
         catch (Exception e) { Timing.Log($"editor data of {Bridge.ShortName(path)}: {e.Message}", new System.Diagnostics.Stopwatch()); }
     }
 
-    /// <summary>One level of the chain: values the child didn't set already.</summary>
+    // One level of the chain: values the child didn't set already.
     static void Collect(JObject p, MaterialInfo info)
     {
         static string Name(JToken e) => ParamName(e);
@@ -445,15 +409,15 @@ public sealed class MaterialService
             foreach (var e in sp["StaticComponentMaskParameters"] ?? new JArray())
                 info.Masks.TryAdd(Name(e), new[] { (bool?)e["R"] ?? false, (bool?)e["G"] ?? false, (bool?)e["B"] ?? false, (bool?)e["A"] ?? false });
         }
-        // an override set to the struct's default value (Opaque, DefaultLit, one-sided...)
-        // isn't serialized, only its bOverride_ flag: that default is the override
+        // an override set to the struct's default value (Opaque, DefaultLit, one-sided...) isn't serialized,
+        // only its bOverride_ flag: that default is the override
         if (p["BasePropertyOverrides"] is JObject o)
             foreach (var (k, d) in OverrideDefaults)
                 if ((bool?)o["bOverride_" + k] == true)
                     info.Overrides.TryAdd(k, o[k]?.ToObject<object>() ?? d);
     }
 
-    /// <summary>FMaterialInstanceBasePropertyOverrides' defaults (its constructor).</summary>
+    // FMaterialInstanceBasePropertyOverrides' defaults (its constructor).
     static readonly (string Key, object Default)[] OverrideDefaults =
     {
         ("BlendMode", "EBlendMode::BLEND_Opaque"), ("ShadingModel", "EMaterialShadingModel::MSM_DefaultLit"),
@@ -461,30 +425,20 @@ public sealed class MaterialService
     };
 
     // ------------------------------------------------------------ textures
+    // One task per texture, so a prefetch and Blender's request share it; a texture is decoded to a file in the cache
+    // (PNG, or HDR for float formats) with a sidecar record that a later session reuses.
     readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<TextureFile>>> textures = new(StringComparer.OrdinalIgnoreCase);
     readonly SemaphoreSlim encoders = new(Math.Max(2, Environment.ProcessorCount / 2));
 
-    /// <summary>
-    /// A texture decoded to a file in the cache (PNG, or HDR for float
-    /// formats), with a sidecar record so a later session reuses it. One task
-    /// per texture: a prefetch and Blender's request share it.
-    /// </summary>
-    /// <summary>
-    /// The largest mip textures are exported at (0: full size). A map import
-    /// sets it for its duration: hundreds of full-size textures are what makes a
-    /// map scene slow to show in Blender, and the smaller mips are often in the
-    /// install already (no CDN download).
-    /// </summary>
+    /// <summary>The largest mip textures are exported at (0: full size); a map import sets it for its duration.</summary>
+    // Hundreds of full-size textures make a map scene slow to show in Blender, and the smaller mips are often
+    // already in the install (no CDN download).
     public int MaxTextureSize { get; set; }
 
     /// <summary>A texture as a PNG (HDR for float formats): what the app shows and the Files page exports.</summary>
     public Task<TextureFile> TextureAsync(string path) => TextureAsync(path, false);
 
-    /// <summary>
-    /// A texture for Blender: where Blender reads the game's own compression
-    /// (BC1/BC3/BC5/BC7, BGRA8) the mip's data as it is in a DDS - no decode,
-    /// no encode, and Blender loads it faster than a PNG; else the PNG.
-    /// </summary>
+    /// <summary>A texture for Blender: for the game's own compression (BC1/BC3/BC5/BC7, BGRA8) the mip data as a DDS, with no decode or encode (loads faster than PNG); else a PNG.</summary>
     public Task<TextureFile> BlenderTextureAsync(string path, int? cap = null) => TextureAsync(path, true, cap);
 
     Task<TextureFile> TextureAsync(string path, bool raw, int? sizeCap = null)
@@ -501,17 +455,15 @@ public sealed class MaterialService
         return lazy.Value;
     }
 
-    /// <summary>The game's pixel formats Blender reads from a DDS as they are (DXGI format numbers).</summary>
+    // The game's pixel formats Blender reads from a DDS as they are (DXGI format numbers).
     static readonly Dictionary<string, uint> RawFormats = new()
     {
         ["PF_DXT1"] = 71, ["PF_DXT3"] = 74, ["PF_DXT5"] = 77, ["PF_BC5"] = 83, ["PF_BC7"] = 98, ["PF_B8G8R8A8"] = 87,
     };
 
-    /// <summary>
-    /// A texture's mips as a DDS file, the first one given and the smaller ones after. BC1-BC3 get the legacy
-    /// "DXT1"/"DXT3"/"DXT5" header: the only ones Blender keeps compressed on the GPU (4-8 times less memory than the
-    /// RGBA it decodes the others to), with their mips (none: a distant surface shimmers). Others: DX10, one mip.
-    /// </summary>
+    // A texture's mips as a DDS file, first mip first. BC1-BC3 get the legacy "DXT1"/"DXT3"/"DXT5" header, the only ones Blender
+    // keeps compressed on the GPU (4-8x less memory than the RGBA it decodes the others to), with their mips (without
+    // them a distant surface shimmers). Others: DX10 header, one mip.
     static void WriteDds(string file, int width, int height, uint dxgi, IReadOnlyList<byte[]> mips)
     {
         uint? legacy = dxgi switch { 71 => 0x31545844u, 74 => 0x33545844u, 77 => 0x35545844u, _ => null };   // "DXT1" "DXT3" "DXT5"
@@ -546,11 +498,9 @@ public sealed class MaterialService
     /// <summary>Bumped when what a cached texture file holds changes.</summary>
     const int TextureCacheVersion = 3;     // 3: BC1-BC3 DDS with the legacy header and their mips
 
-    /// <summary>
-    /// Textures made here, not in the game (a LEGO figure's colour grids, an effect's exposed curve):
-    /// /MaterialPorter/Generated/&lt;name&gt;.&lt;name&gt; is &lt;GeneratedDir&gt;/&lt;name&gt;.png (or .hdr,
-    /// linear), named for its content; a name ending in _Lin is linear, else sRGB.
-    /// </summary>
+    /// <summary>Textures made here, not in the game (LEGO colour grids, an effect's exposed curve), written to GeneratedDir.</summary>
+    // /MaterialPorter/Generated/<name>.<name> is GeneratedDir/<name>.png (or .hdr, linear), named for its content;
+    // a name ending in _Lin is linear, else sRGB.
     public const string GeneratedRoot = "/MaterialPorter/Generated/";
 
     public string GeneratedDir => Directory.CreateDirectory(System.IO.Path.Combine(cache, "generated")).FullName;   // named for content: no version
@@ -572,7 +522,7 @@ public sealed class MaterialService
         };
     }
 
-    /// <summary>A Radiance HDR file's size, from its header's resolution line ("-Y h +X w"), or null.</summary>
+    // A Radiance HDR file's size, from its resolution line ("-Y h +X w"), or null.
     static (int Width, int Height)? HdrSize(string file)
     {
         using var reader = new StreamReader(file, System.Text.Encoding.ASCII);
@@ -614,7 +564,7 @@ public sealed class MaterialService
         }
         catch { /* a broken record: export again */ }
 
-        // the mip's own data, when Blender reads its format: nothing to decode or encode
+        // the mip's own data, when Blender reads its format: no decode or encode
         if (raw && tex is UTexture2D t2 && t2.PlatformData is { } pd && pd.VTData == null && RawFormats.TryGetValue(pd.PixelFormat ?? "", out var dxgi))
         {
             try
@@ -623,7 +573,7 @@ public sealed class MaterialService
                 if (mip?.BulkData?.Data is { Length: > 0 } bytes)
                 {
                     var file = stem + ".dds";
-                    // the smaller mips after it, while each is there and half the one before
+                    // the smaller mips after it, while each exists and is half the one before
                     var chain = new List<byte[]> { bytes };
                     var (w, h) = (mip.SizeX, mip.SizeY);
                     foreach (var next in pd.Mips.SkipWhile(m => m != mip).Skip(1))
@@ -674,19 +624,16 @@ public sealed class MaterialService
         finally { encoders.Release(); }
     }
 
-    /// <summary>
-    /// Whether UE samples a texture unfiltered: its Filter set to TF_Nearest (CUE4Parse's
-    /// UTexture.Filter says TF_Nearest when the property isn't stored, where UE's default is
-    /// TF_Default, so only the stored property counts), or TEXTUREGROUP_Pixels2D.
-    /// </summary>
-    /// <summary>A record's sampler state, read from the texture each time (cached records predate some of it).</summary>
+    // A record's sampler state, read from the texture each time (cached records predate some of it).
+    // Unfiltered means Filter is TF_Nearest, counting only a stored property (CUE4Parse's UTexture.Filter says
+    // TF_Nearest when it isn't stored, where UE's default is TF_Default), or TEXTUREGROUP_Pixels2D.
     static TextureFile Sampling(TextureFile rec, UTexture tex)
     {
         if (tex.Format != EPixelFormat.PF_Unknown)
         {
             rec.Format = tex.Format.ToString();
-            // UE decodes sRGB in the sampler, and only a format with an sRGB variant has one (BC1-3, BC7,
-            // 8-bit RGBA): a BC4/BC5/BC6H/G8/float texture reads as stored whatever its SRGB flag says
+            // UE decodes sRGB in the sampler, and only formats with an sRGB variant have one (BC1-3, BC7, 8-bit RGBA);
+            // a BC4/BC5/BC6H/G8/float texture reads as stored whatever its SRGB flag says
             rec.Srgb = tex.SRGB && SrgbFormat(tex.Format);
         }
         rec.Nearest = Nearest(tex);
@@ -716,11 +663,8 @@ public sealed class MaterialService
         public TextureFile Texture { get; set; }
     }
 
-    /// <summary>
-    /// 8-bit colour straight to PNG with Skia at a fast setting (Sub filter,
-    /// zlib 1): 3-6x quicker than the library's default (all filters, zlib 6)
-    /// for files about a third bigger. Anything else goes through global::CUE4Parse.
-    /// </summary>
+    // 8-bit colour straight to PNG with Skia at a fast setting (Sub filter, zlib 1): 3-6x quicker than the library's
+    // default (all filters, zlib 6) for files about a third bigger. Anything else goes through CUE4Parse.
     static (byte[] Data, string Ext) EncodeTexture(CTexture ct)
     {
         var type = ct.PixelFormat switch
@@ -748,11 +692,8 @@ public sealed class MaterialService
     }
 
     // ------------------------------------------------------------ collections
-    /// <summary>
-    /// A material parameter collection's values: {"scalars": {..}, "vectors": {..}}. Its
-    /// defaults, and over them what the season's day sequence gives it at <see cref="TimeOfDay"/>
-    /// (FortniteMaterialParameters' sky and cloud colours are black placeholders the sequence drives).
-    /// </summary>
+    /// <summary>A material parameter collection's values {"scalars": {..}, "vectors": {..}}: defaults, overlaid with what the season's day sequence gives at <see cref="TimeOfDay"/>.</summary>
+    // FortniteMaterialParameters' sky and cloud colours are black placeholders that the sequence drives.
     public Task<JObject> CollectionAsync(string path) => Locked(async () =>
     {
         var p = (await MainExportAsync(path))["Properties"] as JObject ?? new JObject();
@@ -797,12 +738,9 @@ public sealed class MaterialService
 
     DayValues day;
 
-    /// <summary>
-    /// The season's day sequence (the newest DS_BR_Ch&lt;n&gt;S&lt;n&gt;) evaluated at <see cref="TimeOfDay"/>:
-    /// its parameter collection track and its sky mesh's material tracks. The sequence is a
-    /// day long (its playback range is 24 in-game hours); a channel's keys are cubic,
-    /// linear or constant, held before the first and after the last.
-    /// </summary>
+    // The season's day sequence (newest DS_BR_Ch<n>S<n>) evaluated at TimeOfDay: its parameter collection track and
+    // its sky mesh's material tracks. The sequence is one day long (playback range 24 in-game hours); channel keys
+    // are cubic, linear or constant, held before the first and after the last.
     async Task<DayValues> DayValuesAsync()
     {
         if (day != null && day.Hour == TimeOfDay) return day;
@@ -857,7 +795,7 @@ public sealed class MaterialService
         return day = values;
     }
 
-    /// <summary>A movie scene float channel at tick t (null if it has no keys and no default).</summary>
+    // A movie scene float channel at tick t (null if it has no keys and no default).
     static double? Channel(JToken ch, double t)
     {
         if (ch is not JObject) return null;
@@ -889,11 +827,8 @@ public sealed class MaterialService
         }
     }
 
-    /// <summary>
-    /// The material assets with these names (an FP import keeps only its materials'
-    /// names): name -> their object paths. One pass over the file table; a package
-    /// counts when its main export is a material or a material instance.
-    /// </summary>
+    /// <summary>The material assets with these names (an FP import keeps only names): name -> object paths.</summary>
+    // One pass over the file table; a package counts when its main export is a material or material instance.
     public Task<JObject> FindMaterialsAsync(IEnumerable<string> names) => Locked(async () =>
     {
         var wanted = new HashSet<string>(names.Where(n => !string.IsNullOrWhiteSpace(n)), StringComparer.OrdinalIgnoreCase);

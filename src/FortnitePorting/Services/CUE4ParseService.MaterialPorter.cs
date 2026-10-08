@@ -14,7 +14,7 @@ using Serilog;
 
 namespace FortnitePorting.Services;
 
-// Material Porter fork: exact materials and builds downloaded from their manifest.
+// Exact materials and builds downloaded from their manifest.
 public partial class CUE4ParseService
 {
     private InstallationProfile Profile => AppSettings.Installation.CurrentProfile;
@@ -48,7 +48,7 @@ public partial class CUE4ParseService
             ? Directory.CreateDirectory(shared).FullName : CacheFolder.FullName,
         ManifestCacheDirectory = CacheFolder.FullName,
         Decompressor = Compression.Decompressor,
-        // cached as downloaded, every 64 KB read inflated its whole 1 MB chunk again
+        // cached as downloaded, every 64 KB read would inflate its whole 1 MB chunk again
         CacheChunksAsIs = false
     };
 
@@ -139,8 +139,8 @@ public partial class CUE4ParseService
         }
     }
 
-    // A downloaded build's Unreal version (the archive leaves most builds' engine out): the one that reads the most
-    // of a few packages every build has, with serialization errors made fatal so a wrong version fails outright.
+    // A downloaded build's Unreal version (the archive leaves out most builds' engine): the one that reads the most of a
+    // few packages every build has, with serialization errors made fatal so a wrong version fails outright.
     // Tried in order: the chosen version, the one its UEFN names, then nearby versions newest first.
     private void DetectUnrealVersion()
     {

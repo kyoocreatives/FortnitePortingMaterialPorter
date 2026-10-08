@@ -17,14 +17,10 @@ using SkiaSharp;
 
 namespace FortnitePorting.Models.Assets.Asset;
 
-/// <summary>
-/// Material Porter fork: a car's styles. Its channels (Tier, Body Color,
-/// Painted, Decal, Decal Color, Wheels) aren't item variants the game lists:
-/// they come from Material Porter's car assembly (Cars.PlanAsync), built off
-/// the UI thread; option previews (tier and decal images, colour swatches,
-/// wheel icons) fill in after.
-/// A LEGO figure's expression: the face rig's pose of its mouth, eyes and brows.
-/// </summary>
+/// <summary>Style channels for cars and LEGO figure expressions, which the game doesn't list as item variants.</summary>
+// A car's channels (Tier, Body Color, Painted, Decal, Decal Color, Wheels) come from Material Porter's car assembly
+// (Cars.PlanAsync), built off the UI thread; option previews (tier and decal images, colour swatches, wheel icons)
+// fill in after. A LEGO figure's expression is the face rig's pose of its mouth, eyes and brows.
 public partial class AssetInfo
 {
     private void AddCarStyles()
@@ -77,7 +73,7 @@ public partial class AssetInfo
         });
     }
 
-    // every wrap (name, item path, icon path), read once; their icons as small tiles, as they get shown
+    // every wrap (name, item path, icon path), read once; icons kept as small tiles
     private static readonly System.Threading.SemaphoreSlim WrapLock = new(1, 1);
     private static List<(string Name, string Path, string? Icon)>? _wraps;
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Avalonia.Media.Imaging.WriteableBitmap?> WrapIcons = new();
@@ -96,7 +92,7 @@ public partial class AssetInfo
                 {
                     if (!provider.TryLoadPackageObject(data.ObjectPath, out var wrap)
                         || wrap.GetOrDefault<FSoftObjectPath>("ItemWrapMaterial").AssetPathName.IsNone) continue;
-                    // (an unreleased wrap is named "TBD": its asset's name)
+                    // an unreleased wrap is named "TBD": use its asset's name
                     var name = wrap.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text;
                     if (string.IsNullOrWhiteSpace(name) || name == "TBD") name = wrap.Name;
                     wraps.Add((name, wrap.GetPathName(), Loading.AssetLoader.GetLowResIcon(wrap)?.GetPathName()));
@@ -111,7 +107,7 @@ public partial class AssetInfo
         }
     }
 
-    /// <summary>An icon as a small tile (a list of 1,200 wraps keeps them all).</summary>
+    // An icon as a small tile (a list of 1,200 wraps keeps them all).
     private static Avalonia.Media.Imaging.WriteableBitmap? Tile(string? iconPath)
     {
         if (iconPath is null) return null;
@@ -129,11 +125,9 @@ public partial class AssetInfo
         });
     }
 
-    /// <summary>
-    /// An item's Effects: without (as FP exports it), or with its own effects (Effects.OwnEffectNames:
-    /// a pickaxe's trail, swing and idle effects, a back bling's or an outfit's idle effect, a glider's
-    /// trails, a weapon's, a sprite's), which the export puts on the item and the plugin plays on its sockets.
-    /// </summary>
+    // An item's Effects: without (as FP exports it), or with its own effects (Effects.OwnEffectNames: a pickaxe's trail, swing
+    // and idle effects, a back bling's or outfit's idle effect, a glider's, weapon's or sprite's trails), which the export
+    // puts on the item and the plugin plays on its sockets.
     private void AddEffectStyles()
     {
         var item = Asset.CreationData.Object;
@@ -156,11 +150,9 @@ public partial class AssetInfo
         });
     }
 
-    /// <summary>
-    /// A weapon's mod slots (Optic, Magazine, Barrel, Underbarrel: its own mod, none, or a mod that
-    /// allows it) and the wrap over a weapon or a vehicle (as it is, none, or any wrap). The export
-    /// puts the mods on the weapon's attach bones and lays the wrap over all of it.
-    /// </summary>
+    // A weapon's mod slots (Optic, Magazine, Barrel, Underbarrel: its own mod, none, or a mod that allows it) and the wrap
+    // over a weapon or vehicle (as it is, none, or any wrap). The export puts the mods on the weapon's attach bones and
+    // lays the wrap over all of it.
     private void AddWeaponStyles()
     {
         AddEffectStyles();
@@ -207,7 +199,7 @@ public partial class AssetInfo
                 if (!Wraps.Supports(provider, item, Asset.CreationData.ExportType)) return;
                 var wraps = await WrapsAsync();
                 var wrapDatas = new List<WrapStyleData> { new("Default", null) };
-                // (an exotic wears a wrap of its own: "None" takes it off)
+                // an exotic wears a wrap of its own: "None" takes it off
                 if (!item.GetOrDefault<FSoftObjectPath>("IntrinsicOverrideWrap").AssetPathName.IsNone)
                     wrapDatas.Add(new WrapStyleData("None", ""));
                 var tiles = new List<(WrapStyleData Data, string? Icon)>();
@@ -236,12 +228,9 @@ public partial class AssetInfo
     const string MouthAtlas = "/FigureCharacter/Figure_Core/Texture/Face/Mouth/T_Atlas_Figure_Mouth_Thin.T_Atlas_Figure_Mouth_Thin";
     const string BrowAtlas = "/FigureCharacter/Figure_Core/Texture/Face/Brow/T_Atlas_Figure_Brow_Thin01.T_Atlas_Figure_Brow_Thin01";
 
-    /// <summary>
-    /// A LEGO figure's expression channels: Mouth, Eyes, Brows, each the figure's own or one of
-    /// the face rig's poses (DA_Figure_Face_Settings has a row per pose: 46 mouths, 12 brows,
-    /// 6 eyes). The mouths' and brows' previews are their cells of the default atlases
-    /// (7 x 7 mouths, 4 x 4 brows), drawn as the face prints them.
-    /// </summary>
+    // A LEGO figure's expression channels: Mouth, Eyes, Brows, each the figure's own or one of the face rig's poses
+    // (DA_Figure_Face_Settings has a row per pose: 46 mouths, 12 brows, 6 eyes). Mouth and brow previews are their cells
+    // of the default atlases (7 x 7 mouths, 4 x 4 brows), drawn as the face prints them.
     private void AddFigureFaceStyles()
     {
         _ = Task.Run(async () =>
@@ -288,10 +277,8 @@ public partial class AssetInfo
         });
     }
 
-    /// <summary>
-    /// A face atlas cell, drawn on LEGO yellow: a mouth's outline (B only) black, its lips (R only)
-    /// red, its inside (G and B) dark, its teeth (all three) white; a brow (any channel) black.
-    /// </summary>
+    // A face atlas cell drawn on LEGO yellow: a mouth's outline (B only) black, lips (R only) red, inside (G and B) dark,
+    // teeth (all three) white; a brow (any channel) black.
     private static Avalonia.Media.Imaging.WriteableBitmap FaceCell(SKBitmap sheet, int grid, int index, bool brow)
     {
         const int size = 96;
@@ -325,7 +312,7 @@ public partial class AssetInfo
         return icon.ToWriteableBitmap();
     }
 
-    /// <summary>An option's preview: its image, a swatch of its colour, or its item's icon.</summary>
+    // An option's preview: its image, a swatch of its colour, or its item's icon.
     private static Avalonia.Media.Imaging.WriteableBitmap? Preview(CarOption option)
     {
         var provider = AppServices.UEParse.Provider!;

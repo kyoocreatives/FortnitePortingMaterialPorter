@@ -11,18 +11,15 @@ using Newtonsoft.Json.Linq;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// The creators' own UEFN projects, for an island's masters. A cooked island ships its materials without
-/// their editor graphs (no &lt;path&gt;.o.uasset), so there is nothing to translate; the creator's uncooked
-/// project has them (Content\...\M_X.uasset holds the Material and its MaterialEditorOnlyData with every
-/// expression). A project folder is any folder under a configured root with a *.uefnproject file; its mount
-/// (the "/Name/" its object paths start with) is its .uplugin's name. An island's cooked paths are
-/// "/&lt;guid&gt;/&lt;rel&gt;": the project's graph is read from Content\&lt;rel&gt;.uasset and its mount
-/// rewritten to the island's, so the textures and functions it names are the cooked pak's own.
-/// </summary>
+/// <summary>The creators' own UEFN projects, used to translate an island's master materials.</summary>
+// A cooked island has no editor graphs (no <path>.o.uasset), but the creator's uncooked project does
+// (Content\...\M_X.uasset holds the Material and its MaterialEditorOnlyData). A project is any folder under
+// a configured root with a *.uefnproject; its mount ("/Name/") is its .uplugin's name. An island path
+// "/<guid>/<rel>" reads Content\<rel>.uasset with the mount rewritten to the island's, so textures
+// and functions resolve to the cooked pak.
 public static class IslandProjects
 {
-    /// <summary>The folders searched for projects (a setting); MATERIAL_PORTER_PROJECTS (semicolon-separated) always adds to them.</summary>
+    /// <summary>Folders searched for projects (a setting); MATERIAL_PORTER_PROJECTS (semicolon-separated) adds to them.</summary>
     public static IReadOnlyList<string> Roots
     {
         get => roots;
@@ -36,7 +33,7 @@ public static class IslandProjects
         }
     }
 
-    /// <summary>What the host shows (one line each: a pairing); and what only a trace needs (an asset taken from another project).</summary>
+    /// <summary>Host-visible log (one line per pairing); Debug is for traces only.</summary>
     public static Action<string> Log { get; set; } = _ => { };
     public static Action<string> Debug { get; set; } = _ => { };
 
@@ -44,7 +41,7 @@ public static class IslandProjects
     static IReadOnlyList<string> roots = Array.Empty<string>();
     static List<Project> projects;
     static readonly Dictionary<string, Project> pairs = new(StringComparer.OrdinalIgnoreCase);     // guid -> project (null: none)
-    static readonly Dictionary<string, Hit> hits = new(StringComparer.OrdinalIgnoreCase);          // guid/rel -> where it comes from
+    static readonly Dictionary<string, Hit> hits = new(StringComparer.OrdinalIgnoreCase);          // guid/rel -> source
     static readonly HashSet<string> own = new(StringComparer.OrdinalIgnoreCase), other = new(StringComparer.OrdinalIgnoreCase);
 
     static readonly Regex IslandPath = new(@"^/?([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/(.+)$", RegexOptions.IgnoreCase);
@@ -60,14 +57,14 @@ public static class IslandProjects
         public string Mount { get; init; }
         DefaultFileProvider provider;
 
-        /// <summary>The project's uncooked asset file for a content-relative path ("A/B/M_X"), or null.</summary>
+        /// <summary>The uncooked asset file for a content-relative path ("A/B/M_X"), or null.</summary>
         public string FileOf(string rel)
         {
             var f = System.IO.Path.Combine(Folder, "Content", rel.Replace('/', System.IO.Path.DirectorySeparatorChar) + ".uasset");
             return File.Exists(f) ? f : null;
         }
 
-        /// <summary>One provider over the project folder, made on first use (15,000 files: a couple of seconds).</summary>
+        /// <summary>One provider over the project folder, created on first use (15,000 files take a couple of seconds).</summary>
         public DefaultFileProvider Provider
         {
             get
@@ -83,7 +80,7 @@ public static class IslandProjects
             }
         }
 
-        /// <summary>The provider's key of the package at a content-relative path (CUE4Parse prefixes a loose file with its root folder's name).</summary>
+        /// <summary>The provider key of the package at a content-relative path (CUE4Parse prefixes loose files with the root folder's name).</summary>
         public string KeyOf(string rel)
         {
             var files = Provider.Files;
@@ -98,15 +95,15 @@ public static class IslandProjects
     {
         public Project Project { get; init; }
         public string Guid { get; init; }
-        /// <summary>The asset's path inside the island's Content ("A/B/M_X").</summary>
+        /// <summary>The asset path inside the island's Content ("A/B/M_X").</summary>
         public string Rel { get; init; }
-        /// <summary>The island's own project (false: another configured project holding the same content-relative path, a pack's).</summary>
+        /// <summary>False when the asset comes from another configured project with the same content-relative path (a shared pack).</summary>
         public bool Own { get; init; }
-        /// <summary>The project's file (its time says whether a cached graph is still good).</summary>
+        /// <summary>The project file; its time tells whether a cached graph is still good.</summary>
         public string File { get; init; }
     }
 
-    // MATERIAL_PORTER_NO_PROJECTS=1: no project at all (tests of an island master's approximation)
+    // MATERIAL_PORTER_NO_PROJECTS=1 disables all projects (tests of an island master's approximation)
     static IEnumerable<string> AllRoots() =>
         Environment.GetEnvironmentVariable("MATERIAL_PORTER_NO_PROJECTS") == "1" ? Array.Empty<string>() :
         roots.Concat((Environment.GetEnvironmentVariable("MATERIAL_PORTER_PROJECTS") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
@@ -121,7 +118,7 @@ public static class IslandProjects
         other.Clear();
     }
 
-    /// <summary>Every project under the roots (each root, then three folder levels down; a project's own folders aren't searched).</summary>
+    /// <summary>Every project under the roots: each root and three folder levels down (a project's own folders aren't searched).</summary>
     public static IReadOnlyList<Project> All
     {
         get
@@ -169,7 +166,7 @@ public static class IslandProjects
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { /* a folder this user can't read */ }
     }
 
-    /// <summary>"/&lt;guid&gt;/A/B/M_X.M_X" (or ".0", ".o") -> (guid, "A/B/M_X"); not an island path: null.</summary>
+    /// <summary>"/<guid>/A/B/M_X.M_X" (or ".0", ".o") -> (guid, "A/B/M_X"); null if not an island path.</summary>
     public static (string Guid, string Rel)? Split(string path)
     {
         if (string.IsNullOrEmpty(path)) return null;
@@ -181,11 +178,9 @@ public static class IslandProjects
         return m.Success ? (m.Groups[1].Value, m.Groups[2].Value) : null;
     }
 
-    /// <summary>
-    /// The island's project: the one holding the most of up to 50 packages sampled evenly from the island's
-    /// cooked files (a pack several projects share only scores where the island's own project has it too).
-    /// Said once; null with nothing near (under half of the sample: the island is somebody else's).
-    /// </summary>
+    // The island's project: the one holding the most of up to 50 packages sampled evenly from the island's
+    // cooked files (a pack shared by several projects only counts where the island's own project has it).
+    // Logged once; null if under half the sample matches (the island belongs to someone else).
     static Project PairOf(IFileProvider game, string guid)
     {
         lock (gate)
@@ -223,11 +218,9 @@ public static class IslandProjects
         }
     }
 
-    /// <summary>
-    /// Where an island asset ("/&lt;guid&gt;/A/B/M_X.M_X") has its uncooked package: the island's project when it
-    /// has it, else any configured project holding that exact content-relative path (a marketplace pack keeps
-    /// its paths across the projects that own it). Null: not an island path, or no project has it.
-    /// </summary>
+    /// <summary>Where an island asset ("/<guid>/A/B/M_X.M_X") has its uncooked package, or null.</summary>
+    // The island's project if it has it, else any project with that exact content-relative path
+    // (a marketplace pack keeps its paths across the projects that own it).
     public static Hit Find(IFileProvider game, string path)
     {
         if (Split(path) is not { } s) return null;
@@ -250,13 +243,13 @@ public static class IslandProjects
                         Debug?.Invoke($"island {s.Guid}: {s.Rel} is not in its project{(paired == null ? "" : " " + paired.Name)}; read from the UEFN project {p.Name}");
                         break;
                     }
-            if (hit == null) return null;      // (not cached: a project added since is looked at again)
+            if (hit == null) return null;      // not cached: a project added later is looked at again
             (hit.Own ? own : other).Add(id);
             return hits[id] = hit;
         }
     }
 
-    /// <summary>What was read from where, so far: the assets of the island's own project and those of another.</summary>
+    /// <summary>Assets read so far from the island's own project and from other projects.</summary>
     public static (int Own, int Other, string[] OtherAssets, Dictionary<string, string> Pairs) Counts()
     {
         lock (gate)
@@ -264,20 +257,17 @@ public static class IslandProjects
                     pairs.ToDictionary(kv => kv.Key, kv => kv.Value == null ? null : kv.Value.Name + " @ " + kv.Value.Folder));
     }
 
-    /// <summary>
-    /// The project's exports as ue_graph reads a graph dump (what an .o.uasset's exports give), with the
-    /// project's mount named as the island's. Two things differ in an uncooked package: its object paths
-    /// start with the project's mount, and its enum values are the bare member names ("FunctionInput_Scalar"
-    /// where the cooked path, through the game's mappings, writes "EFunctionInputType::FunctionInput_Scalar":
-    /// the translator compares those whole).
-    /// </summary>
+    /// <summary>The project's exports as a ue_graph dump, with the project's mount renamed to the island's.</summary>
+    // An uncooked package differs from the cooked one in two ways: object paths start with the project's
+    // mount, and enum values are bare member names ("FunctionInput_Scalar") where cooked paths, through
+    // the game's mappings, give "EFunctionInputType::FunctionInput_Scalar", which the translator compares whole.
     public static string ToIsland(IEnumerable<UObject> exports, JsonSerializerSettings ser, Hit hit)
     {
         var list = exports.ToArray();
         var json = JArray.Parse(JsonConvert.SerializeObject(list, Formatting.None, ser));
         for (var i = 0; i < list.Length && i < json.Count; i++)
         {
-            // (only the export's Properties: its own Type, Name... are not enum values)
+            // only the export's Properties; its own Type, Name... are not enum values
             var enums = new Dictionary<string, EnumNode>(StringComparer.Ordinal);
             CollectEnums(list[i].Properties, enums);
             if (enums.Count > 0 && json[i]["Properties"] is JObject properties) QualifyEnums(properties, enums);
@@ -285,7 +275,7 @@ public static class IslandProjects
         return ToIsland(json.ToString(Formatting.None), hit);
     }
 
-    /// <summary>A property that holds an enum (its name), or a struct whose members may.</summary>
+    // A property holding an enum (its name), or a struct whose members may.
     sealed class EnumNode
     {
         public string Enum;
@@ -298,7 +288,7 @@ public static class IslandProjects
         return node;
     }
 
-    /// <summary>Which properties of an export (and of the structs and arrays of structs inside it) are enum-valued, and of which enum.</summary>
+    // Which properties of an export (including inside structs and arrays of structs) are enum-valued, and of which enum.
     static void CollectEnums(IEnumerable<FPropertyTag> props, Dictionary<string, EnumNode> into)
     {
         foreach (var p in props)
@@ -323,7 +313,7 @@ public static class IslandProjects
         }
     }
 
-    /// <summary>The bare enum values of these properties, qualified with the enum's name, down the structs that hold them.</summary>
+    // Qualifies the bare enum values of these properties with the enum's name, down through their structs.
     static void QualifyEnums(JObject obj, Dictionary<string, EnumNode> map)
     {
         static bool Bare(JToken t) => t is JValue { Type: JTokenType.String } v && (string)v is { Length: > 0 } text && text != "None" && !text.Contains("::");
@@ -343,7 +333,7 @@ public static class IslandProjects
         }
     }
 
-    /// <summary>A dump's text with the project's mount named as the island's.</summary>
+    /// <summary>A dump's text with the project's mount renamed to the island's.</summary>
     public static string ToIsland(string json, Hit hit)
     {
         foreach (var quote in new[] { "\"/", "'/" })

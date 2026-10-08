@@ -14,14 +14,10 @@ public sealed class ShaderTexture
     public string Kind { get; set; }
 }
 
-/// <summary>
-/// What a cooked material's compiled shader uses, read from its inline shader map
-/// (FMaterialShaderMap: the uniform expression set the compiler left once the
-/// graph's dead branches were gone). An island's master has no editor graph, but
-/// its shader map says which textures the pixel shader really samples, which
-/// scalar and vector parameters it reads, and (when decodable) the preshaders
-/// that combine them.
-/// </summary>
+/// <summary>What a cooked material's compiled shader uses, read from its inline shader map.</summary>
+// FMaterialShaderMap's uniform expression set is what the compiler left once dead graph branches were gone. An island's
+// master has no editor graph, but its shader map says which textures the pixel shader samples, which scalar and vector
+// parameters it reads, and (when decodable) the preshaders that combine them.
 public sealed class ShaderHints
 {
     public List<ShaderTexture> Textures { get; set; } = new();
@@ -47,10 +43,7 @@ public static class ShaderMapHints
 
     static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ShaderHints> Cache = new();
 
-    /// <summary>
-    /// The hints of a cooked master's inline shader map; null when it carries no readable one.
-    /// Never throws. Remembered per master.
-    /// </summary>
+    /// <summary>The hints of a cooked master's inline shader map; null when it has no readable one. Never throws; remembered per master.</summary>
     /// <param name="master">The master's object path ("/Game/X/M.M"), a package the provider can save.</param>
     /// <param name="m">The master, loaded the usual way (no shader maps asked of the provider).</param>
     /// <param name="imported">Its package's imported textures, in import order.</param>
@@ -64,19 +57,16 @@ public static class ShaderMapHints
         return hints;
     }
 
-    /// <summary>
-    /// The material's shader maps, read from its package's bytes. CUE4Parse reads them with the
-    /// material (ReadShaderMaps) but expects a FMaterialShaderMapId Fortnite's cooked maps no longer
-    /// carry, so the read goes in below it: FShaderMapBase.Deserialize straight after the two flags.
-    /// The maps sit after the name table that starts with the type layout names, which the package's
-    /// own bytes give away.
-    /// </summary>
+    // The material's shader maps, read from its package's bytes. CUE4Parse reads them with the material (ReadShaderMaps)
+    // but expects an FMaterialShaderMapId that Fortnite's cooked maps no longer carry, so the read starts below it:
+    // FShaderMapBase.Deserialize straight after the two flags. The maps follow the name table, which starts with the
+    // type layout names; the package bytes give it away.
     static List<FMaterialShaderMap> ReadMaps(global::CUE4Parse.FileProvider.IFileProvider provider, string master, JObject debug)
     {
         var maps = new List<FMaterialShaderMap>();
         var path = master.LastIndexOf('.') > master.LastIndexOf('/') ? master[..master.LastIndexOf('.')] : master;
         if (!provider.TrySavePackage(path, out var files)) return maps;
-        // a package is one file (zen) or a header and its exports (legacy): the shader maps are in the exports
+        // a package is one file (zen) or a header plus exports (legacy): the shader maps are in the exports
         var data = files.OrderBy(f => f.Key.EndsWith(".uasset", StringComparison.OrdinalIgnoreCase) ? 0 : 1).SelectMany(f => f.Value).ToArray();
         var marker = System.Text.Encoding.ASCII.GetBytes("FMaterialShaderMapContent\0");
         var at = data.AsSpan().IndexOf(marker);
@@ -214,11 +204,11 @@ public static class ShaderMapHints
     //   25 n r g b a  ComponentSwizzle: n components, each indexing the value (FF unused)
     //   26            AppendVector: a, b -> (a, b)
     //   04 / 05 / 06  Add, Sub, Mul on the top two values (a scalar broadcasts over a vector)
-    //   17 / 1A / 1B  Rcp, Saturate, Abs (inferred, not read from a table: 17 is 1 / (DirtGradientMax - DirtGradientMin) and
-    //                 1 / GradientFalloff in the Cristaline masters, 1A and 1B follow it in UE's order: Rcp, Length, Normalize,
+    //   17 / 1A / 1B  Rcp, Saturate, Abs (inferred, not from a table: 17 is 1 / (DirtGradientMax - DirtGradientMin) and
+    //                 1 / GradientFalloff in the Cristaline masters; 1A, 1B follow in UE's order: Rcp, Length, Normalize,
     //                 Saturate, Abs)
-    // Every program of the 161 masters of the Cristaline island parses to the byte with these. Any other opcode
-    // leaves its program with the parameters it reads but no value.
+    // All programs of the 161 Cristaline masters parse to the byte with these. Any other opcode leaves its program
+    // with the parameters it reads but no value.
     static void LoadPrograms(FUniformExpressionSet set, ShaderHints hints)
     {
         foreach (var p in set.UniformNumericParameters ?? Array.Empty<FMaterialNumericParameterInfo>())
@@ -248,11 +238,9 @@ public static class ShaderMapHints
         _ => null,
     };
 
-    /// <summary>
-    /// The hints for one instance chain: each folded preshader (one that does arithmetic on parameters, a
-    /// bare parameter being just the chain's own value) with the parameters it reads and its value under
-    /// the chain's scalars and vectors (the master's defaults where the chain sets none).
-    /// </summary>
+    /// <summary>The hints for one instance chain: each folded preshader with the parameters it reads and its value under the chain's scalars and vectors.</summary>
+    // A folded preshader does arithmetic on parameters (a bare parameter is just the chain's own value). The master's
+    // defaults stand in where the chain sets none.
     public static ShaderHints For(ShaderHints h, IReadOnlyDictionary<string, double> scalars, IReadOnlyDictionary<string, double[]> vectors)
     {
         if (h == null) return null;
@@ -394,11 +382,9 @@ public static class ShaderMapHints
     }
 }
 
-/// <summary>
-/// The shader maps' reader with names' numbers kept: a frozen name is written to the map's name table as
-/// an index and a number, and CUE4Parse reads it as its plain text, so a material's parameters "Param",
-/// "Param_1" and "Param_2" (what the editor makes of three nodes called Param) all read "Param".
-/// </summary>
+// The shader maps' reader with names' numbers kept: a frozen name is written to the map's name table as an index and
+// a number, which CUE4Parse reads as plain text, so "Param", "Param_1" and "Param_2" (what the editor makes of three
+// nodes called Param) would all read "Param".
 sealed class NumberedProxyReader : FMaterialResourceProxyReader
 {
     public NumberedProxyReader(global::CUE4Parse.UE4.Readers.FArchive inner) : base(inner) { }

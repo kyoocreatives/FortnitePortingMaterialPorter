@@ -15,18 +15,15 @@ namespace FortnitePorting.MaterialPorter;
 /// <summary>A Fortnite build a Custom profile can download: its version, its manifest (a file or a link), its UEFN one when known.</summary>
 public record OnDemandBuild(string Version, string Build, string Manifest, string? StudioManifest, string Source, string? StudioBuild = null)
 {
-    // (a UEFN of the same version but another changelist - a hotfix's - says which)
+    // the UEFN build is shown when it differs (same version, another changelist, e.g. a hotfix)
     public override string ToString() => $"{Version}   {Build[(Version.Length + 1)..]}   {Source}"
         + (StudioManifest is null ? "" : StudioBuild is null || StudioBuild == Build ? " + UEFN" : $" + UEFN {StudioBuild[(Version.Length + 1)..]}");
 }
 
-/// <summary>
-/// Material Porter fork: the builds a Custom profile can download (Download Build) - Epic's API lists only the
-/// live one. The launcher keeps the manifests of the builds it installed in the install's .egstore, the UEFN
-/// (Studio) one of the same build beside it: its editor data gives exact materials. The fn-releases archive
-/// keeps every public Windows build's game manifest, the UEFN-releases one every UEFN build's (24.01 on; Epic's
-/// CDN no longer has the oldest ones' chunks).
-/// </summary>
+/// <summary>The builds a Custom profile can download (Download Build); Epic's API lists only the live one.</summary>
+// The launcher keeps the manifests of installed builds in the install's .egstore, with the UEFN (Studio) one of the same
+// build beside it (its editor data gives exact materials). The fn-releases archive has every public Windows build's game
+// manifest, the UEFN-releases one every UEFN build's (24.01 on; Epic's CDN no longer has the oldest chunks).
 public static partial class OnDemandBuilds
 {
     const string ArchiveReadme = "https://raw.githubusercontent.com/polynite/fn-releases/master/README.md";
@@ -55,7 +52,7 @@ public static partial class OnDemandBuilds
             .OrderByDescending(b => VersionKey(b.Version)).ThenByDescending(b => b.Build, StringComparer.Ordinal).ToList();
     }
 
-    // the archive's UEFN of the same changelist, else of the same version (the nearest changelist)
+    // the archive's UEFN of the same changelist, else of the same version (nearest changelist)
     private static OnDemandBuild WithStudio(OnDemandBuild build, List<(string Version, string Build, string Manifest)> studios)
     {
         var studio = studios.FirstOrDefault(s => s.Build == build.Build) is { Manifest: not null } same ? same
@@ -77,7 +74,7 @@ public static partial class OnDemandBuilds
                 var meta = manifest.Meta;
                 if (BuildRx().Match(meta.BuildVersion) is not { Success: true } match) continue;
                 var build = match.Value;
-                // (newer launchers name the app by an id: what it installs tells)
+                // newer launchers name the app by an id; what it installs tells
                 if (meta.AppName == GameApp || manifest.Files.Any(f => f.FileName.Equals(GameToc, StringComparison.OrdinalIgnoreCase)))
                     games.TryAdd(build, (match.Groups[1].Value, file));
                 else if (meta.AppName == StudioApp || manifest.Files.Any(f => f.FileName.Equals(StudioToc, StringComparison.OrdinalIgnoreCase)))
@@ -111,7 +108,7 @@ public static partial class OnDemandBuilds
                 }
             }
         }
-        // (an archive directory is the install's FortniteGame/Content/Paks)
+        // an archive directory is the install's FortniteGame/Content/Paks
         roots.AddRange(archiveDirectories.Where(d => !string.IsNullOrWhiteSpace(d)).Select(d => Path.Combine(d, "..", "..", "..")));
         return roots.Select(r => Path.GetFullPath(Path.Combine(r, ".egstore"))).Distinct(StringComparer.OrdinalIgnoreCase).Where(Directory.Exists);
     }
@@ -151,14 +148,14 @@ public static partial class OnDemandBuilds
             }
             catch (Exception e)
             {
-                // (GitHub's API allows 60 calls an hour: every listed one, then)
+                // GitHub's API allows 60 calls an hour: list every one, then
                 Log.Warning("[Material Porter] the UEFN archive's file list not read, its manifests not checked: {Error}", e.Message);
             }
             var studios = new List<(string, string, string)>();
             foreach (var line in readme.Split('\n'))
             {
                 var cells = line.Trim().Trim('|').Split('|').Select(c => c.Trim()).ToArray();
-                // (its build written "33.11 CL-38773622")
+                // its build is written "33.11 CL-38773622"
                 if (cells.Length < 2 || !cells[0].StartsWith("UEFN ") || BuildRx().Match(cells[0].Replace(" CL-", "-CL-")) is not { Success: true } match) continue;
                 if (cells[1].Length == 0 || files is not null && !files.Contains(cells[1] + ".manifest")) continue;
                 studios.Add((match.Groups[1].Value, match.Value, string.Format(StudioManifestUrl, cells[1])));
@@ -173,11 +170,10 @@ public static partial class OnDemandBuilds
     }
 
     // CUE4Parse's ini-read options (PostMount: DefaultEngine.ini's ConsoleVariables), which a version change resets to
-    // their defaults - a build with r.SkeletalMesh.KeepMobileMinLODSettingOnDesktop=1 (36.10) then reads its skeletal
-    // meshes' MinMobileLOD as their LOD count: 0 LODs, nothing exported
+    // their defaults. A build with r.SkeletalMesh.KeepMobileMinLODSettingOnDesktop=1 (36.10) then reads skeletal meshes'
+    // MinMobileLOD as their LOD count: 0 LODs, nothing exported.
     static readonly string[] IniOptions = ["StripAdditiveRefPose", "SkeletalMesh.KeepMobileMinLODSettingOnDesktop", "StaticMesh.KeepMobileMinLODSettingOnDesktop"];
 
-    /// <summary>Reads with another Unreal version, keeping the options the build's config set.</summary>
     const string ChunkBase = "https://egdownload.fastly-edge.com/Builds/Fortnite/CloudDir/";
     private static readonly HttpClient Http = MakeClient();
 
@@ -188,10 +184,8 @@ public static partial class OnDemandBuilds
         return client;
     }
 
-    /// <summary>
-    /// Whether Epic's CDN still has a build's files: one of its containers' chunks asked for. Epic drops the oldest
-    /// builds' chunks (24.x: every one answers 404); null when it can't be told (offline, a manifest that won't read).
-    /// </summary>
+    /// <summary>Whether Epic's CDN still has a build's files (asks for one container chunk); null if it can't be told.</summary>
+    // Epic drops the oldest builds' chunks (24.x: every one answers 404).
     public static async Task<bool?> AvailableAsync(string manifest)
     {
         try
@@ -227,12 +221,13 @@ public static partial class OnDemandBuilds
         }
     }
 
+    /// <summary>Switches to another Unreal version, keeping the options the build's config set.</summary>
     public static void SetGame(global::CUE4Parse.UE4.Versions.VersionContainer versions, global::CUE4Parse.UE4.Versions.EGame game)
     {
         var kept = IniOptions.Where(versions.Options.ContainsKey).ToDictionary(key => key, key => versions.Options[key]);
         versions.Game = game;
-        // (the package file version stays the one the container was made with otherwise: a profile made at UE 6.0
-        // read 28.30 (5.4) packages with 6.0's header layout - every one failed)
+        // otherwise the package file version stays the one the container was made with (a profile made at UE 6.0
+        // read 28.30 (5.4) packages with 6.0's header layout, and every one failed)
         if (!versions.bExplicitVer) versions.Ver = default;
         foreach (var (key, value) in kept) versions.Options[key] = value;
     }

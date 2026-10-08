@@ -28,11 +28,11 @@ using Newtonsoft.Json;
 
 namespace FortnitePorting.ViewModels.Settings;
 
-// Material Porter fork: UEFN project folders.
+// UEFN project folders.
 public partial class ApplicationSettingsViewModel
 {
     // folders holding the user's UEFN projects (.uefnproject): their islands import with exact materials from the
-    // projects' own graphs; owner builds only
+    // projects' own graphs (owner builds only)
     [ObservableProperty] private ObservableCollection<string> _uefnProjectFolders = [];
 
     [JsonIgnore] public bool ShowIslandSettings => MaterialPorter.Fork.Islands;

@@ -16,11 +16,8 @@ using Serilog;
 
 namespace FortnitePorting.Models.Map;
 
-/// <summary>
-/// Material Porter fork: a map without a minimap of its own (a UEFN island, a mode whose listed minimap is another
-/// map's) shows a picture drawn from its levels (MapPreview), its cells laid over it where they are. Kept on disk;
-/// drawn the first time the map is opened.
-/// </summary>
+/// <summary>A map without a minimap of its own (a UEFN island, or a mode whose listed minimap is another map's) shows a picture drawn from its levels.</summary>
+// The picture (MapPreview) has the map's cells laid over it where they are. Kept on disk; drawn the first time the map is opened.
 public partial class WorldPartitionMap
 {
     [ObservableProperty, NotifyPropertyChangedFor(nameof(NoPreview))] private string _previewStatus = string.Empty;
@@ -31,13 +28,13 @@ public partial class WorldPartitionMap
     private bool _drawnPreview;
     private int _previewLevels;
     private CancellationTokenSource? _previewCancel;
-    private static readonly SemaphoreSlim Drawing = new(1, 1);     // one map drawn at a time; the others wait their turn
+    private static readonly SemaphoreSlim Drawing = new(1, 1);     // one map drawn at a time; the others wait
 
     partial void OnMapBitmapChanged(Bitmap? value) => OnPropertyChanged(nameof(NoPreview));
 
     private string PreviewFolder => Path.Combine(MapsFolder.FullName, MapInfo.MapPath.SubstringAfterLast("/"));
 
-    /// <summary>Whether this map's picture is drawn (none, or another map's): before its cells are placed.</summary>
+    // Whether this map's picture is drawn (none, or another map's): before its cells are placed.
     private async Task<bool> NeedsDrawnPreviewAsync()
     {
         if (MapBitmap is not null && !await MapPreview.IsAnotherMapsAsync(UEParse.Provider, MapInfo.MinimapPath, MapInfo.MapPath))
@@ -49,14 +46,14 @@ public partial class WorldPartitionMap
         return true;
     }
 
-    /// <summary>A cell's corner, on the cell size's grid (FP's snapping sends a negative one to the next).</summary>
+    // A cell's corner, on the cell size's grid (FP's snapping sends a negative one to the next).
     private FVector SnapCell(FVector center)
     {
         double size = MapInfo.MinGridDistance;
         return new FVector((float) (Math.Floor(center.X / size) * size), (float) (Math.Floor(center.Y / size) * size), 0);
     }
 
-    /// <summary>The levels to read: the map, its streamed cells (an island's beside it).</summary>
+    // The levels to read: the map, its streamed cells (an island's beside it).
     private List<string> PreviewLevels()
     {
         var levels = new List<string> { MapInfo.MapPath };
@@ -72,7 +69,7 @@ public partial class WorldPartitionMap
         return levels;
     }
 
-    /// <summary>After Load: the kept picture, if it's this build's.</summary>
+    // After Load: the kept picture, if it's this build's.
     private void ShowKeptPreview()
     {
         _previewLevels = PreviewLevels().Count;
@@ -80,7 +77,7 @@ public partial class WorldPartitionMap
             Show(kept);
     }
 
-    /// <summary>The map was opened: its picture is drawn if it has none yet (one map at a time, in the order opened).</summary>
+    /// <summary>Called when the map is opened: draws its picture if it has none yet (one map at a time, in opening order).</summary>
     public void EnsurePreview()
     {
         if (!_drawnPreview || MapBitmap is not null || IsDrawingPreview) return;
@@ -133,8 +130,8 @@ public partial class WorldPartitionMap
         if (IsDrawingPreview) _previewCancel?.Cancel();
     }
 
-    /// <summary>A drawn picture shown, its cells placed over it: no rotation, the scale and offsets that put a cell's
-    /// square on the ground it covers (FP centres each square at half its margin, so everything is at half scale).</summary>
+    // Shows a drawn picture with its cells placed over it: no rotation, with the scale and offsets that put a cell's square
+    // on the ground it covers (FP centres each square at half its margin, so everything is at half scale).
     private void Show(MapPreview.Picture picture)
     {
         var bitmap = new WriteableBitmap(new PixelSize(MapPreview.Size, MapPreview.Size), new Vector(96, 96), PixelFormat.Rgba8888, AlphaFormat.Unpremul);
@@ -165,7 +162,7 @@ public partial class WorldPartitionMap
 
 public partial class WorldPartitionGrid
 {
-    /// <summary>Material Porter fork: placed again over a drawn map (its scale and offsets just changed).</summary>
+    /// <summary>Places the cells again over a drawn map (its scale and offsets just changed).</summary>
     public void Place(FVector position, int cellSize)
     {
         Position = position;

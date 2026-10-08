@@ -13,14 +13,10 @@ using Newtonsoft.Json.Linq;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// UEFN island materials an FP import brought in without their textures. FP exports only
-/// texture parameters; an island's masters hard-code their textures (only the cooked
-/// UMaterial's ReferencedTextures list them) or are plain colours (the cooked parameter
-/// defaults, CachedExpressionData). The Blender plugin's Material Fixer asks for them here:
-/// a port of the fpisland tool, reading what the app has mounted (the owner's builds only,
-/// as islands are).
-/// </summary>
+/// <summary>UEFN island materials that an FP import brought in without textures, for the Blender plugin's Material Fixer.</summary>
+// FP exports only texture parameters, but island masters hard-code textures (listed only in the cooked
+// UMaterial's ReferencedTextures) or use plain colours (cooked defaults in CachedExpressionData).
+// Port of the fpisland tool; reads what the app has mounted (owner builds only).
 public static class IslandMaterials
 {
     private static readonly Regex Island = new(@"(^|/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/", RegexOptions.IgnoreCase);
@@ -36,7 +32,7 @@ public static class IslandMaterials
         return Regex.Replace(p, @"^fortnitegame/content/", "game/");
     }
 
-    /// <summary>The packages with these names: name -> file keys (no extension), an island's first. One pass over the file table.</summary>
+    /// <summary>Packages by name: name -> file keys without extension, an island's first. One pass over the file table.</summary>
     public static JObject Find(IFileProvider provider, IEnumerable<string> names)
     {
         var wanted = new HashSet<string>(names.Where(n => !string.IsNullOrWhiteSpace(n)), StringComparer.OrdinalIgnoreCase);
@@ -56,18 +52,14 @@ public static class IslandMaterials
         return result;
     }
 
-    /// <summary>A static mesh's material slots, normalised ("" for a slot with none).</summary>
+    /// <summary>A static mesh's normalised material slots ("" for an empty slot).</summary>
     public static async Task<JArray> MeshSlotsAsync(IFileProvider provider, string key)
     {
         var mesh = await provider.LoadPackageObjectAsync<UStaticMesh>(key + "." + Path.GetFileName(key));
         return new JArray((mesh.StaticMaterials ?? []).Select(sm => sm.MaterialInterface?.ResolvedObject is { } ro ? Norm(ro.GetPathName()) : ""));
     }
 
-    /// <summary>
-    /// A material's record: its chain, each texture it references (an instance's texture
-    /// parameters, then its master's ReferencedTextures, as "(referenced)"), its instances'
-    /// scalars and vectors (the child's win) and its master's cooked parameter defaults.
-    /// </summary>
+    /// <summary>A material's record: chain, referenced textures, instance scalars/vectors (child wins) and master defaults.</summary>
     public static async Task<JObject> MaterialAsync(IFileProvider provider, string key)
     {
         var rec = new JObject { ["package"] = key, ["norm"] = Norm(key), ["island"] = IsIsland(key) };
@@ -101,11 +93,11 @@ public static class IslandMaterials
             }
             if (cur is UMaterial um)
             {
-                // the provider skips ReferencedTextures' import scan (FortnitePorting's setting): scan here
+                // the provider skips the ReferencedTextures import scan (FP setting), so scan here
                 var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var tex in um.ReferencedTextures.Concat(MaterialService.ImportedTextures(um)))
                     if (tex is not null && seen.Add(tex.GetPathName())) Texture(tex, "(referenced)", um.Name);
-                // the master's parameter defaults: each runtime parameter type's names beside its values
+                // master parameter defaults: names of each runtime parameter type beside their values
                 if (um.CachedExpressionData is { } ced && JToken.Parse(JsonConvert.SerializeObject(ced, Ser)) is JObject ce)
                 {
                     JArray Names(int type) => ce[type == 0 ? "RuntimeEntries" : $"RuntimeEntries[{type}]"]?["ParameterInfoSet"] as JArray ?? [];

@@ -16,11 +16,11 @@ using Newtonsoft.Json;
 
 namespace FortnitePorting.Models.Installation;
 
-// Material Porter fork: builds downloaded from their manifest.
+// Builds downloaded from their manifest.
 public partial class InstallationProfile
 {
-    // A Custom profile can download an older build from its manifest (a .manifest file or a link: Epic's API
-    // only lists the live build), its chunks from Epic's CDN.
+    // A Custom profile can download an older build from its manifest (a .manifest file or a link; Epic's API only lists
+    // the live build), with its chunks from Epic's CDN.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsCustomOnDemand))]
     [NotifyPropertyChangedFor(nameof(ArchiveDirectoryEnabled))]
@@ -32,7 +32,7 @@ public partial class InstallationProfile
     // the same build's UEFN (Studio) manifest: its editor data gives exact materials
     [ObservableProperty] private string _studioManifestPath = string.Empty;
 
-    // the Unreal version found by reading the build (the archive leaves most builds' engine out)
+    // the Unreal version found by reading the build (the archive leaves out most builds' engine)
     [ObservableProperty] private bool _autoUnrealVersion = true;
 
     [ObservableProperty] [property: JsonIgnore] private ObservableCollection<MaterialPorter.OnDemandBuild> _availableBuilds = [];
@@ -63,7 +63,7 @@ public partial class InstallationProfile
         }
     }
 
-    // the builds this profile can download: the launcher's on this PC, the archive's
+    // the builds this profile can download: the launcher's on this PC, plus the archive's
     public async Task FindBuilds()
     {
         IsFindingBuilds = true;
@@ -90,7 +90,7 @@ public partial class InstallationProfile
         _ = CheckBuildAsync(value);
     }
 
-    // whether Epic still has the picked build's files (its oldest builds' are gone)
+    // whether Epic still has the picked build's files (the oldest builds' are gone)
     private async Task CheckBuildAsync(MaterialPorter.OnDemandBuild build)
     {
         if (await MaterialPorter.OnDemandBuilds.AvailableAsync(build.Manifest) == false)

@@ -12,12 +12,9 @@ using FortnitePorting.Models.Assets.Loading;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// Material Porter fork: the items the Animations tab's animations belong to, so that an animation
-/// shows its item's name and icon. A glider's, a back bling's and a pickaxe's by the skeleton of the
-/// item's mesh (read from the mesh's package's imports); an emote's by its montage's folder. Kept in
-/// a file (keyed like the outlines): about 9,000 items are read the first time.
-/// </summary>
+/// <summary>Owner item (name, icon) of each Animations-tab animation.</summary>
+// Gliders, back blings and pickaxes are matched by their mesh's skeleton (from the package imports),
+// emotes by their montage's folder. Cached in a file: the first run reads ~9,000 items.
 public static class AnimationOwners
 {
     private static readonly (string Class, bool ByFolder)[] Sources =
@@ -54,7 +51,6 @@ public static class AnimationOwners
             catch (Exception e)
             {
                 Exporting.MaterialPorter.Failures.Note("animation owners", data.ObjectPath, e);
-                // (an item that can't be read owns nothing)
             }
         });
         foreach (var (folder, at, owner) in found)
@@ -69,7 +65,6 @@ public static class AnimationOwners
         catch (Exception e)
         {
             Serilog.Log.Warning("[Material Porter] animation owners cache not saved: {Error}", e.Message);
-            // (only the next listing is slower)
         }
     }
 
@@ -85,7 +80,7 @@ public static class AnimationOwners
             {
                 var f = line.Split('\t');
                 if (f.Length != 4) continue;
-                // one owner object an item (an owner compares by value anyway)
+                // share one owner object per item
                 var owner = owners.TryGetValue((f[2], f[3]), out var had) ? had : owners[(f[2], f[3])] = new Animations.Owner(f[2], f[3].Length > 0 ? f[3] : null);
                 if (f[0] == "F") Animations.OwnFolder(f[1], owner); else Animations.OwnSkeleton(f[1], owner);
             }
@@ -99,7 +94,7 @@ public static class AnimationOwners
         }
     }
 
-    /// <summary>The meshes an item shows: a glider's, a back bling's parts', a pickaxe's weapon's.</summary>
+    /// <summary>The meshes an item shows (glider, back bling parts, pickaxe weapon).</summary>
     private static IEnumerable<string> Meshes(UObject item)
     {
         if (PathOf(item, "SkeletalMesh") is { } glider) yield return glider;
@@ -110,7 +105,7 @@ public static class AnimationOwners
             yield return axe;
     }
 
-    /// <summary>The path a property names, soft or hard, without reading what it names.</summary>
+    /// <summary>The path a property names, soft or hard, without loading it.</summary>
     private static string? PathOf(UObject owner, string property)
     {
         if (owner.GetOrDefault<FSoftObjectPath>(property) is { AssetPathName.IsNone: false } soft) return soft.AssetPathName.Text;

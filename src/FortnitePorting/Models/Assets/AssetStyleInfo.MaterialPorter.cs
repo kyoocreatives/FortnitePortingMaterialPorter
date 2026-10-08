@@ -4,16 +4,13 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace FortnitePorting.Models.Assets;
 
-/// <summary>
-/// Material Porter fork: a channel with many options (a car's wheel sets) picked
-/// from a searchable tile grid in its pop-up instead of a list.
-/// </summary>
+/// <summary>A channel with many options (a car's wheel sets) picked from a searchable tile grid in its pop-up instead of a list.</summary>
 public partial class AssetStyleInfo
 {
     [ObservableProperty] private bool _isPicker;
     [ObservableProperty] private string _pickerSearch = string.Empty;
 
-    /// <summary>The options the search keeps (all of them without one).</summary>
+    /// <summary>The options the search keeps (all of them without a search).</summary>
     public ObservableCollection<BaseStyleData> PickerItems { get; } = [];
 
     /// <summary>The picked option as an item (the grid's items are filtered, so not by index).</summary>
@@ -32,8 +29,8 @@ public partial class AssetStyleInfo
     partial void OnPickerSearchChanged(string value) => RefreshPicker();
     partial void OnSelectedStyleIndexChanged(int value) => OnPropertyChanged(nameof(PickerSelection));
 
-    // a list clearing its selection (its items or pop-up going away) doesn't unpick a channel that needs a
-    // pick: the export read StyleDatas[-1]
+    // a list clearing its selection (its items or pop-up going away) must not unpick a channel that needs a pick:
+    // the export would read StyleDatas[-1]
     partial void OnSelectedStyleIndexChanged(int oldValue, int newValue)
     {
         if (RequiredSelection && !MultiSelect && (newValue < 0 || newValue >= StyleDatas.Count)

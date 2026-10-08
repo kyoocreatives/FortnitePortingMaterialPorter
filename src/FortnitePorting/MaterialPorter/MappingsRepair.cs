@@ -7,12 +7,10 @@ using Serilog;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// Material Porter fork: some builds' mappings (38.00's) hold editor template structs named like real classes
-/// (ActorComponent, Skeleton, PhysicsAsset) after those classes. CUE4Parse keeps the last struct of a name, so
-/// the real class is lost: every component then reads 15 properties off and fails ("Unknown property").
-/// The file is read again keeping every struct, and such a name goes back to its real class.
-/// </summary>
+/// <summary>Restores real classes that some builds' mappings shadow with editor template structs.</summary>
+// 38.00's mappings hold template structs named like real classes (ActorComponent, Skeleton, PhysicsAsset).
+// CUE4Parse keeps the last struct of a name, so the real class is lost and every component fails with
+// "Unknown property". The file is re-read keeping every struct, and such names go back to the real class.
 public static class MappingsRepair
 {
     public static void Repair(ITypeMappingsProvider provider, string path)
@@ -23,7 +21,7 @@ public static class MappingsRepair
             var all = new UsmapParser(path, comparer: new EveryOneApart()).Mappings;
             if (all is null) return;
 
-            // only an empty struct of another parent hiding one with properties: other names shared on purpose
+            // only an empty struct of another parent hiding one with properties; other shared names
             // (each Anim Blueprint's generated data, Verse tuples) keep the struct CUE4Parse kept
             var repaired = all.Types.Values
                 .GroupBy(s => s.Name, StringComparer.Ordinal)
@@ -45,7 +43,7 @@ public static class MappingsRepair
         }
     }
 
-    // a dictionary comparer under which no two names are the same: every struct of the file is kept
+    // a comparer under which no two names are equal, so every struct of the file is kept
     private sealed class EveryOneApart : StringComparer
     {
         private int _next;

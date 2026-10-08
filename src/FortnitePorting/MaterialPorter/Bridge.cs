@@ -6,24 +6,16 @@ using Newtonsoft.Json.Linq;
 
 namespace FortnitePorting.MaterialPorter;
 
-/// <summary>
-/// The app's end of the link, on localhost: while Blender builds a material
-/// it asks here for what the graph needs - each function's graph, each
-/// texture, each parameter collection - so only what the material really
-/// reads is exported.
-///
-///   GET /ping                        {"app", "build", "mounted"}
-///   GET /graph?path=/Game/.../MF_X   {"file"}  a material or function graph
-///   GET /texture?path=/Game/.../T_X  {"file", "srgb", "kind", "depth", ...}
-///   GET /collection?path=...         {"scalars", "vectors"}
-///   GET /material?path=...           the instance, described
-///   GET /find-materials?path=A,B     {"A": [object path, ...]}  material assets by name
-///   GET /file?path=C:\...            the bytes of a file the app exported
-///
-/// /file is for a Blender that can't see the app's files where the app sees
-/// them (Windows redirects AppData writes of a packaged launcher's children
-/// to a private folder). It serves only files inside the app's data folder.
-/// </summary>
+/// <summary>Localhost link Blender uses to fetch what a material needs (graphs, textures, collections), so only what is read gets exported.</summary>
+// GET /ping                        {"app", "build", "mounted"}
+// GET /graph?path=/Game/.../MF_X   {"file"}  a material or function graph
+// GET /texture?path=/Game/.../T_X  {"file", "srgb", "kind", "depth", ...}
+// GET /collection?path=...         {"scalars", "vectors"}
+// GET /material?path=...           the instance, described
+// GET /find-materials?path=A,B     {"A": [object path, ...]}  material assets by name
+// GET /file?path=C:\...            the bytes of a file the app exported
+// /file is for a Blender that can't see the app's files where the app sees them (Windows redirects
+// a packaged launcher's AppData writes to a private folder). Serves only files inside the app's data folder.
 public sealed class Bridge : IDisposable
 {
     readonly GameContext game;
@@ -31,7 +23,7 @@ public sealed class Bridge : IDisposable
     HttpListener listener;
     public event Action<string> Log;
     public int Port { get; private set; }
-    /// <summary>Routes a host adds (route, query) -> the answer; null: none.</summary>
+    /// <summary>Routes added by the host: (route, query) -> answer, or null for none.</summary>
     public Func<string, System.Collections.Specialized.NameValueCollection, Task<object>> Extra { get; set; }
 
     public Bridge(GameContext game, MaterialService materials)
@@ -79,14 +71,14 @@ public sealed class Bridge : IDisposable
             {
                 "ping" => new { app = "MaterialPorter", build = game.BuildVersion, mounted = game.Mounted },
                 "graph" => new { file = await materials.GraphAsync(Need(path)) },
-                // cap=<pixels>: the import's texture size cap (its own smaller mip)
+                // cap=<pixels>: texture size cap for the import
                 "texture" => await materials.BlenderTextureAsync(Need(path), int.TryParse(q["cap"], out var cap) && cap > 0 ? cap : null),
                 "collection" => await materials.CollectionAsync(Need(path)),
                 "material" => (await materials.DescribeAsync(Need(path))).ToJson(),
                 "find-materials" => await materials.FindMaterialsAsync(Need(path).Split(',')),
                 _ => Extra != null && await Extra(route, q) is { } extra ? extra : throw new KeyNotFoundException("no route " + route),
             };
-            if (route is not ("ping" or "log")) Log?.Invoke($"Blender asked for {route} {ShortName(path)}");   // "log": Blender telling what it does
+            if (route is not ("ping" or "log")) Log?.Invoke($"Blender asked for {route} {ShortName(path)}");
             Timing.Log($"bridge {route} {ShortName(path)}", sw);
         }
         catch (Exception e)
@@ -107,7 +99,7 @@ public sealed class Bridge : IDisposable
         catch { /* Blender went away */ }
     }
 
-    /// <summary>A file of the app's data folder, as bytes (nothing outside it).</summary>
+    /// <summary>A file of the app's data folder as bytes; nothing outside it.</summary>
     async Task SendFile(HttpListenerContext ctx, string path)
     {
         var root = Path.GetFullPath(GameContext.DataDir).TrimEnd('\\') + "\\";

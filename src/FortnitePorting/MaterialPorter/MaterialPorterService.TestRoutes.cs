@@ -25,17 +25,15 @@ using Serilog;
 
 namespace FortnitePorting.MaterialPorter;
 
-// Bridge routes only the dev tools use (testapp.sh, health.py, baseline.py): Debug builds only.
+// Bridge routes only the dev tools use (testapp.sh, health.py, baseline.py); Debug builds only.
 public partial class MaterialPorterService
 {
-    /// <summary>
-    /// tests: an item's styles by name (styles=Violet Board Jules;...): each name's option from the item's
-    /// ItemVariants (the one named so, else the first whose name contains it), as the asset page passes it.
-    /// </summary>
+    // An item's styles by name (styles=Violet Board Jules;...): each name's option from the item's ItemVariants
+    // (the one named so, else the first whose name contains it), as the asset page passes it.
     private static IEnumerable<Exporting.Styles.ExportStyleBase> PickedStyles(UObject asset, string? names)
     {
         if (string.IsNullOrWhiteSpace(names)) yield break;
-        // (each option with its channel's name: "jacket:On" picks one where several channels have an On)
+        // each option carries its channel name: "jacket:On" picks one where several channels have an On
         var options = new List<(string Channel, FStructFallback Option)>();
         foreach (var variant in asset.GetOrDefault("ItemVariants", Array.Empty<UObject>()))
         {
@@ -57,7 +55,7 @@ public partial class MaterialPorterService
     }
 
 
-    /// <summary>tests: the window as it shows, rendered to a PNG (on the UI thread).</summary>
+    // Renders the window as shown to a PNG (on the UI thread).
     private static Avalonia.PixelSize SaveShot(Avalonia.Controls.Window window, string file)
     {
         var size = new Avalonia.PixelSize((int) window.Bounds.Width, (int) window.Bounds.Height);
@@ -71,7 +69,7 @@ public partial class MaterialPorterService
     {
         if (route == "fork-projects")
         {
-            // tests: the UEFN projects found, which island is which, and what graphs came from where so far
+            // UEFN projects found, which island is which, and what graphs came from where so far
             var (ownAssets, otherAssets, others, pairs) = IslandProjects.Counts();
             return new
             {
@@ -82,13 +80,13 @@ public partial class MaterialPorterService
         }
         if (route == "fork-car")
         {
-            // tests: a car body's channels and what the picks ("0:1,5:3") give
+            // a car body's channels and what the picks ("0:1,5:3") give
             var picks = (query["picks"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries)
                 .Select(x => x.Split(':')).Where(x => x.Length == 2).ToDictionary(x => int.Parse(x[0]), x => int.Parse(x[1]));
             var plan = await CarPlanAsync(query["path"] ?? throw new ArgumentException("path missing"), picks);
             return new
             {
-                // (all=1: every option with its item's package, to find one by its asset)
+                // all=1: every option with its item's package, to find one by its asset
                 channels = plan.Channels.Select(c => new { c.Name, c.Default, options = c.Options.Count,
                     first = query["all"] == "1" ? c.Options.Select(o => o.Name + " | " + (o.IconItem?.Package ?? o.Icon)) : c.Options.Take(4).Select(o => o.Name) }),
                 plan.Styles, plan.BodyMesh, plan.BodyOverrides, plan.WheelMesh,
@@ -98,8 +96,8 @@ public partial class MaterialPorterService
         }
         if (route == "fork-assets-page")
         {
-            // tests: open the Assets page as a click on it does (its view model builds the tabs' sidebar), and
-            // say what it built: the sidebar's entries, and each tab's type with whether it has an icon of its own
+            // Opens the Assets page as a click does (its view model builds the tabs' sidebar) and reports the
+            // sidebar entries and each tab's type, with whether it has its own icon.
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => AppServices.Navigation.App.Open<Views.AssetsView>());
             await Task.Delay(TimeSpan.FromSeconds(double.TryParse(query["wait"], System.Globalization.CultureInfo.InvariantCulture, out var pause) ? pause : 6));
             return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
@@ -116,8 +114,8 @@ public partial class MaterialPorterService
         }
         if (route == "fork-screenshot")
         {
-            // tests: the window as it shows an asset tab (type=; search=, filters=Title,Title, select= a display
-            // name to open its info), rendered to a PNG (path=) after wait= seconds (icons load)
+            // The window showing an asset tab (type=; search=, filters=Title,Title, select=<display name> opens its info),
+            // rendered to a PNG (path=) after wait= seconds (icons load).
             var window = AppServices.App.Lifetime.MainWindow!;
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -161,8 +159,8 @@ public partial class MaterialPorterService
         }
         if (route == "fork-settings-shot" && query["page"] == "installation")
         {
-            // tests: the Installation settings page, rendered to a PNG (path=, height=); custom=1 shows the profile as a
-            // Custom one downloading its build (put back after)
+            // The Installation settings page rendered to a PNG (path=, height=); custom=1 shows the profile as a
+            // Custom one downloading its build (put back after).
             var window = AppServices.App.Lifetime.MainWindow!;
             var installation = AppServices.AppSettings.Installation;
             (EFortniteVersion Version, bool Download)? was = null;
@@ -173,7 +171,7 @@ public partial class MaterialPorterService
                 window.Height = int.TryParse(query["height"], out var tall) ? tall : 1100;
                 AppServices.Navigation.App.Open<Views.SettingsView>();
             });
-            // (the settings pane's own frame exists once its view has loaded)
+            // the settings pane's own frame exists once its view has loaded
             await Task.Delay(TimeSpan.FromSeconds(1));
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -206,8 +204,8 @@ public partial class MaterialPorterService
         }
         if (route == "fork-settings-shot" && query["page"] == "application")
         {
-            // tests: the app's Application settings page, rendered to a PNG (path=); folders=A;B lists those UEFN
-            // project folders for the picture only (they are taken out again)
+            // The Application settings page rendered to a PNG (path=); folders=A;B lists those UEFN project
+            // folders for the picture only (taken out again).
             var window = AppServices.App.Lifetime.MainWindow!;
             var shown = (query["folders"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries).ToList();
             var settings = AppServices.AppSettings.Application;
@@ -231,8 +229,7 @@ public partial class MaterialPorterService
         }
         if (route == "fork-settings-shot")
         {
-            // tests: the Blender export settings page as it shows a section (section= its sidebar button's text),
-            // rendered to a PNG (path=)
+            // The Blender export settings page showing a section (section= its sidebar button's text), rendered to a PNG (path=).
             var window = AppServices.App.Lifetime.MainWindow!;
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -261,9 +258,9 @@ public partial class MaterialPorterService
         }
         if (route == "fork-map-shot")
         {
-            // tests: the Map page with its Flags menu open (a throwaway map stands in when the list has none), rendered
-            // to a PNG (path=) and the menu's own popup to path+".menu.png"; flip=Header unchecks that item first;
-            // answers each item's header, checked state and the map's world flags
+            // The Map page with its Flags menu open (a throwaway map stands in if the list has none), rendered to a PNG (path=)
+            // and the menu's popup to path+".menu.png"; flip=Header unchecks that item first. Answers each item's header,
+            // checked state and the map's world flags.
             var window = AppServices.App.Lifetime.MainWindow!;
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -302,7 +299,7 @@ public partial class MaterialPorterService
                 foreach (var item in menu.Items.OfType<Avalonia.Controls.MenuItem>()) items.Add(new { item.Header, item.IsChecked, item.IsEnabled });
                 var file = query["path"] ?? throw new ArgumentException("path missing");
                 SaveShot(window, file);
-                // Avalonia keeps the flyout's popup in a private member of its PopupFlyoutBase
+                // Avalonia keeps the flyout's popup in a private member of PopupFlyoutBase
                 Avalonia.Controls.Primitives.Popup? popup = null;
                 for (var type = menu.GetType(); type is not null && popup is null; type = type.BaseType)
                 {
@@ -324,8 +321,7 @@ public partial class MaterialPorterService
         }
         if (route == "fork-map-preview")
         {
-            // tests: the Map page on a map (name=; none: the list), its drawn preview awaited (wait= seconds, 600),
-            // the page rendered to path=
+            // The Map page on a map (name=; none: the list), its drawn preview awaited (wait= seconds, 600), rendered to path=.
             var window = AppServices.App.Lifetime.MainWindow!;
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
@@ -363,9 +359,8 @@ public partial class MaterialPorterService
         }
         if (route == "fork-reload")
         {
-            // tests: the installation loaded again instead of restarting the app; version=<EGame> and auto=0|1 set the
-            // profile's Unreal version and its detection first. Answers at once (the reload restarts this bridge):
-            // the log's next "exact materials served" says it's done.
+            // Reloads the installation instead of restarting the app; version=<EGame> and auto=0|1 first set the profile's
+            // Unreal version and detection. Answers at once (the reload restarts this bridge): the log's next "exact materials served" means done.
             var profile = AppServices.AppSettings.Installation.CurrentProfile;
             if (query["version"] is { } version) profile.UnrealVersion = Enum.Parse<global::CUE4Parse.UE4.Versions.EGame>(version);
             if (query["auto"] is { } auto) profile.AutoUnrealVersion = auto == "1";
@@ -378,7 +373,7 @@ public partial class MaterialPorterService
         }
         if (route == "fork-status")
         {
-            // tests: the status line and the newest log lines, as the window shows them
+            // the status line and the newest log lines, as the window shows them
             return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => new
             {
                 StatusLog.Instance.LastLine, StatusLog.Instance.IsBusy, StatusLog.Instance.BusyWhat,
@@ -387,13 +382,13 @@ public partial class MaterialPorterService
         }
         if (route == "fork-find-builds")
         {
-            // tests: the builds the Installation page's Build picker lists (Find)
+            // the builds the Installation page's Build picker lists (Find)
             var builds = await OnDemandBuilds.FindAsync(AppServices.AppSettings.Installation.Profiles.Select(p => p.ArchiveDirectory));
             return new JArray(builds.Select(b => $"{b.Build} | {b.Source} | {(b.StudioManifest is null ? "-" : "UEFN")} | {Path.GetFileName(b.Manifest)}"));
         }
         if (route == "fork-find-assets")
         {
-            // tests: the asset registry's entries whose package name holds ?path= (and whose class is ?class=, if given)
+            // asset registry entries whose package name holds ?path= (and whose class is ?class=, if given)
             var needle = query["path"] ?? throw new ArgumentException("path missing");
             var wanted = query["class"];
             return new JArray(AppServices.UEParse.AssetRegistry
@@ -404,9 +399,9 @@ public partial class MaterialPorterService
         }
         if (route == "fork-asset-page")
         {
-            // tests: an asset's page as the Assets view builds it (type=, name= its display name): its style
-            // channels once they have filled in (wait= seconds); pick=Channel:Option;... picks options, and
-            // export=1 exports with the picks as the Export button does (the styles through ExportService)
+            // An asset's page as the Assets view builds it (type=, name=<display name>): its style channels once filled in
+            // (wait= seconds); pick=Channel:Option;... picks options, export=1 exports with the picks as the Export button
+            // does (styles through ExportService).
             var loader = AppServices.AssetLoading.Get(Enum.Parse<EExportType>(query["type"] ?? "Item"));
             await loader.Load();
             var wanted = query["name"] ?? throw new ArgumentException("name missing");
@@ -441,7 +436,7 @@ public partial class MaterialPorterService
         }
         if (route == "fork-weapon-mods")
         {
-            // tests: a weapon item's mod slots as its page lists them (its own mod, the mods that allow it)
+            // a weapon item's mod slots as its page lists them (its own mod, the mods that allow it)
             var weapon = await Game.Provider.LoadPackageObjectAsync(query["path"] ?? throw new ArgumentException("path missing"));
             return JToken.FromObject(new
             {
@@ -455,7 +450,7 @@ public partial class MaterialPorterService
         }
         if (route == "fork-find-files")
         {
-            // tests: the game files whose path holds every word of ?path= (space-separated), whatever their type
+            // game files whose path holds every word of ?path= (space-separated), of any type
             var words = (query["path"] ?? throw new ArgumentException("path missing")).Split(' ', StringSplitOptions.RemoveEmptyEntries);
             return new JArray(Game.Provider.Files.Keys
                 .Where(k => words.All(w => k.Contains(w, StringComparison.OrdinalIgnoreCase)))
@@ -463,16 +458,16 @@ public partial class MaterialPorterService
         }
         if (route == "fork-effect-program")
         {
-            // tests: what an effect's export carries for its replay (Effects.Program and Fields)
+            // what an effect's export carries for its replay (Effects.Program and Fields)
             var effect = await Game.Provider.LoadPackageAsync(query["path"] ?? throw new ArgumentException("path missing"));
             var niagara = effect.GetExports().FirstOrDefault(e => e.ExportType == "NiagaraSystem") ?? throw new ArgumentException("no Niagara system in the package");
             return new JObject { ["Exports"] = Exporting.MaterialPorter.Effects.Program(niagara), ["Fields"] = Exporting.MaterialPorter.Effects.Fields(niagara) };
         }
         if (route == "fork-dump")
         {
-            // tests: a package's exports (name, type, outer, properties) as CUE4Parse reads them; full=1: each
-            // export as CUE4Parse writes it (what it reads outside the properties too: a material's cached data...)
-            // game=<EGame>: read with that Unreal version instead (put back after)
+            // A package's exports (name, type, outer, properties) as CUE4Parse reads them; full=1: each export as CUE4Parse
+            // writes it (including what it reads outside the properties, e.g. a material's cached data);
+            // game=<EGame> reads with that Unreal version instead (put back after).
             var versions = ((global::CUE4Parse.FileProvider.AbstractFileProvider) Game.Provider).Versions;
             var was = versions.Game;
             if (query["game"] is { } game) OnDemandBuilds.SetGame(versions, Enum.Parse<global::CUE4Parse.UE4.Versions.EGame>(game));
@@ -484,12 +479,11 @@ public partial class MaterialPorterService
             }
             finally
             {
-                // (only then: setting it rebuilds the options other reads are using)
+                // only then: setting it rebuilds the options other reads are using
                 if (query["game"] is not null) OnDemandBuilds.SetGame(versions, was);
             }
             var settings = new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore };
-            // count=1: how many exports of each class (a level's lights, decals, effects - a 117 MB level's
-            // full dump doesn't serialize)
+            // count=1: exports per class (a level's lights, decals, effects; a 117 MB level's full dump doesn't serialize)
             if (query["count"] == "1")
                 return JObject.FromObject(dumped.GetExports().GroupBy(e => e.ExportType).OrderByDescending(g => g.Count())
                     .ToDictionary(g => g.Key, g => g.Count()));
@@ -500,8 +494,7 @@ public partial class MaterialPorterService
                     .ToDictionary(g => g.Key, g => new { count = g.Count(), example = g.First().Outer?.Name }));
             if (query["full"] == "1")
                 return new JRaw(JsonConvert.SerializeObject(dumped.GetExports(), settings));
-            // type=<class>, outer=<part of the owner's name>, limit=<n>: only those exports (a big level's dump
-            // doesn't serialize whole)
+            // type=<class>, outer=<part of the owner's name>, limit=<n>: only those exports (a big level's dump doesn't serialize whole)
             var listed = dumped.GetExports().Where(e => (query["type"] is not { } wantType || e.ExportType == wantType)
                                                           && (query["outer"] is not { } wantOuter || e.Outer?.Name.Text.Contains(wantOuter, StringComparison.OrdinalIgnoreCase) == true)
                                                           && (query["name"] is not { } wantName || e.Name.Contains(wantName, StringComparison.OrdinalIgnoreCase)));
@@ -514,8 +507,8 @@ public partial class MaterialPorterService
         }
         if (route == "fork-emote-census")
         {
-            // tests: how emotes play effects - each kind of notify their montages (and its sections'
-            // sequences) carry, a Template's class with it (Niagara, Cascade): in how many emotes, which
+            // How emotes play effects: each notify kind their montages (and sections' sequences) carry, with a
+            // Template's class (Niagara, Cascade), in how many emotes and which.
             var listing = AppServices.AssetLoading.Get(Enum.Parse<EExportType>(query["type"] ?? "Emote"));
             await listing.Load();
             var kinds = new Dictionary<string, (int Count, List<string> Where)>();
@@ -551,9 +544,9 @@ public partial class MaterialPorterService
         }
         if (route == "fork-effect-census")
         {
-            // tests: how the idle effects of a tab's items (?types=Outfit,Backpack: their parts') feed their
-            // materials (renderer parameters, bindings to the system's variables, materials from user
-            // parameters) and what their emitters run on / call: per kind, how many and where
+            // How the idle effects of a tab's items (?types=Outfit,Backpack: their parts') feed their materials (renderer
+            // parameters, bindings to the system's variables, materials from user parameters) and what their emitters
+            // run on / call: per kind, how many and where.
             var serializer = JsonSerializer.Create(new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
             var owners = new Dictionary<string, (UObject System, List<string> Items)>(StringComparer.OrdinalIgnoreCase);
             var variantKinds = new List<(string Kind, string Where)>();
@@ -656,7 +649,7 @@ public partial class MaterialPorterService
         }
         if (route == "fork-loader")
         {
-            // tests: run one asset tab's loader as the Assets page does, and say what it lists (icons=1: with each one's icon)
+            // Runs one asset tab's loader as the Assets page does and says what it lists (icons=1: with each one's icon).
             var loader = AppServices.AssetLoading.Get(Enum.Parse<EExportType>(query["type"] ?? "LegoOutfit"));
             var clock = Stopwatch.StartNew();
             await loader.Load();
@@ -666,7 +659,7 @@ public partial class MaterialPorterService
                     : a.CreationData.DisplayName)
                 .OrderBy(n => n).ToList();
             var filter = query["filter"] ?? "";
-            // check=1 (LEGO): every listed figure resolved to a cooked mesh or a recipe; the ones with neither named
+            // check=1 (LEGO): every listed figure resolved to a cooked mesh or a recipe; the ones with neither are named
             var cooked = 0;
             var failed = query["check"] != "1" ? [] : loader.Source.Items
                 .Select(a => (a.CreationData as Models.Assets.Asset.AssetItemCreationArgs)?.Object)
@@ -690,8 +683,8 @@ public partial class MaterialPorterService
         }
         if (route == "fork-export-asset")
         {
-            // tests: FP's export of one asset (type=Car|Outfit|...; picks for a car, face=Mouth:12,Eyes:2 for a
-            // LEGO figure) as the plugin receives it
+            // FP's export of one asset (type=Car|Outfit|...; picks for a car, face=Mouth:12,Eyes:2 for a LEGO figure)
+            // as the plugin receives it.
             var type = Enum.Parse<EExportType>(query["type"] ?? "Car");
             if (type == EExportType.TimeOfDay && !Fork.TimeOfDayExport)
                 throw new InvalidOperationException("Time of Day export isn't in this build");
@@ -734,9 +727,9 @@ public partial class MaterialPorterService
                 assetData.Exports,
             }));
         }
-        // tests: /fork-export-world?path=<level package>[&landscape=1][&actors=0][&lights=0][&decals=0][&effects=0][&actor=name part], FP's world export of that
-        // one level (actors and instances, as the Map page sends it to Blender) as the plugin receives it;
-        // track=<Rocket Racing track object path>&points=x,y,z;x,y,z...: also that track's road laid along those points
+        // /fork-export-world?path=<level package>[&landscape=1][&actors=0][&lights=0][&decals=0][&effects=0][&actor=name part]:
+        // FP's world export of that level (actors and instances, as the Map page sends it to Blender) as the plugin receives it.
+        // track=<Rocket Racing track object path>&points=x,y,z;x,y,z...: also lays that track's road along those points.
         if (route != "fork-export-world") return null;
         var path = query["path"] ?? throw new ArgumentException("path missing");
         // a World Partition cell's world is named after its map, not its file

@@ -13,8 +13,7 @@ using FortnitePorting.Models.Assets.Loading;
 
 namespace FortnitePorting.Services;
 
-/// <summary>Material Porter fork: Rocket Racing cars (their bodies), assembled with their wheels and paint;
-/// LEGO figures (cooked ones and recipes), their emotes, building props and sets, creatures.</summary>
+/// <summary>Rocket Racing cars (bodies, assembled with wheels and paint), LEGO figures (cooked ones and recipes) with their emotes, building props and sets, and creatures.</summary>
 public partial class AssetLoaderService
 {
     /// <summary>The owner's private overlay's tabs (FortnitePorting.csproj imports it when it's there).</summary>
@@ -22,15 +21,15 @@ public partial class AssetLoaderService
 
     public AssetLoaderService()
     {
-        // particle effects (Niagara systems): what each emitter draws, to place by hand; the description says
-        // what the emitters are. The registry's (islands') and the game's own, found by file name.
+        // particle effects (Niagara systems): what each emitter draws, to place by hand (the description says what the
+        // emitters are). The registry's (islands') and the game's own, found by file name.
         Categories.First(category => category.Category == EAssetCategory.Gameplay).Loaders.Add(new AssetLoader(EExportType.Effect)
         {
             ClassNames = ["NiagaraSystem"],
             HideRarity = true,
             DescriptionHandler = Effects.Describe,
             MPUnregistered = registry => UEParse.Provider is { } provider ? Effects.ListedSystems(provider, registry) : registry,
-            // GPU emitters aren't replayed (an island's effects are mostly GPU): the ones that play apart
+            // GPU emitters aren't replayed (an island's effects are mostly GPU); these are the ones that play apart
             FilterCategories =
             {
                 new FilterCategory("EFFECT", [EExportType.Effect])
@@ -40,23 +39,21 @@ public partial class AssetLoaderService
             },
         });
 
-        // animations (sequences and montages) by what they are for: characters', gliders', back blings',
-        // creatures'... found by path and listed unread (the registry keeps few of them); exported onto
-        // the armature selected in Blender
+        // animations (sequences and montages) by what they are for (characters', gliders', back blings', creatures'...), found
+        // by path and listed unread (the registry keeps few); exported onto the armature selected in Blender
         Categories.First(category => category.Category == EAssetCategory.Gameplay).Loaders.Add(new AssetLoader(EExportType.Animation)
         {
             ClassNames = Animations.Classes,
             HideRarity = true,
-            // an animation of an item (a glider's, a back bling's, a pickaxe's, an emote's) shows the
-            // item's icon and its name after its own: the search finds an item's animations by its name
+            // an item's animation (glider, back bling, pickaxe, emote) shows the item's icon and its name after its own,
+            // so searching an item's name finds its animations
             SortType = EAssetSortType.AZ,
             DisplayNameHandler = Animations.DisplayName,
             DescriptionHandler = Animations.Describe,
             MPIconPath = Animations.IconPath,
             MPUnregistered = registry => UEParse.Provider is { } provider ? Animations.Candidates(provider, registry) : registry,
             MPOutline = async (package, name) => await Animations.ReadOutline(UEParse.Provider, package, name),
-            // the outlines and the items' index kept from the last listing of the same files: a few
-            // seconds instead of over a minute
+            // outlines and the items' index are kept from the last listing of the same files: seconds instead of over a minute
             MPBeforeListing = async () =>
             {
                 var key = $"2 {UEParse.Provider.Files.Count} {UEParse.Provider.MountedVfs.Count}";
@@ -96,7 +93,7 @@ public partial class AssetLoaderService
                 {
                     ClassNames = [Cars.BodyClass],
                     HideRarity = true,
-                    // the newest bodies are named "Blank": their asset's name instead
+                    // the newest bodies are named "Blank": use their asset's name
                     DisplayNameHandler = asset => Cars.ItemTitle(asset.GetOrDefault<FText?>("ItemName")?.Text, asset.Name),
                     DescriptionHandler = asset => asset.GetOrDefault<FText?>("ItemDescription")?.Text is { } description
                                                   && !Cars.IsPlaceholder(description) ? description.TrimEnd() : "",
@@ -128,8 +125,8 @@ public partial class AssetLoaderService
                     DisplayNameHandler = asset => BaseDance(asset)?.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text ?? asset.Name,
                     DescriptionHandler = asset => BaseDance(asset)?.GetAnyOrDefault<FText?>("Description", "ItemDescription")?.Text.TrimEnd() ?? "",
                 },
-                // building props and sets, what LEGO Fortnite builds (walls, roofs, doors, furniture, crafting
-                // stations, chests...): their actor's meshes (the ones whose actor can be read); cave rooms: their level
+                // building props and sets, what LEGO Fortnite builds (walls, roofs, doors, furniture, crafting stations, chests...):
+                // their actor's meshes (those whose actor can be read); cave rooms: their level
                 new AssetLoader(EExportType.LegoProp)
                 {
                     ClassNames = [..Figures.PropClasses, Figures.BuildClass, Figures.CaveClass],
@@ -169,7 +166,7 @@ public partial class AssetLoaderService
         });
     }
 
-    /// <summary>A LEGO build's name from its asset's (JBID_BS_Wall_Door_02x16x12_01_A -> BS Wall Door 02x16x12 01 A).</summary>
+    // A LEGO build's name from its asset's (JBID_BS_Wall_Door_02x16x12_01_A -> BS Wall Door 02x16x12 01 A).
     private static string BuildName(string asset)
     {
         foreach (var prefix in (string[]) ["JBID_", "PBID_", "PPID_"])
@@ -178,7 +175,7 @@ public partial class AssetLoaderService
         return asset.Replace('_', ' ');
     }
 
-    /// <summary>A LEGO prop's description, else a build's theme (its plugin: JunoTheme_OsirisTown -> OsirisTown) and size.</summary>
+    // A LEGO prop's description, else a build's theme (its plugin: JunoTheme_OsirisTown -> OsirisTown) and size.
     private static string BuildDescription(UObject asset)
     {
         if (asset.GetAnyOrDefault<FText?>("Description", "ItemDescription")?.Text is { Length: > 0 } description)
@@ -194,7 +191,7 @@ public partial class AssetLoaderService
         return string.Join(" · ", new[] { plugin, size }.Where(s => !string.IsNullOrEmpty(s)));
     }
 
-    /// <summary>A creature look's name from its asset's (Juno_Cow_Highlands_LightBrown -> Cow Highlands LightBrown).</summary>
+    // A creature look's name from its asset's (Juno_Cow_Highlands_LightBrown -> Cow Highlands LightBrown).
     private static string CreatureName(string asset)
     {
         var name = asset.StartsWith("Juno_", StringComparison.OrdinalIgnoreCase) ? asset[5..] : asset;
@@ -202,13 +199,13 @@ public partial class AssetLoaderService
         return name.Replace('_', ' ');
     }
 
-    /// <summary>The Battle Royale outfit a LEGO figure stands for.</summary>
+    // The Battle Royale outfit a LEGO figure stands for.
     private static UObject? BaseCharacter(UObject figure) => figure.GetOrDefault<UObject?>("BaseAthenaCharacterItemDefinition");
 
-    /// <summary>The Battle Royale emote a LEGO emote stands for.</summary>
+    // The Battle Royale emote a LEGO emote stands for.
     private static UObject? BaseDance(UObject emote) => emote.GetOrDefault<UObject?>("BaseAthenaDanceItemDefinition");
 
-    /// <summary>A figure's preview from its schema's additional data.</summary>
+    // A figure's preview from its schema's additional data.
     private static UTexture2D? FigurePreview(UObject figure, params string[] names)
     {
         foreach (var data in Figures.Schema(figure)?.GetOrDefault("AdditionalData", Array.Empty<FInstancedStruct>()) ?? [])

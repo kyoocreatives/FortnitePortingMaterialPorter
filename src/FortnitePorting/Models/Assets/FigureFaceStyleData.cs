@@ -1,6 +1,6 @@
 namespace FortnitePorting.Models.Assets;
 
-/// <summary>A LEGO figure's expression option (Material Porter fork): a face feature's rig pose, -1 for the figure's own.</summary>
+/// <summary>A LEGO figure's expression option: a face feature's rig pose, -1 for the figure's own.</summary>
 public partial class FigureFaceStyleData : BaseStyleData
 {
     public string Feature { get; }
