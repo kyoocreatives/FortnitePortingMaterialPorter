@@ -107,10 +107,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
 
     public async Task Initialize()
     {
-        MaterialPorter.MaterialPorterService.Instance.OnGameLoading();     // Material Porter fork
-        // Material Porter fork: downloaded files are fetched beside an export (a local install's are at hand)
-        Exporting.MaterialPorter.Prefetch.Enabled = AppSettings.Installation.CurrentProfile.IsCustomOnDemand
-            || AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestOnDemand;
+        OnLoadingStarted();     // MP
         if (!HasValidArchivePath())
         {
             Info.Dialog("Invalid Installation Settings", "The archive directory set in Installation Settings does not exist or is empty. Please set it to your Fortnite installation's archive directory (generally located at FortniteGame/Content/Paks).", buttons:
@@ -164,10 +161,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         UpdateStatus(string.Empty);
         FinishedLoading = true;
         Progress = 0;
-
-        // Material Porter fork: exact materials, served to Blender from these files
-        // (a build downloaded from its manifest names itself: its graphs are cached apart from other builds')
-        MaterialPorter.MaterialPorterService.Instance.OnGameLoaded(Provider!, _resolvedVersion?.Version ?? LiveManifest?.Meta.BuildVersion);
+        OnLoadingFinished();     // MP
     }
 
     public void Reset()
@@ -219,8 +213,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     {
         return AppSettings.Installation.CurrentProfile.FortniteVersion switch
         {
-            // Material Porter fork: a build downloaded from its manifest has no folder
-            _ when AppSettings.Installation.CurrentProfile.IsCustomOnDemand => true,
+            _ when AppSettings.Installation.CurrentProfile.IsCustomOnDemand => true,     // MP: a downloaded build has no folder
             EFortniteVersion.LatestInstalled or EFortniteVersion.Custom => Directory.Exists(AppSettings.Installation.CurrentProfile.ArchiveDirectory),
             _ => true
         };
@@ -233,8 +226,8 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         {
             EFortniteVersion.LatestOnDemand => new HybridFileProvider(new VersionContainer(LATEST_GAME_VERSION)),
             EFortniteVersion.LatestInstalled => new HybridFileProvider(AppSettings.Installation.CurrentProfile.ArchiveDirectory, ExtraDirectories, new VersionContainer(LATEST_GAME_VERSION)),
-            // Material Porter fork: an older build downloaded from its manifest (InitializeProvider)
-            _ when AppSettings.Installation.CurrentProfile.IsCustomOnDemand => new HybridFileProvider(new VersionContainer(AppSettings.Installation.CurrentProfile.UnrealVersion)),
+            _ when AppSettings.Installation.CurrentProfile.IsCustomOnDemand =>     // MP: a downloaded build
+                new HybridFileProvider(new VersionContainer(AppSettings.Installation.CurrentProfile.UnrealVersion)),
             _ => new HybridFileProvider(AppSettings.Installation.CurrentProfile.ArchiveDirectory, [], new VersionContainer(AppSettings.Installation.CurrentProfile.UnrealVersion)),
         };
 
@@ -255,8 +248,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         Log.Information("Texture Streaming: {UseTextureStreaming}", AppSettings.Installation.CurrentProfile.UseTextureStreaming);
         
         ObjectTypeRegistry.RegisterEngine(typeof(UFortGameFeatureData).Assembly);
-        // Material Porter fork: island landscape collision components left unread (SkippedExports)
-        MaterialPorter.SkippedExports.Register();
+        MaterialPorter.SkippedExports.Register();     // MP
 
         Provider.LoadOnDemandTocs = AppSettings.Installation.CurrentProfile is { TextureStreamingEnabled: true, UseTextureStreaming: true };
         Provider.LoadExtraDirectories = AppSettings.Installation.CurrentProfile.LoadInstalledBundles;
@@ -326,14 +318,11 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     [LoadingStage("Initializing Provider", stage: 4, weight: 10)]
     private async Task InitializeProvider()
     {
-        // Material Porter fork: a Custom install that streams needs Epic's token too, and the checked token goes
-        // into the on-demand options (they were made at setup: an expired token stayed in them all session)
         if (AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestInstalled or EFortniteVersion.LatestOnDemand
-            || AppSettings.Installation.CurrentProfile.IsCustomOnDemand || Provider.LoadOnDemandTocs)
+            || NeedsEpicAuth)     // MP
         {
             await Api.EpicGames.VerifyAuthAsync();
-            if (Provider.OnDemandOptions is { } onDemand)
-                onDemand.Authorization = new AuthenticationHeaderValue("Bearer", AppSettings.Application.EpicAuth?.Token);
+            RefreshOnDemandAuth();     // MP
         }
         
         switch (AppSettings.Installation.CurrentProfile.FortniteVersion)
@@ -361,51 +350,9 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                 
                 break;
             }
-            // Material Porter fork: an older build, from its manifest (its keys and mappings the profile's own)
-            case EFortniteVersion.Custom when AppSettings.Installation.CurrentProfile.IsCustomOnDemand:
-            {
-                var manifest = await CustomManifestAsync(AppSettings.Installation.CurrentProfile.ManifestPath, "no game files are loaded");
-                if (manifest is null) break;
-
-                Log.Information("On-Demand Build: {Build}", manifest.Meta.BuildVersion);
-                // (Epic drops its oldest builds' files: said once, rather than a 404 per container)
-                if (await MaterialPorter.OnDemandBuilds.AvailableAsync(manifest) == false)
-                {
-                    Log.Error("[Material Porter] {Build}: Epic's servers no longer have its files", manifest.Meta.BuildVersion);
-                    Info.Message("On-Demand Build", $"Epic's servers no longer have {manifest.Meta.BuildVersion}'s files (they answer \"not found\"): nothing can be loaded. Pick a newer build.",
-                        FluentAvalonia.UI.Controls.InfoBarSeverity.Error, autoClose: false);
-                    break;
-                }
-                LiveManifest = manifest;
-                await Provider.RegisterFiles(manifest);
-
-                // the same build's UEFN: its editor data (the materials' graphs) beside the game's, as the live mode's
-                if (!string.IsNullOrWhiteSpace(AppSettings.Installation.CurrentProfile.StudioManifestPath)
-                    && await CustomManifestAsync(AppSettings.Installation.CurrentProfile.StudioManifestPath, "materials are approximated") is { } studio)
-                {
-                    Log.Information("On-Demand UEFN Build: {Build}", studio.Meta.BuildVersion);
-                    if (await MaterialPorter.OnDemandBuilds.AvailableAsync(studio) == false)
-                    {
-                        Log.Warning("[Material Porter] {Build}: Epic's servers no longer have its UEFN files", studio.Meta.BuildVersion);
-                        Info.Message("On-Demand Build", "Epic's servers no longer have this build's UEFN files: materials are approximated.",
-                            FluentAvalonia.UI.Controls.InfoBarSeverity.Warning, autoClose: false);
-                        break;
-                    }
-                    _studioEngine = await StudioEngineAsync(studio);
-                    try
-                    {
-                        await Provider.RegisterFiles(studio);
-                    }
-                    catch (Exception e)
-                    {
-                        // (Epic's CDN no longer has the oldest UEFN builds' chunks: the game loads without them)
-                        Log.Error("[Material Porter] UEFN build {Build} not downloaded: {Error}", studio.Meta.BuildVersion, e.Message);
-                        Info.Message("On-Demand Build", $"This build's UEFN data couldn't be downloaded ({e.Message}): materials are approximated.",
-                            FluentAvalonia.UI.Controls.InfoBarSeverity.Warning, autoClose: false);
-                    }
-                }
+            case EFortniteVersion.Custom when AppSettings.Installation.CurrentProfile.IsCustomOnDemand:     // MP
+                await LoadDownloadedBuildAsync();
                 break;
-            }
             default:
             {
                 await Provider.InitializeAsync();
@@ -414,139 +361,10 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         }
     }
 
-    // Material Porter fork: a downloaded Custom build's Unreal version (the archive leaves most builds' engine
-    // out), found by reading packages every build has with each one: a balance table, some Blueprints and structs
-    // (their properties' layout changes between versions), with serialization errors fatal so a wrong version fails
-    // instead of reading half. The chosen version first, then the one the build's UEFN names, then newest first.
-    private void DetectUnrealVersion()
-    {
-        var profile = AppSettings.Installation.CurrentProfile;
-        if (!profile.IsCustomOnDemand || !profile.AutoUnrealVersion) return;
-
-        // some of each: Blueprints and structs (by their usual names: S_, ...Struct...)
-        List<global::CUE4Parse.FileProvider.Objects.GameFile> Sample(Func<string, bool> named, int count)
-        {
-            var files = Provider.Files.Values
-                .Where(f => f.Extension == "uasset" && f.Path.StartsWith("FortniteGame/", StringComparison.OrdinalIgnoreCase) && named(f.Name))
-                .OrderBy(f => f.Path, StringComparer.OrdinalIgnoreCase).ToList();
-            return files.Where((_, i) => i % Math.Max(1, files.Count / count) == 0).Take(count).ToList();
-        }
-        var probes = Sample(name => name.StartsWith("BP_", StringComparison.OrdinalIgnoreCase), 6)
-            .Concat(Sample(name => name.StartsWith("S_", StringComparison.OrdinalIgnoreCase)
-                                   || name.Contains("Struct", StringComparison.OrdinalIgnoreCase), 6)).ToList();
-        if (Provider.TryGetGameFile("FortniteGame/Content/Balance/RarityData.uasset", out var rarity)) probes.Insert(0, rarity);
-        if (probes.Count == 0) return;
-
-        // only near the chosen version and the UEFN's (3 either way): one much older reads the package header wrong,
-        // and CUE4Parse's name reading then corrupts memory instead of throwing
-        var chosen = Provider.Versions.Game;
-        var engines = Enum.GetValues<EGame>()
-            .Where(g => g is >= EGame.GAME_UE4_16 and <= EGame.GAME_UE6_0 && ((int) g & 0xFFFF) == 0).Distinct().Order().ToList();
-        var anchors = new[] { chosen }.Concat(_studioEngine is { } hint ? [hint] : []).ToList();
-        var candidates = anchors
-            .Concat(engines.Where(g => anchors.Any(a => engines.IndexOf(a) is >= 0 and var at && Math.Abs(engines.IndexOf(g) - at) <= 3))
-                .OrderByDescending(g => g))
-            .Distinct();
-        // the version reading the most (some packages fail with every one: not the version's doing), the first
-        // in that order on a tie
-        var fatal = global::CUE4Parse.Globals.FatalObjectSerializationErrors;
-        global::CUE4Parse.Globals.FatalObjectSerializationErrors = true;
-        var (best, bestRead) = (chosen, -1);
-        try
-        {
-            foreach (var game in candidates)
-            {
-                MaterialPorter.OnDemandBuilds.SetGame(Provider.Versions, game);
-                var read = probes.Count(file =>
-                {
-                    try
-                    {
-                        return Provider.LoadPackage(file).GetExports().ToList().Count > 0;
-                    }
-                    catch (Exception)
-                    {
-                        return false;
-                    }
-                });
-                if (read > bestRead) (best, bestRead) = (game, read);
-                if (read == probes.Count) break;
-            }
-        }
-        finally
-        {
-            global::CUE4Parse.Globals.FatalObjectSerializationErrors = fatal;
-        }
-
-        MaterialPorter.OnDemandBuilds.SetGame(Provider.Versions, best);
-        Log.Information("[Material Porter] Unreal version of this build: {Game}{Note} ({Read} of {Count} packages read)",
-            best, best == chosen ? "" : " (found)", bestRead, probes.Count);
-        if (best != chosen) Avalonia.Threading.Dispatcher.UIThread.Post(() => profile.UnrealVersion = best);
-    }
-
-    // the engine version the build's UEFN names (Engine/Build/Build.version, only Studio builds ship it)
-    private EGame? _studioEngine;
-
-    private static async Task<EGame?> StudioEngineAsync(FBuildPatchAppManifest studio)
-    {
-        try
-        {
-            if (studio.Files.FirstOrDefault(f => f.FileName.EndsWith("Engine/Build/Build.version", StringComparison.OrdinalIgnoreCase)) is not { } file)
-                return null;
-            using var reader = new StreamReader(file.GetStream());
-            var json = Newtonsoft.Json.Linq.JObject.Parse(await reader.ReadToEndAsync());
-            return Enum.TryParse<EGame>($"GAME_UE{(int?) json["MajorVersion"]}_{(int?) json["MinorVersion"]}", out var game) ? game : null;
-        }
-        catch (Exception e)
-        {
-            Log.Warning("[Material Porter] UEFN engine version not read: {Error}", e.Message);
-            return null;
-        }
-    }
-
-    private ManifestParseOptions OnDemandManifestOptions() => new()
-    {
-        ChunkBaseUrl = "https://egdownload.fastly-edge.com/Builds/Fortnite/CloudDir/",
-        // Material Porter fork: FORTNITEPORTING_MP_CHUNK_CACHE shares one chunk cache between instances (test ones:
-        // chunks are named by their hash, any build's are the same file)
-        ChunkCacheDirectory = Environment.GetEnvironmentVariable("FORTNITEPORTING_MP_CHUNK_CACHE") is { Length: > 0 } shared
-            ? Directory.CreateDirectory(shared).FullName : CacheFolder.FullName,
-        ManifestCacheDirectory = CacheFolder.FullName,
-        Decompressor = Compression.Decompressor,
-        // Material Porter fork: chunks cached decompressed - cached as downloaded, every read (an IoStore block,
-        // 64 KB) inflated its whole 1 MB chunk again: a map export spent most of its time there
-        CacheChunksAsIs = false
-    };
-
-    // Material Porter fork: a Custom profile's build manifest - a .manifest file, or a link to one - parsed as
-    // the live one is; null (and said) when it can't be had
-    private async Task<FBuildPatchAppManifest?> CustomManifestAsync(string path, string without)
-    {
-        var source = path.Trim().Trim('"');
-        try
-        {
-            FileInfo? file = null;
-            if (Uri.TryCreate(source, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https")
-                file = await Api.DownloadFileAsync(source, CacheFolder);
-            else if (File.Exists(source))
-                file = new FileInfo(source);
-            if (file is not { Exists: true }) throw new FileNotFoundException("not found", source);
-
-            return FBuildPatchAppManifest.Deserialize(await File.ReadAllBytesAsync(file.FullName), OnDemandManifestOptions());
-        }
-        catch (Exception e)
-        {
-            Log.Error("[Material Porter] build manifest {Source} not read: {Error}", source, e.Message);
-            Info.Message("On-Demand Build", $"The build manifest \"{source}\" couldn't be read ({e.Message}): {without}.",
-                FluentAvalonia.UI.Controls.InfoBarSeverity.Error, autoClose: false);
-            return null;
-        }
-    }
-
     [LoadingStage("Loading Texture Streaming", stage: 5, weight: 5)]
     private async Task InitializeTextureStreaming()
     {
-        // Material Porter fork: an older build downloaded from its manifest streams as the On-Demand mode does,
-        // its TOC kept apart (TOC names repeat from build to build)
+        // MP: a downloaded build streams as On-Demand does, its TOC kept per build (TOC names repeat)
         var customOnDemand = AppSettings.Installation.CurrentProfile.IsCustomOnDemand;
         if (AppSettings.Installation.CurrentProfile.FortniteVersion is not (EFortniteVersion.LatestInstalled or EFortniteVersion.LatestOnDemand) && !customOnDemand) return;
         if ((AppSettings.Installation.CurrentProfile.FortniteVersion is EFortniteVersion.LatestInstalled || customOnDemand)
@@ -613,9 +431,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
                 break;
             }
         }
-
-        // Material Porter fork: the islands unlocked by map code (their keys never logged)
-        await MaterialPorter.MaterialPorterService.Instance.SubmitIslandKeysAsync(Provider!);
+        await MaterialPorter.MaterialPorterService.Instance.SubmitIslandKeysAsync(Provider!);     // MP
     }
     
     [LoadingStage("Loading Virtual Paths", stage: 7, weight: 15)]
@@ -648,14 +464,14 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         }
         
         Provider.MappingsContainer = new FileUsmapTypeMappingsProvider(mappingsPath, StringComparer.Ordinal);
-        MaterialPorter.MappingsRepair.Repair(Provider.MappingsContainer, mappingsPath);     // Material Porter fork
+        MaterialPorter.MappingsRepair.Repair(Provider.MappingsContainer, mappingsPath);     // MP
         Log.Information("Loaded Mappings: {Path}", mappingsPath);
     }
     
     [LoadingStage("Loading Required Assets", stage: 9, weight: 5)]
     private async Task LoadApplicationAssets()
     {
-        DetectUnrealVersion();     // Material Porter fork: before the first package is read
+        DetectUnrealVersion();     // MP: before the first package is read
         if (await Provider.SafeLoadPackageObjectAsync("FortniteGame/Content/Balance/RarityData") is { } rarityData)
         {
             for (var i = 0; i < rarityData.Properties.Count; i++)
