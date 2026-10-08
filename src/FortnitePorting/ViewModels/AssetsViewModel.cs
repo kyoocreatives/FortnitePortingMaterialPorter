@@ -75,7 +75,7 @@ public partial class AssetsViewModel(
         {
             if (e.PropertyName == nameof(AssetLoaderService.ActiveLoader))
                 OnPropertyChanged(nameof(IsTastyRigApplyVisible));
-            // Material Porter fork: the Animations tab's tiles share their item's icon: its names on
+            // MP: Animations tiles share their item's icon, so show names
             if (e.PropertyName == nameof(AssetLoaderService.ActiveLoader) && _assetLoader.ActiveLoader?.Type is EExportType.Animation)
                 ShowNames = true;
         };
@@ -96,7 +96,7 @@ public partial class AssetsViewModel(
                 {
                     group.Items.Add(new SidebarItemButton(
                         text: loader.Type.Description,
-                        iconBitmap: MaterialPorter.TabIcons.Of(loader.Type), // Material Porter fork: a tab without an icon of its own takes the plain one
+                        iconBitmap: MaterialPorter.TabIcons.Of(loader.Type), // MP: a tab without an icon of its own takes the plain one
                         tag: loader.Type
                     ));
                 }

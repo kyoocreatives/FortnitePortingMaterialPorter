@@ -70,7 +70,7 @@ public class HybridFileProvider : AbstractVfsFileProvider
 
             if (extension is "uondemandtoc" && LoadOnDemandTocs)
             {
-                // Material Porter fork: a TOC that won't read (an older build's) costs its streaming, not the game's load
+                // MP: a TOC that won't read (an older build's) loses its streaming, not the whole load
                 try
                 {
                     var archive = new FByteArchive(file.FullName, File.ReadAllBytes(file.FullName), Versions);
@@ -96,12 +96,11 @@ public class HybridFileProvider : AbstractVfsFileProvider
             
             UEParse.UpdateStatus($"Registering On-Demand Archive {file.FileName.SubstringAfterLast("/")}");
             
-            // (after the last dot: the editor data's containers are <name>.o.utoc - Material Porter fork)
+            // MP: after the last dot (editor data containers are <name>.o.utoc)
             var extension = file.FileName.SubstringAfterLast('.').ToLower();
             if (extension is "pak" or "utoc")
             {
-                // Material Porter fork: random-access archives - a stream archive seeks its one stream then reads,
-                // so two reads at once (an export and its prefetch, parallel exports) read each other's data
+                // MP: random-access archives; a stream archive's seek-then-read mixes up parallel reads
                 RegisterRandomAccessVfs(new FRandomAccessStreamArchive(file.FileName, file.GetStream(), Versions), (FArchive?) null,
                     name => new FRandomAccessStreamArchive(name,
                         manifest.Files.First(subFile => subFile.FileName.Equals(name)).GetStream(), Versions));

@@ -116,7 +116,7 @@ public partial class AppWindowModel(
 
     public async Task CheckForUpdate()
     {
-        // Material Porter fork: the fork's own releases (its versions are dev builds to FP's updater)
+        // MP: the fork's own releases (FP's updater sees them as dev builds)
         await MaterialPorter.ForkUpdates.CheckAsync(_info, _app);
         if (Globals.IsDevBuild) return;
 

@@ -57,7 +57,7 @@ public partial class InfoService : ObservableObject, IService, ILogEventSink
             .WriteTo.Console(theme: AnsiConsoleTheme.Literate)
             .WriteTo.File(LogFilePath)
             .WriteTo.Sink(Info)
-            .WriteTo.Sink(MaterialPorter.StatusLog.Instance)     // Material Porter fork: the status line and its log
+            .WriteTo.Sink(MaterialPorter.StatusLog.Instance)     // MP: the status line and its log
             .CreateLogger();
     }
 

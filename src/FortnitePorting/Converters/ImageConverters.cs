@@ -11,7 +11,7 @@ public class ExportTypeIconConverter : IValueConverter
     {
         if (value is EExportType exportType)
         {
-            return MaterialPorter.TabIcons.Of(exportType); // Material Porter fork: a type without an icon of its own takes the plain one
+            return MaterialPorter.TabIcons.Of(exportType); // MP: a type without an icon of its own takes the plain one
         }
         
         return null;

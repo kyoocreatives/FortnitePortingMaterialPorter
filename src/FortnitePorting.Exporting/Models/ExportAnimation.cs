@@ -13,11 +13,8 @@ public class ExportAnimSection
     public float Length;
     public float LinkValue;
     public bool Loop;
-    /// <summary>
-    /// Material Porter fork, a LEGO emote's section: its float curves' key interpolation, one
-    /// letter per key in the .ueanim's order ("C" constant, "L" linear, "Q" cubic), one letter
-    /// for a curve whose keys all share it. The face rig's pose curves step.
-    /// </summary>
+    // MP: a LEGO emote section's curve key interpolation, a letter per key (C constant, L linear, Q cubic),
+    // one letter when all keys agree
     public Dictionary<string, string>? MPCurveModes;
 
     [JsonIgnore] public UAnimSequence AssetRef;

@@ -63,7 +63,7 @@ public class AppService : IService
         AssetsFolder.Create();
         PluginsFolder.Create();
 
-        // Material Porter fork: no fortniteporting:// registration (it served the stripped login, and belongs to FP)
+        // MP: no fortniteporting:// registration (FP's, for the login the fork leaves out)
 
         Lifetime.Startup += OnAppStart;
         Lifetime.Exit += OnAppExit;
@@ -206,9 +206,7 @@ public class AppService : IService
             AppSettings.Installation.Profiles.FirstOrDefault()?.IsSelected = true;
         }
         
-        // Material Porter fork: the automatic sync waits for the plugins' files (DependencyService.Ensure
-        // puts them out in the background: checked once here, it was usually not done, the sync never
-        // ran and an updated app left Blender on the old plugin)
+        // MP: the automatic sync waits for the plugin files DependencyService writes in the background
         if (AppSettings.Plugin.Blender.AutomaticallySync)
         {
             TaskService.Run(async () =>

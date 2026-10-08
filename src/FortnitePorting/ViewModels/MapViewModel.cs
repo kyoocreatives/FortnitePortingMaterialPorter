@@ -316,7 +316,7 @@ public partial class MapViewModel(
             case nameof(SelectedMap) when SelectedMap is not null:
             {
                 GridsControl?.InvalidateVisual();
-                SelectedMap.EnsurePreview();     // Material Porter fork: a map without a minimap gets one drawn
+                SelectedMap.EnsurePreview();     // MP: a map without a minimap gets one drawn
                 
                 _discord.Update($"Browsing Map: \"{SelectedMap.MapInfo.Name}\"");
                 break;

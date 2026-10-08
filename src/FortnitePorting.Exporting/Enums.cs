@@ -124,19 +124,19 @@ public enum EExportType
     [Description("Sprites"), Export(EPrimitiveExportType.Mesh)]
     Sprite = ExportCategory.Gameplay + 7,
 
-    // Material Porter fork: Rocket Racing cars (body, wheels, paint through Mutable); sent to Blender as a Vehicle
+    // MP: Rocket Racing cars, sent to Blender as a Vehicle
     [Description("Cars"), Export(EPrimitiveExportType.Mesh)]
     Car = ExportCategory.Gameplay + 8,
 
-    // Material Porter fork: a particle effect (Niagara system) as what it is made of: each emitter's meshes and sprite materials
+    // MP: a Niagara system, as its emitters' meshes and sprite materials
     [Description("Effects"), Export(EPrimitiveExportType.Mesh)]
     Effect = ExportCategory.Gameplay + 9,
 
-    // Material Porter fork: a time of day (a day sequence actor, Fortnite's TODM): its sky dome, clouds, sun and day
+    // MP: a time of day (day sequence actor): sky dome, clouds, sun
     [Description("Time of Day"), Export(EPrimitiveExportType.Mesh)]
     TimeOfDay = ExportCategory.Gameplay + 10,
 
-    // Material Porter fork: a skydiving contrail (its item's Niagara system); sent to Blender as an Effect
+    // MP: a skydiving contrail, sent to Blender as an Effect
     [Description("Contrails"), Export(EPrimitiveExportType.Mesh)]
     [CosmeticAsset]
     Contrail = ExportCategory.Cosmetic + 40,
@@ -195,7 +195,7 @@ public enum EExportType
     [NonAsset]
     Texture = ExportCategory.Generic + 3,
 
-    [Description("Animations"), Export(EPrimitiveExportType.Animation)]
+    [Description("Animations"), Export(EPrimitiveExportType.Animation)]     // MP: plural like the other tabs
     [NonAsset]
     Animation = ExportCategory.Generic + 4,
 
@@ -262,28 +262,6 @@ public enum EImageFormat
     TGA
 }
 
-// Material Porter fork: the largest textures are exported at (their own smaller mips: no resampling); values are pixels
-public enum ETextureSizeCap
-{
-    [Description("Full Size")]
-    Full = 0,
-
-    [Description("4096")]
-    Size4096 = 4096,
-
-    [Description("2048")]
-    Size2048 = 2048,
-
-    [Description("1024")]
-    Size1024 = 1024,
-
-    [Description("512")]
-    Size512 = 512,
-
-    [Description("256")]
-    Size256 = 256
-}
-
 public enum ESoundFormat
 {
     [Description("Wavefront (.wav)")]
@@ -307,7 +285,7 @@ public enum EWorldFlags
     Landscape = 1 << 2,
     InstancedFoliage = 1 << 3,
     HLODs = 1 << 4,
-    Lights = 1 << 5,
+    Lights = 1 << 5,     // MP
     Decals = 1 << 6,
     Effects = 1 << 7,
 }

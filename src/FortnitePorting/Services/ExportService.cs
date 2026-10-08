@@ -78,7 +78,7 @@ public class ExportService(
         var exportedProperly = false;
         await TaskService.RunAsync(async () =>
         {
-            // Material Porter fork: the status line says an export runs, its log what it does
+            // MP: the status line says an export runs, its log what it does
             using var status = MaterialPorter.StatusLog.Instance.Exporting($"Exporting to {metaData.ExportLocation}");
             var clock = System.Diagnostics.Stopwatch.StartNew();
             MaterialPorter.StatusLog.Instance.Write($"Export to {metaData.ExportLocation} started");
@@ -289,11 +289,11 @@ public class ExportService(
     {
         return styles.Select<BaseStyleData, ExportStyleBase>(style => style switch
         {
-            // Material Porter fork: a car channel's pick
+            // MP: a car channel's pick
             CarStyleData car => new Exporting.MaterialPorter.ExportCarStyle { Channel = car.Channel, Option = car.Option },
-            // Material Porter fork: a LEGO figure's expression pick
+            // MP: a LEGO figure's expression pick
             FigureFaceStyleData face => new Exporting.MaterialPorter.ExportFigureFaceStyle { Feature = face.Feature, Pose = face.Pose },
-            // Material Porter fork: the wrap and the weapon mods picked on the asset's page
+            // MP: the wrap and the weapon mods picked on the asset's page
             WrapStyleData wrap => new Exporting.MaterialPorter.ExportWrapStyle { Path = wrap.Path },
             WeaponModStyleData mod => new Exporting.MaterialPorter.ExportWeaponModStyle { Slot = mod.Slot, Path = mod.Path },
             EffectsStyleData effects => new Exporting.MaterialPorter.ExportEffectsStyle { On = effects.On },

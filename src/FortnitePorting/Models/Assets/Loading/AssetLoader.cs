@@ -263,7 +263,7 @@ public partial class AssetLoader : ObservableObject
         }
 
         var manuallyDefinedAssets = ManuallyDefinedAssetsFactory?.Invoke() ?? [];
-        // Material Porter fork: a loader that lists assets unread lists the registry's so too (its list has them)
+        // MP: a loader listing assets unread lists the registry's that way too
         var unregistered = MPUnregistered?.Invoke(AssetDatas.Select(data => (data.PackageName.Text, data.AssetName.Text)).ToList()) ?? [];
         if (MPUnregistered is not null) AssetDatas.Clear();
         TotalAssets = AssetDatas.Count + unregistered.Count + manuallyDefinedAssets.Length + CustomAssets.Length;

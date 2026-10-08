@@ -25,8 +25,7 @@ public partial class SupabaseService : ObservableObject, IService
 {
     [ObservableProperty] private APIService _api;
 
-    // Material Porter fork: online accounts are stripped. The client is never created, nobody signs in,
-    // and nothing is posted (logins, exported paths, errors); features that need an account stay off.
+    // MP: no online accounts: no client, no sign-in, nothing posted
     public const bool Disabled = true;
 
     public SupabaseService(APIService api)

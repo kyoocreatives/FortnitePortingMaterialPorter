@@ -180,8 +180,7 @@ public partial class AssetVideoPreview : UserControl
 
     private static LibVLC CreateLibVLC()
     {
-        // Material Porter fork: a single-file build extracts libvlc with its other native libraries (Skia's,
-        // already loaded), not beside the exe where LibVLCSharp looks; the runtime doesn't say where
+        // MP: a single-file build extracts libvlc beside its other native libraries, not beside the exe
         var directory = Process.GetCurrentProcess().Modules.Cast<ProcessModule>()
             .Select(module => Path.GetDirectoryName(module.FileName))
             .Prepend(AppContext.BaseDirectory)

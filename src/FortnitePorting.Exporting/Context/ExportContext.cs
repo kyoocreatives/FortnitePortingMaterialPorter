@@ -217,7 +217,7 @@ public partial class ExportContext
             }
             case UTexture texture:
             {
-                // (Material Porter fork: a size cap picks the texture's own smaller mip)
+                // MP: a size cap picks the texture's own smaller mip
                 var textureBitmap = Meta.Settings.MaxTextureSize > 0 && texture is not UTextureCube
                     ? texture.Decode(Meta.Settings.MaxTextureSize) : texture.Decode();
                 if (texture is UTextureCube)

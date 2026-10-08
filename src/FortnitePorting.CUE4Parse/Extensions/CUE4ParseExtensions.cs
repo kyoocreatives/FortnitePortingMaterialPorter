@@ -316,8 +316,7 @@ public static class CUE4ParseExtensions
 
         public T GetEnumOrDefault<T>(string propertyName, T def = default) where T : unmanaged
         {
-            // Material Porter fork: an EnumProperty holds its value's name - read as a number first, it logged
-            // an "Incorrect type conversion" warning each time (a character part's type and gender)
+            // MP: an EnumProperty holds a name; reading it as a byte first logged a type conversion warning
             if (propertyHolder.Properties.FirstOrDefault(p => p.Name.Text == propertyName)?.Tag is EnumProperty)
                 return propertyHolder.GetFNameEnum<T>(propertyName) ?? propertyHolder.GetOrDefault(propertyName, def);
             return propertyHolder.GetByteEnum<T>(propertyName)

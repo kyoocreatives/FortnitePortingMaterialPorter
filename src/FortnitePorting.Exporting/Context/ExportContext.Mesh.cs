@@ -59,12 +59,12 @@ public partial class ExportContext
             };
 
             AddMeshMaterials(exportPart, convertedMesh);
-            if (EffectsPick) MeshSockets(exportPart, mesh); // Material Porter fork
+            if (EffectsPick) MeshSockets(exportPart, mesh); // MP
             return exportPart;
         }
         catch (Exception e)
         {
-            MaterialPorter.Failures.Note("mesh exports", mesh?.GetPathName() ?? "", e);   // Material Porter fork
+            MaterialPorter.Failures.Note("mesh exports", mesh?.GetPathName() ?? "", e);   // MP
             return null;
         }
     }
@@ -92,12 +92,12 @@ public partial class ExportContext
             };
 
             AddMeshMaterials(exportPart, convertedMesh);
-            if (EffectsPick) MeshSockets(exportPart, mesh); // Material Porter fork
+            if (EffectsPick) MeshSockets(exportPart, mesh); // MP
             return exportPart;
         }
         catch (Exception e)
         {
-            MaterialPorter.Failures.Note("mesh exports", mesh?.GetPathName() ?? "", e);   // Material Porter fork
+            MaterialPorter.Failures.Note("mesh exports", mesh?.GetPathName() ?? "", e);   // MP
             return null;
         }
     }
@@ -216,12 +216,12 @@ public partial class ExportContext
             };
 
             AddMeshMaterials(exportPart, convertedMesh);
-            if (EffectsPick) MeshSockets(exportPart, mesh); // Material Porter fork
+            if (EffectsPick) MeshSockets(exportPart, mesh); // MP
             return exportPart;
         }
         catch (Exception e)
         {
-            MaterialPorter.Failures.Note("mesh exports", mesh?.GetPathName() ?? "", e);   // Material Porter fork
+            MaterialPorter.Failures.Note("mesh exports", mesh?.GetPathName() ?? "", e);   // MP
             return null;
         }
     }

@@ -11,12 +11,12 @@
         <SelfContained>true</SelfContained>
         <PublishSingleFile>true</PublishSingleFile>
         <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-        <!-- Material Porter fork: the app is win-x64 only; libvlc's x86 and arm64 copies only made the exe bigger -->
+        <!-- MP: the app is win-x64 only; libvlc's x86 and arm64 copies only made the exe bigger -->
         <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
         <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
     </PropertyGroup>
 
-    <!-- Material Porter fork: UEFN island export only where the git-ignored Fork.local.props sets MPIslands -->
+    <!-- MP: UEFN island export only where the git-ignored Fork.local.props sets MPIslands -->
     <Import Project="Fork.local.props" Condition="Exists('Fork.local.props')" />
     <PropertyGroup Condition="'$(MPIslands)' == 'true'">
         <DefineConstants>$(DefineConstants);MP_ISLANDS</DefineConstants>

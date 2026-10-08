@@ -54,7 +54,7 @@ public partial class InstallationSetupViewModel : ViewModelBase
     {
         AppSettings.Installation.Profiles.Add(Profile);
         
-        // Material Porter fork: no online sign-in step
+        // MP: no online sign-in step
         Navigation.Setup.Open<FinishedSetupView>();
     }
 }

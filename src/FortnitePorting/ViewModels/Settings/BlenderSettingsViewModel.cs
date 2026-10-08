@@ -34,12 +34,11 @@ public partial class BlenderSettingsViewModel : BaseExportSettings
     [ObservableProperty] private float _subsurface = 0.0f;
     [ObservableProperty] private float _toonShadingBrightness = 0.5f;
     [ObservableProperty] private EMaterialImportMethod _materialImportMethod = EMaterialImportMethod.Data;
-    // Material Porter fork: characters keep FP's shaders where FP has one for a material
+    // MP: characters keep FP's shaders where FP has one for a material
     [ObservableProperty] private bool _preferFPShaders = false;
-    // Material Porter fork: the character materials' rim light (baseBrightness), off by default
+    // MP: the character materials' rim light (baseBrightness), off by default
     [ObservableProperty] private bool _rimLight = false;
-    // Material Porter fork: how much light scatters under exact materials where they scatter any (flat), and how far
-    // (× the game's distance): skin; shell fur and the skin under it
+    // MP: exact materials' subsurface amount and distance (× the game's), for skin and for shell fur
     [ObservableProperty] private float _subsurfaceIntensity = 1.0f;
     [ObservableProperty] private float _subsurfaceScale = 1.0f;
     [ObservableProperty] private float _furSubsurfaceIntensity = 1.0f;

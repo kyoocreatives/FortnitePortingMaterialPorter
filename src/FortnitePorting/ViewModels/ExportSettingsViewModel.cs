@@ -49,7 +49,7 @@ public partial class BaseExportSettings : ViewModelBase
     [ObservableProperty] private EFileCompressionFormat _compressionFormat = EFileCompressionFormat.ZSTD;
 
     [ObservableProperty] private EImageFormat _imageFormat = EImageFormat.PNG;
-    // Material Porter fork: smaller textures for a background (a map's distant set), from their own mips
+    // MP: smaller textures for a background (a map's distant set), from their own mips
     [ObservableProperty] private ETextureSizeCap _maxTextureSize = ETextureSizeCap.Full;
     [ObservableProperty] private bool _exportMaterials = true;
     

@@ -7,7 +7,7 @@ public class ExportSettings
 {
     public EFileCompressionFormat CompressionFormat { get; set; } = EFileCompressionFormat.ZSTD;
     public EImageFormat ImageFormat { get; set; } = EImageFormat.PNG;
-    /// <summary>Material Porter fork: pixels, the largest a texture is exported at (0: full size).</summary>
+    /// <summary>MP: pixels, the largest a texture is exported at (0: full size).</summary>
     public int MaxTextureSize { get; set; }
     public bool ExportMaterials { get; set; } = true;
     public EMeshFormat MeshFormat { get; set; } = EMeshFormat.UEFormat;
