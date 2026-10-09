@@ -5,7 +5,7 @@ import bmesh
 import bpy
 
 from ..logger import Log
-from ..processing.enums import EExportType
+from ..processing.enums import EExportType, ERigType
 
 
 def begin(ctx, selected_armature):
@@ -52,6 +52,11 @@ def settle_effects(ctx):
         effects.settle(ctx)
 
 
+# imports that get their own rig (creature, vehicle, LEGO) rather than Tasty's or the official one
+RIGGED_APART = (EExportType.WILDLIFE, EExportType.LEGO_WILDLIFE, EExportType.SIDEKICK, EExportType.SPRITE,
+                EExportType.VEHICLE, EExportType.LEGO_OUTFIT)
+
+
 def _alive(o):
     try:        # a part's armature merged into the body's is gone
         return o is not None and o.name in bpy.data.objects and o.type == 'ARMATURE'
@@ -71,6 +76,21 @@ def _tasty(skeleton):
             bpy.ops.object.mode_set(mode='OBJECT')
 
 
+def _official(ctx):
+    """UEFN's own mannequin rig on the humanoid master skeleton, and the face board when the face is a flipbook."""
+    from ..processing.context import face_board, official_rig
+    for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
+        if not official_rig.fits(skeleton):
+            continue
+        try:
+            Log.info(official_rig.create(skeleton))
+            face_board.add(skeleton, head="head")
+        except Exception as e:
+            Log.error("%s: official rig (%s: %s)" % (skeleton.name, type(e).__name__, e))
+            if bpy.context.mode != 'OBJECT':
+                bpy.ops.object.mode_set(mode='OBJECT')
+
+
 def after_parts(ctx, rig_type, tasty):
     """Shell fur, the character's effects (not played yet, parts not merged) and a rig for what Tasty's doesn't fit."""
     from . import shells
@@ -82,9 +102,11 @@ def after_parts(ctx, rig_type, tasty):
             if skeleton.data.get("is_tasty"):
                 _tasty(skeleton)
 
+    if rig_type == ERigType.OFFICIAL and ctx.type not in RIGGED_APART:
+        _official(ctx)
+
     # a creature, sidekick, sprite, vehicle or LEGO figure armature gets its own rig
-    if rig_type != tasty or ctx.type not in [EExportType.WILDLIFE, EExportType.LEGO_WILDLIFE, EExportType.SIDEKICK,
-                                             EExportType.SPRITE, EExportType.VEHICLE, EExportType.LEGO_OUTFIT]:
+    if rig_type not in (tasty, ERigType.OFFICIAL) or ctx.type not in RIGGED_APART:
         return
     from ..processing.context import lego_rig
     skeletons = [m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))]

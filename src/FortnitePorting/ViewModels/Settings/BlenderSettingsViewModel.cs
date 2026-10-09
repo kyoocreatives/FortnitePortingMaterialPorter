@@ -69,7 +69,8 @@ public enum ERigType
     Default,
 
     [Description("Tasty Rig (IK)")]
-    Tasty
+    Tasty,
+    [Description("Fortnite Official Rig (IK/FK)")] Official     // MP: UEFN's own mannequin rig
 }
 
 public enum EPolygonType

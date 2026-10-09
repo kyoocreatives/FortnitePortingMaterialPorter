@@ -25,6 +25,7 @@ class AnimImportContext:
         if target_skeleton.data.get("is_tasty"):
             target_skeleton["use_pole_targets"] = False
             target_skeleton["use_ik_fingers"] = False
+        from .official_rig import on_animation_import; on_animation_import(target_skeleton)     # MP: the official rig steps aside
 
         # MP: the character's effects already present (an outfit's idle ones), replayed on the animated bones below
         from ...material_porter import effects as mp_effects

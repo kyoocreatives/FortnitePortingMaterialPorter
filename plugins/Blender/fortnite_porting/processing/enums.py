@@ -133,6 +133,7 @@ class EMaterialImportMethod(IntEnum):
 class ERigType(IntEnum):
     DEFAULT = 0
     TASTY = auto()
+    OFFICIAL = auto()     # MP: UEFN's own mannequin rig (processing/context/official_rig.py)
     
 class EOpElementType(IntEnum):
     OPERATOR = 0

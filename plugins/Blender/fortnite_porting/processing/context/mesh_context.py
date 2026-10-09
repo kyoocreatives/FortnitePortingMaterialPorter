@@ -23,6 +23,7 @@ class MeshImportContext(LightImportMixin):     # MP: spot and rect lights
         if rig_type == ERigType.TASTY:
             self.options["MergeArmatures"] = True
             self.options["ReorientBones"] = True
+        if rig_type == ERigType.OFFICIAL: self.options["MergeArmatures"] = True     # MP: one skeleton for the official rig
         
         self.override_materials = data.get("OverrideMaterials")
         self.override_parameters = data.get("OverrideParameters")
