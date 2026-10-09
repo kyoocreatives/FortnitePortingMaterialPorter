@@ -86,12 +86,12 @@ public partial class AnimExport : BaseExport
                 if (montage is null) break;
                 
                 AnimMontage(montage);
-                if (exportType is EExportType.LegoEmote) ReadFaceCurveModes();     // MP
                 break;
             }
         }
 
         ReadSequenceEffects(asset);     // MP
+        if (exportType is EExportType.LegoEmote or EExportType.Emote) ReadFaceCurveModes();     // MP
         if (Context.Meta.Provider.Provider.TryLoadPackageObject<UCurveExpressionsDataAsset>(
                 "FortniteGame/Content/Characters/Player/Common/Fortnite_Base_Head/Facials/CurveMappings/FN_LegacyTo3L_Main_Mapping",
                 out var legacyToMetahumanCurves))

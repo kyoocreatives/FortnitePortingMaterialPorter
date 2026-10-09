@@ -24,22 +24,9 @@ def _meshes(armature):
 
 
 def face_materials(armature):
-    """The exact face materials of the armature's meshes: (material, {lower-case parameter: input})."""
-    found = {}
-    for o in _meshes(armature):
-        for slot in o.material_slots:
-            mat = slot.material
-            if mat is None or mat.node_tree is None or mat.name in found:
-                continue
-            for n in mat.node_tree.nodes:
-                if n.type != 'GROUP':
-                    continue
-                # the exact material's parameters are its group node's inputs, named as in UE
-                inputs = {i.name.lower(): i for i in n.inputs if i.type == 'VALUE'}
-                if "mouthpose" in inputs or "eyeleftpose" in inputs or "browleftpose" in inputs:
-                    found[mat.name] = (mat, inputs)
-                    break
-    return list(found.values())
+    """The armature's LEGO face materials: (material, {lower-case parameter: input})."""
+    from ..processing.context import face_board
+    return [(mat, inputs) for mat, inputs in face_board.faces(armature) if face_board.kind([(mat, inputs)]) is face_board.LEGO]
 
 
 def _mode(modes, name, index):
@@ -75,8 +62,9 @@ def _keys(fc, points, interpolations):
 
 
 def clear(armature):
-    """Remove an earlier emote's face animation from the armature's faces."""
-    for mat, _ in face_materials(armature):
+    """Remove an earlier emote's face animation from the armature's faces (LEGO or flipbook)."""
+    from ..processing.context import face_board
+    for mat, _ in face_board.faces(armature):
         ad = mat.node_tree.animation_data
         if ad is None:
             continue

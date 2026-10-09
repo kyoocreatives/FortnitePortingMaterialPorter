@@ -276,6 +276,8 @@ class AnimImportContext:
                 Log.info("[Material Porter] %d face material(s) animated by the emote" % animated)
             except Exception as e:
                 Log.error("[Material Porter] the emote's face animation failed: %s: %s" % (type(e).__name__, e))
+        if self.type == EExportType.EMOTE:     # MP: a flipbook face plays the emote's face curves
+            from ...material_porter import flipbook_face; flipbook_face.import_emote(self, target_skeleton, face_sections, data.get("MPFaceIdle"), data.get("MetahumanToLegacyMappings"))
         if self.options.get("UpdateTimelineLength"):
             bpy.context.scene.frame_end = total_frames
 

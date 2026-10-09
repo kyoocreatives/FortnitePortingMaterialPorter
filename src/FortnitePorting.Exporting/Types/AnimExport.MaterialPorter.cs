@@ -8,10 +8,11 @@ using CUE4Parse.UE4.Objects.Engine.Curves;
 using CUE4Parse.UE4.Objects.UObject;
 using FortnitePorting.CUE4Parse.Extensions;
 using FortnitePorting.Exporting.Extensions;
+using FortnitePorting.Exporting.Models;
 
 namespace FortnitePorting.Exporting.Types;
 
-// Effects played by animation notifies, skeleton sockets, LEGO face curves.
+// Effects played by animation notifies, skeleton sockets, emote face curves.
 public partial class AnimExport
 {
     public readonly List<MaterialPorter.ExportAnimEffect> MPEffects = new();
@@ -50,11 +51,19 @@ public partial class AnimExport
             EffectNotify(notify, 0);
     }
 
-    // a LEGO emote animates the face material with curves; keep their key interpolation
+    // a flipbook face plays this under an emote's own face curves (the head AnimBP blends it in)
+    private const string FaceIdlePath = "FortniteGame/Content/Animation/Game/MainPlayer/Menu/FACIAL/DefaultFaceIdle_Legacy";
+    public ExportAnimSection? MPFaceIdle;
+
+    // an emote animates the face material with curves (LEGO directly, flipbook faces through rules); keep their key interpolation
     private void ReadFaceCurveModes()
     {
         foreach (var section in Sections)
             section.MPCurveModes = CurveModes(section.AssetRef);
+        if (Type is not EExportType.Emote
+            || !Context.Meta.Provider.Provider.TryLoadPackageObject<UAnimSequence>(FaceIdlePath, out var idle)) return;
+        MPFaceIdle = Context.AnimSequence(idle);
+        if (MPFaceIdle is not null) MPFaceIdle.MPCurveModes = CurveModes(idle);
     }
 
     // each "on" lasts until the next "off" (half a second without one)

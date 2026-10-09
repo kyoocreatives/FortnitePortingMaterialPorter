@@ -13,7 +13,7 @@ public class ExportAnimSection
     public float Length;
     public float LinkValue;
     public bool Loop;
-    // MP: a LEGO emote section's curve key interpolation, a letter per key (C constant, L linear, Q cubic),
+    // MP: an emote section's curve key interpolation, a letter per key (C constant, L linear, Q cubic),
     // one letter when all keys agree
     public Dictionary<string, string>? MPCurveModes;
 
