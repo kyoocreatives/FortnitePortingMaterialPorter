@@ -5,6 +5,7 @@ import bpy
 from . import rig_shapes
 
 COLLECTIONS = ("Controls", "Secondary", "Mechanics", "Game Bones")
+FK = "FK"         # an IK rig's FK bones: hidden until wanted
 SHOWN = {"Controls": True, "Secondary": True, "Mechanics": False, "Game Bones": False}
 COLORS = {"L": (0.15, 0.45, 1.0), "R": (1.0, 0.2, 0.15), "C": (1.0, 0.82, 0.1),
           "main": (1.0, 0.5, 0.05), "settings": (0.7, 0.3, 1.0)}
@@ -16,15 +17,17 @@ LEGACY_CONTROLS = ("Vehicle Controls", "Vehicle Wheel Controls", "Vehicle Parts"
 LEGACY = LEGACY_CONTROLS + ("Vehicle Wheels", "Vehicle Other", "Creature Other", "LEGO Other")
 
 
-def collections(armature):
-    """The four collections, in order, shown or hidden as the convention says; the game's own are hidden."""
+def collections(armature, fk=False):
+    """The kit's collections, in order, shown or hidden as the convention says; the game's own are hidden.
+    `fk`: also the FK group (rigs with IK), between Secondary and Mechanics."""
+    names = COLLECTIONS[:2] + ((FK,) if fk else ()) + COLLECTIONS[2:]
     for collection in armature.collections:
-        if collection.name not in COLLECTIONS:
+        if collection.name not in names:
             collection.is_visible = False
     found = {}
-    for index, name in enumerate(COLLECTIONS):
+    for index, name in enumerate(names):
         collection = armature.collections.get(name) or armature.collections.new(name)
-        collection.is_visible = SHOWN[name]
+        collection.is_visible = SHOWN.get(name, False)
         armature.collections.move(armature.collections.find(name), index)
         found[name] = collection
     return found
@@ -33,7 +36,7 @@ def collections(armature):
 def assign(armature, bone_name, group):
     """Put a bone in exactly one of the kit's collections."""
     bone = armature.bones[bone_name]
-    for name in COLLECTIONS:
+    for name in COLLECTIONS + (FK,):
         if name != group and name in armature.collections:
             armature.collections[name].unassign(bone)
     armature.collections[group].assign(bone)
@@ -86,6 +89,6 @@ def driven(obj, constraint, name):
 
 
 def controls(obj):
-    """The pose bones an animator poses: in Controls or Secondary (or an older rig's control groups)."""
-    shown = [obj.data.collections[n] for n in COLLECTIONS[:2] + LEGACY_CONTROLS if n in obj.data.collections]
+    """The pose bones an animator poses: in Controls, Secondary, FK (or an older rig's control groups)."""
+    shown = [obj.data.collections[n] for n in COLLECTIONS[:2] + (FK,) + LEGACY_CONTROLS if n in obj.data.collections]
     return [pb for pb in obj.pose.bones if any(pb.name in c.bones for c in shown)]

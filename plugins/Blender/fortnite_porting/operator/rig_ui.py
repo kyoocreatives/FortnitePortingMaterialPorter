@@ -77,7 +77,7 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
             col.operator("fpmp.vehicle_rig")
             col.operator("fpmp.lego_rig")
             return
-        groups = [c for c in data.collections if c.name in rig_style.COLLECTIONS + rig_style.LEGACY]
+        groups = [c for c in data.collections if c.name in rig_style.COLLECTIONS + (rig_style.FK,) + rig_style.LEGACY]
         grid = col.grid_flow(columns=2, align=True)
         for group in groups:
             grid.prop(group, "is_visible", text=group.name, toggle=True, icon='HIDE_OFF' if group.is_visible else 'HIDE_ON')

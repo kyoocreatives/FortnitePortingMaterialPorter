@@ -119,9 +119,18 @@ def _gear(teeth=8):
     return verts, edges
 
 
+def _circle_arrow():
+    """Circle with a chevron ahead of it (+Y): a ground control that shows which way the rig faces."""
+    verts, edges = _circle()
+    verts += [(-0.18, 1.12, 0.0), (0.0, 1.3, 0.0), (0.18, 1.12, 0.0)]
+    n = len(verts)
+    edges += [(n - 3, n - 2), (n - 2, n - 1)]
+    return verts, edges
+
+
 SHAPES = {"CR_Arrow": _arrow, "CR_Turn": _turn, "CR_Swing": lambda: _turn(18.0), "CR_Foot": _foot, "CR_Glasses": _glasses,
           "CR_UpDown": _updown, "CR_Circle": _circle, "CR_CircleTick": _circle_tick, "CR_Square": _square, "CR_Box": _box,
-          "CR_Diamond": _diamond, "CR_Gear": _gear}
+          "CR_Diamond": _diamond, "CR_Gear": _gear, "CR_CircleArrow": _circle_arrow}
 
 
 def ensure(name):
