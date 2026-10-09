@@ -25,6 +25,8 @@ from math import pi
 import bpy
 from mathutils import Matrix, Vector
 
+from . import rig_style
+
 KEY = "is_vehicle_rig"
 PREFIX = "CR_"
 SPIN = re.compile(r"^(tire|wheel_disc|rot_road_wheel|rot_drive_sprocket|rot_.*wheel)", re.IGNORECASE)
@@ -42,9 +44,6 @@ STEER_LIMIT = pi / 3        # full lock of the steer control, in radians (60 deg
 COCKPIT_RATIO = 3.0         # the steering wheel turns this many times as much as the road wheels
 LEAN = 0.15                 # body roll per radian of steer when "Lean in Turns" is 1
 PLANE_WHEELS = 10           # above this many wheels (a tank) the body plane uses only the corner wheels
-COLORS = {"main": (0.96, 0.79, 0.05), "drive": (0.18, 0.55, 1.0), "steer": (1.0, 0.23, 0.19),
-          "drift": (0.88, 0.25, 0.98), "body": (0.24, 0.86, 0.52), "wheel": (1.0, 0.58, 0.0), "arch": (0.6, 1.0, 0.25),
-          "part": (0.13, 0.83, 0.93)}
 
 
 def _axis(matrix, direction):
@@ -178,14 +177,9 @@ def _moved_along(owner, target, subtarget, source, direction, name):
     return con
 
 
-def _property(obj, name, value, description):
-    obj[name] = value
-    obj.id_properties_ui(name).update(min=0.0, max=1.0, description=description)
-
-
 def _drive_channel(obj, pose_bone, path, index, expression, variables):
     """Add a driver to a pose bone channel. `variables` are (name, bone, transform type) for a bone
-    channel or (name, property) for a custom property of the armature object."""
+    channel or (name, setting) for one of the rig's settings."""
     driver = pose_bone.driver_add(path, index).driver
     driver.type = 'SCRIPTED'
     for variable in variables:
@@ -200,7 +194,7 @@ def _drive_channel(obj, pose_bone, path, index, expression, variables):
         else:
             var.type = 'SINGLE_PROP'
             var.targets[0].id = obj
-            var.targets[0].data_path = '["%s"]' % variable[1]
+            var.targets[0].data_path = rig_style.setting_path(variable[1])
     driver.expression = expression
 
 
@@ -257,7 +251,7 @@ def create(obj):
     """Rig the armature object. Returns what it found, in a line."""
     from ...utils import ensure_blend_data
     from . import rig_shapes
-    from .creature_rig import _driven, align_shape, sized
+    from .creature_rig import align_shape
     armature = obj.data
     if armature.get(KEY):
         return "%s: already has a vehicle rig" % obj.name
@@ -295,6 +289,9 @@ def create(obj):
     # Controls (Y forward, on the ground under the vehicle) and the mechanism under them.
     base = survey.bones[survey.root].head.copy()
     main = new("Main", base, base + forward * length * 0.6, None)
+    # beside the left flank, halfway along: clear of the arcs at the ends and the wheels at the corners
+    settings_at = survey.centre + left * width * 0.8
+    new(rig_style.SETTINGS[len(PREFIX):], settings_at, settings_at + forward * length * 0.08, main)
     drive = new("Drive", base, base + forward * length * 0.4, main)
     front = survey.front_axle
     pivot = Vector((front.x, front.y, base.z)) if front is not None else survey.centre.copy()
@@ -362,15 +359,16 @@ def create(obj):
     follow.target, follow.subtarget = obj, names["suspension"]
     follow.inverse_matrix = (obj.matrix_world @ pose[names["suspension"]].matrix).inverted()
 
-    _property(obj, "auto_wheels", 1.0, "The wheels spin as CR_Drive moves forward")
-    _property(obj, "auto_steer", 1.0, "The front wheels and the steering wheel turn with CR_Steer")
-    _property(obj, "countersteer", 1.0, "The front wheels turn against CR_Drift, pointing where the vehicle drives")
-    _property(obj, "suspension", 1.0, "The vehicle rises, pitches and rolls with its wheels (lifted, on the ground)")
-    _property(obj, "lean", 0.0, "The body rolls out of a turn as CR_Steer turns")
+    rig_style.add_settings(obj, [
+        ("auto_wheels", 1.0, "The wheels spin as CR_Drive moves forward"),
+        ("auto_steer", 1.0, "The front wheels and the steering wheel turn with CR_Steer"),
+        ("countersteer", 1.0, "The front wheels turn against CR_Drift, pointing where the vehicle drives"),
+        ("suspension", 1.0, "The vehicle rises, pitches and rolls with its wheels (lifted, on the ground)"),
+        ("lean", 0.0, "The body rolls out of a turn as CR_Steer turns")])
     for name, (axis, sign) in spins.items():
         # driving forward 1 m turns the wheel 1/r radians about its axle (forward roll is about +left)
         con = _transform(pose[name], obj, names["drive"], "Y", axis, sign / radii[name], 'LOCATION')
-        _driven(obj, con, "auto_wheels")
+        rig_style.driven(obj, con, "auto_wheels")
         # the wheel ring turns it too (about the ring's Y, outwards)
         ring, sensor, lift, out, arch = controls[name]
         _transform(pose[name], obj, ring, "Y", axis, sign * out, 'ROTATION', name="CR Spin")
@@ -400,10 +398,10 @@ def create(obj):
     for name, (axis, sign) in list(turns.items()) + [(n, (a, s * COCKPIT_RATIO)) for n, (a, s) in cockpits.items()]:
         if names["steer"]:
             con = _transform(pose[name], obj, names["steer"], "Y", axis, sign, 'ROTATION')
-            _driven(obj, con, "auto_steer")
+            rig_style.driven(obj, con, "auto_steer")
         # drifting turns the vehicle about its front axle; the front wheels counter-turn
         con = _transform(pose[name], obj, names["drift"], drift_letter, axis, -sign * drift_way, 'ROTATION', name="CR Counter")
-        _driven(obj, con, "countersteer")
+        rig_style.driven(obj, con, "countersteer")
     if names["steer"]:
         # limit the steer control to the wheels' lock
         limit = pose[names["steer"]].constraints.new('LIMIT_ROTATION')
@@ -491,88 +489,67 @@ def create(obj):
         copy.name = "CR Body"
         copy.target, copy.subtarget = obj, PREFIX + "Body_Follow"
 
-    # Shown: controls, wheel rings, parts that move. Hidden: wheel bones, the mechanism and the game's
-    # helpers (sockets, effect points, seats).
-    ours = ("Vehicle Controls", "Vehicle Wheel Controls", "Vehicle Parts", "Vehicle Wheels", "Vehicle Other")
-    for collection in armature.collections:
-        if collection.name not in ours:
-            collection.is_visible = False
-    collections = {}
-    for name, visible in zip(ours, (True, True, True, False, False)):
-        collections[name] = armature.collections.get(name) or armature.collections.new(name)
-        collections[name].is_visible = visible
+    # Kit collections: the controls shown, the mechanism and the game's skeleton hidden.
+    rig_style.collections(armature)
     centre = survey.centre
 
+    def place(name, group, role, shape=None, scale=None, secondary=False, width=None):
+        bone = pose[name]
+        if shape is not None:
+            bone.custom_shape = rig_shapes.ensure(shape)
+            bone.use_custom_shape_bone_size = False
+        if scale is not None:
+            bone.custom_shape_scale_xyz = scale
+        rig_style.style(bone, role, secondary=secondary, width=width)
+        rig_style.assign(armature, name, group)
+
     main = pose[PREFIX + "Main"]
-    sized(main, "CTRL_Box", "THEME09", 0.1, wire=3.0)
-    # footprint with a chevron at the front
     main.custom_shape = rig_shapes.footprint(PREFIX + "Footprint_" + obj.name, length * 1.03, width * 1.03)
+    main.use_custom_shape_bone_size = False
+    main.custom_shape_scale_xyz = (1.0, 1.0, 1.0)
     align_shape(obj, main, x=-left, y=forward, z=up)
     rig_shapes.place(obj, main, centre)
-    rig_shapes.color(main, COLORS["main"])
-    drive = pose[names["drive"]]
-    sized(drive, "CTRL_Box", "THEME04", 0.1, wire=3.0)
-    drive.custom_shape = rig_shapes.ensure("CR_Arrow")
-    drive.custom_shape_scale_xyz = (width * 0.9, length * 0.3, 1.0)
-    align_shape(obj, drive, x=-left, y=forward, z=up)               # arrow on the ground in front of the nose
-    rig_shapes.place(obj, drive, centre + forward * (survey.nose - centre.dot(forward) + length * 0.06))
-    rig_shapes.color(drive, COLORS["drive"])
-    drift = pose[names["drift"]]
-    sized(drift, "CTRL_Box", "THEME06", 0.1, wire=3.0)
-    drift.custom_shape = rig_shapes.ensure("CR_Swing")
+    place(PREFIX + "Main", "Controls", "main")
+    place(names["drive"], "Controls", "C", "CR_Arrow", (width * 0.9, length * 0.3, 1.0))
+    align_shape(obj, pose[names["drive"]], x=-left, y=forward, z=up)       # arrow on the ground in front of the nose
+    rig_shapes.place(obj, pose[names["drive"]], centre + forward * (survey.nose - centre.dot(forward) + length * 0.06))
     radius = reach + length * 0.08
-    drift.custom_shape_scale_xyz = (radius, radius, radius)
-    align_shape(obj, drift, x=left, y=-forward, z=up)               # arc behind the vehicle, about the front axle
-    rig_shapes.place(obj, drift, pivot + up * height * 0.2)
-    rig_shapes.color(drift, COLORS["drift"])
-    shown = [names["drive"], names["drift"], PREFIX + "Main"]
+    place(names["drift"], "Controls", "C", "CR_Swing", (radius,) * 3)
+    align_shape(obj, pose[names["drift"]], x=left, y=-forward, z=up)       # arc behind the vehicle, about the front axle
+    rig_shapes.place(obj, pose[names["drift"]], pivot + up * height * 0.2)
     if names["steer"]:
         # arc around the front axle past the nose at bonnet height, arrows at its ends
-        steer = pose[names["steer"]]
         radius = max(survey.nose - pivot.dot(forward) + length * 0.04, width * 0.62)
-        sized(steer, "CTRL_Box", "THEME01", 0.1, wire=3.0)
-        steer.custom_shape = rig_shapes.ensure("CR_Turn")
-        steer.custom_shape_scale_xyz = (radius, radius, radius)
-        align_shape(obj, steer, x=-left, y=forward, z=up)
-        rig_shapes.place(obj, steer, pivot + up * height * 0.45)
-        rig_shapes.color(steer, COLORS["steer"])
-        shown.append(names["steer"])
+        place(names["steer"], "Controls", "C", "CR_Turn", (radius,) * 3)
+        align_shape(obj, pose[names["steer"]], x=-left, y=forward, z=up)
+        rig_shapes.place(obj, pose[names["steer"]], pivot + up * height * 0.45)
     if names["body"]:
-        top = pose[names["body"]]
-        sized(top, "CTRL_Box", "THEME03", 1.0, wire=3.0)
-        top.custom_shape_scale_xyz = (length * 4.5, width * 5.5, height * 0.5)
-        align_shape(obj, top, x=forward, y=left, z=up)
-        rig_shapes.place(obj, top, centre + up * height * 1.15)
-        rig_shapes.color(top, COLORS["body"])
-        shown.append(names["body"])
-    for name in shown:
-        collections["Vehicle Controls"].assign(armature.bones[name])
+        place(names["body"], "Controls", "C", "CR_Square", (length * 0.45, width * 0.55, 1.0), secondary=True,
+              width=rig_style.WIDTHS["primary"])
+        align_shape(obj, pose[names["body"]], x=forward, y=left, z=up)
+        rig_shapes.place(obj, pose[names["body"]], centre + up * height * 1.15)
+    settings = pose[rig_style.SETTINGS]
+    place(rig_style.SETTINGS, "Controls", "settings", "CR_Gear", (width * 0.12,) * 3)
+    align_shape(obj, settings, x=-left, y=forward, z=up)
+    settings.lock_location = settings.lock_rotation = settings.lock_scale = (True, True, True)
     for name, (control, sensor, lift, out, arch) in controls.items():
+        role = rig_style.side_of(armature.bones[control].head_local, centre, left, width)
         if arch:
-            # double arrow over the wheel arch
-            sized(pose[arch], "CTRL_Box", "THEME03", 0.1, wire=2.5)
-            pose[arch].custom_shape = rig_shapes.ensure("CR_UpDown")
-            pose[arch].custom_shape_scale_xyz = (radii[name] * 0.45,) * 3
+            place(arch, "Secondary", role, "CR_UpDown", (radii[name] * 0.68,) * 3, secondary=True)
             align_shape(obj, pose[arch], x=forward, y=up)
-            rig_shapes.color(pose[arch], COLORS["arch"])
-            collections["Vehicle Wheel Controls"].assign(armature.bones[arch])
-        # ring on the wheel's outer side
-        ring = pose[control]
-        sized(ring, "CTRL_Spine", "THEME02", radii[name] * 2.3, wire=2.5)
+        # ring with a spin tick on the wheel's outer side
+        ring_radius = radii[name] * 1.15
+        place(control, "Controls", role, "CR_CircleTick", (ring_radius,) * 3)
+        align_shape(obj, pose[control], x=forward, y=up, z=left * out)
         at = armature.bones[control].head_local
         side = abs((at - centre).dot(left))
         outside = width * 0.5 - side if side > width * 0.1 else 0.0
-        rig_shapes.place(obj, ring, at + left * out * max(outside, 0.0))
-        rig_shapes.color(ring, COLORS["wheel"])
-        collections["Vehicle Wheel Controls"].assign(armature.bones[control])
+        rig_shapes.place(obj, pose[control], at + left * out * max(outside, 0.0))
     for name in armature.bones.keys():
-        if name.startswith(PREFIX):
-            if not any(name in c.bones for c in collections.values()):
-                collections["Vehicle Other"].assign(armature.bones[name])      # rig mechanism bones
+        if any(name in armature.collections[g].bones for g in rig_style.COLLECTIONS):
             continue
-        bone = armature.bones[name]
-        if name in survey.wheel_chains:
-            collections["Vehicle Wheels"].assign(bone)
+        if name.startswith(PREFIX):
+            rig_style.assign(armature, name, "Mechanics")
         elif name in parts:
             # box around what the part moves
             points = parts[name]
@@ -581,15 +558,14 @@ def create(obj):
             high = [p.z for p in points]
             middle = (forward * (max(along) + min(along)) + left * (max(across) + min(across))) / 2.0
             middle.z = (max(high) + min(high)) / 2.0
-            collections["Vehicle Parts"].assign(bone)
-            sized(pose[name], "CTRL_Box", "THEME10", 1.0, wire=2.0)
-            pose[name].custom_shape_scale_xyz = tuple(max(hi - lo, 0.04) * 11.0 for lo, hi in (
-                (min(along), max(along)), (min(across), max(across)), (min(high), max(high))))
+            place(name, "Secondary", rig_style.side_of(middle, centre, left, width), "CR_Box",
+                  tuple(max(hi - lo, 0.04) * 0.55 for lo, hi in (
+                      (min(along), max(along)), (min(across), max(across)), (min(high), max(high)))), secondary=True)
             align_shape(obj, pose[name], x=forward, y=left, z=up)
             rig_shapes.place(obj, pose[name], middle)
-            rig_shapes.color(pose[name], COLORS["part"])
         else:
-            collections["Vehicle Other"].assign(bone)
+            rig_style.assign(armature, name, "Game Bones")
+    obj.show_in_front = True            # controls inside the body stay clickable
     armature[KEY] = True
     bpy.ops.object.mode_set(mode='OBJECT')
     attached = _attach(obj, survey, radii)

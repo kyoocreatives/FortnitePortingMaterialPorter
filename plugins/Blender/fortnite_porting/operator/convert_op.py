@@ -238,44 +238,6 @@ class FPMP_OT_LegoRig(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class FPMP_PT_CreatureRig(bpy.types.Panel):
-    bl_label = "Rig"
-    bl_idname = "FPMP_PT_creature_rig"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = "Fortnite Porting"
-
-    @classmethod
-    def poll(cls, context):
-        return context.active_object is not None and context.active_object.type == 'ARMATURE'
-
-    def draw(self, context):
-        obj = context.active_object
-        col = self.layout.column(align=True)
-        if obj.data.get("is_vehicle_rig"):
-            col.label(text="Drive: arrow. Steer, drift: arcs. Body: roof")
-            col.prop(obj, "fpmp_ground", text="Ground")
-            col.prop(obj, '["auto_wheels"]', text="Wheels Spin", slider=True)
-            col.prop(obj, '["auto_steer"]', text="Wheels Steer", slider=True)
-            for key, text in (("countersteer", "Counter-steer"), ("suspension", "Body Follows Wheels"), ("lean", "Lean in Turns")):
-                if key in obj:          # missing on rigs made before these existed
-                    col.prop(obj, '["%s"]' % key, text=text, slider=True)
-            return
-        if obj.data.get("is_lego_rig"):
-            col.label(text="Dials: legs swing, arms turn; rings: hands twist")
-            return
-        if not obj.data.get("is_creature_rig"):
-            col.operator(FPMP_OT_CreatureRig.bl_idname)
-            col.operator(FPMP_OT_VehicleRig.bl_idname)
-            col.operator(FPMP_OT_LegoRig.bl_idname)
-            return
-        col.label(text="IK (0 to play an animation):")
-        for key in sorted(k for k in obj.keys() if k.startswith("ik_")):
-            col.prop(obj, '["%s"]' % key, text=key[3:], slider=True)
-        if "eyes_aim" in obj:
-            col.prop(obj, '["eyes_aim"]', text="Eyes Aim", slider=True)
-
-
 class FPMP_PT_Exact(bpy.types.Panel):
     bl_label = "Exact Materials"
     bl_idname = "FPMP_PT_exact"
@@ -361,7 +323,7 @@ class FPMP_PT_ShellFur(bpy.types.Panel):
             self.layout.operator(FPMP_OT_RemoveShellFur.bl_idname, icon='X')
 
 
-classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_PT_Exact, FPMP_OT_CreatureRig, FPMP_OT_VehicleRig, FPMP_OT_LegoRig, FPMP_PT_CreatureRig,
+classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_PT_Exact, FPMP_OT_CreatureRig, FPMP_OT_VehicleRig, FPMP_OT_LegoRig,
            FPMP_OT_AddShellFur, FPMP_OT_RemoveShellFur, FPMP_PT_ShellFur)
 
 
@@ -376,8 +338,10 @@ def _owner_panels():
 
 def register():
     from ..processing.context import vehicle_rig
+    from . import rig_ui
     for c in classes:
         bpy.utils.register_class(c)
+    rig_ui.register()
     vehicle_rig.register()          # registers the armature's fpmp_ground property
     for m in _owner_panels():
         m.register()
@@ -392,5 +356,7 @@ def unregister():
     for m in _owner_panels():
         m.unregister()
     vehicle_rig.unregister()
+    from . import rig_ui
+    rig_ui.unregister()
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
