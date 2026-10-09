@@ -112,6 +112,15 @@ class Survey:
             at = at.parent
         return at.name
 
+    def corner(self, name):
+        """Bones the body carries at a wheel's corner (same suffix, e.g. _fr_l: shock top, wheel well spreader),
+        which ride with the wheel's arch."""
+        suffix = re.search(r"_[a-z]+_[lr]$", name, re.IGNORECASE)
+        if suffix is None:
+            return []
+        return [n for n in self.bones if n.lower().endswith(suffix.group().lower()) and n not in self.wheel_chains
+                and not HELPER.search(n) and not any(p.name in self.wheel_chains for p in self.bones[n].parent_recursive)]
+
     def radius(self, name):
         height = self.bones[name].head.z - self.ground
         return height if height > 0.05 else 0.35
@@ -156,6 +165,16 @@ def _moved(owner, target, subtarget, source, to_axis, scale, name):
         setattr(con, "map_to_%s_from" % axis, source if axis == to_axis.lower() else ("X" if source != "X" else "Z"))
         setattr(con, "to_min_%s" % axis, -scale if axis == to_axis.lower() else 0.0)
         setattr(con, "to_max_%s" % axis, scale if axis == to_axis.lower() else 0.0)
+    return con
+
+
+def _moved_along(owner, target, subtarget, source, direction, name):
+    """Like _moved, along a direction in the owner's local space (a tilted bone still moves straight)."""
+    con = _moved(owner, target, subtarget, source, "X", 1.0, name)
+    for axis, amount in zip("xyz", direction):
+        setattr(con, "map_to_%s_from" % axis, source)
+        setattr(con, "to_min_%s" % axis, -amount)
+        setattr(con, "to_max_%s" % axis, amount)
     return con
 
 
@@ -324,6 +343,7 @@ def create(obj):
             for b in edit if b.name.startswith(PREFIX)}
     tops = {n: survey.top(n) for n in survey.wheels}
     top_up = {t: _axis(edit[t].matrix, up) for t in set(tops.values())}
+    corners = {n: {b: edit[b].matrix.to_3x3().transposed() @ up for b in survey.corner(n)} for n in survey.wheels if controls[n][4]}
     spins = {n: _axis(edit[n].matrix, left) for n in survey.wheels}
     spin_up = {n: _axis(edit[n].matrix, up) for n in survey.wheels}
     turns = {n: _axis(edit[n].matrix, up) for n in survey.steering}
@@ -360,11 +380,13 @@ def create(obj):
         _moved(pose[tops[name]], obj, lift, letter, top_letter, way * top_way, "CR Lift")
         if arch:
             # The arch moves the wheel's zone (chain top and what hangs off it: upright, fender, shock,
-            # caliper) but not the wheel, so the spinning bone moves back by the same amount.
+            # caliper, plus the body's parts at that corner) but not the wheel, so the spinning bone moves back.
             letter, way = axes[arch]["up"]
             _moved(pose[tops[name]], obj, arch, letter, top_letter, way * top_way, "CR Arch")
             s_letter, s_way = spin_up[name]
             _moved(pose[name], obj, arch, letter, s_letter, -way * s_way, "CR Arch Keep")
+            for part, part_up in corners[name].items():
+                _moved_along(pose[part], obj, arch, letter, part_up * way, "CR Arch")
         # ground projection, active once the armature object has a Ground
         con = pose[sensor].constraints.new('SHRINKWRAP')
         con.name = "CR Ground"
