@@ -91,6 +91,19 @@ def _official(ctx):
                 bpy.ops.object.mode_set(mode='OBJECT')
 
 
+def _metahuman(ctx):
+    """Epic's MetaHuman face board on a MetaHuman-style head (FACIAL bones, expression shape keys)."""
+    from ..processing.context import metahuman_board
+    for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
+        try:
+            if metahuman_board.fits(skeleton):
+                Log.info("%s: MetaHuman board, %d shape keys" % (skeleton.name, metahuman_board.add(skeleton)))
+        except Exception as e:
+            Log.error("%s: MetaHuman board (%s: %s)" % (skeleton.name, type(e).__name__, e))
+            if bpy.context.mode != 'OBJECT':
+                bpy.ops.object.mode_set(mode='OBJECT')
+
+
 def after_parts(ctx, rig_type, tasty):
     """Shell fur, the character's effects (not played yet, parts not merged) and a rig for what Tasty's doesn't fit."""
     from . import shells
@@ -104,6 +117,7 @@ def after_parts(ctx, rig_type, tasty):
 
     if rig_type == ERigType.OFFICIAL and ctx.type not in RIGGED_APART:
         _official(ctx)
+    _metahuman(ctx)
 
     # a creature, sidekick, sprite, vehicle or LEGO figure armature gets its own rig
     if rig_type not in (tasty, ERigType.OFFICIAL) or ctx.type not in RIGGED_APART:

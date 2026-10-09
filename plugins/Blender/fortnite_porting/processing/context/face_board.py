@@ -249,7 +249,7 @@ def add(obj, head, left=None, up=Vector((0.0, 0.0, 1.0)), size=None):
 
 def ui(layout, obj):
     """The Face Board switch and the current expressions, for a rig that has a board."""
-    if BOARD not in obj.pose.bones:
+    if BOARD not in obj.pose.bones and not obj.data.get("fpmp_metahuman_board"):
         return
     layout.prop(obj, "fpmp_face_board", text="Face Board", toggle=True)
     mats = [bpy.data.materials.get(n) for n in obj.get("fpmp_face_board_materials", [])]
@@ -273,6 +273,9 @@ def set_on(obj, on):
 
 def _toggled(self, context):
     set_on(self, self.fpmp_face_board)
+    if self.type == 'ARMATURE' and self.data.get("fpmp_metahuman_board"):
+        from . import metahuman_board
+        metahuman_board.set_on(self, self.fpmp_face_board)
 
 
 def register():

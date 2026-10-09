@@ -140,6 +140,10 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
             col.operator("fpmp.creature_rig")
             col.operator("fpmp.vehicle_rig")
             col.operator("fpmp.lego_rig")
+            if data.get("fpmp_metahuman_board"):        # a plain skeleton with a face board
+                col.separator()
+                col.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select Controls")
+                face_board.ui(col, obj)
             return
         groups = [c for c in data.collections if c.name in rig_style.COLLECTIONS + (rig_style.FK,) + rig_style.LEGACY]
         grid = col.grid_flow(columns=2, align=True)
