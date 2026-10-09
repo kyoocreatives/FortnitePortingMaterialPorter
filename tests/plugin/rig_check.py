@@ -226,13 +226,13 @@ bpy.ops.object.mode_set(mode='OBJECT')
 bpy.context.view_layer.objects.active = v
 bpy.ops.object.mode_set(mode='POSE')
 v.data.collections["Secondary"].is_visible = False
-v.data.bones["CR_Drive"].hide = True
+pose["CR_Drive"].hide = True
 bpy.ops.fpmp.rig_select_controls()
 check("hidden group not selected", pose["CR_Arch_wheel_disc_fr_l"].select, False)
 check("hidden bone not selected", pose["CR_Drive"].select, False)
 check("shown controls selected", pose["CR_Main"].select, True)
 v.data.collections["Secondary"].is_visible = True
-v.data.bones["CR_Drive"].hide = False
+pose["CR_Drive"].hide = False
 bpy.ops.object.mode_set(mode='OBJECT')
 # 3. a wheel on the centre line (trike front) is a centre control
 def trike():

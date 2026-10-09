@@ -17,7 +17,7 @@ MARK, ON = "fpmp_official_rig", "fpmp_official_rig_on"
 PREFIX = "OR "          # every constraint the rig adds
 WIDTHS = {"root": 3.5, "limb": 2.5, "digit": 1.5}
 CORE = ("pelvis", "spine_01", "thigh_l", "upperarm_l", "head")
-MCH = "OR_MCH_"         # the spline spine's mechanism chain
+MCH = "OR_MCH_"         # mechanism bones: the spline spine's chain, the limbs' IK chains
 _cache = {}
 
 
@@ -95,6 +95,8 @@ def create(obj, data=None):
         if item["parent"]:
             bone.parent = edit[item["parent"]]
     _spine_chain(edit, data["solve"]["spine"])
+    _poles_in_plane(edit, data["solve"]["ik"])
+    _ik_chains(edit, data["solve"]["ik"])
     bpy.ops.object.mode_set(mode='POSE')
     rig_style.collections(obj.data)
     for b in obj.data.bones:
@@ -118,7 +120,7 @@ def create(obj, data=None):
         for channel in ("lock_location", "lock_rotation", "lock_scale"):
             if channel in limits:
                 setattr(pb, channel, limits[channel])
-    for name in [n for n in (MCH + b for b in data["solve"]["spine"]["bones"]) if n in obj.data.bones]:
+    for name in [b.name for b in obj.data.bones if b.name.startswith(MCH)]:
         rig_style.assign(obj.data, name, "Mechanics")
     _solve(obj, data, names)
     bpy.ops.object.mode_set(mode='OBJECT')
@@ -131,6 +133,50 @@ def create(obj, data=None):
     if ad is not None and (ad.action is not None or len(ad.nla_tracks)):
         set_on(obj, False)      # the bones are already animated (a lobby pose): they keep playing
     return "official rig: %d controls" % sum(1 for kind, _ in items if kind == "control")
+
+
+def _poles_in_plane(edit, chains):
+    """Each pole out from its knee or elbow in the limb's own bend plane (edit mode), so IK at rest is the rest pose;
+    Epic's mannequin offset only gives the side for a limb that's straight."""
+    for chain in chains:
+        if chain["pole"] not in edit or not all(b in edit for b in chain["bones"]):
+            continue
+        root, mid, end = (edit[b].head for b in chain["bones"])
+        out = _off_axis(mid - root, end - root)
+        if out.length < (end - root).length * 0.01:
+            out = _off_axis(edit[chain["pole"]].head - mid, end - root)
+        if out.length < 1e-6:
+            continue
+        pole = edit[chain["pole"]]
+        length = pole.length
+        pole.head = mid + out.normalized() * (mid - root).length
+        pole.tail = pole.head + Vector((0.0, 0.0, length))
+
+
+def _ik_chains(edit, chains):
+    """Per limb, its two upper bones copied head to head for the IK (Blender's IK aims a bone's tail and FP's tails
+    stop short of the next joint), each carrying a child at the real bone's rest for that bone to copy (edit mode)."""
+    for chain in chains:
+        if not all(b in edit for b in chain["bones"]):
+            continue
+        root, mid, end = (edit[b] for b in chain["bones"])
+        parent = root.parent
+        for bone, tip in ((root, mid.head), (mid, end.head)):
+            ik = edit.new(MCH + "ik_" + bone.name)
+            ik.head, ik.tail = bone.head.copy(), tip.copy()
+            ik.align_roll(bone.z_axis)
+            ik.parent, ik.use_deform = parent, False
+            ik.use_connect = parent is not None and parent.name.startswith(MCH)
+            pose = edit.new(MCH + "pose_" + bone.name)
+            pose.head, pose.tail, pose.roll = bone.head.copy(), bone.tail.copy(), bone.roll
+            pose.parent, pose.use_deform = ik, False
+            parent = ik
+
+
+def _off_axis(v, axis):
+    """The part of v square to the axis."""
+    a = axis.normalized()
+    return v - a * v.dot(a)
 
 
 def _spine_chain(edit, spine):
@@ -224,18 +270,19 @@ def _solve(obj, data, built):
 
     for chain in s["ik"]:
         root, mid, end = chain["bones"]
-        if not has(chain["switch"], chain["target"], chain["pole"], root, mid, end):
+        if not has(chain["switch"], chain["target"], chain["pole"], root, mid, end, MCH + "ik_" + mid):
             continue
         ball = chain.get("ball") or [None, None]
         for control, bone in chain["fk"]:
             if has(control, bone):
                 _copy(obj, bone, control, "FK", chain["switch"], ik=False)
-        ik = _constraint(pb[mid], 'IK', "IK")
+        ik = _constraint(pb[MCH + "ik_" + mid], 'IK', "IK")
         ik.target, ik.subtarget = obj, chain["target"]
         ik.pole_target, ik.pole_subtarget = obj, chain["pole"]
-        ik.pole_angle = _pole_angle(obj, root, chain["pole"])
+        ik.pole_angle = _pole_angle(obj, MCH + "ik_" + root, chain["pole"])
         ik.chain_count = 2
-        _by_switch(obj, ik, chain["switch"], True)
+        for bone in (root, mid):
+            _copy(obj, bone, MCH + "pose_" + bone, "IK", chain["switch"], ik=True)
         _copy(obj, end, chain["target"], "IK rotation", chain["switch"], ik=True, kind='COPY_ROTATION')
         if ball[0] and has(*ball):
             _copy(obj, ball[1], ball[0], "IK rotation", chain["switch"], ik=True, kind='COPY_ROTATION')
@@ -351,10 +398,10 @@ def set_switch(obj, switch, ik, match=True):
                 bpy.context.view_layer.update()
     pb[switch][switch] = 1.0 if ik else 0.0
     obj.update_tag()        # a property set from Python doesn't re-run the drivers that read it
-    for control, _ in chain["fk"]:
-        obj.data.bones[control].hide = ik
+    for control, _ in chain["fk"]:      # Blender 5 shows a pose by the pose bone's hide (the bone's is edit mode's)
+        pb[control].hide = ik
     for control in chain["ik"]:
-        obj.data.bones[control].hide = not ik
+        pb[control].hide = not ik
     bpy.context.view_layer.update()
 
 

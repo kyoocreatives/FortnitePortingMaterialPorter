@@ -131,22 +131,32 @@ def step(obj):
     return obj.data[STEP]
 
 
-def _layout(data, size):
+def _read(node, out):
+    """The controls an expression reads."""
+    if node.get("op") == "control":
+        out.add(node["name"])
+    for k in ("a", "b", "t", "in"):
+        if isinstance(node.get(k), dict):
+            _read(node[k], out)
+    return out
+
+
+def _layout(data, size, live):
     """(metres per board unit, each knob's place on the board: right and up from the board bone, in metres)."""
-    knobs = [c for c in data["controls"] if c["kind"] in ("slider", "box")]
+    knobs = [c for c in data["controls"] if c["kind"] in ("slider", "box") and c["name"] in live]
     xs, ys = [c["position"][0] for c in knobs], [c["position"][1] for c in knobs]
     s = size / max(max(xs) - min(xs), max(ys) - min(ys), 1e-6)
     middle = (min(xs) + max(xs)) / 2
     return s, {c["name"]: ((c["position"][0] - middle) * s, (c["position"][1] - min(ys)) * s) for c in knobs}
 
 
-def _bones(obj, data, size):
+def _bones(obj, data, size, live):
     """Board and knob bones (edit mode): the board beside the head, knobs at Epic's places, pointing into the board
     so their local X runs right and Z up."""
     edit = obj.data.edit_bones
     head = edit["head"]
-    s, places = _layout(data, size)
-    origin = head.head + Vector((size * 1.2, 0.0, -size * 0.5))
+    s, places = _layout(data, size, live)
+    origin = head.head + Vector((size * 0.8, 0.0, -size * 0.5))
     board = edit.new(BOARD)
     board.head, board.tail = origin, origin + Vector((0.0, size * 0.1, 0.0))
     board.align_roll(Vector((0.0, 0.0, 1.0)))
@@ -182,10 +192,10 @@ def unit(obj, control, axis):
     return _length(c["axes"][axis]) * step(obj)
 
 
-def _outline(data, size):
+def _outline(data, size, live):
     """The board's drawing (its bone's custom shape): a frame around the knobs, a track per slider over its range,
     a rectangle per 2D box over its ranges."""
-    s, places = _layout(data, size)
+    s, places = _layout(data, size, live)
     verts, edges = [], []
 
     def loop(points, closed):
@@ -272,22 +282,24 @@ def add(obj, size=None):
     data = load()
     if obj.data.get(MARK) or not fits(obj):
         return 0
-    size = size or max(obj.data.bones["head"].length * 2.0, 0.15)
+    size = size or max(obj.data.bones["head"].length * 5.0, 0.3)
+    keys = _keys(obj, data)
+    # FP heads carry about a third of Epic's expression curves: knobs nothing reads aren't built
+    live = set().union(*(_read(data["curves"]["CTRL_expressions_" + k.name], set()) for _, k in keys))
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='EDIT')
-    s = _bones(obj, data, size)
+    s = _bones(obj, data, size, live)
     bpy.ops.object.mode_set(mode='POSE')
     obj.data[STEP] = s
     board = obj.pose.bones[BOARD]
     board.lock_location = board.lock_rotation = (True, True, True)
-    board.custom_shape, board.use_custom_shape_bone_size = _outline(data, size), False
+    board.custom_shape, board.use_custom_shape_bone_size = _outline(data, size, live), False
     rig_shapes.color(board, (0.55, 0.55, 0.6))
     _group(obj, BOARD)
     for c in data["controls"]:
         if PREFIX + c["name"] in obj.pose.bones:
             _knob(obj, c, s)
     bpy.ops.object.mode_set(mode='OBJECT')
-    keys = _keys(obj, data)
     for _, key in keys:
         _drive(obj, key, data["curves"]["CTRL_expressions_" + key.name], s, {c["name"]: c["axes"] for c in data["controls"]})
     obj.data[MARK] = True

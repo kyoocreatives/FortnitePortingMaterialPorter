@@ -107,9 +107,14 @@ drivers = mesh.data.shape_keys.animation_data.drivers
 check("non-face keys left alone", drivers.find('key_blocks["shoeMorphA"].value') is None, True)
 check("board bone", "MB_Board" in arm.data.bones, True)
 outline = arm.pose.bones["MB_Board"].custom_shape
-n_sliders = sum(c["kind"] == "slider" for c in data["controls"])
-n_boxes = sum(c["kind"] == "box" for c in data["controls"])
+read = {c for k in KEYS for c, _ in controls_of(data["curves"]["CTRL_expressions_" + k], [])}
+knobs = {b.name[3:] for b in arm.data.bones if b.name.startswith("MB_CTRL")}
+check("only knobs the head's keys read (FP ships a third of Epic's curves)", knobs, read)
+n_sliders = sum(c["kind"] == "slider" and c["name"] in read for c in data["controls"])
+n_boxes = sum(c["kind"] == "box" and c["name"] in read for c in data["controls"])
 check("board outline: frame, a track per slider, a box per box", outline is not None and len(outline.data.edges) == 4 + n_sliders + 4 * n_boxes, True)
+xs = [v.co.x for v in outline.data.vertices]
+check("board at least 4 head lengths wide", max(xs) - min(xs) >= 4 * arm.data.bones["head"].length, True)
 check("knobs in Controls or the board group", any("MB_CTRL_L_brow_down" in c.bones for c in arm.data.collections), True)
 check("board bone in the knobs' group", [c.name for c in arm.data.collections if "MB_Board" in c.bones] ==
       [c.name for c in arm.data.collections if "MB_CTRL_L_brow_down" in c.bones], True)
@@ -171,7 +176,7 @@ check("the animation hook turns the board off", again.fpmp_face_board, False)
 # --- review fixes
 from mathutils import Vector  # noqa: E402
 ctl_by = {c["name"]: c for c in data["controls"]}
-board_arm, board_mesh = head_3l("orient")
+board_arm, board_mesh = head_3l("orient", keys=sorted(n.replace("CTRL_expressions_", "") for n in data["curves"]))     # every knob
 mb.add(board_arm)
 
 

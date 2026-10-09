@@ -27,7 +27,7 @@ class FPMP_OT_RigSelectControls(bpy.types.Operator):
         obj = _rig(context)
         # only what the user sees, as Blender's own Select All
         chosen = {b.name for b in rig_style.controls(obj)
-                  if not b.bone.hide and any(c.is_visible for c in b.bone.collections)}
+                  if not b.hide and any(c.is_visible for c in b.bone.collections)}
         for bone in obj.pose.bones:
             bone.select = bone.name in chosen
         return {'FINISHED'}

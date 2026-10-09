@@ -42,7 +42,7 @@ def place(name):
     return None
 
 
-def mannequin(name="mannequin", drop=()):
+def mannequin(name="mannequin", drop=(), fp_tails=False):
     """An armature with the data's skeleton; bones without a place sit 3 cm past their parent. `drop`: left out."""
     data = official_rig.load()
     obj = bpy.data.objects.new(name, bpy.data.armatures.new(name))
@@ -58,7 +58,7 @@ def mannequin(name="mannequin", drop=()):
         bone.head = place(b["name"]) or ((parent.head if parent else Vector((0, 0, 0))) + Vector((0, 0, 0.03)))
         bone.tail = bone.head + Vector((0, 0, 0.05))
         bone.parent = parent
-    for b in edit:      # chains point at their child (IK needs it)
+    for b in ([] if fp_tails else edit):      # chains point at their child (FP's own tails don't: fp_tails)
         kids = [k for k in b.children if place(k.name) is not None]
         if kids and (kids[0].head - b.head).length > 1e-4:
             b.tail = kids[0].head
@@ -80,10 +80,13 @@ check("on its bone", tuple(man.data.bones["foot_l_ik_ctrl"].head_local), tuple(m
 check("same rest as its bone", all(abs(a - b) < 1e-4 for ra, rb in zip(man.data.bones["foot_l_ik_ctrl"].matrix_local,
                                                                        man.data.bones["foot_l"].matrix_local) for a, b in zip(ra, rb)), True)
 check("parent as the data", man.data.bones["foot_l_ik_ctrl"].parent.name, fc["parent"])
-pole = next(c for c in data["controls"] if c["name"] == "leg_l_pv_ik_ctrl")
+heel = next(c for c in data["controls"] if c["name"] == "heel_l_ctrl")
 ratio = man.data.bones["head"].head_local.z / data["height"]
-check("off-bone control at its offset", tuple(man.data.bones["leg_l_pv_ik_ctrl"].head_local),
-      tuple(man.data.bones[pole["bone"]].head_local + Vector(pole["offset"]) * ratio))
+check("off-bone control at its offset", tuple(man.data.bones["heel_l_ctrl"].head_local),
+      tuple(man.data.bones[heel["bone"]].head_local + Vector(heel["offset"]) * ratio))
+knee, hip, ankle = (man.data.bones[b].head_local for b in ("calf_l", "thigh_l", "foot_l"))
+plane = (knee - hip).cross(ankle - hip)
+check("leg pole in the leg's bend plane", abs((man.data.bones["leg_l_pv_ik_ctrl"].head_local - hip).dot(plane.normalized())) < 1e-4, True)
 check("root width", man.pose.bones["global_ctrl"].custom_shape_wire_width, 3.5)
 check("digit width", man.pose.bones["index_01_l_ctrl"].custom_shape_wire_width, 1.5)
 check("controls collection", "foot_l_ik_ctrl" in man.data.collections["Controls"].bones, True)
@@ -190,8 +193,8 @@ thigh_before = world(rig, "thigh_l").copy()
 official_rig.set_switch(rig, "leg_l_fk_ik_switch", ik=False)
 check("switching keeps the limb (Review Focus 4)", (world(rig, "thigh_l").to_translation() - thigh_before.to_translation()).length < 1e-3
       and same_rot(world(rig, "thigh_l"), thigh_before), True)
-check("inactive IK controls hide", rig.data.bones["foot_l_ik_ctrl"].hide, True)
-check("active FK controls show", rig.data.bones["thigh_l_fk_ctrl"].hide, False)
+check("inactive IK controls hide", rig.pose.bones["foot_l_ik_ctrl"].hide, True)
+check("active FK controls show", rig.pose.bones["thigh_l_fk_ctrl"].hide, False)
 # spaces follow their result bone: the chest space rides the spine top
 before = head(rig, "clavicle_l_ctrl").copy()
 official_rig.set_switch(rig, "spine_fk_ik_switch", ik=False)
@@ -267,6 +270,20 @@ check("switches set to FK", bk.pose.bones["leg_l_fk_ik_switch"]["leg_l_fk_ik_swi
 official_rig.on_animation_import(bk)        # a second emote after a bake (Review Focus 3)
 check("a second emote switches it off again", bk.data["fpmp_official_rig_on"], False)
 
+# IK at rest keeps every limb at rest (the poles sit in each limb's own bend plane), with FP's bone tails too
+limbs = {"arm_l_fk_ik_switch": ("upperarm_l", "lowerarm_l", "hand_l"), "arm_r_fk_ik_switch": ("upperarm_r", "lowerarm_r", "hand_r"),
+         "leg_l_fk_ik_switch": ("thigh_l", "calf_l", "foot_l"), "leg_r_fk_ik_switch": ("thigh_r", "calf_r", "foot_r")}
+for rest_ik in (mannequin("rest_ik"), mannequin("rest_ik_fp", fp_tails=True)):
+    official_rig.create(rest_ik)
+    for switch, bones in limbs.items():
+        before = {b: world(rest_ik, b).copy() for b in bones}
+        for match in (False, True):
+            official_rig.set_switch(rest_ik, switch, ik=True, match=match)
+            check("%s %s IK at rest keeps the limb (match %s)" % (rest_ik.name, switch, match),
+                  all((world(rest_ik, b).to_translation() - m.to_translation()).length < 1e-3 and same_rot(world(rest_ik, b), m, 1e-2)
+                      for b, m in before.items()), True)
+            official_rig.set_switch(rest_ik, switch, ik=False, match=False)
+
 # --- review fixes
 # 1. an outfit imported with its lobby pose keeps it: the rig starts off when the bones are already animated
 posed = mannequin("posed")
@@ -293,7 +310,7 @@ ft.pose.bones["heel_l_ctrl"].rotation_euler = (0.4, 0.0, 0.0)
 check("heel pivot moves the foot", (head(ft, "foot_l") - before).length > 0.005, True)
 ft.pose.bones["heel_l_ctrl"].rotation_euler = (0.0, 0.0, 0.0)
 official_rig.set_switch(ft, "leg_l_fk_ik_switch", ik=False)
-check("reverse-foot controls hide in FK", (ft.data.bones["heel_l_ctrl"].hide, ft.data.bones["tip_l_ctrl"].hide), (True, True))
+check("reverse-foot controls hide in FK", (ft.pose.bones["heel_l_ctrl"].hide, ft.pose.bones["tip_l_ctrl"].hide), (True, True))
 # 4. FK to IK keeps a posed limb, ball included; spine and neck too
 mt = mannequin("match")
 official_rig.create(mt)
@@ -312,7 +329,7 @@ official_rig.set_switch(mt, "spine_fk_ik_switch", ik=True)
 check("FK to IK keeps the spine top close", (world(mt, "spine_05").to_translation() - posed_bones["spine_05"].to_translation()).length < 0.02, True)
 # 5. the hips stay posable in FK
 official_rig.set_switch(mt, "spine_fk_ik_switch", ik=False)
-check("hips control shows in FK", mt.data.bones["hips_ctrl"].hide, False)
+check("hips control shows in FK", mt.pose.bones["hips_ctrl"].hide, False)
 
 print("[official_rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)
