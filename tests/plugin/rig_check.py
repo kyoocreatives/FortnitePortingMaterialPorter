@@ -393,6 +393,161 @@ check("flat skeleton has its gear", "CR_Settings" in s.pose.bones, True)
 check("no IK: no FK group", "FK" in s.data.collections, False)
 check("flat skeleton controls are visible", s.pose.bones["root"].custom_shape_scale_xyz[0] > 0.05, True)
 
+# the LEGO figure on the kit: the shared minifigure skeleton, facing -Y (its right is -X)
+from fpmp_baseline.processing.context import lego_rig  # noqa: E402
+
+
+def figure(name, face=None, panel=False, material=None):
+    """A LEGO figure skeleton; `face`: {input name: value} for a head mesh whose material's group node has them."""
+    data = bpy.data.armatures.new(name)
+    obj = bpy.data.objects.new(name, data)
+    bpy.context.scene.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    edit = data.edit_bones
+
+    def bone(n, head, tail, parent=None):
+        b = edit.new(n)
+        b.head, b.tail, b.parent = head, tail, parent
+        return b
+    root = bone("root", (0, 0, 0), (0, 0, 0.1))
+    pelvis = bone("pelvis", (0, 0, 0.45), (0, 0, 0.5), root)
+    for side, x in (("l", 0.1), ("r", -0.1)):
+        bone("leg_" + side, (x, 0, 0.45), (x, 0, 0.05), pelvis)
+    torso = bone("torso", (0, 0, 0.5), (0, 0, 0.85), pelvis)
+    for side, x in (("l", 0.2), ("r", -0.2)):
+        arm = bone("arm_" + side, (x, 0, 0.8), (x * 1.1, 0, 0.6), torso)
+        bone("hand_" + side, (x * 1.1, 0, 0.6), (x * 1.1, -0.05, 0.5), arm)
+    neck = bone("neck_accessory", (0, 0, 0.85), (0, 0, 0.9), torso)
+    head = bone("head", (0, 0, 0.9), (0, 0, 1.15), neck)
+    bone("head_accessory", (0, 0, 1.15), (0, 0, 1.25), head)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    if material is not None:
+        mesh = bpy.data.meshes.new(name + " head")
+        mesh.from_pydata([(0, 0, 0.9), (0.1, 0, 0.9), (0, 0, 1.1)], [], [(0, 1, 2)])
+        mesh.materials.append(material)
+        head_obj = bpy.data.objects.new(name + " head", mesh)
+        bpy.context.scene.collection.objects.link(head_obj)
+        head_obj.modifiers.new("Armature", 'ARMATURE').object = obj
+    elif face is not None:
+        group = bpy.data.node_groups.new(name + " face", 'ShaderNodeTree')
+        for key in face:
+            group.interface.new_socket(key, in_out='INPUT', socket_type='NodeSocketFloat')
+        group.interface.new_socket("Surface", in_out='OUTPUT', socket_type='NodeSocketShader')
+        if panel:
+            # the importer files a material's inputs into panels (Pre FX...)
+            box = group.interface.new_panel("Pre FX")
+            for item in [i for i in group.interface.items_tree if i.item_type == 'SOCKET' and i.in_out == 'INPUT'][:2]:
+                group.interface.move_to_parent(item, box, 0)
+        mat = bpy.data.materials.new("MP MI_Head_" + name)
+        node = mat.node_tree.nodes.new("ShaderNodeGroup")
+        node.node_tree = group
+        for key, value in face.items():
+            node.inputs[key].default_value = value
+        mesh = bpy.data.meshes.new(name + " head")
+        mesh.from_pydata([(0, 0, 0.9), (0.1, 0, 0.9), (0, 0, 1.1)], [], [(0, 1, 2)])
+        mesh.materials.append(mat)
+        head_obj = bpy.data.objects.new(name + " head", mesh)
+        bpy.context.scene.collection.objects.link(head_obj)
+        head_obj.modifiers.new("Armature", 'ARMATURE').object = obj
+    lego_rig.create(obj)
+    return obj
+
+
+fig = figure("fig")
+fp = fig.pose.bones
+fgroups = {c.name: c for c in fig.data.collections}
+member_of = lambda n: next((g for g in rig_style.COLLECTIONS if g in fgroups and n in fgroups[g].bones), None)
+check("lego collections", [c.name for c in fig.data.collections if c.name in rig_style.COLLECTIONS], list(rig_style.COLLECTIONS))
+for n, want in (("root", "Controls"), ("pelvis", "Controls"), ("torso", "Controls"), ("head", "Controls"),
+                ("leg_l", "Controls"), ("arm_r", "Controls"), ("hand_l", "Controls"), ("head_accessory", "Secondary"),
+                ("neck_accessory", "Game Bones")):
+    check("lego %s in %s" % (n, want), member_of(n), want)
+check("lego root main", tuple(fp["root"].color.custom.normal), rig_style.COLORS["main"], tol=0.01)
+check("lego left leg blue", tuple(fp["leg_l"].color.custom.normal), rig_style.COLORS["L"], tol=0.01)
+check("lego right arm red", tuple(fp["arm_r"].color.custom.normal), rig_style.COLORS["R"], tol=0.01)
+check("lego leg dial ticks", fp["leg_l"].custom_shape.name, "CR_CircleTick")
+check("lego torso ring", fp["torso"].custom_shape.name, "CR_Circle")
+check("lego accessory box", fp["head_accessory"].custom_shape.name, "CR_Box")
+check("lego accessory thin", fp["head_accessory"].custom_shape_wire_width, 1.5)
+check("lego leg swings on one axis", tuple(fp["leg_l"].lock_rotation), (False, True, True))
+check("lego drawn in front", fig.show_in_front, True)
+check("no face material, no board", "CR_FaceBoard" in fp, False)
+
+# the face board
+from fpmp_baseline.processing.context import face_board  # noqa: E402
+face_board.register()
+lf = figure("faced", face={"MouthPose": 12.0, "EyeLeftPose": 0.0, "EyeRightPose": 0.0, "EyeLeftU": 0.1, "EyeLeftV": 0.02,
+                           "MouthU": 0.0, "MouthV": -0.2})
+lp = lf.pose.bones
+mat = bpy.data.materials["MP MI_Head_faced"]
+grp = next(n for n in mat.node_tree.nodes if n.type == 'GROUP')
+check("board made", "CR_FaceBoard" in lp, True)
+check("present sliders only", sorted(n for n in lp.keys() if n.startswith("CR_Face_") and not n.endswith("_UV")),
+      ["CR_Face_EyeLeftPose", "CR_Face_EyeRightPose", "CR_Face_MouthPose"])
+check("pads for present pairs", sorted(n for n in lp.keys() if n.endswith("_UV")), ["CR_Face_EyeLeft_UV", "CR_Face_Mouth_UV"])
+lf.update_tag()
+bpy.context.view_layer.update()
+check("imported expression kept at rest", grp.inputs["MouthPose"].default_value, 12.0)
+board_bone, mouth_bone = lf.data.bones["CR_FaceBoard"], lf.data.bones["CR_Face_MouthPose"]
+along = (mouth_bone.head_local - board_bone.head_local).dot(board_bone.matrix_local.col[0].to_3d())
+check("slider rests at its expression along the board", round(along / face_board.step_of(lf), 3), 12.0)
+check("rows don't overlap", face_board.ROW >= 2.0 * face_board.SIZE, True)
+step = face_board.step_of(lf)
+lp["CR_Face_MouthPose"].location.x = 3 * step
+lf.update_tag()
+bpy.context.view_layer.update()
+check("slider: 3 steps = 15", grp.inputs["MouthPose"].default_value, 15.0)
+lp["CR_Face_MouthPose"].location.x = 9 * step
+lf.update_tag()
+bpy.context.view_layer.update()
+check("slider clamps at 15", grp.inputs["MouthPose"].default_value, 15.0)
+lp["CR_Face_EyeLeft_UV"].location.x = step
+lf.update_tag()
+bpy.context.view_layer.update()
+check("pad moves the eye", abs(grp.inputs["EyeLeftU"].default_value - 0.1) > 0.05, True)
+# off: the emote's keys play
+grp.inputs["MouthPose"].default_value = 2.0
+grp.inputs["MouthPose"].keyframe_insert("default_value", frame=1)
+face_board.set_on(lf, False)
+mat.node_tree.update_tag()
+bpy.context.scene.frame_set(1)
+check("board off: keys play", grp.inputs["MouthPose"].default_value, 2.0)
+face_board.set_on(lf, True)
+check("board on: drivers live", all(not fc.mute for fc in mat.node_tree.animation_data.drivers), True)
+lf.fpmp_face_board = False
+check("toggle off mutes", all(fc.mute for fc in mat.node_tree.animation_data.drivers), True)
+lf.fpmp_face_board = True
+check("toggle on unmutes", all(not fc.mute for fc in mat.node_tree.animation_data.drivers), True)
+# the face material's sockets move after rigging (the importer files them into panels): drivers still find theirs
+grp.node_tree.interface.new_socket("Inserted", in_out='INPUT', socket_type='NodeSocketFloat')
+grp.node_tree.interface.move(grp.node_tree.interface.items_tree["Inserted"], 0)
+lp["CR_Face_MouthPose"].location.x = -2 * step
+lp["CR_Face_EyeLeft_UV"].location.x = 0.0
+lf.update_tag()
+bpy.context.scene.frame_set(2)
+check("after a socket reorder the mouth slider drives MouthPose", grp.inputs["MouthPose"].default_value, 10.0)
+check("after a socket reorder the eye pose is untouched", grp.inputs["EyeLeftPose"].default_value, 0.0)
+
+pf = figure("paneled", face={"Other": 1.0, "MouthPose": 4.0, "EyeLeftPose": 0.0}, panel=True)
+pgrp = next(n for n in bpy.data.materials["MP MI_Head_paneled"].node_tree.nodes if n.type == 'GROUP')
+pf.pose.bones["CR_Face_MouthPose"].location.x = face_board.step_of(pf)
+pf.update_tag()
+bpy.context.scene.frame_set(3)
+check("panelled face: mouth slider drives MouthPose", pgrp.inputs["MouthPose"].default_value, 5.0)
+check("panelled face: eye untouched", pgrp.inputs["EyeLeftPose"].default_value, 0.0)
+
+# the same figure imported twice shares its face material: the last rigged drives it, one variable per driver
+shared_mat = bpy.data.materials["MP MI_Head_paneled"]
+second = figure("paneled_again", material=shared_mat)
+check("shared face: one variable per driver", all(len(fc.driver.variables) == 1 for fc in shared_mat.node_tree.animation_data.drivers), True)
+second.pose.bones["CR_Face_MouthPose"].location.x = 2 * face_board.step_of(second)
+second.update_tag()
+bpy.context.scene.frame_set(4)
+check("shared face follows the last rigged", pgrp.inputs["MouthPose"].default_value, 7.0)   # rests at the 5 the face showed when rigged
+pf.fpmp_face_board = False
+check("first figure's toggle doesn't error or mute the second's", all(not fc.mute for fc in shared_mat.node_tree.animation_data.drivers), True)
+
 print("[rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 if FAILS:
     sys.exit(1)

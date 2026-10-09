@@ -90,6 +90,8 @@ def apply(armature, sections):
     start), repeat, range (action frame range) and modes (the section's MPCurveModes).
     Returns the number of face materials animated."""
     clear(armature)
+    if armature.get("fpmp_face_board_materials"):
+        armature.fpmp_face_board = False        # the emote's face keys play, not the board
     # Place the face prints from the rest pose (PreSkinnedPosition), for a figure imported before
     # the importer kept it
     for o in _meshes(armature):
