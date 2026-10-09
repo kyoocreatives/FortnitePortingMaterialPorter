@@ -15,6 +15,7 @@ SETTINGS = "CR_Settings"
 LEGACY_CONTROLS = ("Vehicle Controls", "Vehicle Wheel Controls", "Vehicle Parts", "Creature Controls", "Creature Face",
                    "Creature Limb FK", "LEGO Controls")
 LEGACY = LEGACY_CONTROLS + ("Vehicle Wheels", "Vehicle Other", "Creature Other", "LEGO Other")
+TASTY_CONTROLS = ("Rig", "Face", "Face Board")      # FP's character rig's control groups, and its face board's
 
 
 def collections(armature, fk=False):
@@ -89,6 +90,7 @@ def driven(obj, constraint, name):
 
 
 def controls(obj):
-    """The pose bones an animator poses: in Controls, Secondary, FK (or an older rig's control groups)."""
-    shown = [obj.data.collections[n] for n in COLLECTIONS[:2] + (FK,) + LEGACY_CONTROLS if n in obj.data.collections]
+    """The pose bones an animator poses: in Controls, Secondary, FK (or an older rig's control groups, or Tasty's)."""
+    names = TASTY_CONTROLS if obj.data.get("is_tasty") else COLLECTIONS[:2] + (FK,) + LEGACY_CONTROLS
+    shown = [obj.data.collections[n] for n in names if n in obj.data.collections]
     return [pb for pb in obj.pose.bones if any(pb.name in c.bones for c in shown)]

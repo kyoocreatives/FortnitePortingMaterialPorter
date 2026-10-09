@@ -281,7 +281,7 @@ check("circle arrow points ahead", max(p.co.y for p in arrow.data.vertices) > 1.
 from fpmp_baseline.processing.context import creature_rig  # noqa: E402
 
 
-def quadruped(name, eyes=True, tail_on_root=False, scapula=False):
+def quadruped_bones(name, eyes=True, tail_on_root=False, scapula=False):
     data = bpy.data.armatures.new(name)
     obj = bpy.data.objects.new(name, data)
     bpy.context.scene.collection.objects.link(obj)
@@ -315,6 +315,11 @@ def quadruped(name, eyes=True, tail_on_root=False, scapula=False):
     t2 = bone("tail_02", (0, 0.6, 0.55), (0, 0.8, 0.5), t1)
     bone("tail_03", (0, 0.8, 0.5), (0, 1.0, 0.45), t2)
     bpy.ops.object.mode_set(mode='OBJECT')
+    return obj
+
+
+def quadruped(name, **options):
+    obj = quadruped_bones(name, **options)
     creature_rig.create(obj)
     return obj
 
@@ -547,6 +552,172 @@ bpy.context.scene.frame_set(4)
 check("shared face follows the last rigged", pgrp.inputs["MouthPose"].default_value, 7.0)   # rests at the 5 the face showed when rigged
 pf.fpmp_face_board = False
 check("first figure's toggle doesn't error or mute the second's", all(not fc.mute for fc in shared_mat.node_tree.animation_data.drivers), True)
+
+# flipbook faces: a creature with a flipbook head
+def attach_face(obj, name, face):
+    """A head mesh on `obj` whose material's group node has the `face` inputs (name: value)."""
+    group = bpy.data.node_groups.new(name + " face", 'ShaderNodeTree')
+    for key in face:
+        group.interface.new_socket(key, in_out='INPUT', socket_type='NodeSocketFloat')
+    group.interface.new_socket("Surface", in_out='OUTPUT', socket_type='NodeSocketShader')
+    mat = bpy.data.materials.new("MP " + name + " face")
+    node = mat.node_tree.nodes.new("ShaderNodeGroup")
+    node.node_tree = group
+    for key, value in face.items():
+        node.inputs[key].default_value = value
+    mesh = bpy.data.meshes.new(name + " head")
+    mesh.from_pydata([(0, 0, 0.9), (0.1, 0, 0.9), (0, 0, 1.1)], [], [(0, 1, 2)])
+    mesh.materials.append(mat)
+    head = bpy.data.objects.new(name + " head", mesh)
+    bpy.context.scene.collection.objects.link(head)
+    head.modifiers.new("Armature", 'ARMATURE').object = obj
+    return mat, node
+
+
+FLIP = {"flipbook_face_L_eye_index": 0.0, "flipbook_face_R_eye_index": 0.0, "flipbook_face_mouth_index": 2.0,
+        "FB_EyeColumnCount": 3.0, "FB_EyeRowCount": 3.0, "FB_EyeUVOffsetX": 0.24, "FB_EyeUVOffsetY": 0.03,
+        "FB_MouthUVOffsetX": 0.0, "FB_MouthUVOffsetY": 0.0}
+fl = bpy.data.objects.new("flipfig", bpy.data.armatures.new("flipfig"))
+bpy.context.scene.collection.objects.link(fl)
+fmat, fnode = attach_face(fl, "flipfig", FLIP)
+fl_faces = face_board.faces(fl)
+check("flipbook face found", [m.name for m, _ in fl_faces], ["MP flipfig face"])
+check("flipbook kind", face_board.kind(fl_faces)["name"], "flipbook")
+check("lego face still LEGO", face_board.kind(face_board.faces(lf))["name"], "lego")
+check("flipbook counts", (face_board.count(fl_faces, "flipbook_face_l_eye_index"), face_board.count(fl_faces, "flipbook_face_mouth_index")), (9, 16))
+# board on the quadruped's head, driven
+qf = quadruped("quad_flip")
+qmat, qnode = attach_face(qf, "quad_flip", FLIP)
+creature_rig_board = face_board.add(qf, head="head")
+check("board added to a rigged creature", creature_rig_board, True)
+qfp = qf.pose.bones
+check("flipbook sliders", sorted(n for n in qfp.keys() if n.startswith("CR_Face_") and not n.endswith("_UV")),
+      ["CR_Face_EyeL", "CR_Face_EyeR", "CR_Face_Mouth"])
+check("flipbook pads", sorted(n for n in qfp.keys() if n.endswith("_UV")), ["CR_Face_Eyes_UV", "CR_Face_Mouth_UV"])
+fstep = face_board.step_of(qf)
+qfp["CR_Face_EyeL"].location.x = 20 * fstep
+qfp["CR_Face_Mouth"].location.x = 3 * fstep
+qf.update_tag()
+bpy.context.scene.frame_set(5)
+check("eye slider stops at its count", qnode.inputs["flipbook_face_L_eye_index"].default_value, 8.0)
+check("mouth slider: 2 + 3", qnode.inputs["flipbook_face_mouth_index"].default_value, 5.0)
+qfp["CR_Face_Eyes_UV"].location.y = fstep
+qf.update_tag()
+bpy.context.scene.frame_set(6)
+check("eyes pad moves the eye offset", abs(qnode.inputs["FB_EyeUVOffsetY"].default_value - 0.03) > 0.05, True)
+# no head bone: the board sits above the model
+nh = bpy.data.objects.new("nohead", bpy.data.armatures.new("nohead"))
+bpy.context.scene.collection.objects.link(nh)
+bpy.context.view_layer.objects.active = nh
+bpy.ops.object.mode_set(mode='EDIT')
+rb = nh.data.edit_bones.new("root")
+rb.head, rb.tail = (0, 0, 0), (0, 0, 0.5)
+bpy.ops.object.mode_set(mode='OBJECT')
+attach_face(nh, "nohead", FLIP)
+check("board without a head bone", face_board.add(nh, head=None), True)
+check("board above the model", nh.data.bones["CR_FaceBoard"].head_local.z > 0.5, True)
+
+# Tasty on the kit: a Tasty-like armature (FP's groups, shaped bones)
+from fpmp_baseline.processing.context import tasty_style  # noqa: E402
+ta = bpy.data.objects.new("tasty", bpy.data.armatures.new("tasty"))
+bpy.context.scene.collection.objects.link(ta)
+ta.data["is_tasty"] = True
+bpy.context.view_layer.objects.active = ta
+bpy.ops.object.mode_set(mode='EDIT')
+for n, x in (("root", 0), ("ik_hand_l", 0.3), ("ik_hand_r", -0.3), ("spine_01", 0), ("R_eye", -0.03), ("dyn_hair_l", 0.05),
+             ("upperarm_twist_01_l", 0.2), ("thigh_l", 0.1)):
+    b = ta.data.edit_bones.new(n)
+    b.head, b.tail = (x, 0, 1), (x, 0, 1.1)
+bpy.ops.object.mode_set(mode='POSE')
+cube = rig_shapes.ensure("CR_Box")
+for g, members in (("Rig", ("root", "ik_hand_l", "ik_hand_r", "spine_01")), ("Face", ("R_eye",)), ("Dynamic", ("dyn_hair_l",)),
+                   ("Twist", ("upperarm_twist_01_l",)), ("Base", ("thigh_l",)), ("Deform", ()), ("Sockets", ()), ("Extra", ())):
+    c = ta.data.collections.new(g)
+    for m in members:
+        c.assign(ta.data.bones[m])
+for n in ("root", "ik_hand_l", "ik_hand_r", "spine_01", "R_eye", "dyn_hair_l", "upperarm_twist_01_l"):
+    ta.pose.bones[n].custom_shape = cube
+    ta.pose.bones[n].custom_shape_wire_width = 4.0
+bpy.ops.object.mode_set(mode='OBJECT')
+check("tasty styled", tasty_style.style(ta), True)
+check("tasty styled once", tasty_style.style(ta), False)
+tp = ta.pose.bones
+check("tasty visibility", {c.name: c.is_visible for c in ta.data.collections},
+      {"Rig": True, "Face": True, "Dynamic": False, "Twist": False, "Base": False, "Deform": False, "Sockets": False, "Extra": False})
+check("tasty root main", tuple(tp["root"].color.custom.normal), rig_style.COLORS["main"], tol=0.01)
+check("tasty root width", tp["root"].custom_shape_wire_width, 3.5)
+check("tasty left IK blue", tuple(tp["ik_hand_l"].color.custom.normal), rig_style.COLORS["L"], tol=0.01)
+check("tasty right IK red", tuple(tp["ik_hand_r"].color.custom.normal), rig_style.COLORS["R"], tol=0.01)
+check("tasty spine centre", tuple(tp["spine_01"].color.custom.normal), rig_style.COLORS["C"], tol=0.01)
+check("tasty R_ prefix is right", tuple(tp["R_eye"].color.custom.normal), tuple(c + (1 - c) * 0.5 for c in rig_style.COLORS["R"]), tol=0.01)
+check("tasty face thin", tp["R_eye"].custom_shape_wire_width, 1.5)
+check("tasty twist keeps width", tp["upperarm_twist_01_l"].custom_shape_wire_width, 4.0)
+check("tasty drawn in front", ta.show_in_front, True)
+check("tasty controls", sorted(b.name for b in rig_style.controls(ta)), ["R_eye", "ik_hand_l", "ik_hand_r", "root", "spine_01"])
+
+# creature_rig.create adds a board for a flipbook face
+qb = quadruped("quad_board_on_create", eyes=False)
+check("creature without a face: no board", "CR_FaceBoard" in qb.data.bones, False)
+# a quadruped skeleton built, then a flipbook face attached BEFORE the rig is made
+qc = quadruped_bones("quad_face_first")
+attach_face(qc, "quad_face_first", FLIP)
+creature_rig.create(qc)
+check("creature rig adds the board", "CR_FaceBoard" in qc.data.bones, True)
+# Tasty: the hook's restyle + board, via tasty_style
+tf = ta.copy(); tf.data = ta.data.copy(); bpy.context.scene.collection.objects.link(tf)
+tf.data[tasty_style.MARK] = False
+bpy.context.view_layer.objects.active = tf
+bpy.ops.object.mode_set(mode='EDIT')
+hb = tf.data.edit_bones.new("head")
+hb.head, hb.tail = (0, 0, 1.5), (0, 0, 1.7)
+bpy.ops.object.mode_set(mode='OBJECT')
+attach_face(tf, "tasty_face", FLIP)
+check("tasty board", tasty_style.add_face_board(tf), True)
+check("tasty board once", tasty_style.add_face_board(tf), False)
+
+# review fixes
+# 2. an imported index past the slider's count stays as imported
+over = quadruped("quad_over")
+_, onode = attach_face(over, "quad_over", dict(FLIP, flipbook_face_mouth_index=20.0))
+face_board.add(over, head="head")
+over.update_tag()
+bpy.context.scene.frame_set(7)
+check("index past the count kept", onode.inputs["flipbook_face_mouth_index"].default_value, 20.0)
+# 3. two face materials keep their own imported indices
+two = quadruped("quad_two")
+_, n1 = attach_face(two, "quad_two_a", dict(FLIP, flipbook_face_mouth_index=1.0))
+_, n2 = attach_face(two, "quad_two_b", dict(FLIP, flipbook_face_mouth_index=4.0))
+face_board.add(two, head="head")
+two.update_tag()
+bpy.context.scene.frame_set(8)
+check("each face keeps its own index", (n1.inputs["flipbook_face_mouth_index"].default_value, n2.inputs["flipbook_face_mouth_index"].default_value), (1.0, 4.0))
+# 6. Tasty: groups the restyle doesn't know stay as they were
+tu = bpy.data.objects.new("tasty_unknown", bpy.data.armatures.new("tasty_unknown"))
+bpy.context.scene.collection.objects.link(tu)
+tu.data["is_tasty"] = True
+tu.data.collections.new("Rig2").is_visible = True
+bpy.context.view_layer.update()
+tasty_style.style(tu)
+check("unknown Tasty group left shown", tu.data.collections["Rig2"].is_visible, True)
+# 7. side from a token in the middle of a name
+check("FACIAL_L_Eye is left", tasty_style.side("FACIAL_L_Eye"), "L")
+check("FACIAL_R_EyelidUpperA is right", tasty_style.side("FACIAL_R_EyelidUpperA"), "R")
+check("spine_01 stays centre", tasty_style.side("spine_01"), "C")
+# 1. a Tasty restyle failure is logged, never breaks the import
+from fpmp_baseline.material_porter import mesh_hooks  # noqa: E402
+broken = bpy.data.objects.new("tasty_broken", bpy.data.armatures.new("tasty_broken"))
+bpy.context.scene.collection.objects.link(broken)
+broken.data["is_tasty"] = True
+bpy.context.view_layer.update()
+real_add = tasty_style.add_face_board
+tasty_style.add_face_board = lambda obj: 1 / 0
+try:
+    mesh_hooks._tasty(broken)
+    survived = True
+except Exception:
+    survived = False
+tasty_style.add_face_board = real_add
+check("Tasty restyle failure doesn't break the import", survived, True)
 
 print("[rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 if FAILS:

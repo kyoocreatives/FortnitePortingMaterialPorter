@@ -1,22 +1,41 @@
-"""A LEGO figure's face board: controls beside the head that pick the face's expressions and nudge its features.
+"""A face board: controls beside the head that pick a face's expressions and nudge its features.
 
-The face is a texture atlas driven by the exact face material's inputs (MouthPose, EyeLeftU...). Each pose slider
-steps an expression index around the imported one; each pad moves a feature's U/V around its imported place.
-Drivers on the material's inputs read the controls; the Face Board switch mutes them so an emote's face keys play."""
+Some faces are texture atlases driven by their material's inputs: LEGO figures' (MouthPose, EyeLeftU...) and
+Fortnite's flipbook faces (flipbook_face_mouth_index, FB_EyeUVOffsetX...: sprites, some outfits). Each slider steps an
+expression index around the imported one; each pad moves a feature around its imported place. Drivers on the
+material's inputs read the controls; the Face Board switch mutes them so an emote's face keys play."""
 import bpy
 from mathutils import Vector
 
 from . import rig_shapes, rig_style
 
 BOARD = "CR_FaceBoard"
+GROUP = "Face Board"     # where the board goes on a rig without the kit's groups (Tasty)
 PREFIX = "CR_Face_"
-POSES = (("browleftpose", "BrowLeftPose", "L"), ("browrightpose", "BrowRightPose", "R"),
-         ("eyeleftpose", "EyeLeftPose", "L"), ("eyerightpose", "EyeRightPose", "R"),
-         ("eyelashleftpose", "EyelashLeftPose", "L"), ("eyelashrightpose", "EyelashRightPose", "R"),
-         ("mouthpose", "MouthPose", "C"), ("teethupperpose", "TeethUpperPose", "C"),
-         ("teethlowerpose", "TeethLowerPose", "C"), ("tonguepose", "TonguePose", "C"))
-PADS = (("eyeleft", "EyeLeft", "L"), ("eyeright", "EyeRight", "R"), ("mouth", "Mouth", "C"))
-MOST = 15           # expressions a slider reaches
+# Face types: sliders (input, control, side), counts (input: (columns, rows) inputs), pads (control, (x, y) inputs, side).
+LEGO = {"name": "lego",
+        "sliders": (("browleftpose", "BrowLeftPose", "L"), ("browrightpose", "BrowRightPose", "R"),
+                    ("eyeleftpose", "EyeLeftPose", "L"), ("eyerightpose", "EyeRightPose", "R"),
+                    ("eyelashleftpose", "EyelashLeftPose", "L"), ("eyelashrightpose", "EyelashRightPose", "R"),
+                    ("mouthpose", "MouthPose", "C"), ("teethupperpose", "TeethUpperPose", "C"),
+                    ("teethlowerpose", "TeethLowerPose", "C"), ("tonguepose", "TonguePose", "C")),
+        "counts": {},
+        "pads": (("EyeLeft", ("eyeleftu", "eyeleftv"), "L"), ("EyeRight", ("eyerightu", "eyerightv"), "R"),
+                 ("Mouth", ("mouthu", "mouthv"), "C"))}
+FLIPBOOK = {"name": "flipbook",
+            "sliders": (("flipbook_face_l_brow_index", "BrowL", "L"), ("flipbook_face_r_brow_index", "BrowR", "R"),
+                        ("flipbook_face_l_eye_index", "EyeL", "L"), ("flipbook_face_r_eye_index", "EyeR", "R"),
+                        ("flipbook_face_mouth_index", "Mouth", "C")),
+            "counts": {"flipbook_face_l_brow_index": ("fb_browcolumncount", "fb_browrowcount"),
+                       "flipbook_face_r_brow_index": ("fb_browcolumncount", "fb_browrowcount"),
+                       "flipbook_face_l_eye_index": ("fb_eyecolumncount", "fb_eyerowcount"),
+                       "flipbook_face_r_eye_index": ("fb_eyecolumncount", "fb_eyerowcount"),
+                       "flipbook_face_mouth_index": ("fb_mouthcolumncount", "fb_mouthrowcount")},
+            "pads": (("Brows", ("fb_browuvoffsetx", "fb_browuvoffsety"), "C"),
+                     ("Eyes", ("fb_eyeuvoffsetx", "fb_eyeuvoffsety"), "C"),
+                     ("Mouth", ("fb_mouthuvoffsetx", "fb_mouthuvoffsety"), "C"))}
+KINDS = (LEGO, FLIPBOOK)
+COUNT = 16          # expressions a slider reaches when the face doesn't say
 PAD_UV = 0.1        # UV a pad moves its feature at full reach
 STEP = "fpmp_face_step"
 STEP_OF_HEAD = 0.06     # a slider step, in head widths
@@ -24,42 +43,96 @@ ROW = 2.5               # rows apart, in steps
 SIZE = 0.6              # a slider's diamond and a pad's square, in steps
 
 
-def _inputs(faces):
-    """Lower-case input names every face material has."""
+def _meshes(armature):
+    return [o for o in bpy.data.objects if o.type == 'MESH' and
+            (o.parent == armature or any(m.type == 'ARMATURE' and m.object == armature for m in o.modifiers))]
+
+
+def faces(armature):
+    """The armature's face materials, LEGO or flipbook: [(material, {lower-case input: socket})]."""
+    found = {}
+    for o in _meshes(armature):
+        for slot in o.material_slots:
+            mat = slot.material
+            if mat is None or mat.node_tree is None or mat.name in found:
+                continue
+            for n in mat.node_tree.nodes:
+                if n.type != 'GROUP':
+                    continue
+                inputs = {i.name.lower(): i for i in n.inputs if i.type == 'VALUE'}
+                if any(key in inputs for k in KINDS for key, _, _ in k["sliders"]):
+                    found[mat.name] = (mat, inputs)
+                    break
+    return list(found.values())
+
+
+def _have(found):
     names = None
-    for _, inputs in faces:
+    for _, inputs in found:
         names = set(inputs) if names is None else names & set(inputs)
     return names or set()
 
 
-def bones(edit, faces, head, left, up, size):
-    """Board and controls (edit mode), beside the head on the figure's left. False when the face has no pose input."""
-    have = _inputs(faces)
-    poses = [p for p in POSES if p[0] in have]
-    pads = [p for p in PADS if p[0] + "u" in have and p[0] + "v" in have]
-    if not poses:
+def kind(found):
+    have = _have(found)
+    return next((k for k in KINDS if any(key in have for key, _, _ in k["sliders"])), None)
+
+
+def count(found, key, inputs=None):
+    """Expressions a slider steps through: the face's columns x rows when it has them, else COUNT."""
+    columns_rows = kind(found)["counts"].get(key)
+    inputs = inputs or found[0][1]
+    if columns_rows and all(c in inputs for c in columns_rows):
+        return max(int(round(inputs[columns_rows[0]].default_value * inputs[columns_rows[1]].default_value)), 1)
+    return COUNT
+
+
+def _range(found, key, inputs):
+    """A material's imported expression and its last one (an imported index past the count stays reachable)."""
+    rest = round(inputs[key].default_value)
+    return rest, max(count(found, key, inputs) - 1, rest)
+
+
+def _layout(found):
+    k, have = kind(found), _have(found)
+    sliders = [s for s in k["sliders"] if s[0] in have]
+    pads = [p for p in k["pads"] if all(i in have for i in p[1])]
+    return sliders, pads
+
+
+def bones(edit, found, parent, at, left, up, size):
+    """Board and controls (edit mode) at `at`, parented to `parent`. False when the face has no slider input."""
+    if kind(found) is None:
         return False
+    sliders, pads = _layout(found)
     step = size * STEP_OF_HEAD
-    rows = len(poses) + (1 if pads else 0)
-    at = edit[head].head + left * size * 1.4 + up * size * 0.2
+    rows = len(sliders) + (1 if pads else 0)
     board = edit.new(BOARD)
     board.head, board.tail = at, at + up * step * ROW
     board.align_roll(left.cross(up))            # board X along the figure's left (expressions count up that way)
-    board.parent, board.use_deform = edit[head], False
-    for i, (key, name, _) in enumerate(poses):
+    board.parent, board.use_deform = edit[parent], False
+    for i, (key, name, _) in enumerate(sliders):
         # rests at its imported expression along the board (its left edge is expression 0)
         b = edit.new(PREFIX + name)
-        b.head = at + left * step * round(faces[0][1][key].default_value) + up * step * ROW * (rows - 1 - i)
+        b.head = at + left * step * round(found[0][1][key].default_value) + up * step * ROW * (rows - 1 - i)
         b.tail = b.head + up * step * 0.5
         b.align_roll(left.cross(up))
         b.parent, b.use_deform = board, False
-    for j, (_, name, _) in enumerate(pads):
+    for j, (name, _, _) in enumerate(pads):
         b = edit.new(PREFIX + name + "_UV")
         b.head = at + left * step * (2.0 + 5.0 * j)
         b.tail = b.head + up * step * 0.5
         b.align_roll(left.cross(up))
         b.parent, b.use_deform = board, False
     return True
+
+
+def _assign(obj, bone, group):
+    """Into the kit's group, or the board's own on a rig that doesn't have the kit's."""
+    if group in obj.data.collections:
+        rig_style.assign(obj.data, bone, group)
+    else:
+        (obj.data.collections.get(GROUP) or obj.data.collections.new(GROUP)).assign(obj.data.bones[bone])
 
 
 def step_of(obj):
@@ -86,58 +159,106 @@ def _drive(mat, socket, obj, bone, axis, expression):
     return fc
 
 
-def wire(obj, faces, size):
+def wire(obj, found, size):
     """Shapes, limits and drivers (pose mode), for the bones `bones` made."""
     pose = obj.pose.bones
-    have = _inputs(faces)
     step = size * STEP_OF_HEAD
     obj.data[STEP] = step
+    sliders, pads = _layout(found)
+    widest = max((_range(found, key, found[0][1])[1] + 1 for key, _, _ in sliders), default=COUNT)
     board = pose[BOARD]
-    poses = [p for p in POSES if PREFIX + p[1] in pose]
-    pads = [p for p in PADS if PREFIX + p[1] + "_UV" in pose]
     board.custom_shape = rig_shapes.ensure("CR_Square")
     board.use_custom_shape_bone_size = False
-    # frame: expressions 0-15 across (a step of margin), every row up
-    rows = len(poses) + (1 if pads else 0)
-    board.custom_shape_scale_xyz = (step * (MOST + 2) * 0.5, step * ROW * rows * 0.5, 1.0)
-    board.custom_shape_translation = (step * MOST * 0.5, step * ROW * (rows - 1) * 0.5, 0.0)
+    # frame: expressions 0 to the widest count across (a step of margin), every row up
+    rows = len(sliders) + (1 if pads else 0)
+    board.custom_shape_scale_xyz = (step * (widest + 1) * 0.5, step * ROW * rows * 0.5, 1.0)
+    board.custom_shape_translation = (step * (widest - 1) * 0.5, step * ROW * (rows - 1) * 0.5, 0.0)
     rig_style.style(board, "C")
-    rig_style.assign(obj.data, BOARD, "Controls")
+    _assign(obj, BOARD, "Controls")
     board.lock_location = board.lock_rotation = board.lock_scale = (True, True, True)
-    for key, name, role in poses:
+    controls = {}
+    for key, name, role in sliders:
         bone = pose[PREFIX + name]
-        rest = round(faces[0][1][key].default_value)
+        rest, most = _range(found, key, found[0][1])
         bone.custom_shape = rig_shapes.ensure("CR_Diamond")
         bone.use_custom_shape_bone_size = False
         bone.custom_shape_scale_xyz = (step * SIZE,) * 3
         rig_style.style(bone, role)
-        rig_style.assign(obj.data, bone.name, "Controls")
+        _assign(obj, bone.name, "Controls")
         bone.lock_location, bone.lock_rotation, bone.lock_scale = (False, True, True), (True, True, True), (True, True, True)
         limit = bone.constraints.new('LIMIT_LOCATION')
         limit.owner_space = 'LOCAL'
         limit.use_min_x = limit.use_max_x = True
-        limit.min_x, limit.max_x = -rest * step, (MOST - rest) * step
+        limit.min_x, limit.max_x = -rest * step, (most - rest) * step
         limit.use_transform_limit = True
-        for mat, inputs in faces:
-            _drive(mat, inputs[key], obj, bone.name, "X", "max(0,min(%d,%d+round(x/%r)))" % (MOST, rest, step))
-    for key, name, role in pads:
+        for mat, inputs in found:
+            # each face steps from its own imported expression, within its own count
+            mat_rest, mat_most = _range(found, key, inputs)
+            _drive(mat, inputs[key], obj, bone.name, "X", "max(0,min(%d,%d+round(x/%r)))" % (mat_most, mat_rest, step))
+        controls[bone.name] = found[0][1][key].name
+    for name, (x_key, y_key), role in pads:
         bone = pose[PREFIX + name + "_UV"]
         bone.custom_shape = rig_shapes.ensure("CR_Square")
         bone.use_custom_shape_bone_size = False
         bone.custom_shape_scale_xyz = (step * SIZE,) * 3
         rig_style.style(bone, role, secondary=True)
-        rig_style.assign(obj.data, bone.name, "Secondary")
+        _assign(obj, bone.name, "Secondary")
         bone.lock_location, bone.lock_rotation, bone.lock_scale = (False, False, True), (True, True, True), (True, True, True)
         limit = bone.constraints.new('LIMIT_LOCATION')
         limit.owner_space = 'LOCAL'
         limit.use_min_x = limit.use_max_x = limit.use_min_y = limit.use_max_y = True
         limit.min_x, limit.max_x, limit.min_y, limit.max_y = -step, step, -step, step
         limit.use_transform_limit = True
-        for mat, inputs in faces:
-            for axis, suffix in (("X", "u"), ("Y", "v")):
-                rest = inputs[key + suffix].default_value
-                _drive(mat, inputs[key + suffix], obj, bone.name, axis, "%r+x/%r*%r" % (rest, step, PAD_UV))
-    obj["fpmp_face_board_materials"] = [mat.name for mat, _ in faces]
+        for mat, inputs in found:
+            for axis, key in (("X", x_key), ("Y", y_key)):
+                rest = inputs[key].default_value
+                _drive(mat, inputs[key], obj, bone.name, axis, "%r+x/%r*%r" % (rest, step, PAD_UV))
+    obj["fpmp_face_board_materials"] = [mat.name for mat, _ in found]
+    obj["fpmp_face_board_inputs"] = controls
+
+
+def add(obj, head, left=None, up=Vector((0.0, 0.0, 1.0)), size=None):
+    """A board on an existing rig (object mode in and out): beside `head`, or above the model on the root when
+    there's no head bone. False when the armature has no face to drive or already has a board."""
+    found = faces(obj)
+    if not found or kind(found) is None or BOARD in obj.data.bones:
+        return False
+    left = left if left is not None else Vector((1.0, 0.0, 0.0))      # the figure faces -Y: its left is +X
+    view_layer = bpy.context.view_layer
+    view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    edit = obj.data.edit_bones
+    points = [p for b in edit for p in (b.head, b.tail)] or [Vector()]
+    top = max(p.z for p in points)
+    span = max(max(p[i] for p in points) - min(p[i] for p in points) for i in range(3))
+    size = size or (edit[head].length if head else span * 0.25)
+    if head:
+        parent, at = head, edit[head].head + left * size * 1.4 + up * size * 0.2
+    else:
+        roots = [b.name for b in edit if b.parent is None]
+        parent = roots[0]
+        middle = sum(points, Vector()) / len(points)
+        at = Vector((middle.x, middle.y, top)) + up * size * 0.3 - left * size * STEP_OF_HEAD * 8.0
+    made = bones(edit, found, parent, at, left, up, size)
+    bpy.ops.object.mode_set(mode='POSE')
+    if made:
+        wire(obj, found, size)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    return made
+
+
+def ui(layout, obj):
+    """The Face Board switch and the current expressions, for a rig that has a board."""
+    if BOARD not in obj.pose.bones:
+        return
+    layout.prop(obj, "fpmp_face_board", text="Face Board", toggle=True)
+    mats = [bpy.data.materials.get(n) for n in obj.get("fpmp_face_board_materials", [])]
+    group = next((n for m in mats if m and m.node_tree for n in m.node_tree.nodes if n.type == 'GROUP'), None)
+    if group is None:
+        return
+    for control, socket in obj.get("fpmp_face_board_inputs", {}).items():
+        if socket in group.inputs:
+            layout.label(text="%s: %d" % (control[len(PREFIX):], round(group.inputs[socket].default_value)))
 
 
 def set_on(obj, on):

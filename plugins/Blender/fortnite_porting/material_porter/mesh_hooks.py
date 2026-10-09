@@ -52,24 +52,42 @@ def settle_effects(ctx):
         effects.settle(ctx)
 
 
+def _alive(o):
+    try:        # a part's armature merged into the body's is gone
+        return o is not None and o.name in bpy.data.objects and o.type == 'ARMATURE'
+    except ReferenceError:
+        return False
+
+
+def _tasty(skeleton):
+    """FP's character rig in the kit's colours, and a face board when the face is a flipbook; never fails the import."""
+    from ..processing.context import tasty_style
+    try:
+        if tasty_style.style(skeleton):
+            tasty_style.add_face_board(skeleton)
+    except Exception as e:
+        Log.error("%s: Tasty restyle (%s: %s)" % (skeleton.name, type(e).__name__, e))
+        if bpy.context.mode != 'OBJECT':
+            bpy.ops.object.mode_set(mode='OBJECT')
+
+
 def after_parts(ctx, rig_type, tasty):
     """Shell fur, the character's effects (not played yet, parts not merged) and a rig for what Tasty's doesn't fit."""
     from . import shells
     shells.apply(ctx, [m.get("Mesh") for m in ctx.imported_meshes])
     settle_effects(ctx)
 
-    # a creature, sidekick, vehicle or LEGO figure armature gets its own rig
+    if rig_type == tasty:
+        for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
+            if skeleton.data.get("is_tasty"):
+                _tasty(skeleton)
+
+    # a creature, sidekick, sprite, vehicle or LEGO figure armature gets its own rig
     if rig_type != tasty or ctx.type not in [EExportType.WILDLIFE, EExportType.LEGO_WILDLIFE, EExportType.SIDEKICK,
-                                             EExportType.VEHICLE, EExportType.LEGO_OUTFIT]:
+                                             EExportType.SPRITE, EExportType.VEHICLE, EExportType.LEGO_OUTFIT]:
         return
     from ..processing.context import lego_rig
-
-    def armature(o):
-        try:        # a part's armature merged into the body's is gone
-            return o is not None and o.name in bpy.data.objects and o.type == 'ARMATURE'
-        except ReferenceError:
-            return False
-    skeletons = [m.get("Skeleton") for m in ctx.imported_meshes if armature(m.get("Skeleton"))]
+    skeletons = [m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))]
     if ctx.type == EExportType.LEGO_OUTFIT:
         skeletons = [o for o in skeletons if lego_rig.fits(o)]
     skeleton = skeletons[0] if skeletons else None

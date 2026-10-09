@@ -445,4 +445,7 @@ def create(obj):
              "arms %d (%d IK)" % (sum(1 for l in survey.limbs if l.kind == "arm"), sum(1 for l in legs if l.kind == "arm")),
              "eyes %d" % len(eyes),
              "wings %d" % sum(1 for l in survey.limbs if l.kind == "wing"), "tail %d" % len(survey.tail)]
+    from . import face_board
+    if face_board.add(obj, head=survey.head, left=Vector((0.0, 0.0, 1.0)).cross(ahead)):
+        parts.append("face board")
     return "%s: creature rig (%s)" % (obj.name, ", ".join(parts))

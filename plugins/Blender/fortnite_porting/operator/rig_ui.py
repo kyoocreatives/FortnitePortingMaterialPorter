@@ -72,6 +72,17 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
         obj = _rig(context)
         data = obj.data
         col = self.layout.column(align=True)
+        if data.get("is_tasty"):
+            from ..processing.context import tasty_style
+            grid = col.grid_flow(columns=2, align=True)
+            for group in [c for c in data.collections if c.name in tasty_style.SHOWN + tasty_style.HIDDEN + (face_board.GROUP,)]:
+                grid.prop(group, "is_visible", text=group.name, toggle=True, icon='HIDE_OFF' if group.is_visible else 'HIDE_ON')
+            col.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select Controls")
+            row = col.row(align=True)
+            row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset Selected").scope = 'SELECTED'
+            row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset All").scope = 'ALL'
+            face_board.ui(col, obj)
+            return
         if not any(data.get(k) for k in ("is_vehicle_rig", "is_creature_rig", "is_lego_rig")):
             col.operator("fpmp.creature_rig")
             col.operator("fpmp.vehicle_rig")
@@ -95,19 +106,13 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
                     col.prop(owner, '["%s"]' % key, text=text, slider=True)
             return
         if data.get("is_lego_rig"):
-            if face_board.BOARD in obj.pose.bones:
-                col.prop(obj, "fpmp_face_board", text="Face Board", toggle=True)
-                faces = [bpy.data.materials.get(n) for n in obj.get("fpmp_face_board_materials", [])]
-                group = next((n for m in faces if m and m.node_tree for n in m.node_tree.nodes if n.type == 'GROUP'), None)
-                if group is not None:
-                    for _, name, _ in face_board.POSES:
-                        if name in group.inputs:
-                            col.label(text="%s: %d" % (name.replace("Pose", ""), round(group.inputs[name].default_value)))
+            face_board.ui(col, obj)
             return
         for key in sorted(k for k in owner.keys() if k.startswith("ik_")):
             col.prop(owner, '["%s"]' % key, text=key[3:], slider=True)
         if "eyes_aim" in owner:
             col.prop(owner, '["eyes_aim"]', text="Eyes Aim", slider=True)
+        face_board.ui(col, obj)
 
 
 classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_PT_CreatureRig)

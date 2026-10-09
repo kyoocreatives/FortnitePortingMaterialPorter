@@ -54,13 +54,13 @@ def create(obj):
     forward = Vector((0.0, -1.0, 0.0))
 
     from . import face_board
-    from ...material_porter import face_anim
-    faces = face_anim.face_materials(obj)
+    faces = face_board.faces(obj)
     head_size = abs(bones["arm_l"].head_local.x) * 1.9
     has_board = False
     if faces:
         bpy.ops.object.mode_set(mode='EDIT')
-        has_board = face_board.bones(armature.edit_bones, faces, "head", -right, up, head_size)
+        at = armature.edit_bones["head"].head + (-right) * head_size * 1.4 + up * head_size * 0.2
+        has_board = face_board.bones(armature.edit_bones, faces, "head", at, -right, up, head_size)
         bpy.ops.object.mode_set(mode='POSE')
         bones, pose = armature.bones, obj.pose.bones
 
