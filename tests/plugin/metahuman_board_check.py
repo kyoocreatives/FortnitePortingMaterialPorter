@@ -213,6 +213,19 @@ lobby_mesh.data.shape_keys.key_blocks["browDownL"].value = 0.5
 lobby_mesh.data.shape_keys.key_blocks["browDownL"].keyframe_insert("value", frame=1)
 mb.add(lobby)
 check("an animated face starts with the board off", [lobby.fpmp_face_board, all(fc.mute for fc in lobby_mesh.data.shape_keys.animation_data.drivers)], [False, True])
+# 4. the board moves, turns and scales where the user wants it; the face stays at rest
+bpy.context.view_layer.update()
+mpb = board_arm.pose.bones["MB_Board"]
+check("board free to move, turn and scale", (any(mpb.lock_location), any(mpb.lock_rotation), any(mpb.lock_scale)), (False, False, False))
+mpb.location, mpb.scale = (0.3, 0.1, -0.2), (2.0, 2.0, 2.0)
+mpb.rotation_mode = 'XYZ'
+mpb.rotation_euler = (0.0, 0.0, 0.7)
+board_arm.update_tag()
+bpy.context.view_layer.update()
+check("moving the board leaves the face at rest", max(abs(k.value) for k in board_mesh.data.shape_keys.key_blocks
+                                                     if "CTRL_expressions_" + k.name in data["curves"]), 0.0)
+mpb.location, mpb.scale, mpb.rotation_euler = (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), (0.0, 0.0, 0.0)
+board_arm.update_tag()
 # 2. on a plain skeleton (no kit, no Tasty) Select Controls finds the knobs
 from fpmp_baseline.processing.context import rig_style  # noqa: E402
 check("plain skeleton: knobs are controls", "MB_CTRL_L_brow_down" in {p.name for p in rig_style.controls(arm)}, True)

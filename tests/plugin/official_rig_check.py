@@ -331,5 +331,66 @@ check("FK to IK keeps the spine top close", (world(mt, "spine_05").to_translatio
 official_rig.set_switch(mt, "spine_fk_ik_switch", ik=False)
 check("hips control shows in FK", mt.pose.bones["hips_ctrl"].hide, False)
 
+# --- second round (user report: switching moves the body, spine IK misbehaves)
+import math  # noqa: E402
+from mathutils import Quaternion  # noqa: E402
+
+
+def turn(obj, control, axis, angle):
+    """Turn a control by `angle` around a world axis through its head."""
+    pbone = obj.pose.bones[control]
+    bpy.context.view_layer.update()
+    pivot = pbone.matrix.to_translation()
+    pbone.matrix = Matrix.Translation(pivot) @ Quaternion(axis, angle).to_matrix().to_4x4() @ Matrix.Translation(-pivot) @ pbone.matrix
+    bpy.context.view_layer.update()
+
+
+def yaw(obj, bone, rest):
+    """How far a bone turned around world Z from `rest` (radians, signed)."""
+    axis, angle = (world(obj, bone).to_quaternion() @ rest.to_quaternion().inverted()).to_axis_angle()
+    angle = angle if angle <= math.pi else angle - 2 * math.pi
+    return angle * (1.0 if axis.z >= 0 else -1.0)
+
+
+# 1. a limb posed the way a joint bends (twisted root, mid bent on its hinge) switches to IK without moving, FP tails too
+for obj in (mannequin("bend"), mannequin("bend_fp", fp_tails=True)):
+    official_rig.create(obj)
+    for switch, (r, m, e) in limbs.items():
+        bones = obj.data.bones
+        hinge = (bones[m].head_local - bones[r].head_local).cross(bones[e].head_local - bones[m].head_local)
+        turn(obj, r + "_fk_ctrl", (bones[m].head_local - bones[r].head_local).normalized(), 0.4)
+        bpy.context.view_layer.update()
+        turn(obj, m + "_fk_ctrl", (obj.pose.bones[r].matrix.to_3x3() @ bones[r].matrix_local.to_3x3().inverted() @ hinge).normalized(), 0.5)
+        posed_limb = {b: world(obj, b).copy() for b in (r, m, e)}
+        official_rig.set_switch(obj, switch, ik=True)
+        check("%s %s posed FK to IK keeps the limb" % (obj.name, switch),
+              all((world(obj, b).to_translation() - w.to_translation()).length < 2e-3 and same_rot(world(obj, b), w, 2e-2)
+                  for b, w in posed_limb.items()), True)
+        official_rig.set_switch(obj, switch, ik=False)
+# 2. spine IK: the hips' turn fades up the spine, the chest's turn grows up to it, raising the chest bends nothing hard
+for obj in (mannequin("spine_ik"), mannequin("spine_ik_fp", fp_tails=True)):
+    official_rig.create(obj)
+    official_rig.set_switch(obj, "spine_fk_ik_switch", ik=True, match=False)
+    chain = ["spine_01", "spine_02", "spine_03", "spine_04", "spine_05"]
+    rest = {b: world(obj, b).copy() for b in chain}
+    for control, label, rising in (("hips_ctrl", "hips", False), ("chest_ctrl", "chest", True)):
+        turn(obj, control, Vector((0, 0, 1)), 0.5)
+        turns = [yaw(obj, b, rest[b]) for b in chain]
+        steps = [b - a for a, b in zip(turns, turns[1:])]
+        check("%s: the %s turn spreads evenly up the spine %s" % (obj.name, label, [round(t, 2) for t in turns]),
+              all(s >= -1e-3 for s in steps) if rising else all(s <= 1e-3 for s in steps), True)
+        if rising:
+            check("%s: the spine top turns with the chest" % obj.name, round(turns[-1], 2), 0.5, tol=0.03)
+        turn(obj, control, Vector((0, 0, 1)), -0.5)
+    obj.pose.bones["chest_ctrl"].location = (0.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    pivot = obj.pose.bones["chest_ctrl"].matrix.to_translation()
+    obj.pose.bones["chest_ctrl"].matrix = Matrix.Translation(Vector((0.08, 0.0, 0.05))) @ obj.pose.bones["chest_ctrl"].matrix
+    bpy.context.view_layer.update()
+    bends = [math.degrees(rest[b].to_quaternion().rotation_difference(world(obj, b).to_quaternion()).angle) for b in chain]
+    check("%s: moving the chest bends the spine smoothly %s" % (obj.name, [round(b) for b in bends]),
+          max(bends) < 25.0 and all(abs(b - a) < 10.0 for a, b in zip(bends, bends[1:])), True)
+    check("%s: the spine leans toward the moved chest" % obj.name, head(obj, "spine_05").x - rest["spine_05"].to_translation().x > 0.03, True)
+
 print("[official_rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

@@ -292,7 +292,6 @@ def add(obj, size=None):
     bpy.ops.object.mode_set(mode='POSE')
     obj.data[STEP] = s
     board = obj.pose.bones[BOARD]
-    board.lock_location = board.lock_rotation = (True, True, True)
     board.custom_shape, board.use_custom_shape_bone_size = _outline(data, size, live), False
     rig_shapes.color(board, (0.55, 0.55, 0.6))
     _group(obj, BOARD)

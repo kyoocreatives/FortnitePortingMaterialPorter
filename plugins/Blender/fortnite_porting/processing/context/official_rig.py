@@ -17,7 +17,7 @@ MARK, ON = "fpmp_official_rig", "fpmp_official_rig_on"
 PREFIX = "OR "          # every constraint the rig adds
 WIDTHS = {"root": 3.5, "limb": 2.5, "digit": 1.5}
 CORE = ("pelvis", "spine_01", "thigh_l", "upperarm_l", "head")
-MCH = "OR_MCH_"         # mechanism bones: the spline spine's chain, the limbs' IK chains
+MCH = "OR_MCH_"         # mechanism bones: the limbs' IK chains, the spine's IK points
 _cache = {}
 
 
@@ -94,7 +94,7 @@ def create(obj, data=None):
         bone.use_deform = False
         if item["parent"]:
             bone.parent = edit[item["parent"]]
-    _spine_chain(edit, data["solve"]["spine"])
+    _spine_points(edit, data["solve"]["spine"])
     _poles_in_plane(edit, data["solve"]["ik"])
     _ik_chains(edit, data["solve"]["ik"])
     bpy.ops.object.mode_set(mode='POSE')
@@ -179,18 +179,21 @@ def _off_axis(v, axis):
     return v - a * v.dot(a)
 
 
-def _spine_chain(edit, spine):
-    """A copy of the spine bones for the spline spine (edit mode)."""
+def _spine_points(edit, spine):
+    """Per spine bone, a bone from its joint to the next for the IK (the top one is the bone's own rest), each carrying
+    a child at the real bone's rest for that bone to copy (edit mode)."""
     if not all(b in edit for b in spine["bones"]):
         return
-    parent = edit[spine["bones"][0]].parent
-    for name in spine["bones"]:
+    for name, above in zip(spine["bones"], spine["bones"][1:] + [None]):
         src = edit[name]
-        bone = edit.new(MCH + name)
-        bone.head, bone.tail, bone.roll = src.head.copy(), src.tail.copy(), src.roll
-        bone.parent, bone.use_deform = parent, False
-        bone.use_connect = parent is not None and parent.name.startswith(MCH)
-        parent = bone
+        point = edit.new(MCH + "pt_" + name)
+        point.head = src.head.copy()
+        point.tail = edit[above].head.copy() if above else src.tail.copy()
+        point.align_roll(src.z_axis)
+        point.use_deform = False
+        pose = edit.new(MCH + "pose_" + name)
+        pose.head, pose.tail, pose.roll = src.head.copy(), src.tail.copy(), src.roll
+        pose.parent, pose.use_deform = point, False
 
 
 def _constraint(pose_bone, kind, name):
@@ -311,48 +314,31 @@ def parent_of(data, name):
 
 
 def _spine(obj, spine, has):
-    """FK: each spine control drives its bone. IK: a curve through the hips, tangent and chest controls, a mechanism
-    chain on it (Spline IK), the spine bones taking its rotations."""
+    """FK: each spine control drives its bone. IK: each joint blends the hips, tangent and chest controls by how far up
+    the spine it sits (a cubic Bezier's weights), each bone aims at the next joint, the spine bones take those turns."""
     pb = obj.pose.bones
     if not has(spine["switch"], *spine["bones"]):
         return
     for control, bone in spine["fk"]:
         if has(control, bone):
             _copy(obj, bone, control, "FK", spine["switch"], ik=False)
-    controls = [c for c in spine["ik"] if has(c)]
-    if len(controls) < 2 or not has(*(MCH + b for b in spine["bones"])):
+    controls = spine["ik"]          # hips, hips tangent, chest tangent, chest
+    if len(controls) != 4 or not has(*controls) or not has(*(MCH + "pt_" + b for b in spine["bones"])):
         return
-    # the curve runs through the spine's own joints (so IK at rest is the rest pose); each joint follows the hips,
-    # the tangents and the chest by how far up the spine it sits
-    bones = obj.data.bones
-    joints = [bones[b].head_local for b in spine["bones"]] + [bones[spine["bones"][-1]].tail_local]
-    curve = bpy.data.curves.new("OR_spine_curve", 'CURVE')
-    curve.dimensions = '3D'
-    spline = curve.splines.new('POLY')
-    spline.points.add(len(joints) - 1)
-    for point, joint in zip(spline.points, joints):
-        point.co = (*(obj.matrix_world @ joint), 1.0)
-    curve_obj = bpy.data.objects.new("OR_spine_curve", curve)
-    for collection in obj.users_collection:
-        collection.objects.link(curve_obj)
-    curve_obj.hide_viewport = curve_obj.hide_render = True
-    span = len(controls) - 1
-    for i in range(len(joints)):
-        at = i * span / (len(joints) - 1)          # 0 at the hips control .. span at the chest control
-        for k, control in enumerate(controls):
-            weight = max(0.0, 1.0 - abs(at - k))
-            if weight <= 0.0:
-                continue
-            hook = curve_obj.modifiers.new("OR hook %d %s" % (i, control), 'HOOK')
-            hook.object, hook.subtarget, hook.strength = obj, control, weight
-            hook.vertex_indices_set([i])
-            hook.matrix_inverse = (obj.matrix_world @ bones[control].matrix_local).inverted()
-    sik = _constraint(pb[MCH + spine["bones"][-1]], 'SPLINE_IK', "spine")
-    sik.target, sik.chain_count = curve_obj, len(spine["bones"])
-    sik.y_scale_mode, sik.xz_scale_mode = 'FIT_CURVE', 'NONE'
-    for bone in spine["bones"]:
-        _copy(obj, bone, MCH + bone, "IK", spine["switch"], ik=True, kind='COPY_ROTATION')
-    _copy(obj, spine["bones"][0], MCH + spine["bones"][0], "IK position", spine["switch"], ik=True, kind='COPY_LOCATION')
+    n = len(spine["bones"])
+    for i, bone in enumerate(spine["bones"]):
+        t = i / (n - 1)
+        blend = _constraint(pb[MCH + "pt_" + bone], 'ARMATURE', "spine blend")
+        blend.use_deform_preserve_volume = True
+        for control, weight in zip(controls, ((1 - t) ** 3, 3 * t * (1 - t) ** 2, 3 * t * t * (1 - t), t ** 3)):
+            if weight > 1e-6:
+                target = blend.targets.new()
+                target.target, target.subtarget, target.weight = obj, control, weight
+        if i < n - 1:
+            aim = _constraint(pb[MCH + "pt_" + bone], 'DAMPED_TRACK', "spine aim")
+            aim.target, aim.subtarget = obj, MCH + "pt_" + spine["bones"][i + 1]
+        _copy(obj, bone, MCH + "pose_" + bone, "IK", spine["switch"], ik=True, kind='COPY_ROTATION')
+    _copy(obj, spine["bones"][0], MCH + "pose_" + spine["bones"][0], "IK position", spine["switch"], ik=True, kind='COPY_LOCATION')
 
 
 def _pole_place(obj, chain):
