@@ -33,7 +33,7 @@ public partial class AssetLoaderService
             DescriptionHandler = Effects.Describe,
             MPIconPath = EffectOwners.IconPath,
             MPUnregistered = registry => UEParse.Provider is { } provider ? Effects.ListedSystems(provider, registry) : registry,
-            // the items' index is kept from the last listing of the same files
+            // the items' index is kept per build: later listings read only the items added since
             MPBeforeListing = async () => await EffectOwners.Build(
                 Path.Combine(FortnitePorting.Application.AppServices.App.DataFolder.FullName, "mp_effect_owners.tsv"),
                 MaterialPorterService.Instance.Game.BuildVersion),
