@@ -164,20 +164,6 @@ def _pole_angle(base, tip, pole):
     return signed(base.x_axis, axis, base.tail - base.head)
 
 
-# Native sizes of the control shapes (Blender units), used to scale them to metres.
-NATIVE = {"CTRL_Root": 1.0, "CTRL_Spine": 0.231, "CTRL_Box": 0.1, "CTRL_Pole": 0.1, "CTRL_Pole_Leg": 0.103, "CTRL_Dynamic": 1.175}
-
-
-def sized(pose_bone, shape, palette, size, wire=2.5):
-    """A control's shape, `size` metres across."""
-    scale = size / NATIVE.get(shape, 0.1)
-    pose_bone.custom_shape = bpy.data.objects.get(shape)
-    pose_bone.color.palette = palette
-    pose_bone.use_custom_shape_bone_size = False
-    pose_bone.custom_shape_scale_xyz = (scale, scale, scale)
-    pose_bone.custom_shape_wire_width = wire
-
-
 def align_shape(obj, pose_bone, x=None, y=None, z=None):
     """Rotate a control's shape so its axes point along x/y/z (armature space; a ring lies in XZ,
     so y=up lays it flat). Missing axes complete a right-handed frame."""

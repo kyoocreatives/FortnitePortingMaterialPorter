@@ -16,9 +16,10 @@ The bones keep their names, rest pose and hierarchy, so animations still play on
 import bpy
 from mathutils import Vector
 
+from . import rig_shapes, rig_style
+
 KEY = "is_lego_rig"
 NEEDED = ("root", "pelvis", "torso", "head", "leg_l", "leg_r", "arm_l", "arm_r", "hand_l", "hand_r")
-COLORS = {"C": (0.96, 0.79, 0.05), "L": (0.18, 0.55, 1.0), "R": (1.0, 0.23, 0.19), "accessory": (0.24, 0.86, 0.52)}
 
 
 def fits(obj):
@@ -28,15 +29,12 @@ def fits(obj):
 
 def create(obj):
     """Rig the armature object. Returns what it did, in a line."""
-    from ...utils import ensure_blend_data
-    from . import rig_shapes
-    from .creature_rig import align_shape, sized
+    from .creature_rig import align_shape
     armature = obj.data
     if armature.get(KEY):
         return "%s: already has a LEGO rig" % obj.name
     if not fits(obj):
         return "%s: not a LEGO figure's skeleton" % obj.name
-    ensure_blend_data()             # loads the control shapes (CTRL_Spine, CTRL_Box...)
     view_layer = bpy.context.view_layer
     for o in view_layer.objects:
         o.select_set(False)
@@ -55,65 +53,77 @@ def create(obj):
     up, right = Vector((0.0, 0.0, 1.0)), Vector((-1.0, 0.0, 0.0))     # the figure faces -Y, so its right is -X
     forward = Vector((0.0, -1.0, 0.0))
 
-    collections = {}
-    for name, visible in (("LEGO Controls", True), ("LEGO Other", False)):
-        collections[name] = armature.collections.get(name) or armature.collections.new(name)
-        collections[name].is_visible = visible
-    for collection in armature.collections:
-        if collection.name not in collections:
-            collection.is_visible = False       # hide the import's collections; the rig's decide what shows
-    for bone in bones:
-        collections["LEGO Other"].assign(bone)
+    from . import face_board
+    from ...material_porter import face_anim
+    faces = face_anim.face_materials(obj)
+    head_size = abs(bones["arm_l"].head_local.x) * 1.9
+    has_board = False
+    if faces:
+        bpy.ops.object.mode_set(mode='EDIT')
+        has_board = face_board.bones(armature.edit_bones, faces, "head", -right, up, head_size)
+        bpy.ops.object.mode_set(mode='POSE')
+        bones, pose = armature.bones, obj.pose.bones
 
-    def control(name, color):
-        collections["LEGO Controls"].assign(bones[name])
-        rig_shapes.color(pose[name], COLORS[color])
+    from math import pi
+    rig_style.collections(armature)
+    RING = (pi / 2.0, 0.0, 0.0)            # a kit circle lies in XY; this stands it around the bone's Y axis
+
+    def control(name, role, shape=None, size=None, secondary=False, ring=False):
+        bone = pose[name]
+        if shape is not None:
+            bone.custom_shape = rig_shapes.ensure(shape)
+        bone.use_custom_shape_bone_size = False
+        if size is not None:
+            bone.custom_shape_scale_xyz = (size, size, size)
+        if ring:
+            bone.custom_shape_rotation_euler = RING
+        rig_style.style(bone, role, secondary=secondary)
+        rig_style.assign(armature, name, "Secondary" if secondary else "Controls")
 
     root = pose["root"]
-    sized(root, "CTRL_Box", "THEME09", 0.1, wire=3.0)
     # Proportions come from the joints, since mesh bounds would include hands and hair.
     hip_x, shoulder_x = abs(bones["leg_l"].head_local.x), abs(bones["arm_l"].head_local.x)
     root.custom_shape = rig_shapes.footprint("CR_Footprint_" + obj.name, hip_x * 5.0, hip_x * 5.5)
+    control("root", "main", size=1.0)
     align_shape(obj, root, x=-right, y=forward, z=up)
     rig_shapes.place(obj, root, Vector(((low.x + high.x) / 2.0, (low.y + high.y) / 2.0, low.z)))
-    control("root", "C")
     pelvis = pose["pelvis"]
-    sized(pelvis, "CTRL_Box", "THEME09", 0.1, wire=3.0)
     pelvis.custom_shape = rig_shapes.footprint("CR_Plate_" + obj.name, hip_x * 2.6, hip_x * 4.2)
+    control("pelvis", "C", size=1.0)
     align_shape(obj, pelvis, x=-right, y=forward, z=up)
-    control("pelvis", "C")
     # Rings around torso and head; their bones point up and a ring's axis is its bone's.
     torso, head = bones["torso"], bones["head"]
-    sized(pose["torso"], "CTRL_Spine", "THEME09", shoulder_x * 2.6, wire=3.0)
+    control("torso", "C", "CR_Circle", shoulder_x * 1.3, ring=True)
     rig_shapes.place(obj, pose["torso"], (torso.head_local + torso.tail_local) / 2.0)
-    control("torso", "C")
     head_width = shoulder_x * 1.9
-    sized(pose["head"], "CTRL_Spine", "THEME09", head_width, wire=3.0)
+    control("head", "C", "CR_Circle", head_width * 0.5, ring=True)
     rig_shapes.place(obj, pose["head"], head.head_local + up * head_width * 0.45)
-    control("head", "C")
     for side, out in (("l", -right), ("r", right)):
-        color = side.upper()
+        role = side.upper()
         leg = bones["leg_" + side]
         hip = leg.head_local
-        sized(pose[leg.name], "CTRL_Spine", "THEME09", (hip.z - low.z) * 0.7, wire=3.0)
-        align_shape(obj, pose[leg.name], y=leg.matrix_local.col[0].to_3d())            # bone X is the hip axis
+        # dial on the hip axis (bone X), its tick down the leg
+        control(leg.name, role, "CR_CircleTick", (hip.z - low.z) * 0.35)
+        align_shape(obj, pose[leg.name], y=-up, z=leg.matrix_local.col[0].to_3d())
         rig_shapes.place(obj, pose[leg.name], hip + out * (abs(hip.x) * 0.9) - up * (hip.z - low.z) * 0.15)
         pose[leg.name].rotation_mode = 'XYZ'
         pose[leg.name].lock_rotation = (False, True, True)
-        control(leg.name, color)
         arm = bones["arm_" + side]
-        sized(pose[arm.name], "CTRL_Spine", "THEME09", shoulder_x * 1.1, wire=3.0)
-        align_shape(obj, pose[arm.name], y=arm.matrix_local.col[0].to_3d())
+        control(arm.name, role, "CR_CircleTick", shoulder_x * 0.55)
+        align_shape(obj, pose[arm.name], y=-up, z=arm.matrix_local.col[0].to_3d())
         rig_shapes.place(obj, pose[arm.name], arm.head_local + out * shoulder_x * 0.25)
-        control(arm.name, color)
         hand = bones["hand_" + side]
-        sized(pose[hand.name], "CTRL_Spine", "THEME09", shoulder_x * 0.7, wire=2.5)
+        control(hand.name, role, "CR_Circle", shoulder_x * 0.35, ring=True)
         pose[hand.name].rotation_mode = 'YXZ'
         pose[hand.name].lock_rotation = (True, False, True)
-        control(hand.name, color)
     if "head_accessory" in bones:
-        sized(pose["head_accessory"], "CTRL_Box", "THEME09", shoulder_x * 0.8, wire=2.5)
-        control("head_accessory", "accessory")
+        control("head_accessory", "C", "CR_Box", shoulder_x * 0.4, secondary=True)
+    if has_board:
+        face_board.wire(obj, faces, head_size)
+    for name in bones.keys():
+        if not any(name in armature.collections[g].bones for g in rig_style.COLLECTIONS):
+            rig_style.assign(armature, name, "Mechanics" if name.startswith("CR_") else "Game Bones")
+    obj.show_in_front = True            # controls inside the body stay clickable
     armature[KEY] = True
     bpy.ops.object.mode_set(mode='OBJECT')
     return "%s: LEGO rig (%.0f cm tall)" % (obj.name, size.z * 100.0)
