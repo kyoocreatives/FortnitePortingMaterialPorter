@@ -267,6 +267,132 @@ check("body control width", pose["CR_Body"].custom_shape_wire_width, 2.5)
 # 5. a setting's reset value is its default
 check("setting default for reset", pose["CR_Settings"].id_properties_ui("auto_wheels").as_dict().get("default"), 1.0)
 
+# kit: optional FK group
+fk_rig = bpy.data.objects.new("fk_rig", bpy.data.armatures.new("fk_rig"))
+bpy.context.scene.collection.objects.link(fk_rig)
+fk_groups = rig_style.collections(fk_rig.data, fk=True)
+check("fk order", [c.name for c in fk_rig.data.collections], ["Controls", "Secondary", "FK", "Mechanics", "Game Bones"])
+check("fk hidden", fk_groups["FK"].is_visible, False)
+check("vehicle has no fk", "FK" in v.data.collections, False)
+arrow = rig_shapes.ensure("CR_CircleArrow")
+check("circle arrow points ahead", max(p.co.y for p in arrow.data.vertices) > 1.1, True)
+
+# the creature rig on a synthetic quadruped (facing -Y, as UE)
+from fpmp_baseline.processing.context import creature_rig  # noqa: E402
+
+
+def quadruped(name, eyes=True, tail_on_root=False, scapula=False):
+    data = bpy.data.armatures.new(name)
+    obj = bpy.data.objects.new(name, data)
+    bpy.context.scene.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    edit = data.edit_bones
+
+    def bone(n, head, tail, parent=None):
+        b = edit.new(n)
+        b.head, b.tail, b.parent = head, tail, parent
+        return b
+    root = bone("root", (0, 0, 0), (0, 0.1, 0))
+    pelvis = bone("pelvis", (0, 0.4, 0.6), (0, 0.2, 0.6), root)
+    spine1 = bone("spine_01", (0, 0.2, 0.6), (0, 0.0, 0.62), pelvis)
+    spine2 = bone("spine_02", (0, 0.0, 0.62), (0, -0.3, 0.65), spine1)
+    neck = bone("neck", (0, -0.3, 0.65), (0, -0.45, 0.8), spine2)
+    head = bone("head", (0, -0.45, 0.8), (0, -0.6, 0.85), neck)
+    bone("jaw", (0, -0.5, 0.75), (0, -0.65, 0.72), head)
+    if eyes:
+        for side, x in (("l", -0.05), ("r", 0.05)):
+            bone("eye_" + side, (x, -0.58, 0.85), (x, -0.62, 0.85), head)
+    for side, x in (("l", -0.12), ("r", 0.12)):
+        for prefix, y, parent in (("", 0.35, pelvis), ("f", -0.2, spine2)):
+            if scapula and prefix:
+                parent = bone("scapula_" + side, (x * 0.5, y, 0.62), (x, y, 0.55), parent)
+            thigh = bone(prefix + "thigh_" + side, (x, y, 0.55), (x, y - 0.05, 0.3), parent)
+            calf = bone(prefix + "calf_" + side, (x, y - 0.05, 0.3), (x, y, 0.08), thigh)
+            foot = bone(("paw_" if prefix else "foot_") + side, (x, y, 0.08), (x, y - 0.05, 0.02), calf)
+            bone(prefix + "toe_" + side, (x, y - 0.05, 0.02), (x, y - 0.1, 0.0), foot)
+    t1 = bone("tail_01", (0, 0.4, 0.6), (0, 0.6, 0.55), root if tail_on_root else pelvis)
+    t2 = bone("tail_02", (0, 0.6, 0.55), (0, 0.8, 0.5), t1)
+    bone("tail_03", (0, 0.8, 0.5), (0, 1.0, 0.45), t2)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    creature_rig.create(obj)
+    return obj
+
+
+q = quadruped("quad")
+qp = q.pose.bones
+qg = {c.name: c for c in q.data.collections}
+in_group = lambda n: next((g for g in rig_style.COLLECTIONS[:2] + (rig_style.FK,) + rig_style.COLLECTIONS[2:] if g in qg and n in qg[g].bones), None)
+check("creature collections", [c.name for c in q.data.collections if c.name in qg and c.name in
+      rig_style.COLLECTIONS + (rig_style.FK,)], ["Controls", "Secondary", "FK", "Mechanics", "Game Bones"])
+check("creature visibility", [qg[n].is_visible for n in ("Controls", "Secondary", "FK", "Mechanics", "Game Bones")],
+      [True, True, False, False, False])
+for n, want in (("root", "Controls"), ("pelvis", "Controls"), ("spine_01", "Controls"), ("head", "Controls"),
+                ("tail_02", "Controls"), ("CR_IK_foot_l", "Controls"), ("CR_Pole_thigh_l", "Controls"),
+                ("CR_Eyes", "Controls"), ("CR_Settings", "Controls"), ("jaw", "Secondary"), ("toe_l", "Secondary"),
+                ("thigh_l", "FK"), ("calf_l", "FK"), ("foot_l", "FK"), ("CR_Eye_eye_l", "Mechanics")):
+    check("%s in %s" % (n, want), in_group(n), want)
+check("root is main", tuple(qp["root"].color.custom.normal), rig_style.COLORS["main"], tol=0.01)
+check("root shape", qp["root"].custom_shape.name, "CR_CircleArrow")
+check("left foot IK blue", tuple(qp["CR_IK_foot_l"].color.custom.normal), rig_style.COLORS["L"], tol=0.01)
+check("right pole red", tuple(qp["CR_Pole_thigh_r"].color.custom.normal), rig_style.COLORS["R"], tol=0.01)
+check("pole is a diamond", qp["CR_Pole_thigh_r"].custom_shape.name, "CR_Diamond")
+check("spine centre yellow", tuple(qp["spine_01"].color.custom.normal), rig_style.COLORS["C"], tol=0.01)
+check("face thin", qp["jaw"].custom_shape_wire_width, 1.5)
+check("creature settings", sorted(k for k in qp["CR_Settings"].keys() if not k.startswith("_")),
+      ["eyes_aim", "ik_fthigh_l", "ik_fthigh_r", "ik_thigh_l", "ik_thigh_r"])
+check("no settings left on the object", any(k.startswith("ik_") or k == "eyes_aim" for k in q.keys()), False)
+check("creature drawn in front", q.show_in_front, True)
+# IK at 0 lets the foot go: moving the IK target no longer moves the foot
+bpy.context.view_layer.update()
+rest = (q.matrix_world @ qp["foot_l"].head).copy()
+qp["CR_IK_foot_l"].location = (0.0, 0.0, 0.1)
+bpy.context.view_layer.update()
+followed = ((q.matrix_world @ qp["foot_l"].head) - rest).length
+qp["CR_Settings"]["ik_thigh_l"] = 0.0
+q.update_tag()
+bpy.context.view_layer.update()
+left_alone = ((q.matrix_world @ qp["foot_l"].head) - rest).length
+check("IK moves the foot", followed > 0.02, True)
+check("IK 0 lets it go", left_alone < 1e-3, True)
+qp["CR_IK_foot_l"].location = (0.0, 0.0, 0.0)
+qp["CR_Settings"]["ik_thigh_l"] = 1.0
+q2 = quadruped("quad_no_eyes", eyes=False)
+check("no eyes: no eyes_aim", "eyes_aim" in q2.pose.bones["CR_Settings"], False)
+
+q3 = quadruped("quad_tail_on_root", tail_on_root=True)
+check("root keeps its shape when a limb hangs off it", q3.pose.bones["root"].custom_shape.name, "CR_CircleArrow")
+check("root keeps its width when a limb hangs off it", q3.pose.bones["root"].custom_shape_wire_width, 3.5)
+
+# review fixes
+q4 = quadruped("quad_scapula", scapula=True)
+check("shoulder blade is secondary", next((g for g in ("Controls", "Secondary") if "scapula_l" in q4.data.collections[g].bones), None), "Secondary")
+
+
+def snake(name):
+    """A flat chain: every bone at z=0 (a fish or snake authored on the ground)."""
+    data = bpy.data.armatures.new(name)
+    obj = bpy.data.objects.new(name, data)
+    bpy.context.scene.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    parent = data.edit_bones.new("root")
+    parent.head, parent.tail = (5.0, -50.0, 0), (5.0, -50.1, 0)
+    for i, n in enumerate(("pelvis", "spine_01", "spine_02", "spine_03", "head")):
+        b = data.edit_bones.new(n)
+        b.head, b.tail, b.parent = (5.0, -50.1 - 0.2 * i, 0), (5.0, -50.3 - 0.2 * i, 0), parent      # off the origin: float precision
+        parent = b
+    bpy.ops.object.mode_set(mode='OBJECT')
+    creature_rig.create(obj)
+    return obj
+
+
+s = snake("snake")
+check("flat skeleton rigs", bool(s.data.get(creature_rig.KEY)), True)
+check("flat skeleton has its gear", "CR_Settings" in s.pose.bones, True)
+check("no IK: no FK group", "FK" in s.data.collections, False)
+check("flat skeleton controls are visible", s.pose.bones["root"].custom_shape_scale_xyz[0] > 0.05, True)
+
 print("[rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 if FAILS:
     sys.exit(1)
