@@ -1,3 +1,4 @@
+using CUE4Parse.UE4.Assets.Objects;
 using System.Collections.Generic;
 using CUE4Parse.UE4.Assets.Objects.Unversioned;
 using CUE4Parse.UE4.Assets.Readers;
@@ -21,13 +22,13 @@ public class FRigVMMemoryStorageStruct : FInstancedPropertyBag
 
     public FRigVMMemoryStorageStruct(FAssetArchive Ar) : base(Ar)
     {
-        if (SerialSize > 0 && Ar.HasUnversionedProperties)
+        if (SerialSize > 0)
         {
             var end = Ar.Position;
             Ar.Position = end - SerialSize;
             try
             {
-                Values = ReadValues(Ar);
+                Values = Ar.HasUnversionedProperties ? ReadValues(Ar) : ReadTagged(Ar);
             }
             catch (Exception e)
             {
@@ -37,6 +38,15 @@ public class FRigVMMemoryStorageStruct : FInstancedPropertyBag
         }
         MemoryType = Ar.Read<ERigVMMemoryType>();
         PropertyPathDescriptions = Ar.ReadArray(() => new FRigVMPropertyPathDescription(Ar));
+    }
+
+    // an editor (versioned) package's bag: tagged properties, each naming itself
+    private static Dictionary<string, object?> ReadTagged(FAssetArchive Ar)
+    {
+        var values = new Dictionary<string, object?>();
+        foreach (var property in new FStructFallback(Ar).Properties)
+            values[property.Name.Text] = property.Tag?.GenericValue;
+        return values;
     }
 
     // the bag's struct in unversioned form: a header of present/zero properties, then each present value
