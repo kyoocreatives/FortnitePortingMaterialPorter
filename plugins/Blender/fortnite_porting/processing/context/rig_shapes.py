@@ -1,7 +1,7 @@
 """Control shapes the creature and vehicle rigs build themselves (Tasty's CTRL_ shapes come from
 the add-on's data blend; these are created once per file). Each is a wire in its XY plane, Z up."""
 
-from math import cos, radians, sin
+from math import cos, pi, radians, sin
 
 import bpy
 from mathutils import Vector
@@ -70,7 +70,58 @@ def _updown():
     return verts, edges
 
 
-SHAPES = {"CR_Arrow": _arrow, "CR_Turn": _turn, "CR_Swing": lambda: _turn(18.0), "CR_Foot": _foot, "CR_Glasses": _glasses, "CR_UpDown": _updown}
+def _circle(steps=32):
+    """Circle of radius 1 about Z."""
+    verts = [(cos(radians(360.0 * i / steps)), sin(radians(360.0 * i / steps)), 0.0) for i in range(steps)]
+    return verts, [(i, (i + 1) % steps) for i in range(steps)]
+
+
+def _circle_tick():
+    """Circle with a tick past its top (+Y), so a turn reads at a glance."""
+    verts, edges = _circle()
+    verts += [(0.0, 1.0, 0.0), (0.0, 1.35, 0.0)]
+    edges.append((len(verts) - 2, len(verts) - 1))
+    return verts, edges
+
+
+def _square():
+    """Square of half-size 1."""
+    verts = [(-1.0, -1.0, 0.0), (1.0, -1.0, 0.0), (1.0, 1.0, 0.0), (-1.0, 1.0, 0.0)]
+    return verts, [(i, (i + 1) % 4) for i in range(4)]
+
+
+def _box():
+    """Wire cube of half-size 1."""
+    verts = [(x, y, z) for z in (-1.0, 1.0) for y in (-1.0, 1.0) for x in (-1.0, 1.0)]
+    edges = [(0, 1), (2, 3), (4, 5), (6, 7), (0, 2), (1, 3), (4, 6), (5, 7), (0, 4), (1, 5), (2, 6), (3, 7)]
+    return verts, edges
+
+
+def _diamond():
+    """Octahedron of radius 1 (a pole: readable from any side)."""
+    verts = [(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, 1.0), (0.0, 0.0, -1.0)]
+    edges = [(a, b) for a in range(6) for b in range(a + 1, 6) if a // 2 != b // 2]
+    return verts, edges
+
+
+def _gear(teeth=8):
+    """Gear: a ring of radius 0.75 with `teeth` square teeth out to 1, and a hub circle."""
+    verts = []
+    for i in range(teeth):
+        a, step = 2.0 * pi * i / teeth, 2.0 * pi / teeth
+        for angle, r in ((a, 0.75), (a + step * 0.15, 1.0), (a + step * 0.45, 1.0), (a + step * 0.6, 0.75)):
+            verts.append((r * cos(angle), r * sin(angle), 0.0))
+    edges = [(i, (i + 1) % len(verts)) for i in range(len(verts))]
+    hub, hub_edges = _circle(16)
+    first = len(verts)
+    verts += [(x * 0.3, y * 0.3, 0.0) for x, y, _ in hub]
+    edges += [(a + first, b + first) for a, b in hub_edges]
+    return verts, edges
+
+
+SHAPES = {"CR_Arrow": _arrow, "CR_Turn": _turn, "CR_Swing": lambda: _turn(18.0), "CR_Foot": _foot, "CR_Glasses": _glasses,
+          "CR_UpDown": _updown, "CR_Circle": _circle, "CR_CircleTick": _circle_tick, "CR_Square": _square, "CR_Box": _box,
+          "CR_Diamond": _diamond, "CR_Gear": _gear}
 
 
 def ensure(name):
