@@ -56,14 +56,19 @@ public static class EffectOwners
     // package (as mounted) -> its items
     private static readonly ConcurrentDictionary<string, ConcurrentDictionary<Owner, byte>> _byPackage = new(StringComparer.OrdinalIgnoreCase);
 
-    public static async Task Build(string file, string key)
+    /// <summary>The items' index, kept in a file per build: a later listing reads only the items added since
+    /// (on-demand content and hotfixes add some), not every cosmetic and weapon again.</summary>
+    public static async Task Build(string file, string build)
     {
         _byPackage.Clear();
-        if (Recall(file, key)) return;
-        var found = new ConcurrentBag<(string Package, Owner Owner)>();
         var items = UEParse.AssetRegistry.Select(a => (Data: a, Source: Sources.FirstOrDefault(s => s.Classes.Contains(a.AssetClass.Text))))
             .Where(x => x.Source.Classes is not null).ToList();
-        await Parallel.ForEachAsync(items, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) }, async (x, _) =>
+        var key = $"4 {build}";
+        var known = Recall(file, key);
+        var fresh = known is null ? items : items.Where(x => !known.Contains(x.Data.ObjectPath)).ToList();
+        if (fresh.Count == 0) return;
+        var found = new ConcurrentBag<(string Package, Owner Owner)>();
+        await Parallel.ForEachAsync(fresh, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) }, async (x, _) =>
         {
             try
             {
@@ -84,10 +89,19 @@ public static class EffectOwners
             }
         });
         foreach (var (package, owner) in found) Own(package, owner);
+        Serilog.Log.Information("[Material Porter] effect owners: {Count} item(s) read", fresh.Count);
+        Save(file, key, fresh.Select(x => x.Data.ObjectPath), found, append: known is not null);
+    }
+
+    // the file: the key, then "item<TAB>path" for each item read (failed ones too: not retried) and
+    // "package<TAB>name<TAB>icon<TAB>kind" for each system an item owns
+    private static void Save(string file, string key, IEnumerable<string> items, IEnumerable<(string Package, Owner Owner)> found, bool append)
+    {
         try
         {
-            using var writer = new StreamWriter(file);
-            writer.WriteLine(key);
+            using var writer = new StreamWriter(file, append);
+            if (!append) writer.WriteLine(key);
+            foreach (var item in items) writer.WriteLine($"item\t{item}");
             foreach (var (package, owner) in found)
                 writer.WriteLine($"{package}\t{owner.Name}\t{owner.Icon}\t{owner.Kind}");
         }
@@ -97,29 +111,32 @@ public static class EffectOwners
         }
     }
 
-    private static bool Recall(string file, string key)
+    /// <summary>The index kept for this build; returns the items it has read (null: none kept, read them all).</summary>
+    private static HashSet<string>? Recall(string file, string key)
     {
         try
         {
-            if (!File.Exists(file)) return false;
+            if (!File.Exists(file)) return null;
             using var reader = new StreamReader(file);
-            if (reader.ReadLine() != key) return false;
+            if (reader.ReadLine() != key) return null;
+            var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var owners = new Dictionary<(string, string, string), Owner>();
             while (reader.ReadLine() is { } line)
             {
                 var f = line.Split('\t');
+                if (f.Length == 2 && f[0] == "item") known.Add(f[1]);
                 if (f.Length != 4) continue;
                 // share one owner object per item
                 var owner = owners.TryGetValue((f[1], f[2], f[3]), out var had) ? had : owners[(f[1], f[2], f[3])] = new Owner(f[1], f[2].Length > 0 ? f[2] : null, f[3]);
                 Own(f[0], owner);
             }
-            return true;
+            return known;
         }
         catch (Exception e)
         {
             Serilog.Log.Warning("[Material Porter] effect owners cache unreadable, read again: {Error}", e.Message);
             _byPackage.Clear();
-            return false;
+            return null;
         }
     }
 

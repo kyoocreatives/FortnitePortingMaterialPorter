@@ -36,7 +36,7 @@ public partial class AssetLoaderService
             // the items' index is kept from the last listing of the same files
             MPBeforeListing = async () => await EffectOwners.Build(
                 Path.Combine(FortnitePorting.Application.AppServices.App.DataFolder.FullName, "mp_effect_owners.tsv"),
-                $"2 {UEParse.Provider.Files.Count} {UEParse.Provider.MountedVfs.Count}"),
+                MaterialPorterService.Instance.Game.BuildVersion),
             // GPU emitters aren't replayed (an island's effects are mostly GPU); "Plays in Blender" keeps the ones that play
             FilterCategories =
             {
