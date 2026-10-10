@@ -334,5 +334,49 @@ act = db._track(order).strips[0].action
 w = [fc for fc in db._curves(act) if fc.data_path == 'pose.bones["DYN_dyn_tag"].rotation_quaternion' and fc.array_index == 0][0]
 check("a later node on the parent keeps the child's simulation", min(kp.co[1] for kp in w.keyframe_points) < math.cos(math.radians(0.5)), True)
 
+# --- live preview ---
+from fpmp_baseline.processing.context import dynamics_live as dl  # noqa: E402
+
+live = armature("live")
+key_arm(live, [(0, 0.0), (10, 60.0), (30, 60.0)])
+store(live, tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=25.0, ang_damping=0.9,
+                     body={"ang_min": [-30.0] * 3, "ang_max": [30.0] * 3, "target": [1.0, 0.0, 0.0]}))
+db.bake(live)
+baked = [fc for fc in db._curves(db._track(live).strips[0].action) if fc.data_path.endswith("rotation_quaternion")]
+want = tuple(fc.evaluate(20) for fc in sorted(baked, key=lambda fc: fc.array_index))
+dl.set_live(live, True)
+check("live mode mutes the baked layer", (db._track(live).mute, dl.is_live(live)), (True, True))
+for f in range(0, 21):
+    scene.frame_set(f)
+twin = live.pose.bones["DYN_dyn_tag"].rotation_quaternion
+check("playing forward live matches the bake", tuple(twin), want, 1e-4)
+check("the bone follows its live twin", (live.pose.bones["dyn_tag"].tail - live.pose.bones["DYN_dyn_tag"].tail).length < 1e-5, True)
+scene.frame_set(5)
+check("a jump restarts the simulation there", dl._states[live.name_full]["frame"], 5)
+dl.set_live(live, False)
+check("live off brings the baked layer back", (db._track(live).mute, dl.is_live(live), live.name_full in dl._states), (False, False, False))
+bpy.context.view_layer.objects.active = live
+check("the Live operator turns it on", (bpy.ops.fpmp.dynamics_live(on=True), dl.is_live(live)), ({'FINISHED'}, True))
+check("frame handlers installed", dl._after_frame in bpy.app.handlers.frame_change_post, True)
+
+
+class Row:
+    def __init__(self, log):
+        self.log = log
+
+    def row(self, **_):
+        return self
+
+    def operator(self, idname, text="", **kw):
+        self.log.append(text)
+        from types import SimpleNamespace
+        return SimpleNamespace()
+
+
+drawn = []
+db.ui(Row(drawn), live)
+check("the panel row offers Live", drawn, ["Dynamics", "Live", "Simulate"])
+bpy.ops.fpmp.dynamics_live(on=False)
+
 print("[dynamics_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

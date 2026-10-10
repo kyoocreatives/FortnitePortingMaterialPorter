@@ -173,6 +173,26 @@ class FPMP_OT_DynamicsOn(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FPMP_OT_DynamicsLive(bpy.types.Operator):
+    bl_idname = "fpmp.dynamics_live"
+    bl_label = "Live Dynamics"
+    bl_description = "Simulate the dynamic bones as the animation plays forward (a jump restarts them); Simulate bakes the final result"
+    bl_options = {'REGISTER', 'UNDO'}
+    on: bpy.props.BoolProperty(default=True)
+
+    @classmethod
+    def poll(cls, context):
+        obj = _rig(context)
+        return obj is not None and bool(obj.data.get(dynamics_bake.KEY))
+
+    def execute(self, context):
+        from ..processing.context import dynamics_live
+        if not dynamics_live.set_live(_rig(context), self.on):
+            self.report({'WARNING'}, "No dynamic bones this armature can simulate")
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
 class FPMP_PT_CreatureRig(bpy.types.Panel):
     bl_label = "Rig"
     bl_idname = "FPMP_PT_creature_rig"
@@ -250,7 +270,7 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
 
 
 classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn, FPMP_OT_DynamicsBake,
-           FPMP_OT_DynamicsOn, FPMP_OT_OfficialRigSwitch,
+           FPMP_OT_DynamicsOn, FPMP_OT_DynamicsLive, FPMP_OT_OfficialRigSwitch,
            FPMP_OT_OfficialRigSetting, FPMP_OT_OfficialRigBodyControls,
            FPMP_OT_OfficialRigBake, FPMP_PT_CreatureRig)
 
@@ -259,9 +279,13 @@ def register():
     for c in classes:
         bpy.utils.register_class(c)
     face_board.register()
+    from ..processing.context import dynamics_live
+    dynamics_live.install()
 
 
 def unregister():
+    from ..processing.context import dynamics_live
+    dynamics_live.uninstall()
     face_board.unregister()
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
