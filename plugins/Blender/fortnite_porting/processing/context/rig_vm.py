@@ -158,13 +158,22 @@ def compile_rig(dump):
     hierarchy = next((e for e in dump if e.get("Type") == "RigHierarchy"), {})
     nulls = sorted({(e.get("LoadedKey") or {}).get("Name") for e in hierarchy.get("Elements") or []
                     if (e.get("LoadedKey") or {}).get("Type") == 2})
+    spaces = {}         # the rig's own nulls and controls: their parent, initial value and offset (controls)
+    for e in hierarchy.get("Elements") or []:
+        key = e.get("LoadedKey") or {}
+        if key.get("Type") not in (2, 4) or not key.get("Name"):
+            continue
+        parent = next(((c.get("ParentKey") or {}).get("Name") for c in e.get("ParentConstraints") or []), None)
+        initial = lambda storage: ((((storage or {}).get("Initial") or {}).get("Local")) or {}).get("Transform")  # noqa: E731
+        spaces[key["Name"]] = {"parent": None if parent in (None, "None") else parent, "local": initial(e.get("PoseStorage")),
+                               "offset": initial(e.get("Offset"))}
     return finish({"start": start, "code": code, "callables": callables, "units": units, "literals": literals, "defaults": defaults,
                    "lit_paths": [p["SegmentPath"] for p in lit.get("PropertyPathDescriptions") or []],
                    "work_paths": [p["SegmentPath"] for p in work.get("PropertyPathDescriptions") or []],
                    "ext_paths": [p["SegmentPath"] for p in vm.get("ExternalPropertyPathDescriptions") or []],
                    "variables": _variables(dump, cls),
                    "bones": sorted(n for k, n in elements if k == "Bone"),
-                   "nulls": sorted({n for n in nulls if n} | {n for k, n in elements if k == "Null"}),
+                   "nulls": sorted({n for n in nulls if n} | {n for k, n in elements if k == "Null"}), "spaces": spaces,
                    "writes": sorted(n for k, n in writes if k == "Bone")})
 
 

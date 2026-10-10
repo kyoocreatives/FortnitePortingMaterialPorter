@@ -14,15 +14,22 @@ UNITS = {**UNITS, **CONSTRAINTS, **SPLINES}
 IDENTITY = (Quaternion(), Vector((0.0, 0.0, 0.0)))
 
 
+def _stored(t):
+    """A dumped transform the hierarchy actually saved (a dirty one comes out all zeros)."""
+    r = (t or {}).get("Rotation") or {}
+    return any(abs(float(r.get(k, 0.0) or 0.0)) > 1e-8 for k in "XYZW")
 
 
 class Hierarchy:
     """The rig's elements: skeleton bones plus its nulls, local transforms now and at rest, globals on demand."""
 
-    def __init__(self, parent_of, rest, nulls):
+    def __init__(self, parent_of, rest, nulls, spaces=None):
         self.parent = dict(parent_of)
         self.rest_global = dict(rest)
+        self._place(spaces or {})
         for null in nulls:      # "<bone>_null": a rest-pose reference for that bone, beside it under its parent
+            if null in self.rest_global:
+                continue
             bone = null[:-5] if null.endswith("_null") else None
             if bone in rest:
                 self.parent[null] = parent_of.get(bone)
@@ -30,6 +37,22 @@ class Hierarchy:
         self.rest_local = {n: relative(t, self.rest_global[self.parent[n]]) if self.parent.get(n) in self.rest_global else t
                            for n, t in self.rest_global.items()}
         self.local, self.cache, self.changed = {}, {}, set()
+
+    def _place(self, spaces):
+        """The rig's nulls and controls at their initial value (after a control's offset) under their parent, parents
+        first; one whose transform the dump left out is skipped."""
+        pending = {n: s for n, s in spaces.items() if _stored(s.get("local")) and n not in self.rest_global}
+        while pending:
+            ready = [n for n, s in pending.items() if s.get("parent") is None or s["parent"] in self.rest_global]
+            if not ready:
+                return
+            for n in ready:
+                s = pending.pop(n)
+                local = transform(s["local"])
+                if _stored(s.get("offset")):
+                    local = compose(local, transform(s["offset"]))
+                self.parent[n] = s.get("parent")
+                self.rest_global[n] = compose(local, self.rest_global[s["parent"]]) if s.get("parent") else local
 
     def load(self, cs):
         """Locals from the component pose reaching the node; nulls stay at rest."""
@@ -78,7 +101,7 @@ class RigNode:
     def __init__(self, node, parent_of, rest, state=None):
         self.node, self.parent_of = node, parent_of
         program = node["program"]
-        self.h = Hierarchy(parent_of, rest, program.get("nulls") or [])
+        self.h = Hierarchy(parent_of, rest, program.get("nulls") or [], program.get("spaces"))
         self.machine = Machine(program, UNITS, node.get("variables") or {})
         self.reads = [b for b in program.get("bones") or [] if b in parent_of]
         self.writes = [b for b in program.get("writes") or [] if b in parent_of]

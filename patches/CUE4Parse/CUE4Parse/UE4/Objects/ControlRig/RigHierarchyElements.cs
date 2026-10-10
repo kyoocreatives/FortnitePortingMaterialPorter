@@ -181,6 +181,13 @@ public class FRigMultiParentElement : FRigTransformElement
                 var parentKey = new FRigElementKey(Ar);
                 FRigElementParentConstraint constraint = new() { bCacheIsDirty = true, ParentKey = parentKey };     // MP
 
+                // MP: Fortnite's builds write the label before the weights
+                var labelFirst = FControlRigObjectVersion.Get(Ar) >= FControlRigObjectVersion.Type.RigHierarchyTopology;
+                if (labelFirst)
+                {
+                    constraint.DisplayLabel = Ar.ReadFName();
+                }
+
                 if (FControlRigObjectVersion.Get(Ar) >= FControlRigObjectVersion.Type.RigHierarchyMultiParentConstraints)
                 {
                     constraint.InitialWeight = Ar.Read<FRigElementWeight>();
@@ -199,7 +206,7 @@ public class FRigMultiParentElement : FRigTransformElement
                 {
                     constraint.DisplayLabel = new FName("None");
                 }
-                else
+                else if (!labelFirst)       // MP
                 {
                     constraint.DisplayLabel = Ar.ReadFName();
                 }
@@ -463,6 +470,19 @@ public struct FRigControlSettings
             //AnimationTypeName = AnimationTypeEnum->GetNameByValue((int64)AnimationType);
         }
 
+        // MP: Fortnite's builds write the spaces, driven controls and rotation order first and the shape last
+        if (FControlRigObjectVersion.Get(Ar) >= FControlRigObjectVersion.Type.RigHierarchyTopology)
+        {
+            ReadSpacesAndRotationOrder(Ar);
+            bIsTransientControl = Ar.ReadBoolean();
+            ControlEnumPathName = Ar.ReadFString();
+            ShapeName = Ar.ReadFName();
+            ShapeColor = Ar.Read<FLinearColor>();
+            ShapeVisibilityName = Ar.ReadFName();
+            bShapeVisible = Ar.ReadBoolean();
+            return;
+        }
+
         bShapeVisible = Ar.ReadBoolean();
 
         if (FControlRigObjectVersion.Get(Ar) < FControlRigObjectVersion.Type.ControlAnimationType)
@@ -512,7 +532,11 @@ public struct FRigControlSettings
         //	}
         //}
 
+        ReadSpacesAndRotationOrder(Ar);     // MP
+    }
 
+    private void ReadSpacesAndRotationOrder(FArchive Ar)     // MP
+    {
         Customization = new FRigControlElementCustomization(Ar);
 
         if (FControlRigObjectVersion.Get(Ar) >= FControlRigObjectVersion.Type.ControlAnimationType)

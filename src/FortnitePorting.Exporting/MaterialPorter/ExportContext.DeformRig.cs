@@ -36,9 +36,9 @@ public partial class ExportContext
         var path = GetExportPath(rigClass, "deformrig.json");
         try
         {
-            if (!File.Exists(path))
-                File.WriteAllText(path, JsonConvert.SerializeObject(package.GetExports(),
-                    new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore }));
+            // rewritten each export: an older build's dump may lack the hierarchy's controls
+            File.WriteAllText(path, JsonConvert.SerializeObject(package.GetExports(),
+                new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore }));
             return path;
         }
         catch (Exception e)     // a package that won't dump costs the correctives' tuning, never the export

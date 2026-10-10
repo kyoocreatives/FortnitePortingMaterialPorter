@@ -92,6 +92,17 @@ tiny = [{"Type": "ControlRigBlueprintGeneratedClass", "ChildProperties": []},
 check("a null named only by the program is placed", rig_vm.compile_rig(tiny)["nulls"], ["thigh_l_null"])
 
 
+def stored(rot, pos):
+    return {"Transform": {"Rotation": dict(zip("XYZW", rot)), "Translation": dict(zip("XYZ", pos))}, "bDirty": False}
+
+
+ident = (0.0, 0.0, 0.0, 1.0)
+control = {"LoadedKey": {"Type": 4, "Name": "chain_ctrl"}, "ParentConstraints": [{"ParentKey": {"Type": 1, "Name": "pelvis"}}],
+           "PoseStorage": {"Initial": {"Local": stored(ident, (4.0, 0.0, 0.0))}},
+           "Offset": {"Initial": {"Local": stored(ident, (0.0, 0.0, -90.0))}}}
+spaces = rig_vm.compile_rig(tiny + [{"Type": "RigHierarchy", "Elements": [control]}])["spaces"]
+check("a control's parent and rest come from the hierarchy", (spaces["chain_ctrl"]["parent"], spaces["chain_ctrl"]["local"]["Translation"]["X"]), ("pelvis", 4.0))
+
 # --- the hierarchy a rig runs on
 from fpmp_baseline.processing.context.rig_node import Hierarchy  # noqa: E402
 
@@ -106,6 +117,10 @@ check("a bone's local is taken from the pose", round(h.get_local("thigh_l")[0].r
 h.set_local("root", (Quaternion(), Vector((1, 0, 0))))
 check("moving a parent moves its children's globals", tuple(h.get_global("skirt")[1]), (1.0, 0.0, 5.0))
 check("and the changed bones are known", sorted(h.changed), ["root"])
+hc = Hierarchy({"pelvis": None}, {"pelvis": (Quaternion(), Vector((0, 0, 90)))}, [], spaces)
+check("a control sits at its value after its offset, under its parent", tuple(hc.get_global("chain_ctrl")[1]), (4.0, 0.0, 0.0))
+hc.load({"pelvis": (Quaternion(), Vector((0, 0, 100)))})
+check("and follows its parent", tuple(hc.get_global("chain_ctrl")[1]), (4.0, 0.0, 10.0))
 
 # --- units
 from fpmp_baseline.processing.context import rig_units as ru  # noqa: E402
