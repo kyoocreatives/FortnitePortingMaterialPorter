@@ -74,13 +74,17 @@ T = runpy.run_path(os.path.join(os.path.dirname(os.path.abspath(__file__)), "tra
 TMP = tempfile.mkdtemp(prefix="sss_check_")
 
 
-def built(shading, opacity=None, profile=None, cosmetic=True, shell=False):
+def built(shading, opacity=None, profile=None, cosmetic=True, shell=False, wpo=None):
     """(material, its group node) for a material scattering by `shading` with Opacity `opacity` (None: no pin)."""
     nodes = []
     props = {}
     if opacity is not None:
         nodes.append({"Type": "MaterialExpressionScalarParameter", "Name": "Op", "Properties": {"ParameterName": "op", "DefaultValue": opacity}})
         props["Opacity"] = {"ExpressionName": "Op", "OutputIndex": 0}
+    if wpo:
+        nodes.append({"Type": "MaterialExpressionVectorParameter", "Name": "Wpo", "Properties": {"ParameterName": "wpo",
+                      "DefaultValue": {"R": 0.0, "G": 0.0, "B": 0.0, "A": 1.0}}})
+        props["WorldPositionOffset"] = {"ExpressionName": "Wpo", "OutputIndex": 0}
     nodes.append({"Type": "MaterialEditorOnlyData", "Name": "MaterialEditorOnlyData_0", "Properties": props})
     path = os.path.join(TMP, "M_%d.json" % len(os.listdir(TMP)))
     json.dump(nodes, open(path, "w", encoding="utf-8"))
@@ -90,9 +94,9 @@ def built(shading, opacity=None, profile=None, cosmetic=True, shell=False):
     env = T["TestEnv"]()
     tr = Translator(root, env)
     env.h[0] = tr
-    vals = tr.material_attributes(path, build.CARRIED)
+    vals = tr.material_attributes(path, build.CARRIED + (("WorldPositionOffset",) if wpo else ()))
     entry = {"asset": {"ShadingModel": "EMaterialShadingModel::" + shading}, "subsurface": profile,
-             "cosmetic": cosmetic, "shell": shell, "name": "sss"}
+             "cosmetic": cosmetic, "shell": shell, "name": "sss", wpo or "moves": bool(wpo)}
     build.assemble(tr, mat, vals, build.settings(entry))
     node = mat.node_tree.nodes.new("ShaderNodeGroup")
     node.node_tree = root
@@ -155,6 +159,15 @@ mat, node = built("MSM_Subsurface", opacity=0.5)
 check("a Subsurface material's own radius gets no profile colour", build.PROFILE_COLOUR in node.inputs, False)
 check("...but keeps its radius input", build.SUBSURFACE_RADIUS in node.inputs, True)
 check("shapes differ by cosmetic", build.shape_key({"graph": "g", "cosmetic": True}) != build.shape_key({"graph": "g", "cosmetic": False}), True)
+
+# World Position Offset: a mover's vertices move; a face's folded pieces (Peely's spare eyes) hide instead, so the mesh keeps
+# its smooth normals (Eevee works out a displaced surface's normals face by face: the eyes came out faceted)
+mat, node = built("MSM_DefaultLit", wpo="moves")
+check("a mover's offset displaces", "Displacement" in node.outputs, True)
+mat, node = built("MSM_DefaultLit", wpo="folds")
+bsdf = next(n for n in node.node_tree.nodes if n.bl_idname == "ShaderNodeBsdfPrincipled")
+check("folded pieces don't displace", "Displacement" in node.outputs, False)
+check("folded pieces hide through alpha", bsdf.inputs["Alpha"].is_linked, True)
 
 print("[subsurface_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 if FAILS:

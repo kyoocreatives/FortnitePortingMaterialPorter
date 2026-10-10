@@ -1271,6 +1271,16 @@ merge_duplicates(tr.tree)
 check("merge: one image node after", count(tr.tree, "ShaderNodeTexImage"), 1)
 check("merge keeps the texture's value", value(v), 2.2)
 
+# a function input narrows its argument to its type, as UE does: a float2 frame into a scalar input is its X
+# (Peely's mouth: CustomNumbers_SubUV took the column for the row too), where Blender would average it
+function("F_Narrow", lambda g: g.add("Multiply", A=R(fn_input(g, "A")), ConstB=1.0))
+for nest in (True, False):
+    TestEnv.nest_functions = nest
+    g = G()
+    got, _, _ = run(g, call(g, "F_Narrow", {"A": vector(g, (1.0, 5.0, 9.0))}))
+    check("a scalar function input takes its argument's X (%s)" % ("group" if nest else "inlined"), got, 1.0)
+TestEnv.nest_functions = True
+
 # a call read through two outputs is one group node
 g2 = G()
 a = fn_input(g2, "A")

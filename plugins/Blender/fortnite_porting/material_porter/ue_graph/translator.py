@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 from .core import (
     ATTRIBUTES_INPUT,
+    INPUT_WIDTH,
     Attrs,
     CARRIED,
     NORMAL_PASS,
@@ -384,6 +385,14 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
                 [p if p.w == 1 else self.comps(p)[0] for p in parts] + [self.const(0.0)] * (3 - len(parts))
             return Val(n.outputs[0], len(parts))
         return self.reuse(("append",) + tuple(reuse_key(p) for p in parts), make)
+
+    def narrow(self, v, input_type):
+        """A function's argument as its input's type takes it: UE keeps the first components of a wider value
+        (Blender would average them into a float socket)."""
+        w = INPUT_WIDTH.get(input_type)
+        if v is None or w is None or isinstance(v.s, (Attrs, TexRef)) or w >= v.w:
+            return v
+        return self.mask(v, list(range(w)))
 
     def mask(self, v, idx):
         """Components idx (0=R..3=A) of v."""
@@ -813,7 +822,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             if isinstance(bound, LazyInput):
                 bound = bound.get(self)
             if bound is not None:
-                return bound
+                return self.narrow(bound, p.get("InputType"))
             if p.get("InputType") == ATTRIBUTES_INPUT:
                 pv = self.input(g, p.get("Preview"), scope, None)
                 return pv if pv is not None and isinstance(pv.s, Attrs) else Val(Attrs(), 0)

@@ -738,7 +738,8 @@ check("a short head bone's board is sized by the head mesh", round(face_board.st
 # sliders step through the states the game tells apart
 TOON = {k: 0.0 for k in ("R_lip_corner_narrow_pose", "R_frown_pose", "R_Frown_pose", "R_smile_pose", "Jaw_open_Pose",
                          "R_blink_pose", "R_squint_inner_pose", "R_brow_up_pose", "C_glabella_up_pose", "C_glabella_down_pose",
-                         "Default Face")}
+                         "Default Face", "SubImages")}
+TOON.update({"Default Face": 1.0, "SubImages": 4.0})
 tf = bpy.data.objects.new("toonfig", bpy.data.armatures.new("toonfig"))
 bpy.context.scene.collection.objects.link(tf)
 bpy.context.view_layer.objects.active = tf
@@ -758,17 +759,16 @@ def toon_values(mouth, eyes=0, brows=0):
     tp["CR_Face_Mouth"].location.x, tp["CR_Face_Eyes"].location.x, tp["CR_Face_Brows"].location.x =         mouth * tstep, eyes * tstep, brows * tstep
     tf.update_tag()
     bpy.context.view_layer.update()
-    return {k: round(tnode.inputs[k].default_value) for k in TOON if k != "Default Face"}
+    return {k: round(tnode.inputs[k].default_value) for k in TOON if k != "SubImages"}
 
 
-on = lambda d: sorted(k for k, v in d.items() if v)      # noqa: E731
+on = lambda d: sorted(k for k, v in d.items() if v and k != "Default Face")      # noqa: E731
 check("toon rest: no curve set", on(toon_values(0)), [])
-check("toon smile", on(toon_values(3)), ["R_smile_pose"])
-check("toon open frown: the open-mouth frown curve", on(toon_values(6)), ["Jaw_open_Pose", "R_Frown_pose"])
-check("toon frown: the closed-mouth frown curve", on(toon_values(2)), ["R_frown_pose"])
+check("toon rest: the imported mouth", tnode.inputs["Default Face"].default_value, 1.0)
+check("toon mouth steps through every cell of the sheet", round(toon_values(9)["Default Face"]), 10)
+check("toon mouth stops at the sheet's last cell", round(toon_values(40)["Default Face"]), 15)
 check("toon blink and angry brows", on(toon_values(0, 1, 3)), ["C_glabella_down_pose", "R_blink_pose"])
-check("toon sliders stop at their last state", on(toon_values(20, 9, 9)), ["C_glabella_down_pose", "Jaw_open_Pose", "R_Frown_pose", "R_squint_inner_pose"])
-check("toon leaves other inputs", tnode.inputs["Default Face"].default_value, 0.0)
+check("toon eyes and brows stop at their last state", on(toon_values(0, 9, 9)), ["C_glabella_down_pose", "R_squint_inner_pose"])
 
 # a flipbook face whose pupils follow the look curves (Peabody's): a Look pad, the mouth sheet's own size
 PEAS = {"flipbook_face_mouth_index": 0.0, "Mouth_SubimagesX": 4.0, "Mouth_SubimagesY": 2.0,

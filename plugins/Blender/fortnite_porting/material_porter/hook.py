@@ -271,12 +271,14 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         entry["particle"] = True
         entry["variant"] = _digest("%s particle" % entry.get("variant", ""))
     # shell fur layer or its base (material_porter.shells): World Position Offset puts it where the game draws it
-    # a face that swaps its pieces by the face's curves (Peely's eyes and brows: World Position Offset folds the unused
-    # ones away) moves its vertices too
-    if material_data.get("MPMoves") or any(str(s.get("Name", "")).lower().endswith("_pose")
-                                           for s in material_data.get("Scalars") or []):
+    if material_data.get("MPMoves"):
         entry["moves"] = True
         entry["variant"] = _digest("%s moves" % entry.get("variant", ""))
+    # a face that swaps its pieces by the face's curves (Peely's eyes and brows): World Position Offset folds the unused
+    # ones away (build hides them)
+    elif any(str(x.get("Name", "")).lower().endswith("_pose") for x in material_data.get("Scalars") or []):
+        entry["folds"] = True
+        entry["variant"] = _digest("%s folds" % entry.get("variant", ""))
     # import's subsurface values (fur its own); a cosmetic's materials get the controls even where the game doesn't scatter
     sss = subsurface(context, material_data)
     entry["cosmetic"] = cosmetic_material(context, material_data)

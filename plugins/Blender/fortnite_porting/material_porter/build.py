@@ -18,7 +18,7 @@ from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PA
 PREFIX = "MP "            # prefix of built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # game object the material translates
 KEY_REV = "mp_rev"        # build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 68       # bump when a builder change should rebuild existing materials
+BUILD_REVISION = 69       # bump when a builder change should rebuild existing materials
 KEY_REPLACES = "mp_replaces"
 KEY_FP = "mp_fp"          # function group fingerprint, for sharing groups
 KEY_VARIANT = "mp_variant"  # hash of a style's parameter values over the instance
@@ -75,6 +75,8 @@ def settings(entry):
         "profile": entry.get("subsurface"),
         # shell fur layer (shells): scatters fully, as fur
         "shell": bool(entry.get("shell")),
+        # a face whose World Position Offset folds unused pieces away (hook: its parameters read the face's curves)
+        "folds": bool(entry.get("folds")),
         # a cosmetic's material (hook.is_cosmetic): subsurface controls even where the game doesn't scatter
         "cosmetic": bool(entry.get("cosmetic")),
         # a character's head (lips are lit, not skin, in the game's shading; see _per_pixel_models)
@@ -210,7 +212,20 @@ def assemble(tr, mat, a, s):
             surface = Val(add.outputs[0], 3)
         tr.L.new(surface.s, out.inputs["Surface"])
         offset = a.get("WorldPositionOffset")
-        if offset is not None and not (offset.const and not any(_comps(offset.s)[:3])) and tr.tree != mat.node_tree:
+        if offset is not None and s["folds"] and not offset.const and tr.tree != mat.node_tree:
+            # a face's pieces the game folds away (Peely's spare eyes and brows) hide instead of moving: the mesh keeps
+            # its smooth normals (Eevee works a displaced surface's normals out face by face). Folded: onto the object's
+            # centre, or moved far (25 cm and more on Peely; the pieces it shows move up to 7 cm, left where they are)
+            with tr.at("World Position Offset"):
+                there = tr.vmath('ADD', tr.env.world_position(), tr.as3(offset), out_w=3)
+                gap = tr.vmath('LENGTH', tr.vmath('SUBTRACT', there, tr.object_position(), out_w=3), out_w=1)
+                far = tr.math('LESS_THAN', tr.vmath('LENGTH', tr.as3(offset), out_w=1), tr.const(15.0))
+                shown = tr.binop('MULTIPLY', tr.math('GREATER_THAN', gap, tr.const(0.5)), far, label="folded away")
+                alpha = bsdf.inputs["Alpha"]
+                if alpha.is_linked:
+                    shown = tr.binop('MULTIPLY', Val(alpha.links[0].from_socket, 1), shown)
+                tr.link(shown, alpha)
+        elif offset is not None and not (offset.const and not any(_comps(offset.s)[:3])) and tr.tree != mat.node_tree:
             # UE's World Position Offset (cm, UE axes) moves each vertex; Eevee's displacement does the same
             # (no bump: the offset isn't a height)
             with tr.at("World Position Offset"):
@@ -1137,7 +1152,7 @@ def build_one(entry, app, objects=(), make_env=None):
     env.h[0] = tr
     # a particle's material also moves its vertices (World Position Offset: a zero-width lightning strip
     # thickened towards the camera, a mesh bent along a spline)
-    names = CARRIED + ("WorldPositionOffset",) if entry.get("particle") or entry.get("moves") else CARRIED
+    names = CARRIED + ("WorldPositionOffset",) if entry.get("particle") or entry.get("moves") or entry.get("folds") else CARRIED
     vals = tr.material_attributes(app.local(entry["graph"]), names)
     # UE clamps emissive at 0 unless bAllowNegativeEmissiveColor is set; a negative glow
     # (a weapon's time-of-day emissive, -5 by day: Bonerattler SMG) lost its colour here, turning green into magenta
@@ -1226,7 +1241,7 @@ def shape_key(entry):
     """What decides a build's node trees beyond its parameter values: the master's graph, static switches and masks,
     blend/shading overrides and subsurface profile. Instances alike in all of it differ only in parameter values
     (the material's group-node inputs) and texture images."""
-    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "shell", "cosmetic", "fixed", "landscape_layers")}
+    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "folds", "shell", "cosmetic", "fixed", "landscape_layers")}
     k["head"] = _is_head(entry)
     # with a time of day in the file collections stay live; without one they are folded in
     k["day"] = world.has_day()

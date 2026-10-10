@@ -37,14 +37,12 @@ FLIPBOOK = {"name": "flipbook",
             "pads": (("Brows", ("fb_browuvoffsetx", "fb_browuvoffsety"), "C"),
                      ("Eyes", ("fb_eyeuvoffsetx", "fb_eyeuvoffsety"), "C"),
                      ("Mouth", ("fb_mouthuvoffsetx", "fb_mouthuvoffsety"), "C"))}
-# Toon faces: per slider its states, each the curves it sets (SubUVTextures' mouth tests, Banana's eye and brow tests;
-# exact names: R_Frown_pose and R_frown_pose are two inputs)
-TOON = {"name": "toon", "sliders": (), "counts": {}, "pads": (),
-        "states": (("Mouth", "C", (("Default", ()), ("Narrow", ("R_lip_corner_narrow_pose",)), ("Frown", ("R_frown_pose",)),
-                                   ("Smile", ("R_smile_pose",)), ("Open", ("Jaw_open_Pose",)),
-                                   ("Open Smile", ("Jaw_open_Pose", "R_smile_pose")),
-                                   ("Open Frown", ("Jaw_open_Pose", "R_Frown_pose")))),
-                   ("Eyes", "C", (("Open", ()), ("Blink", ("R_blink_pose",)), ("Squint", ("R_squint_inner_pose",)))),
+# Toon faces: per state slider its states, each the curves it sets (Banana's eye and brow tests)
+# The mouth steps through every cell of its sheet (Default Face: the cell shown while no mouth curve is set; the game's
+# curve tests only reach 7 of Peely's 11)
+TOON = {"name": "toon", "sliders": (("default face", "Mouth", "C"),),
+        "counts": {"default face": (("subimages", "subimages"),)}, "pads": (),
+        "states": (("Eyes", "C", (("Open", ()), ("Blink", ("R_blink_pose",)), ("Squint", ("R_squint_inner_pose",)))),
                    ("Brows", "C", (("None", ()), ("Up", ("R_brow_up_pose",)), ("Raised", ("C_glabella_up_pose",)),
                                    ("Angry", ("C_glabella_down_pose",)))))}
 KINDS = (LEGO, FLIPBOOK, TOON)

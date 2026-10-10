@@ -215,6 +215,8 @@ class FunctionsMixin:
                     v = self.input(fg, ft.previews[sock], {"_id": ("preview", fname, sock)}, None)
                 if v is not None and kind == "ue_alpha":
                     v = self.alpha(v)
+                elif kind == "ue":
+                    v = self.narrow(v, (fg.inputs.get(key) or {}).get("Properties", {}).get("InputType"))
             else:
                 v = self.env.group_input(key)
             if v is None:
