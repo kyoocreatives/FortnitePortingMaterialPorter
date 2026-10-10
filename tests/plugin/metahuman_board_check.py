@@ -291,8 +291,8 @@ old_head.fpmp_face_board = False
 check("switch off mutes the legacy drivers", all(d.mute for d in old_drivers), True)
 old_head.fpmp_face_board = True
 
-# a flipbook legacy face (Peely): the material picks its face from inputs named after the legacy curves
-peel, _ = head_3l("peel", keys=[], facial=False, legacy=True)
+# a legacy head whose material also reads the legacy curves: the board drives those inputs too
+peel, _ = head_3l("peel", keys=sorted(LEGACY), facial=False, legacy=True)
 group = bpy.data.node_groups.new("peel face", "ShaderNodeTree")
 POSES = ("L_brow_down_pose", "R_smile_pose", "R_Frown_pose", "R_frown_pose")
 for name in POSES:
@@ -301,8 +301,8 @@ peel_mat = bpy.data.materials.new("MP peel body")
 peel_node = peel_mat.node_tree.nodes.new("ShaderNodeGroup")
 peel_node.node_tree = group
 bpy.data.objects["peel_head"].data.materials.append(peel_mat)
-check("a legacy flipbook face fits", mb.fits(peel), True)
-check("one driver per mapped material input", mb.add(peel), len(POSES))
+check("a legacy head with a curve-reading material fits", mb.fits(peel), True)
+check("one driver per mapped key and material input", mb.add(peel), len(LEGACY) + len(POSES))
 # the material builder may add inputs before them later: each driver still finds its own
 first = group.interface.new_socket("Added later", in_out='INPUT', socket_type='NodeSocketFloat')
 group.interface.move(first, 0)
@@ -314,10 +314,14 @@ check("an input added before them isn't driven", peel_node.inputs["Added later"]
 peel.fpmp_face_board = False
 check("switch off mutes the material drivers", all(d.mute for d in peel_mat.node_tree.animation_data.drivers), True)
 peel.fpmp_face_board = True
-twin_head, _ = head_3l("peel2", keys=[], facial=False, legacy=True)
+twin_head, _ = head_3l("peel2", keys=sorted(LEGACY), facial=False, legacy=True)
 bpy.data.objects["peel2_head"].data.materials.append(peel_mat)        # the same outfit imported again
 mb.add(twin_head)
 check("a shared material keeps one driver per input", len(peel_mat.node_tree.animation_data.drivers), len(POSES))
+# a toon face that only reads the curves in its material (Peely's) gets the face board's states, not this board
+toon, _ = head_3l("toon", keys=[], facial=False, legacy=True)
+bpy.data.objects["toon_head"].data.materials.append(peel_mat)
+check("a material-only toon face isn't a MetaHuman legacy head", mb.fits(toon), False)
 # the board clears the head: past the head mesh's widest point above the neck, whatever the head bone's length
 wide, wide_mesh = head_3l("wide")
 wide_mesh.data.vertices[1].co = (0.35, 0.0, 1.65)

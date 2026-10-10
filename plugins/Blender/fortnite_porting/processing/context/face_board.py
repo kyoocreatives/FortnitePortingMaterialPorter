@@ -2,8 +2,10 @@
 
 Some faces are texture atlases driven by their material's inputs: LEGO figures' (MouthPose, EyeLeftU...) and
 Fortnite's flipbook faces (flipbook_face_mouth_index, FB_EyeUVOffsetX...: sprites, some outfits). Each slider steps an
-expression index around the imported one; each pad moves a feature around its imported place. Drivers on the
-material's inputs read the controls; the Face Board switch mutes them so an emote's face keys play."""
+expression index around the imported one; each pad moves a feature around its imported place. Toon faces (Peely's)
+pick their mouth cell and their eye and brow pieces from the face's curves: their sliders step through the states the
+game's material tells apart, setting those curves. Drivers on the material's inputs read the controls; the Face Board
+switch mutes them so an emote's face keys play."""
 import bpy
 from mathutils import Vector
 
@@ -34,7 +36,17 @@ FLIPBOOK = {"name": "flipbook",
             "pads": (("Brows", ("fb_browuvoffsetx", "fb_browuvoffsety"), "C"),
                      ("Eyes", ("fb_eyeuvoffsetx", "fb_eyeuvoffsety"), "C"),
                      ("Mouth", ("fb_mouthuvoffsetx", "fb_mouthuvoffsety"), "C"))}
-KINDS = (LEGO, FLIPBOOK)
+# Toon faces: per slider its states, each the curves it sets (SubUVTextures' mouth tests, Banana's eye and brow tests;
+# exact names: R_Frown_pose and R_frown_pose are two inputs)
+TOON = {"name": "toon", "sliders": (), "counts": {}, "pads": (),
+        "states": (("Mouth", "C", (("Default", ()), ("Narrow", ("R_lip_corner_narrow_pose",)), ("Frown", ("R_frown_pose",)),
+                                   ("Smile", ("R_smile_pose",)), ("Open", ("Jaw_open_Pose",)),
+                                   ("Open Smile", ("Jaw_open_Pose", "R_smile_pose")),
+                                   ("Open Frown", ("Jaw_open_Pose", "R_Frown_pose")))),
+                   ("Eyes", "C", (("Open", ()), ("Blink", ("R_blink_pose",)), ("Squint", ("R_squint_inner_pose",)))),
+                   ("Brows", "C", (("None", ()), ("Up", ("R_brow_up_pose",)), ("Raised", ("C_glabella_up_pose",)),
+                                   ("Angry", ("C_glabella_down_pose",)))))}
+KINDS = (LEGO, FLIPBOOK, TOON)
 COUNT = 16          # expressions a slider reaches when the face doesn't say
 PAD_UV = 0.1        # UV a pad moves its feature at full reach
 STEP = "fpmp_face_step"
@@ -60,10 +72,15 @@ def faces(armature):
                 if n.type != 'GROUP':
                     continue
                 inputs = {i.name.lower(): i for i in n.inputs if i.type == 'VALUE'}
-                if any(key in inputs for k in KINDS for key, _, _ in k["sliders"]):
+                if any(key in inputs for k in KINDS for key in _keys(k)):
                     found[mat.name] = (mat, inputs)
                     break
     return list(found.values())
+
+
+def _keys(k):
+    """The inputs that tell a face kind: its sliders' (lower case), or the curves its states set."""
+    return [key for key, _, _ in k["sliders"]] + [c.lower() for _, _, states in k.get("states", ()) for _, cs in states for c in cs]
 
 
 def _have(found):
@@ -75,7 +92,7 @@ def _have(found):
 
 def kind(found):
     have = _have(found)
-    return next((k for k in KINDS if any(key in have for key, _, _ in k["sliders"])), None)
+    return next((k for k in KINDS if any(key in have for key in _keys(k))), None)
 
 
 def count(found, key, inputs=None):
@@ -100,11 +117,21 @@ def _layout(found):
     return sliders, pads
 
 
+def _states(found):
+    """The toon face's state sliders: (name, role, [(label, curves)]) with the states its material has every curve for,
+    a slider only where it has more than one."""
+    have = _have(found)
+    rows = [(name, role, [(label, cs) for label, cs in states if all(c.lower() in have for c in cs)])
+            for name, role, states in kind(found).get("states", ())]
+    return [r for r in rows if len(r[2]) > 1]
+
+
 def bones(edit, found, parent, at, left, up, size):
     """Board and controls (edit mode) at `at`, parented to `parent`. False when the face has no slider input."""
     if kind(found) is None:
         return False
     sliders, pads = _layout(found)
+    sliders = sliders + [(None, name, role) for name, role, _ in _states(found)]      # states rest at their first
     step = size * STEP_OF_HEAD
     rows = len(sliders) + (1 if pads else 0)
     board = edit.new(BOARD)
@@ -114,7 +141,8 @@ def bones(edit, found, parent, at, left, up, size):
     for i, (key, name, _) in enumerate(sliders):
         # rests at its imported expression along the board (its left edge is expression 0)
         b = edit.new(PREFIX + name)
-        b.head = at + left * step * round(found[0][1][key].default_value) + up * step * ROW * (rows - 1 - i)
+        rest = round(found[0][1][key].default_value) if key else 0
+        b.head = at + left * step * rest + up * step * ROW * (rows - 1 - i)
         b.tail = b.head + up * step * 0.5
         b.align_roll(left.cross(up))
         b.parent, b.use_deform = board, False
@@ -159,18 +187,35 @@ def _drive(mat, socket, obj, bone, axis, expression):
     return fc
 
 
+def _slider(obj, bone, role, step, rest, most):
+    """A slider's diamond, sliding along the board from step 0 to `most`, resting at `rest`."""
+    bone.custom_shape = rig_shapes.ensure("CR_Diamond")
+    bone.use_custom_shape_bone_size = False
+    bone.custom_shape_scale_xyz = (step * SIZE,) * 3
+    rig_style.style(bone, role)
+    _assign(obj, bone.name, "Controls")
+    bone.lock_location, bone.lock_rotation, bone.lock_scale = (False, True, True), (True, True, True), (True, True, True)
+    limit = bone.constraints.new('LIMIT_LOCATION')
+    limit.owner_space = 'LOCAL'
+    limit.use_min_x = limit.use_max_x = True
+    limit.min_x, limit.max_x = -rest * step, (most - rest) * step
+    limit.use_transform_limit = True
+
+
 def wire(obj, found, size):
     """Shapes, limits and drivers (pose mode), for the bones `bones` made."""
     pose = obj.pose.bones
     step = size * STEP_OF_HEAD
     obj.data[STEP] = step
     sliders, pads = _layout(found)
-    widest = max((_range(found, key, found[0][1])[1] + 1 for key, _, _ in sliders), default=COUNT)
+    states = _states(found)
+    widest = max([_range(found, key, found[0][1])[1] + 1 for key, _, _ in sliders] + [len(st) for _, _, st in states]
+                 or [COUNT])
     board = pose[BOARD]
     board.custom_shape = rig_shapes.ensure("CR_Square")
     board.use_custom_shape_bone_size = False
     # frame: expressions 0 to the widest count across (a step of margin), every row up
-    rows = len(sliders) + (1 if pads else 0)
+    rows = len(sliders) + len(states) + (1 if pads else 0)
     board.custom_shape_scale_xyz = (step * (widest + 1) * 0.5, step * ROW * rows * 0.5, 1.0)
     board.custom_shape_translation = (step * (widest - 1) * 0.5, step * ROW * (rows - 1) * 0.5, 0.0)
     rig_style.style(board, "C")
@@ -180,17 +225,7 @@ def wire(obj, found, size):
     for key, name, role in sliders:
         bone = pose[PREFIX + name]
         rest, most = _range(found, key, found[0][1])
-        bone.custom_shape = rig_shapes.ensure("CR_Diamond")
-        bone.use_custom_shape_bone_size = False
-        bone.custom_shape_scale_xyz = (step * SIZE,) * 3
-        rig_style.style(bone, role)
-        _assign(obj, bone.name, "Controls")
-        bone.lock_location, bone.lock_rotation, bone.lock_scale = (False, True, True), (True, True, True), (True, True, True)
-        limit = bone.constraints.new('LIMIT_LOCATION')
-        limit.owner_space = 'LOCAL'
-        limit.use_min_x = limit.use_max_x = True
-        limit.min_x, limit.max_x = -rest * step, (most - rest) * step
-        limit.use_transform_limit = True
+        _slider(obj, bone, role, step, rest, most)
         for mat, inputs in found:
             # each face steps from its own imported expression, within its own count
             mat_rest, mat_most = _range(found, key, inputs)
@@ -213,8 +248,19 @@ def wire(obj, found, size):
             for axis, key in (("X", x_key), ("Y", y_key)):
                 rest = inputs[key].default_value
                 _drive(mat, inputs[key], obj, bone.name, axis, "%r+x/%r*%r" % (rest, step, PAD_UV))
+    for name, role, st in states:
+        bone = pose[PREFIX + name]
+        _slider(obj, bone, role, step, 0, len(st) - 1)
+        for curve in sorted({c for _, cs in st for c in cs}):
+            # 1 on the states that set it: the game's tests read it past their threshold
+            text = "+".join("(1 if abs(x/%r-%d)<0.5 else 0)" % (step, k) for k, (_, cs) in enumerate(st) if curve in cs)
+            for mat, inputs in found:
+                socket = next(iter(inputs.values())).node.inputs.get(curve)
+                if socket is not None:
+                    _drive(mat, socket, obj, bone.name, "X", text)
     obj["fpmp_face_board_materials"] = [mat.name for mat, _ in found]
     obj["fpmp_face_board_inputs"] = controls
+    obj["fpmp_face_board_states"] = {PREFIX + name: [label for label, _ in st] for name, _, st in states}
 
 
 def clearance(obj, head, left):
@@ -255,7 +301,7 @@ def add(obj, head, left=None, up=Vector((0.0, 0.0, 1.0)), size=None):
     span = max(max(p[i] for p in points) - min(p[i] for p in points) for i in range(3))
     size = size or (edit[head].length if head else span * 0.25)
     if head:
-        parent, at = head, edit[head].head + left * max(size * 1.4, clear + size * 0.5) + up * size * 0.2
+        parent, at = head, edit[head].head + left * max(size * 1.4, clear * 1.15 + size * 0.5) + up * size * 0.2
     else:
         roots = [b.name for b in edit if b.parent is None]
         parent = roots[0]
@@ -281,6 +327,10 @@ def ui(layout, obj):
     for control, socket in obj.get("fpmp_face_board_inputs", {}).items():
         if socket in group.inputs:
             layout.label(text="%s: %d" % (control[len(PREFIX):], round(group.inputs[socket].default_value)))
+    for control, labels in obj.get("fpmp_face_board_states", {}).items():
+        if control in obj.pose.bones:
+            k = max(0, min(len(labels) - 1, round(obj.pose.bones[control].location.x / obj.data[STEP])))
+            layout.label(text="%s: %s" % (control[len(PREFIX):], labels[k]))
 
 
 def set_on(obj, on):

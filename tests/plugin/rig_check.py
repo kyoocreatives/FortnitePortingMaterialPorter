@@ -732,6 +732,42 @@ bpy.data.objects["clearfig head"].data.vertices[1].co = (0.3, 0.0, 1.05)
 face_board.add(clear, head="head")
 check("the flipbook board starts past the head mesh", clear.data.bones[face_board.BOARD].head_local.x > 0.3, True)
 
+# a toon face (Peely's): its material picks the mouth cell and the eye and brow pieces from the face's curves;
+# sliders step through the states the game tells apart
+TOON = {k: 0.0 for k in ("R_lip_corner_narrow_pose", "R_frown_pose", "R_Frown_pose", "R_smile_pose", "Jaw_open_Pose",
+                         "R_blink_pose", "R_squint_inner_pose", "R_brow_up_pose", "C_glabella_up_pose", "C_glabella_down_pose",
+                         "Default Face")}
+tf = bpy.data.objects.new("toonfig", bpy.data.armatures.new("toonfig"))
+bpy.context.scene.collection.objects.link(tf)
+bpy.context.view_layer.objects.active = tf
+bpy.ops.object.mode_set(mode='EDIT')
+hb = tf.data.edit_bones.new("head")
+hb.head, hb.tail = (0, 0, 1.0), (0, 0, 1.2)
+bpy.ops.object.mode_set(mode='OBJECT')
+tmat, tnode = attach_face(tf, "toonfig", TOON)
+check("toon kind", face_board.kind(face_board.faces(tf))["name"], "toon")
+check("toon board added", face_board.add(tf, head="head"), True)
+tp = tf.pose.bones
+check("toon sliders", sorted(n for n in tp.keys() if n.startswith("CR_Face_")), ["CR_Face_Brows", "CR_Face_Eyes", "CR_Face_Mouth"])
+tstep = face_board.step_of(tf)
+
+
+def toon_values(mouth, eyes=0, brows=0):
+    tp["CR_Face_Mouth"].location.x, tp["CR_Face_Eyes"].location.x, tp["CR_Face_Brows"].location.x =         mouth * tstep, eyes * tstep, brows * tstep
+    tf.update_tag()
+    bpy.context.view_layer.update()
+    return {k: round(tnode.inputs[k].default_value) for k in TOON if k != "Default Face"}
+
+
+on = lambda d: sorted(k for k, v in d.items() if v)      # noqa: E731
+check("toon rest: no curve set", on(toon_values(0)), [])
+check("toon smile", on(toon_values(3)), ["R_smile_pose"])
+check("toon open frown: the open-mouth frown curve", on(toon_values(6)), ["Jaw_open_Pose", "R_Frown_pose"])
+check("toon frown: the closed-mouth frown curve", on(toon_values(2)), ["R_frown_pose"])
+check("toon blink and angry brows", on(toon_values(0, 1, 3)), ["C_glabella_down_pose", "R_blink_pose"])
+check("toon sliders stop at their last state", on(toon_values(20, 9, 9)), ["C_glabella_down_pose", "Jaw_open_Pose", "R_Frown_pose", "R_squint_inner_pose"])
+check("toon leaves other inputs", tnode.inputs["Default Face"].default_value, 0.0)
+
 print("[rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 if FAILS:
     sys.exit(1)

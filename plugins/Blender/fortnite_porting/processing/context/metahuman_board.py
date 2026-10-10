@@ -151,8 +151,10 @@ def _legacy_keys(obj):
 
 
 def _legacy_inputs(obj):
-    """[(material, group input, legacy curve)]: material inputs named after mapped legacy curves. A flipbook face
-    (Peely's) picks its cell from them, as the game drives them from the face's curves."""
+    """[(material, group input, legacy curve)]: material inputs named after mapped legacy curves, which the game drives
+    from the face's curves too; none where the face board drives them (a toon face)."""
+    if face_board.BOARD in obj.data.bones:
+        return []
     names = {n.lower(): n for n in load_legacy()["curves"]}
     out, seen = [], set()
     for m in face_board._meshes(obj):
@@ -173,9 +175,10 @@ def _socket_path(socket):
 
 
 def _legacy(obj):
-    """A legacy head (faceAttach, no FACIAL bones) with enough of the mapped *_pose keys, or a material reading them."""
+    """A legacy head (faceAttach, no FACIAL bones) with enough of the mapped *_pose keys (a toon face that only reads
+    them in its material gets the face board's states instead)."""
     return "faceAttach" in obj.data.bones and "FACIAL_C_FacialRoot" not in obj.data.bones and \
-        (len(_legacy_keys(obj)) >= ENOUGH or bool(_legacy_inputs(obj)))
+        len(_legacy_keys(obj)) >= ENOUGH
 
 
 def fits(obj):
