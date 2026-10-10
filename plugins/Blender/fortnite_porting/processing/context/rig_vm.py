@@ -208,6 +208,7 @@ class Machine:
         self.lit = {int(k): v for k, v in program["literals"].items()}
         self.state = {}         # units' state between runs (interpolations), by instruction
         self.missing = set()    # units this program runs that aren't ported (they do nothing)
+        self.failed = set()     # units that raised on this rig's values
         self.reset(variables or {})
 
     def reset(self, variables):
@@ -288,7 +289,10 @@ class Machine:
                     self.missing.add(x["f"])
                 else:
                     names = self.p["units"].get(x["f"]) or []
-                    unit(self, dict(zip(names, x["a"])), x["a"], pc)
+                    try:
+                        unit(self, dict(zip(names, x["a"])), x["a"], pc)
+                    except (ArithmeticError, ValueError, TypeError, KeyError, IndexError, AttributeError):
+                        self.failed.add(x["f"])     # one odd unit costs its own result, never the bake
             elif op == COPY:
                 self.set(x["t"], copy.deepcopy(self.get(x["s"])))
             elif op == ZERO:

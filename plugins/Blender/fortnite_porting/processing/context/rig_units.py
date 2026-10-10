@@ -4,6 +4,7 @@ values as the dump writes them: vectors and quaternions as {"X", "Y", "Z"(, "W")
 "Translation", "Scale3D"}, element keys as "Bone/name" or {"Type", "Name"}."""
 import copy
 import math
+import struct
 
 from mathutils import Quaternion, Vector
 
@@ -342,15 +343,18 @@ def get_transform(m, a, ops, pc):
     _set(m, a, "Transform", transform_out(m.h.get_local(name, initial) if local else m.h.get_global(name, initial)))
 
 
-def set_transform(m, a, ops, pc):
-    name, weight = element(_get(m, a, "Item")), num(_get(m, a, "Weight"), 1.0)
-    if weight < 1e-8 or name is None or not m.h.has(name) or _get(m, a, "bInitial"):
+def _write(m, name, value, local, weight):
+    if weight < 1e-8 or name is None or not m.h.has(name):
         return
-    local = int(num(_get(m, a, "Space", 1))) == 0
-    value = transform(_get(m, a, "Value"))
     if weight < 1.0 - 1e-8:
         value = _lerp(m.h.get_local(name) if local else m.h.get_global(name), value, weight)
     (m.h.set_local if local else m.h.set_global)(name, value)
+
+
+def set_transform(m, a, ops, pc):
+    if not _get(m, a, "bInitial"):
+        _write(m, element(_get(m, a, "Item")), transform(_get(m, a, "Value")), int(num(_get(m, a, "Space", 1))) == 0,
+               num(_get(m, a, "Weight"), 1.0))
 
 
 def quaternion_to_euler(m, a, ops, pc):
@@ -541,6 +545,96 @@ def name_replace(m, a, ops, pc):
     _set(m, a, "Result", re.sub(re.escape(old), lambda _: new, name, flags=re.IGNORECASE) if name and old else name)
 
 
+def f32(x):
+    return struct.unpack("f", struct.pack("f", float(x)))[0]
+
+
+def _mod(x, y):
+    x, y = num(x), num(y)
+    return 0.0 if abs(y) <= 1e-8 or y < 0.0 else math.fmod(x, y)
+
+
+def kalman(m, a, ops, pc):
+    """A moving average of the last BufferSize values (no time involved, whatever the name)."""
+    v, size = num(_get(m, a, "Value")), int(num(_get(m, a, "BufferSize")))
+    if size <= 0:
+        _set(m, a, "Result", v)
+        return
+    s = m.state.get(pc)
+    if s is None or len(s["buffer"]) != size:
+        s = m.state[pc] = {"buffer": [None] * size, "last": -1}
+    s["last"] = 0 if s["last"] >= size - 1 else s["last"] + 1
+    s["buffer"][s["last"]] = v
+    filled = s["buffer"][:s["buffer"].index(None)] if None in s["buffer"] else s["buffer"]
+    _set(m, a, "Result", sum(filled) / len(filled))
+
+
+def _clampf(v, lo, hi):
+    return max(v, lo) if hi <= lo or hi < 1e-8 else min(max(v, lo), hi)
+
+
+def _rescaled(p, lo, hi):
+    return p * (_clampf(p.length, lo, hi) / p.length) if p.length > 1e-8 else p
+
+
+def clamp_spatially(m, a, ops, pc):
+    """Only the translation, clamped in Space: to a slab along an axis, a cylinder about it, a sphere or a capsule."""
+    value = _get(m, a, "Value") or {}
+    rot, pos = transform(value)
+    s_rot, s_pos = transform(_get(m, a, "Space"))
+    axis = {1: 0, 2: 1}.get(int(num(_get(m, a, "Axis"))), 2)
+    unit = Vector([1.0 if i == axis else 0.0 for i in range(3)])
+    lo, hi, kind = num(_get(m, a, "Minimum")), num(_get(m, a, "Maximum")), int(num(_get(m, a, "Type")))
+    p, centre = s_rot.conjugated() @ (pos - s_pos), Vector()
+
+    def cylinder(p, hi):
+        q = p - unit * p[axis]
+        return p if q.length <= 1e-8 else unit * p[axis] + _rescaled(q, lo, hi)
+    if kind == 0:
+        p[axis] = _clampf(p[axis], lo, hi)
+    elif kind == 1:
+        p = cylinder(p, hi)
+    elif kind == 2:
+        p = _rescaled(p, lo, hi)
+    elif hi < 2 * lo:
+        p = _rescaled(p, lo, 0.0)
+    else:
+        h, d = hi / 2 - lo, unit.dot(p)
+        if abs(d) < h:
+            p = cylinder(p, 0.0)
+        else:       # the end cap: still clamped up to the full length, as the engine does
+            centre = unit * math.copysign(h, d)
+            p = _rescaled(p - centre, lo, hi)
+    _set(m, a, "Result", dict(transform_out((rot, s_rot @ (p + centre) + s_pos)), Scale3D=value.get("Scale3D") or {"X": 1.0, "Y": 1.0, "Z": 1.0}))
+
+
+def set_transform_array(m, a, ops, pc):
+    items, values = _get(m, a, "Items") or [], _get(m, a, "Transforms") or []
+    if len(items) != len(values) or _get(m, a, "bInitial"):
+        return
+    local, weight = int(num(_get(m, a, "Space"))) == 0, num(_get(m, a, "Weight"))
+    for item, value in zip(items, values):
+        _write(m, element(item), transform(value), local, weight)
+
+
+ELEMENT_BITS = {"Bone": 1, "Null": 2, "Control": 4, "Curve": 8, "Physics": 16, "Reference": 32, "Connector": 64, "Socket": 128}
+
+
+def set_pose(m, a, ops, pc):
+    """A stored pose's locals or globals written back, in the pose's order, eased in by the weight (curves aside)."""
+    w = min(max(num(_get(m, a, "Weight")), 0.0), 1.0)
+    if w < 1e-8:
+        return
+    mask, local = int(num(_get(m, a, "ElementType"))), int(num(_get(m, a, "Space"))) == 0
+    wanted = {element(i) for i in _get(m, a, "ItemsToSet") or []}
+    for e in (_get(m, a, "Pose") or {}).get("Elements") or []:
+        key = e.get("Key") or (e.get("Index") or {}).get("Key") or {}
+        kind, name = str(key.get("Type", "Bone")).split("::")[-1], element(key)
+        if not ELEMENT_BITS.get(kind, 0) & mask or (wanted and name not in wanted) or name is None or not m.h.has(name):
+            continue
+        _write(m, name, transform(e.get("LocalTransform" if local else "GlobalTransform")), local, w)
+
+
 IGNORED = ("DebugLineNoSpace", "DebugLine", "DebugTransformMutableNoSpace", "DebugTransformMutableItemSpace", "DebugPoint",
            "SetCurveValue", "DISPATCH_RigDispatch_GetAnimAttribute", "DISPATCH_RigDispatch_SetAnimAttribute",
            "FortDeformRig", "DrawControlRigSpline", "HierarchySetShapeSettings", "SetShapeTransform")    # the deform drivers do the last
@@ -594,5 +688,13 @@ UNITS = {
     "DISPATCH_RigVMDispatch_CoreEquals": lambda m, a, ops, pc: m.set(ops[-1], m.get(ops[0]) == m.get(ops[1])),
     "MathDoubleArraySum": lambda m, a, ops, pc: _set(m, a, "Sum", sum(num(x) for x in (_get(m, a, "Array") or []))),
     "ItemArray": nothing, "FindItemsWithMetadataTag": lambda m, a, ops, pc: _set(m, a, "Items", []),
+    "SequenceExecution": nothing, "MathDoubleMod": _binary(_mod), "MathDoubleLessEqual": _binary(lambda x, y: num(x) <= num(y)),
+    "MathFloatMax": _binary(lambda x, y: f32(max(num(x), num(y)))),
+    "MathVectorDistance": _binary(lambda x, y: f32((vec(x) - vec(y)).length)), "MathVectorDot": _binary(lambda x, y: f32(vec(x).dot(vec(y)))),
+    "MathTransformMake": lambda m, a, ops, pc: _set(m, a, "Result", {"Rotation": _get(m, a, "Rotation") or quat_out(Quaternion()),
+                                                                       "Translation": _get(m, a, "Translation") or vec_out(Vector()),
+                                                                       "Scale3D": _get(m, a, "Scale") or {"X": 0.0, "Y": 0.0, "Z": 0.0}}),
+    "KalmanFloat": kalman, "MathTransformClampSpatially": clamp_spatially, "SetTransformItemArray": set_transform_array,
+    "HierarchySetPoseItemArray": set_pose,
 }
 UNITS.update({name: nothing for name in IGNORED})

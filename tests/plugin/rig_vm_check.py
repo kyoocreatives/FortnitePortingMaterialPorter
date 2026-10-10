@@ -91,6 +91,7 @@ tiny = [{"Type": "ControlRigBlueprintGeneratedClass", "ChildProperties": []},
          "LocalizedRegistry": {"Functions": [{"Name": "FRigUnit_GetRelativeTransformForItem::Execute", "Arguments": [{"LocalNameString": "Parent"}]}]}}]
 check("a null named only by the program is placed", rig_vm.compile_rig(tiny)["nulls"], ["thigh_l_null"])
 
+
 # --- the hierarchy a rig runs on
 from fpmp_baseline.processing.context.rig_node import Hierarchy  # noqa: E402
 
@@ -250,6 +251,75 @@ check("a 90 yaw turns X onto Y", tuple(round(c, 4) for c in ru.quat(m8.out["r"])
 call2("MathTransformTransformVector", m8, Transform={"Rotation": {"X": -math.sin(math.pi / 4), "Y": 0.0, "Z": 0.0, "W": math.cos(math.pi / 4)},
                                                     "Translation": {"X": 1.0, "Y": 2.0, "Z": 3.0}}, Location={"X": 0.0, "Y": 0.0, "Z": 4.0}, Result="r")
 check("a point through a transform (the engine's own case)", tuple(round(m8.out["r"][k], 4) for k in "XYZ"), (1.0, 6.0, 3.0))
+
+from fpmp_baseline.processing.context import deform_rig  # noqa: E402
+try:
+    deform_rig._ellipse(0.1, 0.1, 0.0, 0.5)
+    flat_ok = True
+except ZeroDivisionError:
+    flat_ok = False
+check("a pose reader region scaled flat doesn't divide by zero", flat_ok, True)
+
+def broken(m, a, ops, pc):
+    raise ZeroDivisionError("float division by zero")
+
+
+fragile = program([ex("Broken"), ex("MathDoubleMul", L(0), L(1), W(1)), {"o": rig_vm.EXIT}], {0: 2.0, 1: 3.0})
+m10 = rig_vm.Machine(fragile, dict(UNITS, Broken=broken))
+m10.run(None, 1 / 60, {})
+check("a failing unit is noted and the rest still runs", (sorted(m10.failed), m10.work.get(1)), (["Broken"], 6.0))
+
+# --- more of the units characters' rigs run (a top-level input left at zero reads None)
+m11 = Mini(h6)
+call2("MathDoubleMod", m11, A=-1.0, B=3.0, Result="r")
+check("mod keeps the sign of A", m11.out["r"], -1.0)
+call2("MathDoubleMod", m11, A=5.0, B=-2.0, Result="r")
+check("mod by a negative is 0", m11.out["r"], 0.0)
+call2("MathDoubleLessEqual", m11, A=2.0, B=2.0, Result="r")
+check("less or equal", m11.out["r"], True)
+call2("MathVectorDistance", m11, A={"X": 0.0, "Y": 0.0, "Z": 0.0}, B={"X": 3.0, "Y": 4.0, "Z": 0.0}, Result="r")
+check("vector distance", m11.out["r"], 5.0)
+call2("MathVectorDot", m11, A={"X": 1.0, "Y": 2.0, "Z": 3.0}, B={"X": 4.0, "Y": 5.0, "Z": 6.0}, Result="r")
+check("vector dot", m11.out["r"], 32.0)
+call2("MathFloatMax", m11, A=1.5, B=-2.0, Result="r")
+check("float max", m11.out["r"], 1.5)
+call2("MathTransformMake", m11, Translation={"X": 1.0, "Y": 2.0, "Z": 3.0}, Rotation=spin["Rotation"], Scale={"X": 1.0, "Y": 1.0, "Z": 1.0}, Result="r")
+check("make a transform", (m11.out["r"]["Translation"]["Y"], round(m11.out["r"]["Rotation"]["Z"], 4)), (2.0, round(math.sin(math.radians(45)), 4)))
+check("a sequence is a no-op (its chains follow inline)", "SequenceExecution" in units_all, True)
+for v in (2.0, 4.0):
+    call2("KalmanFloat", m11, Value=v, BufferSize=16, Result="r")
+check("kalman: the mean of the values seen", m11.out["r"], 3.0)
+call2("KalmanFloat", m11, Value=7.0, BufferSize=None, Result="r")
+check("kalman without a buffer passes the value", m11.out["r"], 7.0)
+
+def clamped(value, **kw):
+    t = {"Rotation": {"W": 1.0}, "Translation": dict(zip("XYZ", value))}
+    call2("MathTransformClampSpatially", m11, Value=t, Space={"Rotation": {"W": 1.0}, "Translation": {"X": 0.0}}, Result="r", **kw)
+    return tuple(round(m11.out["r"]["Translation"][k], 4) for k in "XYZ")
+
+
+check("sphere clamp pushes out to its minimum", clamped((0.0, 0.0, 1.0), Type=2, Minimum=5.0, Maximum=10.0), (0.0, 0.0, 5.0))
+check("and pulls in to its maximum", clamped((20.0, 0.0, 0.0), Type=2, Minimum=5.0, Maximum=10.0), (10.0, 0.0, 0.0))
+check("plane clamp on Z", clamped((1.0, 2.0, -3.0), Type=None, Axis=3, Minimum=None, Maximum=100.0), (1.0, 2.0, 0.0))
+check("cylinder about X keeps the X part", clamped((7.0, 1.0, 0.0), Type=1, Axis=1, Minimum=4.0, Maximum=None), (7.0, 4.0, 0.0))
+
+h7 = Hierarchy(parents, rest, [])
+h7.load(dict(rest))
+moved = {"Rotation": {"W": 1.0}, "Translation": {"X": 3.0, "Y": 0.0, "Z": 0.0}}
+call2("SetTransformItemArray", Mini(h7), Items=["Bone/skirt"], Space=1, bInitial=None, Transforms=[moved, moved], Weight=1.0, bPropagateToChildren=True)
+check("set transforms with a count mismatch does nothing", tuple(h7.get_global("skirt")[1]), (0.0, 0.0, 5.0))
+call2("SetTransformItemArray", Mini(h7), Items=["Bone/skirt"], Space=1, bInitial=None, Transforms=[moved], Weight=1.0, bPropagateToChildren=True)
+check("set transforms places each item", tuple(h7.get_global("skirt")[1]), (3.0, 0.0, 0.0))
+pose = {"Elements": [{"Index": {"Key": {"Type": "ERigElementType::Bone", "Name": "skirt"}},
+                     "LocalTransform": {"Rotation": {"W": 1.0}, "Translation": {"X": 0.0, "Y": 6.0, "Z": 0.0}}}]}
+call2("HierarchySetPoseItemArray", Mini(h7), Pose=pose, ElementType=239, Space=None, ItemsToSet=[], Weight=1.0)
+check("set pose writes the pose's locals", tuple(h7.get_local("skirt")[1]), (0.0, 6.0, 0.0))
+pose["Elements"][0]["LocalTransform"]["Translation"]["Y"] = 9.0
+call2("HierarchySetPoseItemArray", Mini(h7), Pose=pose, ElementType=239, Space=None, ItemsToSet=["Bone/root"], Weight=1.0)
+check("only the items asked for", tuple(h7.get_local("skirt")[1]), (0.0, 6.0, 0.0))
+call2("AimItem", Mini(h7), Item="Bone/skirt", Weight=1.0, Secondary={"Weight": 0.0},
+      Primary={"Weight": 1.0, "Axis": {"X": 1.0, "Y": 0.0, "Z": 0.0}, "Target": {"X": 0.0, "Y": 6.0, "Z": 10.0}, "Kind": "EControlRigVectorKind::Location"})
+check("aim item turns its axis onto the target", tuple(round(c, 4) for c in h7.get_global("skirt")[0] @ Vector((1, 0, 0))), (0.0, 0.0, 1.0))
 
 print("[rig_vm_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

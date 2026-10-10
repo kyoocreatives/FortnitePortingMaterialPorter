@@ -163,6 +163,17 @@ def aim_bone_math(m, a, ops, pc):
     m.set(a.get("Result"), transform_out((rot, t[1])))
 
 
+def aim_item(m, a, ops, pc):
+    """AimBoneMath on the item's own global, written back with its children following."""
+    name = element(_get(m, a, "Item"))
+    if name is None or not m.h.has(name):
+        return
+    g = m.h.get_global(name)
+    rot = aim(g[0], g[1], _target(m, _get(m, a, "Primary"), (1.0, 0.0, 0.0)), _target(m, _get(m, a, "Secondary"), (0.0, 0.0, 1.0)),
+              num(_get(m, a, "Weight")))
+    m.h.set_global(name, (rot, g[1]))
+
+
 def aim_constraint(m, a, ops, pc):
     got = _parents(m, a)
     if got is None:
@@ -201,4 +212,5 @@ def offset_transform(m, a, ops, pc):
 
 
 UNITS = {"PositionConstraintLocalSpaceOffset": position_constraint, "RotationConstraintLocalSpaceOffset": rotation_constraint,
-         "AimConstraintLocalSpaceOffset": aim_constraint, "AimBoneMath": aim_bone_math, "OffsetTransformForItem": offset_transform}
+         "AimConstraintLocalSpaceOffset": aim_constraint, "AimBoneMath": aim_bone_math, "OffsetTransformForItem": offset_transform,
+         "AimItem": aim_item}

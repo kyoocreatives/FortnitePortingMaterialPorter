@@ -93,13 +93,14 @@ def _ellipse(px, py, sx, sy):
     """DistanceToEllipse (two refinements, as Epic's): (distance, inside)."""
     ax, ay = abs(px), abs(py)
     tx = ty = 0.70710678118
+    dx, dy = max(sx, 1e-9), max(sy, 1e-9)       # a region scaled flat: guarded as the drivers are
     for _ in range(2):
-        ex = (sx * sx - sy * sy) * tx ** 3 / sx
-        ey = (sy * sy - sx * sx) * ty ** 3 / sy
+        ex = (sx * sx - sy * sy) * tx ** 3 / dx
+        ey = (sy * sy - sx * sx) * ty ** 3 / dy
         r = math.hypot(sx * tx - ex, sy * ty - ey)
         q = max(math.hypot(ax - ex, ay - ey), 1e-12)
-        tx = min(1.0, max(0.0, ((ax - ex) * r / q + ex) / sx))
-        ty = min(1.0, max(0.0, ((ay - ey) * r / q + ey) / sy))
+        tx = min(1.0, max(0.0, ((ax - ex) * r / q + ex) / dx))
+        ty = min(1.0, max(0.0, ((ay - ey) * r / q + ey) / dy))
         n = max(math.hypot(tx, ty), 1e-12)
         tx, ty = tx / n, ty / n
     cx, cy = sx * (-tx if px < 0 else tx), sy * (-ty if py < 0 else ty)
