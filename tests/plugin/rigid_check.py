@@ -228,6 +228,25 @@ check("the contact pushes them apart", abs(gap) < 1e-6, True)
 check("a pair not listed never touches", rc.detect([a, b], [], [sphere, sphere], 3.0), [])
 far = rj.SolverBody(Vector((10.0, 0.0, 0.0)), Quaternion(), Vector((10.0, 0.0, 0.0)), Quaternion(), Vector(), Vector(), 1.0, Vector((1.0, 1.0, 1.0)), True)
 check("beyond the cull distance: no contact", rc.detect([a, far], [(0, 1)], [sphere, sphere], 3.0), [])
+
+
+def overlap(x):
+    return [rj.SolverBody(Vector(), Quaternion(), Vector(), Quaternion(), Vector(), Vector(), 0.0, Vector(), False),
+            rj.SolverBody(Vector((x, 0.0, 0.0)), Quaternion(), Vector((x, 0.0, 0.0)), Quaternion(), Vector(), Vector(), 1.0, Vector((1.0, 1.0, 1.0)), True)]
+
+
+def pushed(bodies, found):
+    rc.apply_position(found, bodies)
+    return round(bodies[1].dp.x, 6)
+
+
+# bodies that start overlapping stay as deep as they began (the engine never sets an initial depenetration speed)
+seen = {}
+check("a starting overlap isn't pushed out", pushed(*(lambda bs: (bs, rc.detect(bs, [(0, 1)], [sphere, sphere], 3.0, seen, DT)))(overlap(3.0))), 0.0)
+check("but may not go deeper than it began", pushed(*(lambda bs: (bs, rc.detect(bs, [(0, 1)], [sphere, sphere], 3.0, seen, DT)))(overlap(2.5))), 0.5)
+# the asset's max depenetration velocity caps each step's push-out (0: no cap)
+capped = {(0, 1): 0.0}
+check("a push-out is capped at the asset's speed", pushed(*(lambda bs: (bs, rc.detect(bs, [(0, 1)], [sphere, sphere], 3.0, capped, DT, 30.0)))(overlap(2.0))), 0.5)
 p0, p1 = rc.closest(Vector((0, 0, 0)), Vector((10, 0, 0)), Vector((5, 3, -1)), Vector((5, 3, 1)))
 check("closest points of crossing segments", (tuple(p0), tuple(p1)), ((5.0, 0.0, 0.0), (5.0, 3.0, 0.0)))
 

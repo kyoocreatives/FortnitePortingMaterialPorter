@@ -96,6 +96,7 @@ class RigidSim:
                       and self.actors[i].segments and self.actors[k].segments]
         self.started, self.step_time = False, None
         self.space_hist = None
+        self.overlaps = {}      # each touching pair's allowed starting overlap
 
     def _sort(self):
         """Joints by level (distance from a kinematic body), then insertion order: chains solve root to tip."""
@@ -239,7 +240,8 @@ class RigidSim:
                                      0.0, ZERO.copy(), False))
         for j in self.joints:
             j.init(h, bodies)
-        touching = contacts.detect(bodies, self.pairs, [a.segments for a in self.actors], self.solver["cull_distance"])
+        touching = contacts.detect(bodies, self.pairs, [a.segments for a in self.actors], self.solver["cull_distance"],
+                                   self.overlaps, h, self.solver["max_depenetration"])
         for _ in range(self.solver["position_iterations"]):
             for j in self.joints:
                 j.apply_position(h, bodies)

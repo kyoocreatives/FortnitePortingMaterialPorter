@@ -34,9 +34,12 @@ class Contact:
     __slots__ = ("i", "j", "n", "phi", "r0", "r1", "k", "push", "impulse", "vn0", "ia0", "ia1", "inv_m0", "inv_m1", "inv_i0", "inv_i1")
 
 
-def detect(bodies, pairs, segments, cull):
-    """Contacts for the body pairs from the predicted poses; segments[i]: (a, b, radius) per shape, CoM frame."""
-    out = []
+def detect(bodies, pairs, segments, cull, initial=None, h=0.0, push_out=0.0):
+    """Contacts for the body pairs from the predicted poses; segments[i]: (a, b, radius) per shape, CoM frame.
+    initial: the pairs' overlap allowance, kept between steps (updated here): a contact that begins overlapping may stay
+    that deep but no deeper (the engine's initial overlap, which RBAN never sets a speed to resolve). push_out: the
+    asset's max depenetration velocity, capping each step's correction (0: none)."""
+    out, kept = [], {}
     for i, j in pairs:
         b0, b1 = bodies[i], bodies[j]
         best = None
@@ -59,6 +62,13 @@ def detect(bodies, pairs, segments, cull):
             continue
         c = Contact()
         c.i, c.j, (c.phi, c.n, s0, s1) = i, j, best
+        if initial is not None:
+            before = initial.get((i, j))
+            allowed = min(c.phi, 0.0) if before is None else (max(c.phi, before) if before < 0.0 else 0.0)
+            kept[(i, j)] = allowed
+            c.phi -= allowed
+        if push_out > 0.0:
+            c.phi = max(c.phi, -push_out * h)
         c.r0, c.r1 = s0 - b0.p, s1 - b1.p
         c.inv_m0 = b0.inv_m if b0.dynamic else 0.0
         c.inv_m1 = b1.inv_m if b1.dynamic else 0.0
@@ -71,6 +81,9 @@ def detect(bodies, pairs, segments, cull):
         c.push, c.impulse = 0.0, 0.0
         c.vn0 = c.n.dot((b0.v + b0.w.cross(c.r0)) - (b1.v + b1.w.cross(c.r1)))
         out.append(c)
+    if initial is not None:         # pairs out of reach start afresh next time
+        initial.clear()
+        initial.update(kept)
     return out
 
 
