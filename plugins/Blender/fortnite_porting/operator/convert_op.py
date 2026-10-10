@@ -238,6 +238,19 @@ class FPMP_OT_LegoRig(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FPMP_OT_MaterialAnimation(bpy.types.Operator):
+    bl_idname = "fpmp.material_animation"
+    bl_label = "Animated Materials"
+    bl_description = "Play the materials' own animation (panners, flipbooks, pulses), or hold every material on its current look"
+    bl_options = {'REGISTER', 'UNDO'}
+    on: bpy.props.BoolProperty(default=True)
+
+    def execute(self, context):
+        from ..material_porter import material_time
+        material_time.set_animated(self.on, context.scene)
+        return {'FINISHED'}
+
+
 class FPMP_PT_Exact(bpy.types.Panel):
     bl_label = "Exact Materials"
     bl_idname = "FPMP_PT_exact"
@@ -257,6 +270,9 @@ class FPMP_PT_Exact(bpy.types.Panel):
         # Effects replay at import; this replays them on a character or another frame range.
         col.separator()
         col.operator(FPMP_OT_ReplayEffect.bl_idname, text="Replay Effect")
+        from ..material_porter.material_time import is_animated
+        on = is_animated(context.scene)
+        col.operator(FPMP_OT_MaterialAnimation.bl_idname, text="Animated Materials", icon='TIME', depress=on).on = not on
 
 
 class FPMP_OT_AddShellFur(bpy.types.Operator):
@@ -323,7 +339,7 @@ class FPMP_PT_ShellFur(bpy.types.Panel):
             self.layout.operator(FPMP_OT_RemoveShellFur.bl_idname, icon='X')
 
 
-classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_PT_Exact, FPMP_OT_CreatureRig, FPMP_OT_VehicleRig, FPMP_OT_LegoRig,
+classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_OT_MaterialAnimation, FPMP_PT_Exact, FPMP_OT_CreatureRig, FPMP_OT_VehicleRig, FPMP_OT_LegoRig,
            FPMP_OT_AddShellFur, FPMP_OT_RemoveShellFur, FPMP_PT_ShellFur)
 
 

@@ -211,6 +211,8 @@ def helpers(tree, gi):
         v.targets[0].id_type = 'SCENE'
         v.targets[0].id = bpy.context.scene
         v.targets[0].data_path = "render.fps"
+        from .material_time import follow
+        follow(fc)
         return tval.outputs[0]
 
     current = [""]

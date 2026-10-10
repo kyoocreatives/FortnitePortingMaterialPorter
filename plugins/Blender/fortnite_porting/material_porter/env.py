@@ -273,9 +273,12 @@ class MaterialEnv:
         def make():
             with self.tr.at("Parameters"):
                 n = self.tr.node("ShaderNodeValue", "Time (s)")
-            d = n.outputs[0].driver_add("default_value").driver
+            fc = n.outputs[0].driver_add("default_value")
+            d = fc.driver
             d.type = 'SCRIPTED'
             d.expression = "frame / %g + %g" % (bpy.context.scene.render.fps / bpy.context.scene.render.fps_base, self.TIME_OFFSET)
+            from .material_time import follow
+            follow(fc)
             return Val(n.outputs[0], 1)
         return self.once("time", make)
 
