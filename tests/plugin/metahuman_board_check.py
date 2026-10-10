@@ -69,13 +69,13 @@ face_board.register()
 KEYS = sorted(n.replace("CTRL_expressions_", "") for n in data["curves"])[:73]
 
 
-def head_3l(name, keys=KEYS, facial=True):
+def head_3l(name, keys=KEYS, facial=True, legacy=False):
     """An armature with head (and FACIAL_C_FacialRoot) bones and a mesh with the given shape keys."""
     arm = bpy.data.objects.new(name, bpy.data.armatures.new(name))
     bpy.context.scene.collection.objects.link(arm)
     bpy.context.view_layer.objects.active = arm
     bpy.ops.object.mode_set(mode='EDIT')
-    for n, z in (("root", 0.0), ("head", 1.6)) + ((("FACIAL_C_FacialRoot", 1.62),) if facial else ()):
+    for n, z in (("root", 0.0), ("head", 1.6)) + ((("FACIAL_C_FacialRoot", 1.62),) if facial else ()) +             ((("faceAttach", 1.63),) if legacy else ()):
         b = arm.data.edit_bones.new(n)
         b.head, b.tail = (0, 0, z), (0, 0, z + 0.1)
     bpy.ops.object.mode_set(mode='OBJECT')
@@ -167,8 +167,8 @@ arm.fpmp_face_board = True
 check("switch on unmutes", any(d.mute for d in drivers), False)
 mb.on_animation_import(arm)
 check("an emote turns the board off", arm.fpmp_face_board, False)
-legacy, _ = head_3l("legacy", keys=["jaw_open_pose", "L_blink_pose"], facial=False)
-check("a legacy face gets no MetaHuman board", [mb.fits(legacy), mb.add(legacy)], [False, 0])
+plain, _ = head_3l("plain", keys=["jaw_open_pose", "L_blink_pose"], facial=False)
+check("a face without FACIAL bones or faceAttach gets no board", [mb.fits(plain), mb.add(plain)], [False, 0])
 few, few_mesh = head_3l("few", keys=KEYS[:25])
 check("a head with only some keys gets drivers for those", mb.add(few), 25)
 toofew, _ = head_3l("toofew", keys=KEYS[:5])
@@ -258,6 +258,38 @@ board_arm.update_tag()
 # 2. on a plain skeleton (no kit, no Tasty) Select Controls finds the knobs
 from fpmp_baseline.processing.context import rig_style  # noqa: E402
 check("plain skeleton: knobs are controls", "MB_CTRL_L_brow_down" in {p.name for p in rig_style.controls(arm)}, True)
+
+# --- legacy (pre-3L) heads: the board's 3L curves reach their *_pose keys through Fortnite's 3L-to-legacy mapping
+from fpmp_baseline.material_porter import curve_expressions  # noqa: E402
+LEGACY = mb.load_legacy()["curves"]
+old_head, old_mesh = head_3l("old", keys=sorted(LEGACY) + ["phoneme_oo_pose"], facial=False, legacy=True)
+check("a legacy head fits", mb.fits(old_head), True)
+check("one driver per mapped legacy key", mb.add(old_head), len(LEGACY))
+old_keys = old_mesh.data.shape_keys.key_blocks
+old_drivers = old_mesh.data.shape_keys.animation_data.drivers
+check("an unmapped legacy key isn't driven", any(d.data_path == 'key_blocks["phoneme_oo_pose"].value' for d in old_drivers), False)
+bpy.context.view_layer.update()
+check("legacy rest leaves every key at 0", max(abs(k.value) for k in old_keys if k.name in LEGACY), 0.0)
+target = "L_brow_down_pose"
+source = next(e["Value"] for e in LEGACY[target] if e["ElementType"] == 1 and e["Value"] in data["curves"])
+control, axis = controls_of(data["curves"][source], [])[0]
+setattr(old_head.pose.bones["MB_" + control].location, "x" if axis == "x" else "z", 0.6 * mb.unit(old_head, control, axis))
+old_head.update_tag()
+bpy.context.view_layer.update()
+
+
+def through(name):
+    node = data["curves"].get(name)
+    return mb.evaluate(node, {(control, axis): 0.6}) if node else 0.0
+
+
+want = curve_expressions.evaluate(LEGACY[target], lambda n: through(next(k for k in {e['Value'] for st in LEGACY.values() for e in st if e['ElementType'] == 1} if k.lower() == n)))
+check("a knob drives a legacy key through the mapping", round(old_keys[target].value, 3), round(want, 3))
+check("legacy drivers simple and short", all(d.driver.is_simple_expression and len(d.driver.expression) <= 255
+                                             for d in list(old_drivers) + list(old_head.animation_data.drivers)), True)
+old_head.fpmp_face_board = False
+check("switch off mutes the legacy drivers", all(d.mute for d in old_drivers), True)
+old_head.fpmp_face_board = True
 
 print("[metahuman_board_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

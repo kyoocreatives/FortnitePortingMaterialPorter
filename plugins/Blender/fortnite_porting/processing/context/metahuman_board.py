@@ -1,6 +1,7 @@
 """Epic's MetaHuman face board (Face_ControlBoard_CtrlRig) on FP's MetaHuman-style heads: its controls drive the head's
 expression shape keys through Epic's own control-to-curve mapping, decoded once into metahuman_board.json (spec
-2026-10-09-metahuman-board). The face's bones (MetaHuman's RigLogic) aren't driven."""
+2026-10-09-metahuman-board), or its bones through RigLogic. On a legacy (pre-3L) head the board's 3L curves reach its
+*_pose shape keys through Fortnite's 3L-to-legacy mapping (metahuman_legacy.json), as the game plays 3L faces there."""
 import gzip
 import json
 import math
@@ -12,6 +13,7 @@ from mathutils import Vector
 from . import face_board, rig_shapes, rig_style
 
 DATA = os.path.join(os.path.dirname(__file__), "metahuman_board.json")
+LEGACY = os.path.join(os.path.dirname(__file__), "metahuman_legacy.json")     # FN_3LToLegacy_Main_Mapping
 DRAWING = os.path.join(os.path.dirname(__file__), "metahuman_board_shape.json.gz")      # Epic's faceboard_2x gizmo
 _cache = {}
 
@@ -21,6 +23,13 @@ def load():
         with open(DATA, encoding="utf-8") as f:
             _cache["data"] = json.load(f)
     return _cache["data"]
+
+
+def load_legacy():
+    if "legacy" not in _cache:
+        with open(LEGACY, encoding="utf-8") as f:
+            _cache["legacy"] = json.load(f)
+    return _cache["legacy"]
 
 
 def load_drawing():
@@ -116,6 +125,7 @@ def expression(node, var):
 
 # --- the board in Blender
 MARK, MESHES, STEP = "fpmp_metahuman_board", "fpmp_metahuman_board_meshes", "fpmp_metahuman_board_step"
+OLD = "fpmp_metahuman_board_legacy"           # a legacy head: the board drives its *_pose keys
 BONES = "fpmp_metahuman_board_bones"         # the board drives the facial bones (RigLogic), not the shape keys
 PREFIX = "MB_"
 MASTER = PREFIX + "Master"      # the handle that moves the board: the drawing itself can't be picked
@@ -134,10 +144,21 @@ def _keys(obj, data):
     return [(m, k) for m in _meshes(obj) for k in m.data.shape_keys.key_blocks if k.name in names]
 
 
+def _legacy_keys(obj):
+    names = load_legacy()["curves"]
+    return [(m, k) for m in _meshes(obj) for k in m.data.shape_keys.key_blocks if k.name in names]
+
+
+def _legacy(obj):
+    """A legacy head (faceAttach, no FACIAL bones) with enough of the mapped *_pose keys."""
+    return "faceAttach" in obj.data.bones and "FACIAL_C_FacialRoot" not in obj.data.bones and \
+        len(_legacy_keys(obj)) >= ENOUGH
+
+
 def fits(obj):
-    """A MetaHuman-style head: FACIAL bones and enough of the expression shape keys."""
-    return obj is not None and obj.type == 'ARMATURE' and "FACIAL_C_FacialRoot" in obj.data.bones and \
-        "head" in obj.data.bones and len(_keys(obj, load())) >= ENOUGH
+    """A MetaHuman-style head (FACIAL bones and enough of the expression shape keys), or a legacy head."""
+    return obj is not None and obj.type == 'ARMATURE' and "head" in obj.data.bones and (
+        "FACIAL_C_FacialRoot" in obj.data.bones and len(_keys(obj, load())) >= ENOUGH or _legacy(obj))
 
 
 def step(obj):
@@ -322,9 +343,16 @@ def add(obj, size=None, dna=None):
     if obj.data.get(MARK) or not fits(obj):
         return 0
     size = size or max(obj.data.bones["head"].length * 5.0, 0.3)
-    keys = _keys(obj, data)
-    rig = _rig(obj, dna)
-    if rig is not None:
+    legacy = _legacy(obj)
+    keys = _legacy_keys(obj) if legacy else _keys(obj, data)
+    rig = None if legacy else _rig(obj, dna)
+    if legacy:
+        # the 3L curves the mapped keys read, as the board's formulas give them
+        stacks = load_legacy()["curves"]
+        formulas = {e["Value"]: data["curves"][e["Value"]] for _, k in keys for e in stacks[k.name]
+                    if e["ElementType"] == 1 and e["Value"] in data["curves"]}
+        live = set().union(*(_read(node, set()) for node in formulas.values()))
+    elif rig is not None:
         # the raw controls the board has formulas for; the knobs are what those formulas read
         formulas = {n: data["curves"][n.replace(".", "_")] for n in rig["raw"] if n.replace(".", "_") in data["curves"]}
         live = set().union(*(_read(node, set()) for node in formulas.values()))
@@ -353,7 +381,11 @@ def add(obj, size=None, dna=None):
     bpy.ops.object.mode_set(mode='OBJECT')
     axes = {c["name"]: c["axes"] for c in data["controls"]}
     built = {b.name[len(PREFIX):] for b in obj.data.bones if b.name.startswith(PREFIX)}
-    if rig is not None:
+    if legacy:
+        _legacy_drive(obj, keys, formulas, lambda driver, node: _expression(obj, driver, node, s, axes, built))
+        obj.data[OLD] = True
+        made = len(keys)
+    elif rig is not None:
         from . import riglogic_face
         riglogic_face.build(obj, rig, formulas, lambda driver, node: _expression(obj, driver, node, s, axes, built))
         for _, key in keys:         # the bones carry the face: its shape keys rest while the board is on
@@ -372,13 +404,40 @@ def add(obj, size=None, dna=None):
     return made
 
 
+def _legacy_drive(obj, keys, formulas, write):
+    """The board's 3L curves as props on its board bone, and each legacy key their mapped sum."""
+    from ...material_porter import curve_expressions
+    board = obj.pose.bones[BOARD]
+    for name, node in formulas.items():
+        board[name] = 0.0
+        driver = board.driver_add('["%s"]' % name).driver
+        driver.type = 'SCRIPTED'
+        driver.expression = write(driver, node)
+    for _, key in keys:
+        driver = key.driver_add("value").driver
+        driver.type = 'SCRIPTED'
+        used = {}
+
+        def name(curve):
+            if curve not in formulas:
+                return "0.0"        # a 3L curve the board doesn't make (Fortnite's own brow curves): at rest
+            if curve not in used:
+                used[curve] = "c%d" % len(used)
+                v = driver.variables.new()
+                v.name, v.type = used[curve], 'SINGLE_PROP'
+                v.targets[0].id, v.targets[0].data_path = obj, 'pose.bones["%s"]["%s"]' % (BOARD, curve)
+            return used[curve]
+        driver.expression = curve_expressions.text(load_legacy()["curves"][key.name], name)
+
+
 def set_on(obj, on):
     """Mute or unmute the board's shape-key drivers (the face's own keys play while they're muted)."""
     for name in obj.data.get(MESHES, []):
         mesh = bpy.data.objects.get(name)
         ad = mesh.data.shape_keys.animation_data if mesh is not None and mesh.data.shape_keys else None
         for fc in (ad.drivers if ad else ()):
-            if any(t.id == obj for v in fc.driver.variables for t in v.targets) or                     (obj.data.get(BONES) and not fc.driver.variables):
+            if any(t.id == obj for v in fc.driver.variables for t in v.targets) or \
+                    ((obj.data.get(BONES) or obj.data.get(OLD)) and not fc.driver.variables):
                 fc.mute = not on
     if obj.data.get(BONES):
         from . import riglogic_face

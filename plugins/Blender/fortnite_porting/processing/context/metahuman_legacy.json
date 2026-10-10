@@ -1,0 +1,2651 @@
+{
+ "source": "FortniteGame/Content/Characters/Player/Common/Fortnite_Base_Head/Facials/CurveMappings/FN_3LToLegacy_Main_Mapping",
+ "curves": {
+  "L_brow_down_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browDownL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browDOUTL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.648
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_brow_down_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browDownR"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browDOUTR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.648
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_brow_squeeze_in_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browLateralL"
+   }
+  ],
+  "R_brow_squeeze_in_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browLateralR"
+   }
+  ],
+  "C_glabella_up_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browRaiseInL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browRaiseInR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browUINL"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browUINR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_brow_up_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browRaiseOuterL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.896
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browUOUTL"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeCheekRaiseL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_brow_up_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browRaiseOuterR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.896
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browUOUTR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeCheekRaiseR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_blink_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeBlinkL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeRelaxL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeCheekRaiseL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_blink_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeBlinkR"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeRelaxR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeCheekRaiseR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_wide_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeWidenL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeUpperLidUpL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.648
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_wide_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeWidenR"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeUpperLidUpR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.648
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_squint_inner_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeSquintInnerL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeCheekRaiseL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_squint_inner_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeSquintInnerR"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeCheekRaiseR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "look_up_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeLookUpL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeLookUpR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "look_down_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeLookDownL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeLookDownR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "look_left_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeLookLeftL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeLookLeftR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "look_right_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeLookRightL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeLookRightR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_squeeze_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_noseWrinkleL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeCheekRaiseL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.352
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_squeeze_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_noseWrinkleR"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_eyeCheekRaiseR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.352
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "mouth_up_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUp"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   }
+  ],
+  "mouth_down_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthDown"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.648
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   }
+  ],
+  "L_upper_lip_raiser_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipRaiseL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthPressUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerRounderUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawChinRaiseUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.812
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawChinRaiseUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.028
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLeft"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.216
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsTowardsUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.216
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsTowardsDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.216
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_upper_lip_raiser_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipRaiseR"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthPressUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerRounderUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawChinRaiseUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.028
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawChinRaiseUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.812
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthRight"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.216
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsTowardsUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.216
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsTowardsDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.216
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_lower_lip_up_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipDepressL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.352
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipTowardsTeethR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.648
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthPressDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerSharpenDR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawChinRaiseDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.028
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawChinRaiseDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.676
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthRight"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.216
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_lower_lip_down_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipDepressL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipDepressR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthStretchL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.648
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipBiteL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.054
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipBiteR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.054
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipBiteL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.054
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipBiteR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.054
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerRounderDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthRight"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_lower_lip_down_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipDepressL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipDepressR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthStretchR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.648
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipBiteL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.054
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipBiteR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.054
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipBiteL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.054
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipBiteR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.054
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.125
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerRounderDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLeft"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_lower_lip_up_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipDepressR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.216
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipTowardsTeethL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.648
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthPressDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerSharpenDL"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawChinRaiseDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.676
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawChinRaiseDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.028
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLeft"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.216
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_smile_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerPullL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthDimpleL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerUpL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLeft"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_smile_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerPullR"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthDimpleR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerUpR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthRight"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_lip_corner_wide_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthStretchL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthDimpleL"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerWideL"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_frown_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthStretchL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerDepressL"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerDownL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_lip_corner_wide_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthStretchR"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthDimpleR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerWideR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_frown_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthStretchR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerDepressR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerDownR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_upper_lip_lower_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipTowardsTeethL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerSharpenUL"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawChinRaiseUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthRight"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_upper_lip_lower_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipTowardsTeethR"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerSharpenUR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawChinRaiseUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLeft"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.104
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "L_lip_corner_narrow_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerNarrowL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawOpen"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.352
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsPurseUL"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsPurseDL"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthRight"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsTowardsUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsTowardsDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "R_lip_corner_narrow_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthCornerNarrowR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawOpen"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.352
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsPurseUR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsPurseDR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLeft"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.5
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsTowardsUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLipsTowardsDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.784
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "tongue_up_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_tongueUp"
+   }
+  ],
+  "tongue_forward_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_tongueOut"
+   }
+  ],
+  "tongue_back_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_tongueIn"
+   }
+  ],
+  "jaw_open_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawOpen"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.844
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   }
+  ],
+  "jaw_left_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawLeft"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLeft"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.156
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "jaw_right_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawRight"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthRight"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.156
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ],
+  "jaw_forward_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawFwd"
+   }
+  ],
+  "jaw_back_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_jawBack"
+   }
+  ],
+  "phoneme_mbp_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipBiteL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.25
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipBiteR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.25
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipBiteL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.25
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipBiteR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.25
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   }
+  ],
+  "phoneme_fv_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipBiteL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.1
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthUpperLipBiteR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.1
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipBiteL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.1
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthLowerLipBiteR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.1
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   }
+  ],
+  "phoneme_ch_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelUL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.25
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelUR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.25
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelDL"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.25
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_mouthFunnelDR"
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.25
+   },
+   {
+    "ElementType": 0,
+    "Value": 3
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   }
+  ],
+  "C_glabella_down_pose": [
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browDINL"
+   },
+   {
+    "ElementType": 1,
+    "Value": "CTRL_expressions_browDINR"
+   },
+   {
+    "ElementType": 0,
+    "Value": 1
+   },
+   {
+    "ElementType": 3,
+    "Value": 0.0
+   },
+   {
+    "ElementType": 3,
+    "Value": 1.0
+   },
+   {
+    "ElementType": 2,
+    "Value": 0
+   }
+  ]
+ }
+}

@@ -32,3 +32,38 @@ def evaluate(stack, value_of):
         else:
             values.append(float(value))
     return values.pop()
+
+
+# operators and functions as Blender's simple driver expressions write them (index as above; None: not writable)
+INFIX = ("-", "+", "-", "*", "/", None, None, None)
+CALLS = ("clamp", "min", "max", "abs", "round", "ceil", "floor", "sin", "cos", "tan", "asin", "acos", "atan", "sqrt",
+         None, "log", "exp", None, "pi", None)
+
+
+def text(stack, name):
+    """The stack as a driver expression; name(curve name) gives the text a curve reads as. ValueError on an operator
+    or function a simple expression can't write."""
+    out = []
+    for element in stack:
+        kind, value = element["ElementType"], element["Value"]
+        if kind == OPERATOR:
+            if INFIX[value] is None:
+                raise ValueError("operator %d" % value)
+            if value == 0:
+                out.append("(-%s)" % out.pop())
+            else:
+                b, a = out.pop(), out.pop()
+                out.append("(%s%s%s)" % (a, INFIX[value], b))
+        elif kind == NAME:
+            out.append(name(str(value)))
+        elif kind == FUNCTION:
+            count, call = FUNCTIONS[value][0], CALLS[value]
+            if call is None:
+                raise ValueError("function %d" % value)
+            args = out[len(out) - count:] if count else []
+            del out[len(out) - count:]
+            out.append("%s(%s)" % (call, ",".join(args)) if count else call)
+        else:
+            v = float(value)
+            out.append(repr(round(v, 6)) if v >= 0 else "(%r)" % round(v, 6))
+    return out.pop()
