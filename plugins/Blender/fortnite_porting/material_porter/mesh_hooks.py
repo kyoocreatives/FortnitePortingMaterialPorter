@@ -1,4 +1,5 @@
 """What the fork adds to FP's mesh import (processing/context/mesh_context.py calls these)."""
+import json
 from math import radians
 
 import bmesh
@@ -124,12 +125,31 @@ def _correctives(ctx):
                 bpy.ops.object.mode_set(mode='OBJECT')
 
 
+def _dynamics(ctx):
+    """The parts' AnimDynamics nodes, kept on each skeleton that has their bones for the animation bakes."""
+    from ..processing.context import dynamics_bake, dynamics_read
+    paths = list(dict.fromkeys(m["Meta"]["AnimBlueprint"] for m in ctx.imported_meshes
+                               if isinstance(m.get("Meta"), dict) and m["Meta"].get("AnimBlueprint")))
+    if not paths:
+        return
+    try:
+        found = dynamics_read.nodes(paths)
+        for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
+            mine = [n for n in found if n["bone"] in skeleton.data.bones]
+            if mine:
+                skeleton.data[dynamics_bake.KEY] = json.dumps({"scale": getattr(ctx, "scale", 0.01), "nodes": mine})
+                Log.info("%s: %d dynamic bones" % (skeleton.name, len(mine)))
+    except Exception as e:      # an odd dump costs the dynamic bones, never the import
+        Log.error("[Material Porter] dynamic bones (%s: %s)" % (type(e).__name__, e))
+
+
 def after_parts(ctx, rig_type, tasty):
     """Shell fur, the character's effects (not played yet, parts not merged) and a rig for what Tasty's doesn't fit."""
     from . import shells
     shells.apply(ctx, [m.get("Mesh") for m in ctx.imported_meshes])
     settle_effects(ctx)
     _correctives(ctx)
+    _dynamics(ctx)
 
     if rig_type == tasty:
         for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:

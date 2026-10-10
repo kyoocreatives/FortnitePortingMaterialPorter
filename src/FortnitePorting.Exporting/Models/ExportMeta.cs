@@ -8,6 +8,8 @@ namespace FortnitePorting.Exporting.Models;
 public class BaseMeta
 {
     public string? DeformRig;     // MP: the character's deform Control Rig dump (deform_rig)
+    public string? AnimBlueprint;     // MP: the part's anim blueprint dump (dynamic bones)
+    public string? PhysicsAsset;     // MP: its RigidBody node's physics asset dump (dynamic bones)
 }
 
 public class ExportMasterSkeletonMeta : BaseMeta

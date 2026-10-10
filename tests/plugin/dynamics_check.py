@@ -1,0 +1,338 @@
+"""Checks Fortnite's dynamic bones: the AnimDynamics solver against the engine's formulas, the anim blueprint reader,
+the bake on a synthetic armature, the import and panel wiring.
+
+    blender -b --factory-startup --python-exit-code 1 -P tests/plugin/dynamics_check.py -- <plugin parent>
+
+<plugin parent> holds the plugin as package fpmp_baseline (see translator_test.py). Exit code 0 when every check passes."""
+import math
+import sys
+
+import bpy  # noqa: F401
+from mathutils import Matrix, Quaternion, Vector
+
+sys.path.insert(0, sys.argv[sys.argv.index("--") + 1])
+import fpmp_baseline  # noqa: E402,F401
+from fpmp_baseline.processing.context import dynamics_solver as ds  # noqa: E402
+
+FAILS, PASSES = [], [0]
+DT = 1.0 / 60.0
+ZERO = Vector((0.0, 0.0, 0.0))
+
+
+def check(name, got, want, tol=1e-4):
+    if isinstance(want, float):
+        ok = got is not None and abs(got - want) <= tol
+    elif isinstance(want, (tuple, list)) and want and all(isinstance(w, float) for w in want):
+        ok = len(got) == len(want) and all(abs(g - w) <= tol for g, w in zip(got, want))
+    else:
+        ok = got == want
+    if ok:
+        PASSES[0] += 1
+    else:
+        FAILS.append(name)
+        print("[dynamics_check] FAIL %s: got %r, want %r" % (name, got, want))
+
+
+def body_def(**kw):
+    d = dict(ds.DEFAULT_BODY, bone="b", box=[15.0, 15.0, 15.0])
+    d.update(kw)
+    return d
+
+
+def node(bodies=None, **kw):
+    n = {"bone": "b", "chain_end": None, "space": "Component", "relative_bone": None, "bodies": bodies or [body_def()],
+         "lin_damping": None, "ang_damping": None, "bias": None, "gravity_scale": 1.0, "gravity_override": [0.0, 0.0, 0.0],
+         "gravity_in_sim": True, "lin_spring": None, "ang_spring": None, "external_force": [0.0, 0.0, 0.0],
+         "space_alpha": 0.0, "max_ang_vel": 10000.0, "max_ang_acc": 10000.0, "external_ang_vel": [0.0, 0.0, 0.0],
+         "planar": [], "spherical": [], "pre": 4, "post": 1, "alpha": 1.0}
+    n.update(kw)
+    return n
+
+
+def still(body):
+    body.use_override, body.override = True, ZERO.copy()
+    return body
+
+
+# --- solver ---
+check("cube inertia", tuple(ds.box_inertia((15.0, 15.0, 15.0))), (37.5, 37.5, 37.5))
+check("box inertia", tuple(ds.box_inertia((7.5, 4.0, 4.0))), (2.666667, 6.020833, 6.020833))
+check("zero box is a unit cube", tuple(ds.box_inertia((0.0, 0.0, 0.0))), (1 / 6, 1 / 6, 1 / 6))
+check("turn to nothing is identity", tuple(ds.find_between(Vector((1, 0, 0)), ZERO)), (1.0, 0.0, 0.0, 0.0))
+
+b = still(ds.Body(ZERO, Quaternion(), (15, 15, 15)))
+b.lin = Vector((10.0, 0.0, 0.0))
+ds.physics_update(DT, [b], [], [], [], ZERO, ZERO, ZERO, ZERO, ZERO, 4, 1)
+check("damping keeps (1-0.7)^dt", b.lin.x, 10.0 * 0.3 ** DT)
+
+b = still(ds.Body(Vector((1.0, 0.0, 0.0)), Quaternion(), (15, 15, 15)))
+lin = []
+ds.nailed(DT, lin, None, ZERO.copy(), b, ZERO.copy())
+ds.physics_update(DT, [b], lin, [], [], ZERO, ZERO, ZERO, ZERO, ZERO, 4, 1)
+check("nailed body lands on its joint", tuple(b.pos), (0.0, 0.0, 0.0))
+check("nailed correction leaves no momentum", tuple(b.lin), (0.0, 0.0, 0.0))
+
+hang = node([body_def(offset=[10.0, 0.0, 0.0], ang_min=[-10.0, -10.0, -10.0], ang_max=[10.0, 2.5, 10.0])],
+            gravity_override=[0.0, 0.0, -980.0])
+sim = ds.Sim(hang, {})
+cs = {"b": (Quaternion(), ZERO.copy())}
+for _ in range(180):
+    out = sim.evaluate(DT, cs, "b")
+q = sim.bodies[0].rot
+swing = ds.find_between(Vector((1, 0, 0)), q @ Vector((1, 0, 0)))
+check("hanging body rests on its Y limit", math.degrees(2 * math.asin(swing.y)), 2.5, 0.5)
+check("hanging body's joint stays on the bone", tuple(out["b"][1]), (0.0, 0.0, 0.0), 0.5)
+
+twist = node([body_def(ang_min=[-45.0, -45.0, -45.0], ang_max=[45.0, 45.0, 45.0])])
+sim = ds.Sim(twist, {})
+sim.evaluate(0.0, cs, "b")
+sim.bodies[0].rot = Quaternion((1, 0, 0), math.radians(20.0))
+sim.evaluate(DT, cs, "b")
+check("twist eases back by the 0.3 bias", math.degrees(sim.bodies[0].rot.angle), 20.0 - math.degrees(0.6 * math.sin(math.radians(10.0))), 0.05)
+
+b = ds.Body(ZERO, Quaternion(), (15, 15, 15))
+ds.Spring(None, ZERO.copy(), b, 0.0, 25.0, ZERO.copy(), "X", Quaternion(), False, True).apply(DT)
+check("a zero-target spring does nothing", tuple(b.ang), (0.0, 0.0, 0.0))
+ds.Spring(None, ZERO.copy(), b, 0.0, 25.0, Vector((0, 0, 1)), "X", Quaternion(), False, True).apply(DT)
+check("a +Z target turns X up", tuple(b.ang), (0.0, -25.0 * math.pi / 2 * DT, 0.0))
+
+inv = ds._world_inverse(Quaternion((0, 0, 1), math.radians(30.0)), Matrix.Diagonal(Vector([1 / m for m in ds.box_inertia((7.5, 4.0, 4.0))])))
+c, s = math.cos(math.radians(30.0)), math.sin(math.radians(30.0))
+check("inertia turned as R^T I^-1 R", inv[0][1], c * s * (1 / 6.020833 - 1 / 2.666667))
+
+fall = node([body_def(lin_types=["Free"] * 3, ang_min=[-45.0] * 3, ang_max=[45.0] * 3)], gravity_override=[0.0, 0.0, -980.0])
+out = ds.Sim(fall, {}).evaluate(0.1, cs, "b")
+check("a long frame steps 1/30", out["b"][1].z, -980.0 / 900.0)
+
+pair = {"a": (Quaternion(), ZERO.copy()), "b": (Quaternion(), Vector((10.0, 0.0, 0.0)))}
+chain = node([body_def(bone="a", box=[5.0, 5.0, 5.0], offset=[5.0, 0.0, 0.0], ang_min=[-89.0] * 3, ang_max=[89.0] * 3)],
+             bone="a", chain_end="b", gravity_override=[0.0, 0.0, -980.0])
+sim = ds.Sim(chain, {"b": "a", "a": None})
+check("a chain gets a body per bone", [d["bone"] for d in sim.defs], ["a", "b"])
+for _ in range(180):
+    sim.evaluate(DT, pair, "a")
+b0, b1 = sim.bodies
+check("a hanging chain closes its joint", (b0.at(sim.joints[1][0]) - b1.at(sim.joints[1][1])).length < 0.1, True)
+
+spin = ds.Sim(node(space="RootRelative", space_alpha=1.0), {})
+spin.prev_space = Quaternion()
+w, _ = spin._space_spin(Quaternion((0, 0, 1), 0.01), 0.01)
+check("a root turning 1 rad/s spins the space", tuple(w), (0.0, 0.0, 1.0), 1e-3)
+
+# --- reader ---
+from fpmp_baseline.processing.context import dynamics_read as dr  # noqa: E402
+
+AD_A = {"BoundBone": {"BoneName": "dyn_a"}, "ComponentPose": {"LinkID": 1}, "SimulationSpace": "AnimPhysSimSpaceType::RootRelative",
+        "bOverrideAngularDamping": True, "AngularDampingOverride": 0.999, "LinearDampingOverride": 0.5,
+        "PhysicsBodyDefinitions": [{"BoundBone": {"BoneName": "dyn_a"}, "LocalJointOffset": {"X": -0.1, "Y": 0.0, "Z": 0.0},
+                                    "ConstraintSetup": {"TwistAxis": "AnimPhysTwistAxis::AxisY",
+                                                        "AngularLimitsMax": {"X": 10.0, "Y": 2.5, "Z": 10.0}}}]}
+AD_B = {"BoundBone": {"BoneName": "dyn_b"}, "ComponentPose": {"LinkID": 0},
+        "PhysicsBodyDefinitions": [{"BoundBone": {"BoneName": "dyn_b"}, "BoxExtents": {"X": 4.0, "Y": 0.0, "Z": 4.0}}]}
+dump = [{"Type": "AnimBlueprintGeneratedClass", "Name": "X_AnimBP_C",
+         "ChildProperties": [{"Name": n} for n in ("AnimGraphNode_CopyPoseFromMesh", "AnimGraphNode_AnimDynamics_1",
+                                                    "UberGraphFrame", "AnimGraphNode_Root", "AnimGraphNode_AnimDynamics")]},
+        {"Type": "X_AnimBP_C", "Name": "Default__X_AnimBP_C",
+         "Properties": {"AnimGraphNode_CopyPoseFromMesh": {}, "AnimGraphNode_AnimDynamics_1": AD_B,
+                        "AnimGraphNode_Root": {"Result": {"LinkID": 3}}, "AnimGraphNode_AnimDynamics": AD_A}}]
+import json, os, tempfile  # noqa: E401,E402
+dump_path = os.path.join(tempfile.mkdtemp(), "x.animbp.json")
+json.dump(dump, open(dump_path, "w", encoding="utf-8"))
+read = dr.nodes([dump_path])
+check("nodes in graph order", [n["bone"] for n in read], ["dyn_b", "dyn_a"])
+a, bnode = read[1], read[0]
+check("absent box is the default", a["bodies"][0]["box"], [10.0, 10.0, 10.0])
+check("enum prefix dropped", (a["space"], a["bodies"][0]["twist"]), ("RootRelative", "Y"))
+check("absent space is Component", bnode["space"], "Component")
+check("damping override with its flag", (a["ang_damping"], a["lin_damping"]), (0.999, None))
+check("limits read, absent ones zero", (a["bodies"][0]["ang_max"], a["bodies"][0]["ang_min"]), ([10.0, 2.5, 10.0], [0.0, 0.0, 0.0]))
+check("a flat box becomes a unit cube", bnode["bodies"][0]["box"], [1.0, 1.0, 1.0])
+check("parts numbered", [n["part"] for n in read], [0, 0])
+check("a missing dump reads nothing", dr.nodes([dump_path + ".none"]), [])
+
+# --- bake ---
+from fpmp_baseline.processing.context import dynamics_bake as db  # noqa: E402
+
+scene = bpy.context.scene
+scene.render.fps, scene.render.fps_base = 30, 1.0
+
+
+def armature(name):
+    data = bpy.data.armatures.new(name)
+    obj = bpy.data.objects.new(name, data)
+    scene.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    root = data.edit_bones.new("root")
+    root.head, root.tail = (0, 0, 0), (0, 0, 0.1)
+    arm = data.edit_bones.new("upperarm")
+    arm.head, arm.tail, arm.parent = (0, 0, 1), (0.3, 0, 1), root
+    tag = data.edit_bones.new("dyn_tag")
+    tag.head, tag.tail, tag.parent = (0.3, 0, 1), (0.3, 0, 0.9), arm
+    bpy.ops.object.mode_set(mode='OBJECT')
+    for pb in obj.pose.bones:
+        pb.rotation_mode = 'QUATERNION'
+    return obj
+
+
+def key_arm(obj, turns):
+    pb = obj.pose.bones["upperarm"]
+    for frame, deg in turns:
+        pb.rotation_quaternion = Quaternion((0, 1, 0), math.radians(deg))
+        pb.keyframe_insert("rotation_quaternion", frame=frame)
+
+
+def tag_node(**kw):
+    return node([body_def(bone="dyn_tag", box=[2.0, 2.0, 2.0], offset=[0.0, -0.1, 0.0], **kw.pop("body", {}))],
+                bone="dyn_tag", space="RootRelative", **kw)
+
+
+def store(obj, *nodes_):
+    obj.data[db.KEY] = json.dumps({"scale": 0.01, "nodes": list(nodes_)})
+
+
+def head_dir(obj, frame):
+    scene.frame_set(frame)
+    pb = obj.pose.bones["dyn_tag"]
+    return pb.head.copy(), (pb.tail - pb.head).normalized()
+
+
+plain = armature("plain")
+key_arm(plain, [(0, 0.0), (20, 0.0)])
+check("no dynamics, nothing baked", db.bake(plain), (0, 0))
+check("no dynamics, no track", db._track(plain), None)
+
+still_arm = armature("still")
+key_arm(still_arm, [(0, 0.0), (20, 0.0)])
+store(still_arm, tag_node(gravity_override=[0.0, 0.0, 0.0]))
+check("a still pose bakes one bone over its frames", db.bake(still_arm), (1, 21))
+track = db._track(still_arm)
+check("one Dynamics strip", (track is not None, len(track.strips) if track else 0), (True, 1))
+action = track.strips[0].action
+paths = sorted({fc.data_path for fc in db._curves(action)})
+check("keys only the simulated bone's twin", paths, ['pose.bones["DYN_dyn_tag"].location', 'pose.bones["DYN_dyn_tag"].rotation_quaternion'])
+check("the bone takes it last", [c.name for c in still_arm.pose.bones["dyn_tag"].constraints], [db.BAKED])
+worst = max(abs(kp.co[1] - (1.0 if (fc.data_path.endswith("quaternion") and fc.array_index == 0) else 0.0))
+            for fc in db._curves(action) for kp in fc.keyframe_points)
+check("a still pose round-trips to rest", worst < 1e-3, True)
+
+swing = armature("swing")
+key_arm(swing, [(0, 0.0), (10, 60.0), (60, 60.0)])
+store(swing, tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=25.0, ang_damping=0.9,
+                      body={"ang_min": [-30.0] * 3, "ang_max": [30.0] * 3, "target": [1.0, 0.0, 0.0]}))
+held = swing.pose.bones["dyn_tag"].constraints.new('LIMIT_ROTATION')     # holds the bone as the deform rig holds the bracelets
+held.use_limit_x = held.use_limit_y = held.use_limit_z = True
+held.owner_space = 'LOCAL'
+db.bake(swing)
+check("a constrained bone gets the bake after its constraint", [c.type for c in swing.pose.bones["dyn_tag"].constraints], ['LIMIT_ROTATION', 'COPY_TRANSFORMS'])
+db.set_on(swing, False)
+check("the toggle mutes", (db.is_on(swing), swing.pose.bones["dyn_tag"].constraints[db.BAKED].mute), (False, True))
+anim6, anim60 = head_dir(swing, 6), head_dir(swing, 60)
+db.set_on(swing, True)
+sim6, sim60 = head_dir(swing, 6), head_dir(swing, 60)
+check("the bone lags the swing", math.degrees(anim6[1].angle(sim6[1])) > 1.0, True)
+check("its head stays on the animated head", (anim6[0] - sim6[0]).length < 0.001, True)
+check("it settles back", math.degrees(anim60[1].angle(sim60[1])) < 2.0, True)
+check("keys are finite", all(math.isfinite(kp.co[1]) for fc in db._curves(db._track(swing).strips[0].action) for kp in fc.keyframe_points), True)
+db.bake(swing)
+check("a re-bake replaces the track", [t.name for t in swing.animation_data.nla_tracks].count(db.TRACK), 1)
+
+# --- wiring: import keeps the nodes, an emote import bakes, the panel's operators ---
+from types import SimpleNamespace  # noqa: E402
+from fpmp_baseline.material_porter import anim_hooks, mesh_hooks  # noqa: E402
+from fpmp_baseline.operator import rig_ui  # noqa: E402
+
+AD_A["BoundBone"]["BoneName"] = AD_A["PhysicsBodyDefinitions"][0]["BoundBone"]["BoneName"] = "dyn_tag"
+json.dump(dump, open(dump_path, "w", encoding="utf-8"))
+char = armature("char")
+mesh_hooks._dynamics(SimpleNamespace(imported_meshes=[{"Meta": {"AnimBlueprint": dump_path}, "Skeleton": char}], scale=0.01))
+kept = json.loads(char.data.get(db.KEY) or "{}")
+check("import keeps the skeleton's nodes", ([n["bone"] for n in kept.get("nodes", [])], kept.get("scale")), (["dyn_tag"], 0.01))
+bare = armature("bare")
+bpy.context.view_layer.objects.active = bare
+bpy.ops.object.mode_set(mode='EDIT')
+bare.data.edit_bones.remove(bare.data.edit_bones["dyn_tag"])
+bpy.ops.object.mode_set(mode='OBJECT')
+mesh_hooks._dynamics(SimpleNamespace(imported_meshes=[{"Meta": {"AnimBlueprint": dump_path}, "Skeleton": bare}], scale=0.01))
+check("a skeleton without the bones keeps nothing", db.KEY in bare.data, False)
+key_arm(char, [(0, 0.0), (10, 30.0)])
+anim_hooks.end(char)
+check("an emote import bakes", db._track(char) is not None, True)
+try:
+    rig_ui.register()
+except ValueError:
+    pass
+bpy.context.view_layer.objects.active = char
+check("Simulate runs", bpy.ops.fpmp.dynamics_bake(), {'FINISHED'})
+check("the toggle operator mutes", (bpy.ops.fpmp.dynamics_on(on=False), db.is_on(char)), ({'FINISHED'}, False))
+
+# --- review fixes ---
+for limit in (0.0, 20.0):
+    try:
+        ds.Sim(node([body_def(angular="Cone", cone=limit)]), {}).evaluate(DT, cs, "b")
+        ok = True
+    except ZeroDivisionError:
+        ok = False
+    check("a cone node steps (limit %g)" % limit, ok, True)
+
+looped = armature("looped")
+key_arm(looped, [(0, 0.0), (20, 30.0)])
+db._push_down(looped)
+looped.animation_data.nla_tracks[0].strips[0].repeat = 5.0
+check("a looped strip counts one pass", db.frame_range(looped), (0, 20))
+tweaked = armature("tweaked")
+key_arm(tweaked, [(0, 0.0), (40, 30.0)])
+db._push_down(tweaked)
+key_arm(tweaked, [(10, 5.0)])
+check("a tweak on top keeps the whole range", db.frame_range(tweaked), (0, 40))
+
+src = armature("src")
+key_arm(src, [(0, 0.0), (20, 30.0)])
+renamed = armature("renamed")          # plays another rig's action through that rig's slot
+renamed.animation_data_create()
+renamed.animation_data.action = src.animation_data.action
+renamed.animation_data.action_slot = slot = src.animation_data.action_slot
+store(renamed, tag_node(gravity_override=[0.0, 0.0, 0.0]))
+db.bake(renamed)
+base = next(t for t in renamed.animation_data.nla_tracks if t.name != db.TRACK).strips[0]
+check("the pushed-down animation keeps its slot", base.action_slot == slot and slot is not None, True)
+
+nameless = {"ComponentPose": {"LinkID": 0}}
+dump2 = [dict(dump[0]), {"Type": "X_AnimBP_C", "Name": "Default__X_AnimBP_C",
+                          "Properties": {"AnimGraphNode_CopyPoseFromMesh": {}, "AnimGraphNode_AnimDynamics_1": nameless,
+                                         "AnimGraphNode_Root": {"Result": {"LinkID": 1}}, "AnimGraphNode_AnimDynamics": AD_A}}]
+nameless_path = dump_path + ".nameless.json"
+json.dump(dump2, open(nameless_path, "w", encoding="utf-8"))
+check("a node without a bone is dropped, an unlinked one still runs", [n["bone"] for n in dr.nodes([nameless_path])], ["dyn_tag"])
+
+layered = [dict(dump[0], ChildProperties=[{"Name": n} for n in ("AnimGraphNode_CopyPoseFromMesh", "AnimGraphNode_LayeredBoneBlend",
+                                                                  "AnimGraphNode_Root", "AnimGraphNode_AnimDynamics")]),
+           {"Type": "X_AnimBP_C", "Name": "Default__X_AnimBP_C",
+            "Properties": {"AnimGraphNode_CopyPoseFromMesh": {}, "AnimGraphNode_Root": {"Result": {"LinkID": 1}},
+                           "AnimGraphNode_LayeredBoneBlend": {"BasePose": {"LinkID": 0}, "BlendPoses": [{"LinkID": 3}]},
+                           "AnimGraphNode_AnimDynamics": dict(AD_A, ComponentPose={"LinkID": 0})}}]
+layered_path = dump_path + ".layered.json"
+json.dump(layered, open(layered_path, "w", encoding="utf-8"))
+check("a node behind a layered blend is found", [n["bone"] for n in dr.nodes([layered_path])], ["dyn_tag"])
+
+twice = armature("twice")
+key_arm(twice, [(0, 0.0), (20, 30.0)])
+once = tag_node(gravity_override=[0.0, 0.0, 0.0])
+store(twice, once, once)
+try:
+    check("a bone listed twice bakes once", db.bake(twice)[0], 1)
+except (RuntimeError, ValueError) as e:
+    check("a bone listed twice bakes once (%s)" % e, False, True)
+
+order = armature("order")
+key_arm(order, [(0, 0.0), (10, 60.0), (30, 60.0)])
+arm_node = node([body_def(bone="upperarm", ang_min=[0.0] * 3, ang_max=[0.0] * 3)], bone="upperarm", space="RootRelative",
+                gravity_override=[0.0, 0.0, 0.0])
+store(order, tag_node(gravity_override=[0.0, 0.0, 0.0], ang_damping=0.9, body={"ang_min": [-30.0] * 3, "ang_max": [30.0] * 3}), arm_node)
+db.bake(order)
+act = db._track(order).strips[0].action
+w = [fc for fc in db._curves(act) if fc.data_path == 'pose.bones["DYN_dyn_tag"].rotation_quaternion' and fc.array_index == 0][0]
+check("a later node on the parent keeps the child's simulation", min(kp.co[1] for kp in w.keyframe_points) < math.cos(math.radians(0.5)), True)
+
+print("[dynamics_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
+sys.exit(1 if FAILS else 0)

@@ -2,7 +2,7 @@
 reset the controls, the rig's settings."""
 import bpy
 
-from ..processing.context import deform_rig, face_board, rig_style
+from ..processing.context import deform_rig, dynamics_bake, face_board, rig_style
 
 VEHICLE_SETTINGS = (("auto_wheels", "Wheels Spin"), ("auto_steer", "Wheels Steer"), ("countersteer", "Counter-steer"),
                     ("suspension", "Body Follows Wheels"), ("lean", "Lean in Turns"))
@@ -138,6 +138,41 @@ class FPMP_OT_DeformRigOn(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FPMP_OT_DynamicsBake(bpy.types.Operator):
+    bl_idname = "fpmp.dynamics_bake"
+    bl_label = "Simulate Dynamics"
+    bl_description = "Run Fortnite's dynamic bones over the current animation and key them in a Dynamics layer"
+    bl_options = {'REGISTER', 'UNDO'}
+    rate: bpy.props.IntProperty(name="Steps per Second", default=60, min=10, max=240)
+
+    @classmethod
+    def poll(cls, context):
+        obj = _rig(context)
+        if obj is None or not obj.data.get(dynamics_bake.KEY):
+            return False
+        if dynamics_bake.frame_range(obj) is None:
+            cls.poll_message_set("No animation on this armature")
+            return False
+        return True
+
+    def execute(self, context):
+        bones, frames = dynamics_bake.bake(_rig(context), self.rate)
+        self.report({'INFO'}, "%d dynamic bones over %d frames" % (bones, frames))
+        return {'FINISHED'}
+
+
+class FPMP_OT_DynamicsOn(bpy.types.Operator):
+    bl_idname = "fpmp.dynamics_on"
+    bl_label = "Dynamics On/Off"
+    bl_description = "Play the simulated dynamic bones, or the animation's own"
+    bl_options = {'REGISTER', 'UNDO'}
+    on: bpy.props.BoolProperty(default=True)
+
+    def execute(self, context):
+        dynamics_bake.set_on(_rig(context), self.on)
+        return {'FINISHED'}
+
+
 class FPMP_PT_CreatureRig(bpy.types.Panel):
     bl_label = "Rig"
     bl_idname = "FPMP_PT_creature_rig"
@@ -154,6 +189,7 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
         data = obj.data
         col = self.layout.column(align=True)
         deform_rig.ui(col, obj)
+        dynamics_bake.ui(col, obj)
         if data.get("is_tasty"):
             from ..processing.context import tasty_style
             grid = col.grid_flow(columns=2, align=True)
@@ -213,7 +249,8 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
         face_board.ui(col, obj)
 
 
-classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn, FPMP_OT_OfficialRigSwitch,
+classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn, FPMP_OT_DynamicsBake,
+           FPMP_OT_DynamicsOn, FPMP_OT_OfficialRigSwitch,
            FPMP_OT_OfficialRigSetting, FPMP_OT_OfficialRigBodyControls,
            FPMP_OT_OfficialRigBake, FPMP_PT_CreatureRig)
 

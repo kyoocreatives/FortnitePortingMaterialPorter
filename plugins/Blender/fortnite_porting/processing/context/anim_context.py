@@ -339,6 +339,7 @@ class AnimImportContext:
         # MP: a swing's trail windows and hits, for the held pickaxe's effects
         if data.get("MPTrails") or data.get("MPHits"):
             mp_effects.swing(data.get("MPTrails") or [], target_skeleton, data.get("MPHits") or [])
+        from ...material_porter.anim_hooks import end; end(target_skeleton)     # MP: dynamic bones follow the animation
 
     def import_anim(self, path: str, override_skeleton=None) -> tuple[bpy.types.Action, AnimDto]:
         path = path[1:] if path.startswith("/") else path
