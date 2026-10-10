@@ -84,6 +84,33 @@ class FPMP_OT_OfficialRigSwitch(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FPMP_OT_OfficialRigSetting(bpy.types.Operator):
+    bl_idname = "fpmp.official_rig_setting"
+    bl_label = "Rig Setting"
+    bl_description = "Set one of Epic's rig settings (stretch, local)"
+    bl_options = {'REGISTER', 'UNDO'}
+    name: bpy.props.StringProperty()
+    value: bpy.props.FloatProperty()
+
+    def execute(self, context):
+        from ..processing.context import official_rig
+        official_rig.set_setting(_rig(context), self.name, self.value)
+        return {'FINISHED'}
+
+
+class FPMP_OT_OfficialRigBodyControls(bpy.types.Operator):
+    bl_idname = "fpmp.official_rig_body_controls"
+    bl_label = "Body Controls"
+    bl_description = "Show or hide the fingers, toes, root, body, hips and neck controls"
+    bl_options = {'REGISTER', 'UNDO'}
+    show: bpy.props.BoolProperty(default=True)
+
+    def execute(self, context):
+        from ..processing.context import official_rig
+        official_rig.set_body_controls(_rig(context), self.show)
+        return {'FINISHED'}
+
+
 class FPMP_OT_OfficialRigBake(bpy.types.Operator):
     bl_idname = "fpmp.official_rig_bake"
     bl_label = "Bake to Controls"
@@ -173,6 +200,7 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
 
 
 classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_OfficialRigOn, FPMP_OT_OfficialRigSwitch,
+           FPMP_OT_OfficialRigSetting, FPMP_OT_OfficialRigBodyControls,
            FPMP_OT_OfficialRigBake, FPMP_PT_CreatureRig)
 
 

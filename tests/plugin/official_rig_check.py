@@ -66,6 +66,13 @@ def mannequin(name="mannequin", drop=(), fp_tails=False):
     return obj
 
 
+def follows(obj, bone, control):
+    """The bone sits where its control's follower is: the control's pose times its rest offset to the bone."""
+    b = obj.data.bones
+    want = world(obj, control) @ b[control].matrix_local.inverted() @ b[bone].matrix_local
+    return same_rot(world(obj, bone), want)
+
+
 data = official_rig.load()
 man = mannequin()
 check("fits a mannequin", official_rig.fits(man), True)
@@ -77,8 +84,8 @@ pb = man.pose.bones["foot_l_ik_ctrl"]
 check("Epic's shape", pb.custom_shape.name, "OR_" + fc["shape"])
 check("Epic's colour", tuple(pb.color.custom.normal), tuple(fc["color"]), tol=0.01)
 check("on its bone", tuple(man.data.bones["foot_l_ik_ctrl"].head_local), tuple(man.data.bones["foot_l"].head_local))
-check("same rest as its bone", all(abs(a - b) < 1e-4 for ra, rb in zip(man.data.bones["foot_l_ik_ctrl"].matrix_local,
-                                                                       man.data.bones["foot_l"].matrix_local) for a, b in zip(ra, rb)), True)
+check("at Epic's frame (world-aligned IK foot)", max(abs(x) for r in (man.data.bones["foot_l_ik_ctrl"].matrix_local.to_3x3()
+                                                          - Matrix.Identity(3)) for x in r) < 1e-3, True)
 check("parent as the data", man.data.bones["foot_l_ik_ctrl"].parent.name, fc["parent"])
 heel = next(c for c in data["controls"] if c["name"] == "heel_l_ctrl")
 ratio = man.data.bones["head"].head_local.z / data["height"]
@@ -92,7 +99,7 @@ check("digit width", man.pose.bones["index_01_l_ctrl"].custom_shape_wire_width, 
 check("controls collection", "foot_l_ik_ctrl" in man.data.collections["Controls"].bones, True)
 check("spaces in Mechanics", "chest_space" in man.data.collections["Mechanics"].bones, True)
 check("game bones hidden", man.data.collections["Game Bones"].is_visible, False)
-check("a switch is a property", man.pose.bones["leg_l_fk_ik_switch"].get("leg_l_fk_ik_switch"), 0.0)
+check("a switch is a property (legs start in IK, Epic's default)", man.pose.bones["leg_l_fk_ik_switch"].get("leg_l_fk_ik_switch"), 1.0)
 check("marked", (man.data.get("fpmp_official_rig"), man.data.get("fpmp_official_rig_on")), (True, True))
 n_bones = len(man.pose.bones)
 check("a second build adds nothing", [official_rig.create(man), len(man.pose.bones)], ["already built", n_bones])
@@ -176,7 +183,7 @@ check("constraints named OR", all(c.name.startswith(official_rig.PREFIX) for b i
 official_rig.set_switch(rig, "arm_l_fk_ik_switch", ik=False)
 pb["upperarm_l_fk_ctrl"].rotation_mode = 'XYZ'
 pb["upperarm_l_fk_ctrl"].rotation_euler = (0.0, 0.0, 0.6)
-check("FK control turns its bone", same_rot(world(rig, "upperarm_l"), world(rig, "upperarm_l_fk_ctrl")), True)
+check("FK control turns its bone", follows(rig, "upperarm_l", "upperarm_l_fk_ctrl"), True)
 check("FK turns the bone at all", same_rot(world(rig, "upperarm_l"), rig.data.bones["upperarm_l"].matrix_local), False)
 pb["upperarm_l_fk_ctrl"].rotation_euler = (0.0, 0.0, 0.0)
 # IK with the reverse foot
@@ -212,11 +219,11 @@ check("spine IK follows the chest", head(rig, "spine_05").x - top.x > 0.02, True
 official_rig.set_switch(rig, "neck_fk_ik_switch", ik=True)
 pb["head_ik_ctrl"].rotation_mode = 'XYZ'
 pb["head_ik_ctrl"].rotation_euler = (0.0, 0.0, 0.5)
-check("head IK turns the head", same_rot(world(rig, "head"), world(rig, "head_ik_ctrl")), True)
+check("head IK turns the head", follows(rig, "head", "head_ik_ctrl"), True)
 # fingers copy their controls
 pb["index_01_l_ctrl"].rotation_mode = 'XYZ'
 pb["index_01_l_ctrl"].rotation_euler = (0.4, 0.0, 0.0)
-check("finger follows its control", same_rot(world(rig, "index_01_l"), world(rig, "index_01_l_ctrl")), True)
+check("finger follows its control", follows(rig, "index_01_l", "index_01_l_ctrl"), True)
 
 # Epic's limits: locked channels, float ranges
 check("hips tangent rotation locked", tuple(rig.pose.bones["hips_tan_ctrl"].lock_rotation), (True, True, True))
@@ -391,6 +398,232 @@ for obj in (mannequin("spine_ik"), mannequin("spine_ik_fp", fp_tails=True)):
     check("%s: moving the chest bends the spine smoothly %s" % (obj.name, [round(b) for b in bends]),
           max(bends) < 25.0 and all(abs(b - a) < 10.0 for a, b in zip(bends, bends[1:])), True)
     check("%s: the spine leans toward the moved chest" % obj.name, head(obj, "spine_05").x - rest["spine_05"].to_translation().x > 0.03, True)
+
+# --- exact frames (spec 2026-10-10-official-rig-exact)
+ex = mannequin("exact_fp", fp_tails=True)
+official_rig.create(ex)
+W = Matrix.Identity(3)
+FLIPX = Matrix(((-1, 0, 0), (0, 1, 0), (0, 0, 1)))
+
+
+def rest3(obj, name):
+    return obj.data.bones[name].matrix_local.to_3x3().normalized()
+
+
+def close3(a, b, tol=1e-3):
+    return max(abs(x) for r in (a - b) for x in r) < tol
+
+
+check("IK foot control world-aligned (Epic's frame)", close3(rest3(ex, "foot_l_ik_ctrl"), W), True)
+check("hips and chest controls world-aligned", (close3(rest3(ex, "hips_ctrl"), W), close3(rest3(ex, "chest_ctrl"), W)), (True, True))
+for left in ("foot_l_ik_ctrl", "hand_l_ik_ctrl", "clavicle_l_ctrl", "upperarm_l_fk_ctrl", "thigh_l_fk_ctrl", "heel_l_ctrl"):
+    right = left.replace("_l_", "_r_")
+    check("%s mirrors %s" % (right, left), close3(FLIPX @ rest3(ex, left) @ FLIPX, rest3(ex, right)), True)
+# rest stays rest through the followers, both mannequins, every deform bone
+for obj in (mannequin("exact_rest"), ex):
+    if not obj.data.get("fpmp_official_rig"):
+        official_rig.create(obj)
+    bpy.context.view_layer.update()
+    moved = [b.name for b in obj.data.bones if b.use_deform and not b.name.startswith("OR") and
+             ((world(obj, b.name).to_translation() - (obj.matrix_world @ b.matrix_local).to_translation()).length > 1e-3 or
+              not same_rot(world(obj, b.name), obj.matrix_world @ b.matrix_local, 1e-2))]
+    check("%s: rest stays rest" % obj.name, moved, [])
+# a mirrored right control turned the mirrored way moves the right limb as the mirror of the left (Review Focus 5)
+for side, sign in (("l", 1.0), ("r", -1.0)):
+    official_rig.set_switch(ex, "arm_%s_fk_ik_switch" % side, ik=False)
+    pbn = ex.pose.bones["upperarm_%s_fk_ctrl" % side]
+    pbn.rotation_mode = 'XYZ'
+    pbn.rotation_euler = (0.3, 0.0, 0.2 * sign)
+bpy.context.view_layer.update()
+hl, hr = head(ex, "hand_l"), head(ex, "hand_r")
+check("mirrored controls move mirrored limbs", (hl - Vector((-hr.x, hr.y, hr.z))).length < 2e-3, True)
+for side in "lr":
+    ex.pose.bones["upperarm_%s_fk_ctrl" % side].rotation_euler = (0.0, 0.0, 0.0)
+
+# --- Epic's settings
+st = mannequin("settings")
+official_rig.create(st)
+names = [s["name"] for s in data["settings"] if s["name"] in st.pose.bones]
+check("setting controls hidden, no shape", all(st.pose.bones[n].custom_shape is None and
+      [c.name for c in st.data.bones[n].collections] == ["Mechanics"] for n in names), True)
+check("Epic's defaults", [official_rig.setting(st, n) for n in ("leg_l_fk_ik_switch", "arm_l_fk_ik_switch", "arm_l_fk_local",
+      "roll_blend_l_ctrl", "arm_l_stretch_switch")], [1.0, 0.0, 1.0, 1.0, 0.0])
+# stretch: a hand target 1.5 lengths out is reached with stretch on, not off; capped at 2
+official_rig.set_switch(st, "arm_l_fk_ik_switch", ik=True)
+L = (head(st, "lowerarm_l") - head(st, "upperarm_l")).length + (head(st, "hand_l") - head(st, "lowerarm_l")).length
+root = head(st, "upperarm_l").copy()
+direction = (head(st, "hand_l") - root).normalized()
+hand_rot = st.pose.bones["hand_l_ik_ctrl"].matrix.to_3x3().to_4x4()
+for far, stretch, reach in ((1.5, 0.0, False), (1.5, 1.0, True), (2.5, 1.0, False)):
+    official_rig.set_setting(st, "arm_l_stretch_switch", stretch)
+    st.pose.bones["hand_l_ik_ctrl"].matrix = Matrix.Translation(root + direction * L * far) @ hand_rot
+    got = (head(st, "hand_l") - root).length
+    check("stretch %s at %.1f L: reached %s" % (stretch, far, reach), abs(got - L * far) < 2e-3, reach)
+    if far == 2.5:
+        check("stretch capped at 2 L", abs(got - 2.0 * L) < 2e-3, True)
+check("stretching moves bones, never scales them (the hand keeps its size)", round(world(st, "hand_l").to_scale().length, 4),
+      round(Vector((1, 1, 1)).length, 4))
+# softness: the chain scale equals Epic's formula at a sampled distance
+official_rig.set_setting(st, "arm_l_stretch_switch", 0.0)
+official_rig.set_setting(st, "arm_l_softness", 1.0)
+d = 0.995 * L
+st.pose.bones["hand_l_ik_ctrl"].matrix = Matrix.Translation(root + direction * d) @ hand_rot
+bpy.context.view_layer.update()
+sd = L * 1.0 * 0.02
+da = L - sd
+s_want = max(d / (da + sd * (1 - math.exp(-(d - da) / sd))), 1.0)
+check("softness scales the chain as Epic's formula", round(st.pose.bones["OR_MCH_ik_upperarm_l"].scale.y, 4), round(s_want, 4))
+# full reach with softness 0 and stretch off: no stretch (Review Focus 4)
+official_rig.set_setting(st, "arm_l_softness", 0.0)
+st.pose.bones["hand_l_ik_ctrl"].matrix = Matrix.Translation(root + direction * L) @ hand_rot
+bpy.context.view_layer.update()
+check("no softness, no stretch: the chain keeps its length", round(st.pose.bones["OR_MCH_ik_upperarm_l"].scale.y, 6), 1.0)
+# FK local: the arm space keeps the body's rotation (on) or rides the clavicle (off)
+official_rig.set_switch(st, "arm_l_fk_ik_switch", ik=False)
+st.pose.bones["clavicle_l_ctrl"].rotation_mode = 'XYZ'
+for on in (1.0, 0.0):
+    official_rig.set_setting(st, "arm_l_fk_local", on)
+
+    def relative():
+        bpy.context.view_layer.update()
+        return (st.pose.bones["clavicle_l_ctrl"].matrix.inverted() @ st.pose.bones["upperarm_l_fk_ctrl_space"].matrix).to_quaternion()
+    before = relative()
+    st.pose.bones["clavicle_l_ctrl"].rotation_euler = (0.0, 0.0, 0.4)
+    changed = before.rotation_difference(relative()).angle > 0.3
+    st.pose.bones["clavicle_l_ctrl"].rotation_euler = (0.0, 0.0, 0.0)
+    check("FK local %s: the arm space keeps the body's rotation, not the clavicle's" % on, changed, on == 1.0)
+
+# --- foot roll (Epic: heel up to 180, ball up to 40 x roll blend, then the toe tip)
+fr = mannequin("roll")
+official_rig.create(fr)
+check("Epic's rotation channels: foot roll turns only on its yaw (Z)", tuple(fr.pose.bones["foot_roll_l_ctrl"].lock_rotation),
+      (True, True, False))
+
+
+def roll(deg, blend=1.0):
+    """Epic's yaw on the left foot roll control (its local Z, Blender's sign mirrored), and the roll blend."""
+    official_rig.set_setting(fr, "roll_blend_l_ctrl", blend)
+    pbn = fr.pose.bones["foot_roll_l_ctrl"]
+    pbn.rotation_mode = 'XYZ'
+    pbn.rotation_euler = (0.0, 0.0, -math.radians(deg))
+    fr.update_tag()
+    bpy.context.view_layer.update()
+    return {k: math.degrees(fr.pose.bones["OR_MCH_roll_" + n].matrix_basis.to_quaternion().angle)
+            for k, n in (("heel", "heel_l"), ("ball", "foot_bk1_l"), ("tip", "tip_l"))}
+
+
+rest_heel = head(fr, "foot_ik_l").copy()
+for deg, blend, want in ((30, 1.0, (30, 0, 0)), (-30, 1.0, (0, 30, 0)), (-60, 1.0, (0, 40, 20)), (-30, 0.5, (0, 20, 10))):
+    got = roll(deg, blend)
+    check("foot roll %d blend %.1f: heel %d ball %d tip %d" % ((deg, blend) + want),
+          all(abs(got[k] - w) < 0.5 for k, w in zip(("heel", "ball", "tip"), want)), True)
+    if (deg, blend) in ((30, 1.0), (-30, 1.0)):
+        # the turn's sense about the roll axis: Epic's (heel +yaw, ball -yaw) mirrored for Blender's axes (z = -yaw)
+        axis = fr.data.bones["foot_roll_l_ctrl"].matrix_local.to_3x3().col[2].normalized()
+        name = "OR_MCH_roll_heel_l" if deg > 0 else "OR_MCH_roll_foot_bk1_l"
+        q = (fr.pose.bones[name].matrix.to_3x3() @ fr.data.bones[name].matrix_local.to_3x3().inverted()).to_quaternion()
+        a, g = q.to_axis_angle()
+        check("roll %d turns %s by Epic's sense (mirrored)" % (deg, name), round(a.dot(axis) * (1 if g > 0 else -1)),
+              -1 if deg > 0 else 1)
+roll(0.0)
+check("no roll: the foot at rest", (head(fr, "foot_ik_l") - rest_heel).length < 1e-4, True)
+# the right foot rolls as the mirror of the left (its roll axis is the left's mirrored)
+for deg in (30, -30, -60):
+    for side, sign in (("l", 1.0), ("r", -1.0)):
+        fr.pose.bones["foot_roll_%s_ctrl" % side].rotation_mode = 'XYZ'
+        fr.pose.bones["foot_roll_%s_ctrl" % side].rotation_euler = (0.0, 0.0, -math.radians(deg) * sign)
+    fr.update_tag()
+    off = max((head(fr, n + "_l") * Vector((-1, 1, 1)) - head(fr, n + "_r")).length for n in ("foot_ik", "ball", "foot"))
+    check("roll %d: the right foot mirrors the left" % deg, off < 1e-4, True)
+for side in "lr":
+    fr.pose.bones["foot_roll_%s_ctrl" % side].rotation_euler = (0.0, 0.0, 0.0)
+# a missing bone switches off only its own part: no ball, the leg's FK still works and the leg starts in FK
+nb = mannequin("no_ball", drop=("ball_l",))
+official_rig.create(nb)
+check("no ball: the left leg starts in FK", official_rig.setting(nb, "leg_l_fk_ik_switch"), 0.0)
+calf_before = head(nb, "calf_l").copy()
+nb.pose.bones["thigh_l_fk_ctrl"].rotation_mode = 'XYZ'
+nb.pose.bones["thigh_l_fk_ctrl"].rotation_euler = (0.4, 0.0, 0.0)
+check("no ball: the thigh FK control still moves the leg", (head(nb, "calf_l") - calf_before).length > 0.02, True)
+
+# --- spine stretch, neck IK, head stretch
+sn = mannequin("stretchy")
+official_rig.create(sn)
+official_rig.set_switch(sn, "spine_fk_ik_switch", ik=True, match=False)
+rest_len = (head(sn, "spine_05") - head(sn, "spine_01")).length
+for on in (0.0, 1.0):
+    official_rig.set_setting(sn, "spine_stretch_switch", on)
+    sn.pose.bones["chest_ctrl"].location = (0.0, 0.0, 0.0)
+    bpy.context.view_layer.update()
+    sn.pose.bones["chest_ctrl"].matrix = Matrix.Translation((0.0, 0.0, 0.1)) @ sn.pose.bones["chest_ctrl"].matrix
+    grown = (head(sn, "spine_05") - head(sn, "spine_01")).length - rest_len
+    if on:
+        check("spine stretch on: the spine top reaches its point", (head(sn, "spine_05") - head(sn, "OR_MCH_pt_spine_05")).length < 0.01, True)
+    else:
+        check("spine stretch off: the spine keeps its length", grown < 0.01, True)
+sn.pose.bones["chest_ctrl"].location = (0.0, 0.0, 0.0)
+official_rig.set_setting(sn, "spine_stretch_switch", 0.0)
+# neck IK: the neck follows the head control; at rest it is the rest
+neck_rest = world(sn, "neck_02").copy()
+official_rig.set_switch(sn, "neck_fk_ik_switch", ik=True, match=False)
+check("neck IK at rest is the rest", (world(sn, "neck_02").to_translation() - neck_rest.to_translation()).length < 1e-3
+      and same_rot(world(sn, "neck_02"), neck_rest, 1e-2), True)
+sn.pose.bones["head_ik_ctrl"].matrix = Matrix.Translation((0.0, -0.03, -0.03)) @ sn.pose.bones["head_ik_ctrl"].matrix     # within reach
+check("neck IK bends the neck toward the head control", not same_rot(world(sn, "neck_01"), sn.matrix_world @ sn.data.bones["neck_01"].matrix_local, 0.05), True)
+check("neck IK puts the head on its control", (head(sn, "head") - head(sn, "head_ik_ctrl")).length < 2e-3, True)
+sn.pose.bones["head_ik_ctrl"].matrix = Matrix.Translation((0.0, 0.0, 0.08)) @ sn.pose.bones["head_ik_ctrl"].matrix
+check("head stretch off: past the neck's reach the head stays on the neck", (head(sn, "head") - head(sn, "head_ik_ctrl")).length > 0.02, True)
+official_rig.set_setting(sn, "head_stretch", 1.0)
+bpy.context.view_layer.update()
+check("head stretch on: the head reaches its control", (head(sn, "head") - head(sn, "head_ik_ctrl")).length < 0.01, True)
+
+# --- panel operators: a setting, body controls
+from fpmp_baseline.operator import rig_ui  # noqa: E402
+try:
+    rig_ui.register()
+except ValueError:
+    pass                # registered earlier in this run
+pn = mannequin("panel")
+official_rig.create(pn)
+bpy.context.view_layer.objects.active = pn
+bpy.ops.fpmp.official_rig_setting(name="arm_l_stretch_switch", value=1.0)
+check("the setting operator sets the value", official_rig.setting(pn, "arm_l_stretch_switch"), 1.0)
+BODY = [n for n in ("global_ctrl", "root_ctrl", "body_offset_ctrl", "body_ctrl", "hips_ctrl", "neck_01_ctrl", "neck_02_ctrl",
+                    "index_01_l_ctrl") if n in pn.pose.bones]
+bpy.ops.fpmp.official_rig_body_controls(show=False)
+check("body controls hidden", [n for n in BODY if not pn.pose.bones[n].hide], [])
+check("the body controls value follows", official_rig.setting(pn, "ShowBodyControls"), 0.0)
+official_rig.set_switch(pn, "neck_fk_ik_switch", ik=True)
+bpy.ops.fpmp.official_rig_body_controls(show=True)
+check("body controls back, except what the FK/IK state hides", [n for n in BODY if pn.pose.bones[n].hide], ["neck_01_ctrl", "neck_02_ctrl"])
+
+
+class Layout:
+    """Stands in for a panel layout (headless Blender draws no panels): records what the rig's ui() puts in it."""
+    def __init__(self, log):
+        self.log = log
+
+    def column(self, **_):
+        return self
+
+    row = column
+
+    def label(self, text=""):
+        self.log.append(("label", text))
+
+    def operator(self, idname, text="", **_):
+        self.log.append(("op", idname, text))
+        return SimpleNamespace()
+
+    def prop(self, owner, path, text=""):
+        self.log.append(("prop", path, text))
+
+
+drawn = []
+official_rig.ui(Layout(drawn), pn)
+texts = [d[-1] for d in drawn]
+check("the panel draws every part's switches and settings", all(t in texts for t in ("Stretch", "Soft", "Local", "Roll L",
+      "Body Controls", "Bake to Controls")), True)
 
 print("[official_rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

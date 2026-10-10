@@ -234,18 +234,26 @@ lobby_mesh.data.shape_keys.key_blocks["browDownL"].value = 0.5
 lobby_mesh.data.shape_keys.key_blocks["browDownL"].keyframe_insert("value", frame=1)
 mb.add(lobby)
 check("an animated face starts with the board off", [lobby.fpmp_face_board, all(fc.mute for fc in lobby_mesh.data.shape_keys.animation_data.drivers)], [False, True])
-# 4. the board moves, turns and scales where the user wants it; the face stays at rest
+# 4. the drawing can't be picked (drag-selecting knobs never grabs it); a master handle moves, turns and scales the board
 bpy.context.view_layer.update()
-mpb = board_arm.pose.bones["MB_Board"]
-check("board free to move, turn and scale", (any(mpb.lock_location), any(mpb.lock_rotation), any(mpb.lock_scale)), (False, False, False))
-mpb.location, mpb.scale = (0.3, 0.1, -0.2), (2.0, 2.0, 2.0)
-mpb.rotation_mode = 'XYZ'
-mpb.rotation_euler = (0.0, 0.0, 0.7)
+check("the drawing is unselectable", board_arm.data.bones["MB_Board"].hide_select, True)
+check("a master handle carries the board", board_arm.data.bones["MB_Board"].parent.name, "MB_Master")
+master = board_arm.pose.bones["MB_Master"]
+check("the master is selectable and free", (master.bone.hide_select, any(master.lock_location), any(master.lock_rotation),
+                                            any(master.lock_scale), master.custom_shape is not None), (False, False, False, False, True))
+check("the master sits outside the drawing (top left)", master.bone.head_local.z > max(
+    (board_arm.data.bones["MB_Board"].matrix_local @ v.co).z for v in board_arm.pose.bones["MB_Board"].custom_shape.data.vertices), True)
+knob_before = (board_arm.matrix_world @ board_arm.pose.bones["MB_CTRL_L_brow_down"].matrix).to_translation()
+master.location, master.scale = (0.3, 0.1, -0.2), (2.0, 2.0, 2.0)
+master.rotation_mode = 'XYZ'
+master.rotation_euler = (0.0, 0.0, 0.7)
 board_arm.update_tag()
 bpy.context.view_layer.update()
+check("the knobs follow the master", ((board_arm.matrix_world @ board_arm.pose.bones["MB_CTRL_L_brow_down"].matrix).to_translation()
+                                      - knob_before).length > 0.1, True)
 check("moving the board leaves the face at rest", max(abs(k.value) for k in board_mesh.data.shape_keys.key_blocks
                                                      if "CTRL_expressions_" + k.name in data["curves"]), 0.0)
-mpb.location, mpb.scale, mpb.rotation_euler = (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), (0.0, 0.0, 0.0)
+master.location, master.scale, master.rotation_euler = (0.0, 0.0, 0.0), (1.0, 1.0, 1.0), (0.0, 0.0, 0.0)
 board_arm.update_tag()
 # 2. on a plain skeleton (no kit, no Tasty) Select Controls finds the knobs
 from fpmp_baseline.processing.context import rig_style  # noqa: E402

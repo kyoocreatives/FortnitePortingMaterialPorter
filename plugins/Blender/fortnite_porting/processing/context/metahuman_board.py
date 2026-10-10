@@ -118,6 +118,7 @@ def expression(node, var):
 MARK, MESHES, STEP = "fpmp_metahuman_board", "fpmp_metahuman_board_meshes", "fpmp_metahuman_board_step"
 BONES = "fpmp_metahuman_board_bones"         # the board drives the facial bones (RigLogic), not the shape keys
 PREFIX = "MB_"
+MASTER = PREFIX + "Master"      # the handle that moves the board: the drawing itself can't be picked
 OFF_BOARD = (None, "faceAndEyesAimFollowHead")       # Epic's eye-aim frame beside the board: needs its aim solve
 BOARD = PREFIX + "Board"
 ENOUGH = 20         # expression shape keys a head needs to count as MetaHuman-style
@@ -173,10 +174,16 @@ def _bones(obj, data, size, live):
     ups = v[1::2]
     # the drawing's left edge a head length and a half beside the head, its middle a head length above the head bone
     origin = head.head + Vector((head.length * 1.5 - min(v[0::2]) * s, 0.0, head.length - (min(ups) + max(ups)) / 2 * s))
+    master = edit.new(MASTER)        # above the drawing's top left corner
+    master.head = origin + Vector((min(v[0::2]) * s, 0.0, max(ups) * s + size * 0.04))
+    master.tail = master.head + Vector((0.0, size * 0.1, 0.0))
+    master.align_roll(Vector((0.0, 0.0, 1.0)))
+    master.parent, master.use_deform = head, False
     board = edit.new(BOARD)
     board.head, board.tail = origin, origin + Vector((0.0, size * 0.1, 0.0))
     board.align_roll(Vector((0.0, 0.0, 1.0)))
-    board.parent, board.use_deform = head, False
+    board.parent, board.use_deform = master, False
+    board.hide_select = True         # drag-selecting knobs never grabs the drawing
     axes = {c["name"]: c["axes"] for c in data["controls"]}
     for name, (right, up) in places.items():
         # local Z along Epic's y, local X along its x; a mirrored control's bone points out of the board instead
@@ -331,8 +338,15 @@ def add(obj, size=None, dna=None):
     obj.data[STEP] = s
     board = obj.pose.bones[BOARD]
     board.custom_shape, board.use_custom_shape_bone_size = _drawing(s), False
+    board.lock_location = board.lock_rotation = board.lock_scale = (True, True, True)
     rig_shapes.color(board, (0.55, 0.55, 0.6))
     _group(obj, BOARD)
+    handle = obj.pose.bones[MASTER]
+    handle.custom_shape, handle.use_custom_shape_bone_size = rig_shapes.ensure("CR_Square"), False
+    handle.custom_shape_scale_xyz = (size * 0.03,) * 3
+    handle.custom_shape_rotation_euler = (1.5708, 0.0, 0.0)      # the square faces the viewer, as the board does
+    rig_shapes.color(handle, (0.55, 0.55, 0.6))
+    _group(obj, MASTER)
     for c in data["controls"]:
         if PREFIX + c["name"] in obj.pose.bones:
             _knob(obj, c, s)
