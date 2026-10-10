@@ -107,11 +107,29 @@ def _metahuman(ctx):
                 bpy.ops.object.mode_set(mode='OBJECT')
 
 
+def _correctives(ctx):
+    """Fortnite's deform correctives on a skeleton with deform_* bones, tuned by the character's rig dump (any part's meta)."""
+    from ..processing.context import deform_rig, deform_rig_read
+    paths = [m["Meta"]["DeformRig"] for m in ctx.imported_meshes if isinstance(m.get("Meta"), dict) and m["Meta"].get("DeformRig")]
+    for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
+        if not any(b.name.startswith("deform_") for b in skeleton.data.bones):
+            continue
+        try:
+            built = deform_rig.build(skeleton, deform_rig_read.library(), deform_rig_read.tuning(paths), getattr(ctx, "scale", 0.01))
+            if built:
+                Log.info("%s: %d deform correctives" % (skeleton.name, built))
+        except Exception as e:
+            Log.error("%s: deform correctives (%s: %s)" % (skeleton.name, type(e).__name__, e))
+            if bpy.context.mode != 'OBJECT':
+                bpy.ops.object.mode_set(mode='OBJECT')
+
+
 def after_parts(ctx, rig_type, tasty):
     """Shell fur, the character's effects (not played yet, parts not merged) and a rig for what Tasty's doesn't fit."""
     from . import shells
     shells.apply(ctx, [m.get("Mesh") for m in ctx.imported_meshes])
     settle_effects(ctx)
+    _correctives(ctx)
 
     if rig_type == tasty:
         for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:

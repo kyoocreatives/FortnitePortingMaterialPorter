@@ -7,7 +7,7 @@ namespace FortnitePorting.Exporting.Models;
 
 public class BaseMeta
 {
-    
+    public string? DeformRig;     // MP: the character's deform Control Rig dump (deform_rig)
 }
 
 public class ExportMasterSkeletonMeta : BaseMeta

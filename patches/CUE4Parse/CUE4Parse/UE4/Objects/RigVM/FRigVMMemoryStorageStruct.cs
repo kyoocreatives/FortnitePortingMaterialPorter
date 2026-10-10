@@ -1,8 +1,12 @@
 using CUE4Parse.UE4.Assets.Objects;
+using CUE4Parse.UE4.Assets.Exports;
+using CUE4Parse.UE4.Assets.Objects.Properties;
 using System.Collections.Generic;
 using CUE4Parse.UE4.Assets.Objects.Unversioned;
 using CUE4Parse.UE4.Assets.Readers;
+using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.StructUtils;
+using CUE4Parse.UE4.Objects.UObject;
 
 namespace CUE4Parse.UE4.Objects.RigVM;
 
@@ -100,9 +104,23 @@ public class FRigVMMemoryStorageStruct : FInstancedPropertyBag
         EPropertyBagPropertyType.Float => Ar.Read<float>(),
         EPropertyBagPropertyType.Double => Ar.Read<double>(),
         EPropertyBagPropertyType.Name => Ar.ReadFName().Text,
+        EPropertyBagPropertyType.UInt32 => Ar.Read<uint>(),
+        EPropertyBagPropertyType.UInt64 => Ar.Read<ulong>(),
+        EPropertyBagPropertyType.String => Ar.ReadFString(),
+        EPropertyBagPropertyType.Text => new FText(Ar),
+        EPropertyBagPropertyType.Enum => Ar.ReadByte(),     // the bag's enums are uint8-backed: the value's index
         EPropertyBagPropertyType.Struct when desc.ValueTypeObject?.Name == "RigElementKey" => ReadElementKey(Ar),
+        // any other struct as CUE4Parse reads it: native ones by type (Vector, Quat, Transform...), the rest by mappings
+        EPropertyBagPropertyType.Struct when desc.ValueTypeObject?.Name is { } name =>
+            new FScriptStruct(Ar, name, StructOf(desc), ReadType.NORMAL).StructType,
+        EPropertyBagPropertyType.Object or EPropertyBagPropertyType.Class => new FPackageIndex(Ar),
+        EPropertyBagPropertyType.SoftObject or EPropertyBagPropertyType.SoftClass => new FSoftObjectPath(Ar),
         _ => throw new NotSupportedException($"{desc.Name.Text}: {desc.ValueType} {desc.ValueTypeObject?.Name}"),
     };
+
+    // a Blueprint struct (the deform rig's part values) has no mappings: its own asset gives the layout
+    private static UStruct? StructOf(FPropertyBagPropertyDesc desc) =>
+        desc.ValueTypeObject is { IsNull: false } index && index.TryLoad(out UStruct structure) ? structure : null;
 
     // FRigElementKey, an unversioned struct: Type (ERigElementType, a byte), Name
     private static string ReadElementKey(FAssetArchive Ar)

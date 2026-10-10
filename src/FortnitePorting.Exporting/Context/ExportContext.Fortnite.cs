@@ -122,6 +122,7 @@ public partial class ExportContext
                     break;
                 }
             }
+            exportPart.Meta.DeformRig = DeformRig(additionalData);     // MP
         }        
         if (EffectsPick) PartEffects(part, exportPart);     // MP
         return ShellFur(part, exportPart);     // MP

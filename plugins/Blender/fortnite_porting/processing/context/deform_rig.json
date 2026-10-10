@@ -1,0 +1,1394 @@
+{
+ "source": "F_MED_DeformRig_Master_ControlRig_new (graph); runtime = native FRigUnit_FortDeformRig",
+ "parts": [
+  {
+   "bone": "deform_elbow_in_l",
+   "part": "elbow",
+   "base": "deform_elbow_in_base_l",
+   "sources": [
+    [
+     "lowerarm_l",
+     0.4
+    ],
+    [
+     "upperarm_l",
+     0.6
+    ]
+   ],
+   "value": "elbow_in",
+   "mirror": false,
+   "weight": {
+    "type": "angle",
+    "bone": "lowerarm_l",
+    "channel": "Yaw",
+    "from": [
+     15.0,
+     90.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   }
+  },
+  {
+   "bone": "deform_elbow_in_r",
+   "part": "elbow",
+   "base": "deform_elbow_in_base_r",
+   "sources": [
+    [
+     "lowerarm_r",
+     0.4
+    ],
+    [
+     "upperarm_r",
+     0.6
+    ]
+   ],
+   "value": "elbow_in",
+   "mirror": true,
+   "weight": {
+    "type": "angle",
+    "bone": "lowerarm_r",
+    "channel": "Yaw",
+    "from": [
+     15.0,
+     90.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   }
+  },
+  {
+   "bone": "deform_elbow_out_l",
+   "part": "elbow",
+   "base": "deform_elbow_out_base_l",
+   "sources": [
+    [
+     "lowerarm_l",
+     0.3
+    ],
+    [
+     "upperarm_l",
+     0.7
+    ]
+   ],
+   "value": "elbow_out",
+   "mirror": false,
+   "weight": {
+    "type": "angle",
+    "bone": "lowerarm_l",
+    "channel": "Yaw",
+    "from": [
+     15.0,
+     90.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   }
+  },
+  {
+   "bone": "deform_elbow_out_r",
+   "part": "elbow",
+   "base": "deform_elbow_out_base_r",
+   "sources": [
+    [
+     "lowerarm_r",
+     0.3
+    ],
+    [
+     "upperarm_r",
+     0.7
+    ]
+   ],
+   "value": "elbow_out",
+   "mirror": true,
+   "weight": {
+    "type": "angle",
+    "bone": "lowerarm_r",
+    "channel": "Yaw",
+    "from": [
+     15.0,
+     90.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   }
+  },
+  {
+   "bone": "deform_bicep_l",
+   "part": "elbow",
+   "base": null,
+   "sources": [],
+   "value": "bicep",
+   "mirror": false,
+   "weight": {
+    "type": "angle",
+    "bone": "lowerarm_l",
+    "channel": "Yaw",
+    "from": [
+     15.0,
+     90.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   }
+  },
+  {
+   "bone": "deform_bicep_r",
+   "part": "elbow",
+   "base": null,
+   "sources": [],
+   "value": "bicep",
+   "mirror": true,
+   "weight": {
+    "type": "angle",
+    "bone": "lowerarm_r",
+    "channel": "Yaw",
+    "from": [
+     15.0,
+     90.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   }
+  },
+  {
+   "bone": "deform_knee_in_l",
+   "part": "knee",
+   "base": "deform_knee_in_base_l",
+   "sources": [
+    [
+     "calf_l",
+     0.5
+    ],
+    [
+     "thigh_l",
+     0.5
+    ]
+   ],
+   "value": "knee_in",
+   "mirror": false,
+   "weight": {
+    "type": "angle",
+    "bone": "calf_l",
+    "channel": "Yaw",
+    "from": [
+     10.0,
+     100.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   }
+  },
+  {
+   "bone": "deform_knee_in_r",
+   "part": "knee",
+   "base": "deform_knee_in_base_r",
+   "sources": [
+    [
+     "calf_r",
+     0.5
+    ],
+    [
+     "thigh_r",
+     0.5
+    ]
+   ],
+   "value": "knee_in",
+   "mirror": true,
+   "weight": {
+    "type": "angle",
+    "bone": "calf_r",
+    "channel": "Yaw",
+    "from": [
+     10.0,
+     100.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   }
+  },
+  {
+   "bone": "deform_knee_out_l",
+   "part": "knee",
+   "base": "deform_knee_out_base_l",
+   "sources": [
+    [
+     "calf_l",
+     0.1
+    ],
+    [
+     "thigh_l",
+     0.9
+    ]
+   ],
+   "value": "knee_out",
+   "mirror": false,
+   "weight": {
+    "type": "angle",
+    "bone": "calf_l",
+    "channel": "Yaw",
+    "from": [
+     10.0,
+     100.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   }
+  },
+  {
+   "bone": "deform_knee_out_r",
+   "part": "knee",
+   "base": "deform_knee_out_base_r",
+   "sources": [
+    [
+     "calf_r",
+     0.1
+    ],
+    [
+     "thigh_r",
+     0.9
+    ]
+   ],
+   "value": "knee_out",
+   "mirror": true,
+   "weight": {
+    "type": "angle",
+    "bone": "calf_r",
+    "channel": "Yaw",
+    "from": [
+     10.0,
+     100.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   }
+  },
+  {
+   "bone": "deform_upperarm_up_l",
+   "part": "upperarm",
+   "base": "deform_upperarm_up_base_l",
+   "sources": [
+    [
+     "upperarm_twist_01_l",
+     0.5
+    ],
+    [
+     "clavicle_l",
+     0.5
+    ]
+   ],
+   "value": "upperarm_up",
+   "mirror": false,
+   "weight": {
+    "type": "spr",
+    "driver": "upperarm_l",
+    "parent": null,
+    "axis": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     2.5,
+     3.0,
+     3.0,
+     3.0
+    ],
+    "falloff": 0.5,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_upperarm_up_r",
+   "part": "upperarm",
+   "base": "deform_upperarm_up_base_r",
+   "sources": [
+    [
+     "upperarm_twist_01_r",
+     0.5
+    ],
+    [
+     "clavicle_r",
+     0.5
+    ]
+   ],
+   "value": "upperarm_up",
+   "mirror": true,
+   "weight": {
+    "type": "spr",
+    "driver": "upperarm_r",
+    "parent": null,
+    "axis": [
+     -1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     180.0,
+     0.0,
+     180.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     2.5,
+     3.0,
+     3.0,
+     3.0
+    ],
+    "falloff": 0.5,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": true
+   }
+  },
+  {
+   "bone": "deform_upperarm_fr_l",
+   "part": "upperarm",
+   "base": "deform_upperarm_fr_base_l",
+   "sources": [
+    [
+     "upperarm_twist_01_l",
+     0.3
+    ],
+    [
+     "clavicle_l",
+     0.7
+    ]
+   ],
+   "value": "upperarm_fwd_fr",
+   "mirror": false,
+   "weight": {
+    "type": "spr",
+    "driver": "upperarm_l",
+    "parent": null,
+    "axis": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     0.5,
+     3.0,
+     1.5,
+     1.5
+    ],
+    "falloff": 0.4,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_upperarm_bk_l",
+   "part": "upperarm",
+   "base": null,
+   "sources": [],
+   "value": "upperarm_fwd_bk",
+   "mirror": false,
+   "weight": {
+    "type": "spr",
+    "driver": "upperarm_l",
+    "parent": null,
+    "axis": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     0.5,
+     3.0,
+     1.5,
+     1.5
+    ],
+    "falloff": 0.4,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_upperarm_fr_r",
+   "part": "upperarm",
+   "base": "deform_upperarm_fr_base_r",
+   "sources": [
+    [
+     "upperarm_twist_01_r",
+     0.3
+    ],
+    [
+     "clavicle_r",
+     0.7
+    ]
+   ],
+   "value": "upperarm_fwd_fr",
+   "mirror": true,
+   "weight": {
+    "type": "spr",
+    "driver": "upperarm_r",
+    "parent": null,
+    "axis": [
+     -1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     90.0,
+     180.0,
+     180.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     0.5,
+     3.0,
+     1.5,
+     1.5
+    ],
+    "falloff": 0.4,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": true,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_upperarm_bk_r",
+   "part": "upperarm",
+   "base": null,
+   "sources": [],
+   "value": "upperarm_fwd_bk",
+   "mirror": true,
+   "weight": {
+    "type": "spr",
+    "driver": "upperarm_r",
+    "parent": null,
+    "axis": [
+     -1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     90.0,
+     180.0,
+     180.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     0.5,
+     3.0,
+     1.5,
+     1.5
+    ],
+    "falloff": 0.4,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": true,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_upperarm_bk_l",
+   "part": "upperarm",
+   "base": "deform_upperarm_bk_base_l",
+   "sources": [
+    [
+     "upperarm_twist_01_l",
+     0.3
+    ],
+    [
+     "clavicle_l",
+     0.7
+    ]
+   ],
+   "value": "upperarm_bk",
+   "mirror": false,
+   "weight": {
+    "type": "spr",
+    "driver": "upperarm_l",
+    "parent": null,
+    "axis": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     90.0,
+     0.0,
+     180.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     3.0,
+     1.0,
+     1.5,
+     1.5
+    ],
+    "falloff": 0.4,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_upperarm_bk_r",
+   "part": "upperarm",
+   "base": "deform_upperarm_bk_base_r",
+   "sources": [
+    [
+     "upperarm_twist_01_r",
+     0.3
+    ],
+    [
+     "clavicle_r",
+     0.7
+    ]
+   ],
+   "value": "upperarm_bk",
+   "mirror": true,
+   "weight": {
+    "type": "spr",
+    "driver": "upperarm_r",
+    "parent": null,
+    "axis": [
+     -1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     3.0,
+     1.0,
+     1.5,
+     1.5
+    ],
+    "falloff": 0.4,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": true
+   }
+  },
+  {
+   "bone": "deform_groin_l",
+   "part": "groinglue",
+   "base": "deform_groin_base_l",
+   "sources": [
+    [
+     "thigh_l",
+     0.7
+    ],
+    [
+     "pelvis",
+     0.3
+    ]
+   ],
+   "value": "groin",
+   "mirror": false,
+   "weight": {
+    "type": "spr",
+    "driver": "thigh_l",
+    "parent": null,
+    "axis": [
+     -1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     3.5,
+     0.5,
+     3.0,
+     3.0
+    ],
+    "falloff": 0.45,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_groin_r",
+   "part": "groinglue",
+   "base": "deform_groin_base_r",
+   "sources": [
+    [
+     "thigh_r",
+     0.7
+    ],
+    [
+     "pelvis",
+     0.3
+    ]
+   ],
+   "value": "groin",
+   "mirror": true,
+   "weight": {
+    "type": "spr",
+    "driver": "thigh_r",
+    "parent": null,
+    "axis": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     -90.0,
+     0.0,
+     0.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     3.5,
+     0.5,
+     3.0,
+     3.0
+    ],
+    "falloff": 0.45,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": true,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_glute_l",
+   "part": "groinglue",
+   "base": "deform_glute_base_l",
+   "sources": [
+    [
+     "thigh_l",
+     0.25
+    ],
+    [
+     "pelvis",
+     0.75
+    ]
+   ],
+   "value": "glute",
+   "mirror": false,
+   "weight": {
+    "type": "spr",
+    "driver": "thigh_l",
+    "parent": null,
+    "axis": [
+     -1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     3.5,
+     0.5,
+     3.0,
+     3.0
+    ],
+    "falloff": 0.45,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_glute_r",
+   "part": "groinglue",
+   "base": "deform_glute_base_r",
+   "sources": [
+    [
+     "thigh_r",
+     0.25
+    ],
+    [
+     "pelvis",
+     0.75
+    ]
+   ],
+   "value": "glute",
+   "mirror": true,
+   "weight": {
+    "type": "spr",
+    "driver": "thigh_r",
+    "parent": null,
+    "axis": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     -90.0,
+     0.0,
+     0.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     3.5,
+     0.5,
+     3.0,
+     3.0
+    ],
+    "falloff": 0.45,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": true,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_pec_l",
+   "part": "pec",
+   "base": null,
+   "sources": [],
+   "value": "pec",
+   "mirror": false,
+   "weight": {
+    "type": "angle",
+    "bone": "clavicle_l",
+    "channel": "Pitch",
+    "from": [
+     0.0,
+     30.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   },
+   "aim": {
+    "bone": "deform_pec_aim_l",
+    "primary": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "primary_target": "upperarm_l",
+    "secondary": [
+     0.0,
+     -1.0,
+     0.0
+    ],
+    "secondary_target": "spine_04"
+   },
+   "follow_x": "upperarm_l"
+  },
+  {
+   "bone": "deform_pec_r",
+   "part": "pec",
+   "base": null,
+   "sources": [],
+   "value": "pec",
+   "mirror": true,
+   "weight": {
+    "type": "angle",
+    "bone": "clavicle_r",
+    "channel": "Pitch",
+    "from": [
+     0.0,
+     30.0
+    ],
+    "to": [
+     0,
+     1
+    ],
+    "clamp": true
+   },
+   "aim": {
+    "bone": "deform_pec_aim_r",
+    "primary": [
+     -1.0,
+     0.0,
+     0.0
+    ],
+    "primary_target": "upperarm_r",
+    "secondary": [
+     0.0,
+     1.0,
+     0.0
+    ],
+    "secondary_target": "spine_04"
+   },
+   "follow_x": "upperarm_r"
+  },
+  {
+   "bone": "deform_wrist_up_l",
+   "part": "wrist",
+   "base": "deform_wrist_up_base_l",
+   "sources": [
+    [
+     "hand_l",
+     0.4
+    ],
+    [
+     "lowerarm_twist_01_l",
+     0.6
+    ]
+   ],
+   "value": "wrist_up",
+   "mirror": false,
+   "weight": {
+    "type": "spr",
+    "driver": "hand_l",
+    "parent": "lowerarm_twist_01_l",
+    "axis": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     90.0,
+     0.0,
+     0.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     0.5,
+     3.5,
+     3.0,
+     3.0
+    ],
+    "falloff": 0.45,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_wrist_up_r",
+   "part": "wrist",
+   "base": "deform_wrist_up_base_r",
+   "sources": [
+    [
+     "hand_r",
+     0.4
+    ],
+    [
+     "lowerarm_twist_01_r",
+     0.6
+    ]
+   ],
+   "value": "wrist_up",
+   "mirror": true,
+   "weight": {
+    "type": "spr",
+    "driver": "hand_r",
+    "parent": "lowerarm_twist_01_r",
+    "axis": [
+     -1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     90.0,
+     0.0,
+     180.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     0.5,
+     3.5,
+     3.0,
+     3.0
+    ],
+    "falloff": 0.45,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": true
+   }
+  },
+  {
+   "bone": "deform_wrist_dn_l",
+   "part": "wrist",
+   "base": "deform_wrist_dn_base_l",
+   "sources": [
+    [
+     "hand_l",
+     0.4
+    ],
+    [
+     "lowerarm_twist_01_l",
+     0.6
+    ]
+   ],
+   "value": "wrist_dn",
+   "mirror": false,
+   "weight": {
+    "type": "spr",
+    "driver": "hand_l",
+    "parent": "lowerarm_twist_01_l",
+    "axis": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     -90.0,
+     0.0,
+     0.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     1.0,
+     4.0,
+     3.0,
+     3.0
+    ],
+    "falloff": 0.4,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_wrist_dn_r",
+   "part": "wrist",
+   "base": "deform_wrist_dn_base_r",
+   "sources": [
+    [
+     "hand_r",
+     0.4
+    ],
+    [
+     "lowerarm_twist_01_r",
+     0.6
+    ]
+   ],
+   "value": "wrist_dn",
+   "mirror": true,
+   "weight": {
+    "type": "spr",
+    "driver": "hand_r",
+    "parent": "lowerarm_twist_01_r",
+    "axis": [
+     -1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     -90.0,
+     0.0,
+     190.0
+    ],
+    "region": 0.1,
+    "region_scale": [
+     1.0,
+     4.0,
+     3.0,
+     3.0
+    ],
+    "falloff": 0.4,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": true
+   }
+  },
+  {
+   "bone": "deform_lat_l",
+   "part": "lat",
+   "base": null,
+   "sources": [],
+   "value": "lat",
+   "mirror": false,
+   "weight": {
+    "type": "spr",
+    "driver": "upperarm_l",
+    "parent": "spine_03",
+    "axis": [
+     1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     0.0,
+     -150.0,
+     0.0
+    ],
+    "region": 0.05,
+    "region_scale": [
+     4.0,
+     0.5,
+     1.5,
+     4.0
+    ],
+    "falloff": 0.2,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": false
+   }
+  },
+  {
+   "bone": "deform_lat_r",
+   "part": "lat",
+   "base": null,
+   "sources": [],
+   "value": "lat",
+   "mirror": true,
+   "weight": {
+    "type": "spr",
+    "driver": "upperarm_r",
+    "parent": "spine_03",
+    "axis": [
+     -1.0,
+     0.0,
+     0.0
+    ],
+    "offset": [
+     0.0,
+     30.0,
+     0.0
+    ],
+    "region": 0.05,
+    "region_scale": [
+     4.0,
+     0.5,
+     1.5,
+     4.0
+    ],
+    "falloff": 0.2,
+    "falloff_scale": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "flip_width": false,
+    "flip_height": true
+   }
+  }
+ ],
+ "values": {
+  "upperarm_up": {
+   "t": [
+    0.0,
+    0.0,
+    8.0
+   ],
+   "s": [
+    0.7,
+    1.0,
+    1.0
+   ]
+  },
+  "upperarm_fwd_fr": {
+   "t": [
+    0.0,
+    10.0,
+    0.0
+   ],
+   "s": [
+    0.5,
+    1.0,
+    1.0
+   ]
+  },
+  "upperarm_fwd_bk": {
+   "t": [
+    0.0,
+    -6.0,
+    0.0
+   ],
+   "s": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  "upperarm_bk": {
+   "t": [
+    0.0,
+    -4.0,
+    0.0
+   ],
+   "s": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  "elbow_in": {
+   "t": [
+    0.0,
+    9.0,
+    0.0
+   ],
+   "s": [
+    0.5,
+    1.0,
+    1.0
+   ]
+  },
+  "elbow_out": {
+   "t": [
+    0.0,
+    -2.0,
+    0.0
+   ],
+   "s": [
+    0.75,
+    1.0,
+    1.0
+   ]
+  },
+  "wrist_up": {
+   "t": [
+    0.0,
+    9.0,
+    0.0
+   ],
+   "s": [
+    0.7,
+    1.0,
+    1.0
+   ]
+  },
+  "wrist_dn": {
+   "t": [
+    0.0,
+    -6.0,
+    0.0
+   ],
+   "s": [
+    0.7,
+    1.0,
+    1.0
+   ]
+  },
+  "groin": {
+   "t": [
+    -3.0,
+    12.0,
+    0.0
+   ],
+   "s": [
+    0.5,
+    1.0,
+    1.0
+   ]
+  },
+  "glute": {
+   "t": [
+    -7.0,
+    0.0,
+    0.0
+   ],
+   "s": [
+    1.0,
+    1.5,
+    1.0
+   ]
+  },
+  "knee_in": {
+   "t": [
+    0.0,
+    -12.0,
+    0.0
+   ],
+   "s": [
+    0.5,
+    1.0,
+    1.0
+   ]
+  },
+  "knee_out": {
+   "t": [
+    0.0,
+    3.0,
+    0.0
+   ],
+   "s": [
+    1.5,
+    1.0,
+    1.5
+   ]
+  },
+  "bicep": {
+   "t": [
+    -3.0,
+    4.0,
+    0.0
+   ],
+   "s": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  "lat": {
+   "t": [
+    0.0,
+    0.0,
+    10.0
+   ],
+   "s": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  },
+  "pec": {
+   "t": [
+    0.0,
+    2.0,
+    3.0
+   ],
+   "s": [
+    1.0,
+    1.0,
+    1.0
+   ]
+  }
+ },
+ "switches": {
+  "upperarm": true,
+  "elbow": true,
+  "wrist": true,
+  "groin": true,
+  "glute": true,
+  "knee": true,
+  "pec": true,
+  "bicep": false,
+  "lat": false
+ }
+}
