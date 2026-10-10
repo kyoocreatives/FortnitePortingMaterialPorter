@@ -106,18 +106,39 @@ check("one driver per decoded key", made, len(KEYS))
 drivers = mesh.data.shape_keys.animation_data.drivers
 check("non-face keys left alone", drivers.find('key_blocks["shoeMorphA"].value') is None, True)
 check("board bone", "MB_Board" in arm.data.bones, True)
-outline = arm.pose.bones["MB_Board"].custom_shape
+drawing = arm.pose.bones["MB_Board"].custom_shape
+on_board = {c["name"] for c in data["controls"] if c["kind"] in ("slider", "box") and c["group"] not in (None, "faceAndEyesAimFollowHead")}
 read = {c for k in KEYS for c, _ in controls_of(data["curves"]["CTRL_expressions_" + k], [])}
 knobs = {b.name[3:] for b in arm.data.bones if b.name.startswith("MB_CTRL")}
-check("only knobs the head's keys read (FP ships a third of Epic's curves)", knobs, read)
-n_sliders = sum(c["kind"] == "slider" and c["name"] in read for c in data["controls"])
-n_boxes = sum(c["kind"] == "box" and c["name"] in read for c in data["controls"])
-check("board outline: frame, a track per slider, a box per box", outline is not None and len(outline.data.edges) == 4 + n_sliders + 4 * n_boxes, True)
-xs = [v.co.x for v in outline.data.vertices]
+check("only board knobs the head's keys read (FP ships a third of Epic's curves)", knobs, read & on_board)
+shape = mb.load_drawing()
+check("the board is Epic's own drawing (faceboard_2x)", drawing is not None and len(drawing.data.vertices) == len(shape["verts"]) // 2
+      and len(drawing.data.polygons) == len(shape["faces"]), True)
+xs = [v.co.x for v in drawing.data.vertices]
 check("board at least 4 head lengths wide", max(xs) - min(xs) >= 4 * arm.data.bones["head"].length, True)
-check("knobs in Controls or the board group", any("MB_CTRL_L_brow_down" in c.bones for c in arm.data.collections), True)
-check("board bone in the knobs' group", [c.name for c in arm.data.collections if "MB_Board" in c.bones] ==
-      [c.name for c in arm.data.collections if "MB_CTRL_L_brow_down" in c.bones], True)
+# every knob sits on Epic's drawing (its track or box), in the board bone's frame
+board_bone = arm.data.bones["MB_Board"]
+step = mb.step(arm)
+pts = [(shape["verts"][i], shape["verts"][i + 1]) for i in range(0, len(shape["verts"]), 2)]
+by_name = {c["name"]: c for c in data["controls"]}
+off = []
+for name in knobs:
+    at = board_bone.matrix_local.inverted() @ arm.data.bones["MB_" + name].head_local
+    x, up = at.x / step, at.z / step
+    if min((x - px) ** 2 + (up - py) ** 2 for px, py in pts) > 0.7 ** 2:
+        off.append(name)
+check("every knob sits on Epic's drawing %s" % off, off, [])
+knob = arm.pose.bones["MB_CTRL_L_brow_down"]
+check("knobs are Epic's spheres", knob.custom_shape is not None and len(knob.custom_shape.data.polygons) > 0, True)
+check("knobs in Epic's colour", tuple(knob.color.custom.normal), (1.0, 1.0, 0.0))
+check("knob at Epic's size", round(knob.custom_shape_scale_xyz[0] * (knob.custom_shape.dimensions.x / 2), 6),
+      round(by_name["CTRL_L_brow_down"]["radius"] * step, 6))
+# Epic's groups: a sub-collection per face area under the board's group
+groups = [c for c in arm.data.collections_all if "MB_CTRL_L_brow_down" in c.bones]
+check("knob in its Epic group", [c.name for c in groups], ["Face Brow"])
+check("Epic groups sit under the board's group", groups[0].parent is not None and "MB_Board" in groups[0].parent.bones, True)
+mouth = sorted(n for n in knobs if by_name[n]["group"] == "mouth")[0]
+check("every area grouped as Epic's (%s)" % mouth, [c.name for c in arm.data.collections_all if "MB_" + mouth in c.bones], ["Face Mouth"])
 bpy.context.view_layer.update()
 check("rest leaves every key at 0", max(abs(k.value) for k in mesh.data.shape_keys.key_blocks if k.name in KEYS), 0.0)
 # a knob moves its key as the formula says (browDownL: one slider)

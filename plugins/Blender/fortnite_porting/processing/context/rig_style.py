@@ -93,4 +93,5 @@ def controls(obj):
     """The pose bones an animator poses: in Controls, Secondary, FK (or an older rig's control groups, or Tasty's)."""
     names = TASTY_CONTROLS if obj.data.get("is_tasty") else COLLECTIONS[:2] + (FK,) + LEGACY_CONTROLS + ("Face Board",)
     shown = [obj.data.collections[n] for n in names if n in obj.data.collections]
-    return [pb for pb in obj.pose.bones if any(pb.name in c.bones for c in shown)]
+    names = {b.name for c in shown for b in c.bones_recursive}        # the face board's areas sit under its group
+    return [pb for pb in obj.pose.bones if pb.name in names]

@@ -1,7 +1,9 @@
 """Epic's MetaHuman face board (Face_ControlBoard_CtrlRig) on FP's MetaHuman-style heads: its controls drive the head's
 expression shape keys through Epic's own control-to-curve mapping, decoded once into metahuman_board.json (spec
 2026-10-09-metahuman-board). The face's bones (MetaHuman's RigLogic) aren't driven."""
+import gzip
 import json
+import math
 import os
 
 import bpy
@@ -9,7 +11,8 @@ from mathutils import Vector
 
 from . import face_board, rig_shapes, rig_style
 
-DATA =os.path.join(os.path.dirname(__file__), "metahuman_board.json")
+DATA = os.path.join(os.path.dirname(__file__), "metahuman_board.json")
+DRAWING = os.path.join(os.path.dirname(__file__), "metahuman_board_shape.json.gz")      # Epic's faceboard_2x gizmo
 _cache = {}
 
 
@@ -18,6 +21,14 @@ def load():
         with open(DATA, encoding="utf-8") as f:
             _cache["data"] = json.load(f)
     return _cache["data"]
+
+
+def load_drawing():
+    """Epic's board drawing: flat [right, up] pairs in board units (cm from the board control), and its faces."""
+    if "drawing" not in _cache:
+        with gzip.open(DRAWING, "rt", encoding="utf-8") as f:
+            _cache["drawing"] = json.load(f)
+    return _cache["drawing"]
 
 
 def _clamp(v, lo, hi):
@@ -106,6 +117,7 @@ def expression(node, var):
 # --- the board in Blender
 MARK, MESHES, STEP = "fpmp_metahuman_board", "fpmp_metahuman_board_meshes", "fpmp_metahuman_board_step"
 PREFIX = "MB_"
+OFF_BOARD = (None, "faceAndEyesAimFollowHead")       # Epic's eye-aim frame beside the board: needs its aim solve
 BOARD = PREFIX + "Board"
 ENOUGH = 20         # expression shape keys a head needs to count as MetaHuman-style
 
@@ -142,12 +154,12 @@ def _read(node, out):
 
 
 def _layout(data, size, live):
-    """(metres per board unit, each knob's place on the board: right and up from the board bone, in metres)."""
-    knobs = [c for c in data["controls"] if c["kind"] in ("slider", "box") and c["name"] in live]
-    xs, ys = [c["position"][0] for c in knobs], [c["position"][1] for c in knobs]
-    s = size / max(max(xs) - min(xs), max(ys) - min(ys), 1e-6)
-    middle = (min(xs) + max(xs)) / 2
-    return s, {c["name"]: ((c["position"][0] - middle) * s, (c["position"][1] - min(ys)) * s) for c in knobs}
+    """(metres per board unit, each knob's place: right and up from the board control, in metres). `size`: the
+    drawing's width in metres."""
+    xs = load_drawing()["verts"][0::2]
+    s = size / (max(xs) - min(xs))
+    return s, {c["name"]: (c["position"][0] * s, c["position"][1] * s) for c in data["controls"]
+               if c["kind"] in ("slider", "box") and c["name"] in live and c["group"] not in OFF_BOARD}
 
 
 def _bones(obj, data, size, live):
@@ -156,7 +168,10 @@ def _bones(obj, data, size, live):
     edit = obj.data.edit_bones
     head = edit["head"]
     s, places = _layout(data, size, live)
-    origin = head.head + Vector((size * 0.8, 0.0, -size * 0.5))
+    v = load_drawing()["verts"]
+    ups = v[1::2]
+    # the drawing's left edge a head length and a half beside the head, its middle a head length above the head bone
+    origin = head.head + Vector((head.length * 1.5 - min(v[0::2]) * s, 0.0, head.length - (min(ups) + max(ups)) / 2 * s))
     board = edit.new(BOARD)
     board.head, board.tail = origin, origin + Vector((0.0, size * 0.1, 0.0))
     board.align_roll(Vector((0.0, 0.0, 1.0)))
@@ -192,49 +207,39 @@ def unit(obj, control, axis):
     return _length(c["axes"][axis]) * step(obj)
 
 
-def _outline(data, size, live):
-    """The board's drawing (its bone's custom shape): a frame around the knobs, a track per slider over its range,
-    a rectangle per 2D box over its ranges."""
-    s, places = _layout(data, size, live)
-    verts, edges = [], []
-
-    def loop(points, closed):
-        start = len(verts)
-        verts.extend(points)
-        edges.extend([(start + i, start + (i + 1) % len(points)) for i in range(len(points) if closed else len(points) - 1)])
-
-    rights = [p[0] for p in places.values()]
-    ups = [p[1] for p in places.values()]
-    pad = size * 0.06
-    loop([(min(rights) - pad, 0.0, min(ups) - pad), (max(rights) + pad, 0.0, min(ups) - pad),
-          (max(rights) + pad, 0.0, max(ups) + pad), (min(rights) - pad, 0.0, max(ups) + pad)], True)
-    def at(right, up, ax, ay, x, y):
-        return (right + (ax[0] * x + ay[0] * y) * s, 0.0, up + (ax[1] * x + ay[1] * y) * s)
-
-    for c in data["controls"]:
-        if c["name"] not in places:
-            continue
-        right, up = places[c["name"]]
-        ax, ay = c["axes"]["x"], c["axes"]["y"]
-        if c["kind"] == "slider":
-            lo, hi = c["limits"]["y"]
-            loop([at(right, up, ax, ay, 0.0, lo), at(right, up, ax, ay, 0.0, hi)], False)
-        else:
-            (x0, x1), (y0, y1) = c["limits"]["x"], c["limits"]["y"]
-            loop([at(right, up, ax, ay, x0, y0), at(right, up, ax, ay, x1, y0),
-                  at(right, up, ax, ay, x1, y1), at(right, up, ax, ay, x0, y1)], True)
+def _drawing(s):
+    """Epic's board drawing as the board bone's custom shape, at `s` metres per board unit."""
+    d = load_drawing()
+    v = d["verts"]
     mesh = bpy.data.meshes.new("MB_BoardShape")
-    mesh.from_pydata(verts, edges, [])
+    mesh.from_pydata([(v[i] * s, 0.0, v[i + 1] * s) for i in range(0, len(v), 2)], d["edges"], d["faces"])
     return bpy.data.objects.new("MB_BoardShape", mesh)
+
+
+def _sphere():
+    """Epic's knob gizmo (a solid sphere), radius 1."""
+    obj = bpy.data.objects.get("MB_Knob")
+    if obj is not None and obj.type == 'MESH':
+        return obj
+    rings, segments = 6, 12
+    verts = [(0.0, 0.0, 1.0)] + [(math.sin(math.pi * r / rings) * math.cos(2 * math.pi * k / segments),
+                                  math.sin(math.pi * r / rings) * math.sin(2 * math.pi * k / segments),
+                                  math.cos(math.pi * r / rings)) for r in range(1, rings) for k in range(segments)] + [(0.0, 0.0, -1.0)]
+    ring = lambda r, k: 1 + (r - 1) * segments + k % segments
+    faces = [(0, ring(1, k), ring(1, k + 1)) for k in range(segments)]
+    faces += [(ring(r, k), ring(r + 1, k), ring(r + 1, k + 1), ring(r, k + 1)) for r in range(1, rings - 1) for k in range(segments)]
+    faces += [(len(verts) - 1, ring(rings - 1, k + 1), ring(rings - 1, k)) for k in range(segments)]
+    mesh = bpy.data.meshes.new("MB_Knob")
+    mesh.from_pydata(verts, [], faces)
+    return bpy.data.objects.new("MB_Knob", mesh)
 
 
 def _knob(obj, c, s):
     pb = obj.pose.bones[PREFIX + c["name"]]
-    pb.custom_shape = rig_shapes.ensure("CR_Circle")
+    pb.custom_shape = _sphere()
     pb.use_custom_shape_bone_size = False
-    pb.custom_shape_scale_xyz = (s * 0.35,) * 3
-    pb.custom_shape_rotation_euler = (1.5708, 0.0, 0.0)        # the circle faces the viewer
-    rig_shapes.color(pb, (1.0, 0.85, 0.1))
+    pb.custom_shape_scale_xyz = (c["radius"] * s,) * 3
+    rig_shapes.color(pb, tuple(c["color"]))
     limits = c["limits"]
     pb.lock_location = (not limits.get("x"), True, not limits.get("y"))
     pb.lock_rotation = pb.lock_scale = (True, True, True)
@@ -247,23 +252,31 @@ def _knob(obj, c, s):
         setattr(limit, "use_max_" + attr, True)
         setattr(limit, "min_" + attr, lo * reach)
         setattr(limit, "max_" + attr, hi * reach)
-    _group(obj, pb.name)
+    area = "Face " + c["group"][0].upper() + c["group"][1:]      # Epic's GRP_<area>GUI
+    group = obj.data.collections_all.get(area) or obj.data.collections.new(area, parent=_group(obj))
+    group.assign(obj.data.bones[pb.name])
 
 
-def _group(obj, name):
-    """Into the kit's Controls, or the face board's own group on a rig without the kit's."""
+def _group(obj, name=None):
+    """The kit's Controls, or the face board's own group on a rig without the kit's (`name` goes in it)."""
     if "Controls" in obj.data.collections:
-        rig_style.assign(obj.data, name, "Controls")
-    else:
-        (obj.data.collections.get(face_board.GROUP) or obj.data.collections.new(face_board.GROUP)).assign(obj.data.bones[name])
+        if name:
+            rig_style.assign(obj.data, name, "Controls")
+        return obj.data.collections["Controls"]
+    group = obj.data.collections.get(face_board.GROUP) or obj.data.collections.new(face_board.GROUP)
+    if name:
+        group.assign(obj.data.bones[name])
+    return group
 
 
-def _drive(obj, key, node, s, axes):
+def _drive(obj, key, node, s, axes, built):
     driver = key.driver_add("value").driver
     driver.type = 'SCRIPTED'
     used = {}
 
     def var(control, axis):
+        if control not in built:
+            return "0.0"        # a control off the board (Epic's eye-aim frame)
         if (control, axis) not in used:
             used[(control, axis)] = "v%d" % len(used)
             v = driver.variables.new()
@@ -292,7 +305,7 @@ def add(obj, size=None):
     bpy.ops.object.mode_set(mode='POSE')
     obj.data[STEP] = s
     board = obj.pose.bones[BOARD]
-    board.custom_shape, board.use_custom_shape_bone_size = _outline(data, size, live), False
+    board.custom_shape, board.use_custom_shape_bone_size = _drawing(s), False
     rig_shapes.color(board, (0.55, 0.55, 0.6))
     _group(obj, BOARD)
     for c in data["controls"]:
@@ -300,7 +313,8 @@ def add(obj, size=None):
             _knob(obj, c, s)
     bpy.ops.object.mode_set(mode='OBJECT')
     for _, key in keys:
-        _drive(obj, key, data["curves"]["CTRL_expressions_" + key.name], s, {c["name"]: c["axes"] for c in data["controls"]})
+        _drive(obj, key, data["curves"]["CTRL_expressions_" + key.name], s, {c["name"]: c["axes"] for c in data["controls"]},
+               {b.name[len(PREFIX):] for b in obj.data.bones if b.name.startswith(PREFIX)})
     obj.data[MARK] = True
     obj.data[MESHES] = sorted({m.name for m, _ in keys})
     if any(m.data.shape_keys.animation_data and (m.data.shape_keys.animation_data.action or
