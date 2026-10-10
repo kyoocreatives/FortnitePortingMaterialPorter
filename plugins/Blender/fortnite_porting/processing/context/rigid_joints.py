@@ -360,12 +360,12 @@ class Joint:
     def _push(self, b0, b1, row, lam, linear):
         if b0.dynamic:
             if linear:
-                b0.dp = b0.dp + row.axis * (self.inv_m0 * lam)
-            b0.dq = b0.dq + row.ia0 * lam
+                b0.dp += row.axis * (self.inv_m0 * lam)
+            b0.dq += row.ia0 * lam
         if b1.dynamic:
             if linear:
-                b1.dp = b1.dp - row.axis * (self.inv_m1 * lam)
-            b1.dq = b1.dq - row.ia1 * lam
+                b1.dp -= row.axis * (self.inv_m1 * lam)
+            b1.dq -= row.ia1 * lam
 
     def _apply_linear(self, b0, b1):
         rows = self.lin_rows

@@ -336,6 +336,7 @@ check("a later node on the parent keeps the child's simulation", min(kp.co[1] fo
 
 # --- live preview ---
 from fpmp_baseline.processing.context import dynamics_live as dl  # noqa: E402
+from fpmp_baseline.processing.context.dynamics_runner import Runner  # noqa: E402
 
 live = armature("live")
 key_arm(live, [(0, 0.0), (10, 60.0), (30, 60.0)])
@@ -377,6 +378,56 @@ drawn = []
 db.ui(Row(drawn), live)
 check("the panel row offers Live", drawn, ["Dynamics", "Live", "Simulate"])
 bpy.ops.fpmp.dynamics_live(on=False)
+kept_nodes = live.data[db.KEY]
+nodes_ = json.loads(kept_nodes)
+nodes_["nodes"].append(dict(rnode_states := {"kind": "rigid_body", "states": {"OnGround_Standing": {}, "EmoteOrMelee": {}}, "physics": {"bodies": []}}))
+live.data[db.KEY] = json.dumps(nodes_)
+check("the outfit's states listed", db.states(live), ["OnGround_Standing", "EmoteOrMelee"])
+bpy.context.view_layer.objects.active = live
+check("the state operator sets it", (bpy.ops.fpmp.dynamics_state(state="EmoteOrMelee"), live.data.get("fpmp_dynamics_state")), ({'FINISHED'}, "EmoteOrMelee"))
+live.data[db.KEY] = kept_nodes
+
+# --- live without toggling ---
+check("plain dyn bones need no toggling", dl.needs_toggle(Runner(live)), set())
+copied = armature("copied")
+key_arm(copied, [(0, 0.0), (10, 60.0), (30, 60.0)])
+store(copied, tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=25.0, ang_damping=0.9,
+                       body={"ang_min": [-30.0] * 3, "ang_max": [30.0] * 3, "target": [1.0, 0.0, 0.0]}))
+lock = copied.pose.bones["dyn_tag"].constraints.new('LIMIT_ROTATION')
+lock.use_limit_x = lock.use_limit_y = lock.use_limit_z = True
+lock.owner_space = 'LOCAL'
+db.bake(copied)
+baked = [fc for fc in db._curves(db._track(copied).strips[0].action) if fc.data_path.endswith("rotation_quaternion")]
+want = tuple(fc.evaluate(20) for fc in sorted(baked, key=lambda fc: fc.array_index))
+check("a bone with its own constraints can't be read from its basis alone", dl.needs_toggle(Runner(copied)), {"dyn_tag"})
+dl.set_live(copied, True)
+check("live reads it from an input twin instead of toggling", (dl._states[copied.name_full]["toggled"],
+                                                               "DYNIN_dyn_tag" in copied.data.bones), (set(), True))
+for f in range(0, 21):
+    scene.frame_set(f)
+check("and live still matches the bake there", tuple(copied.pose.bones["DYN_dyn_tag"].rotation_quaternion), want, 1e-4)
+dl.set_live(copied, False)
+
+# --- smooth playback: results land one frame later, exact again when playback stops ---
+dl.set_live(live, True)
+scene.frame_set(0)
+dl._playing = lambda: True
+for f in range(1, 11):
+    scene.frame_set(f)
+    now = tuple(live.pose.bones["DYN_dyn_tag"].rotation_quaternion)
+    if f == 9:
+        late = now
+check("while playing, a frame shows the last frame's result", late != tuple(live.pose.bones["DYN_dyn_tag"].rotation_quaternion), True)
+dl._playback_ended(scene)
+dl._playing = lambda: False
+exact = tuple(live.pose.bones["DYN_dyn_tag"].rotation_quaternion)
+dl.set_live(live, False)
+dl.set_live(live, True)
+scene.frame_set(0)
+for f in range(1, 11):
+    scene.frame_set(f)
+check("when playback stops the current frame's result lands", tuple(live.pose.bones["DYN_dyn_tag"].rotation_quaternion), exact, 1e-6)
+dl.set_live(live, False)
 
 print("[dynamics_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

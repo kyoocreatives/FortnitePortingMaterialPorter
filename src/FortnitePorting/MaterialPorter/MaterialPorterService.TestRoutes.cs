@@ -472,14 +472,19 @@ public partial class MaterialPorterService
             var versions = ((global::CUE4Parse.FileProvider.AbstractFileProvider) Game.Provider).Versions;
             var was = versions.Game;
             if (query["game"] is { } game) OnDemandBuilds.SetGame(versions, Enum.Parse<global::CUE4Parse.UE4.Versions.EGame>(game));
+            // script=1: blueprint functions with their bytecode (what an event graph computes at runtime)
+            var script = query["script"] == "1";
+            var readScript = Game.Provider.ReadScriptData;
             global::CUE4Parse.UE4.Assets.IPackage dumped;
             try
             {
+                if (script) Game.Provider.ReadScriptData = true;
                 dumped = await Game.Provider.LoadPackageAsync(query["path"] ?? throw new ArgumentException("path missing"));
-                if (query["game"] is not null) _ = dumped.GetExports().ToList();
+                if (query["game"] is not null || script) _ = dumped.GetExports().ToList();
             }
             finally
             {
+                Game.Provider.ReadScriptData = readScript;
                 // only then: setting it rebuilds the options other reads are using
                 if (query["game"] is not null) OnDemandBuilds.SetGame(versions, was);
             }

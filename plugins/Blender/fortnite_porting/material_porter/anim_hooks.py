@@ -14,6 +14,8 @@ def end(armature):
     if armature is None or not armature.data.get(dynamics_bake.KEY):
         return
     try:
+        from ..processing.context.dynamics_runner import STATE
+        armature.data[STATE] = "EmoteOrMelee"       # an emote plays: the game's emote state
         dynamics_bake.bake(armature)
     except Exception as e:
         Log.error("[Material Porter] dynamics bake (%s: %s)" % (type(e).__name__, e))

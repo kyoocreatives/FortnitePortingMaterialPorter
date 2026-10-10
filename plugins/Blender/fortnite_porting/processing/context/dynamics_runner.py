@@ -8,6 +8,7 @@ from mathutils import Matrix, Quaternion
 from .dynamics_solver import Sim, compose, relative
 
 KEY = "fpmp_dynamics"
+STATE = "fpmp_dynamics_state"       # the movement state whose dynamics parameters apply (emote, standing, skydiving...)
 PREROLL = 1.0       # seconds held on the first pose: in game the character was already idling when the emote began
 FLIP = Matrix(((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, 1.0)))     # the game's axes vs Blender's
 
@@ -30,7 +31,7 @@ def blend(a, b, u):
     return Quaternion([x + (y - x) * u for x, y in zip(a[0], qb)]).normalized(), a[1].lerp(b[1], u)
 
 
-def _node(n, parent_of, bones, unit):
+def _node(n, parent_of, bones, unit, state=None):
     """The replayer for one stored node, by its kind; None when the armature lacks what it needs."""
     from ...material_porter.effects import ue_offset
     from .bone_controls import BoneControl
@@ -39,7 +40,7 @@ def _node(n, parent_of, bones, unit):
     if kind == "anim_dynamics":
         return Sim(n, parent_of) if n["bone"] in bones else None
     if kind == "rigid_body":
-        return RigidSim(n, parent_of)
+        return RigidSim(n, parent_of, state)
     if n["bone"] not in bones:
         return None
     named = [n["bone"]] + [s["target"] for s in n.get("setups", []) if s["target"] in bones]
@@ -60,7 +61,8 @@ class Runner:
         bones = obj.data.bones
         self.parent_of = parent_of = {b.name: b.parent.name if b.parent else None for b in bones}
         self.unit = unit = stored.get("scale", 0.01)
-        sims = [s for s in (_node(n, parent_of, bones, unit) for n in stored["nodes"]) if s is not None]
+        self.state = obj.data.get(STATE)
+        sims = [s for s in (_node(n, parent_of, bones, unit, self.state) for n in stored["nodes"]) if s is not None]
         self.sims = [s for s in sims if s.outputs() and all(name in bones for name in s.bones())]
         self.root = next(b.name for b in bones if b.parent is None)
         need = {self.root}
@@ -83,11 +85,14 @@ class Runner:
         self.steps = max(1, round(rate / fps))
         self.dt = 1.0 / (fps * self.steps)
 
-    def sample(self):
-        """The evaluated pose as locals in the game's numbers."""
-        pose, parent_of = self.obj.pose.bones, self.parent_of
+    def sample(self, matrices=None):
+        """The evaluated pose as locals in the game's numbers; matrices: armature matrices to read instead for some
+        bones (the live preview's inputs)."""
+        pose, parent_of, matrices = self.obj.pose.bones, self.parent_of, matrices or {}
         cs = {n: to_game(pose[n].matrix, self.offsets[n], self.unit) for n in self.order}
-        return {n: relative(cs[n], cs[parent_of[n]]) if parent_of[n] in cs else cs[n] for n in self.order}
+        # locals against the evaluated parents: the given matrices are built on them too
+        own = {n: to_game(m, self.offsets[n], self.unit) for n, m in matrices.items() if n in cs}
+        return {n: relative(own.get(n, cs[n]), cs[parent_of[n]]) if parent_of[n] in cs else own.get(n, cs[n]) for n in self.order}
 
     def tick(self, loc):
         parent_of = self.parent_of

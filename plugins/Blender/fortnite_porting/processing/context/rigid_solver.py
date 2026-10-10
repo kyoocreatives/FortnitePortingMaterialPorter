@@ -46,8 +46,10 @@ class Actor:
 class RigidSim:
     """One RigidBody node: evaluate() takes the pose reaching it and returns its simulated bodies' bones."""
 
-    def __init__(self, node, parent_of):
+    def __init__(self, node, parent_of, state=None):
         self.node = node
+        table = node.get("states") or {}
+        self.state = table.get(state) or table.get("OnGround_Standing")
         asset = node["physics"]
         default = node.get("use_default_as_simulated", False)
         bodies = [b for b in asset["bodies"] if b["bone"] in parent_of]
@@ -118,7 +120,21 @@ class RigidSim:
 
     def bones(self):
         base = [self.node["base_bone"]] if self.node["space"] == "BaseBoneSpace" and self.node.get("base_bone") else []
-        return [a.bone for a in self.actors] + base
+        joint = [self.state["joint"]] if self.state and self.state["joint"] in self.depth else []
+        return [a.bone for a in self.actors] + base + joint
+
+    def _settings(self):
+        return self.state["sim_space"] if self.state else self.node["sim_space"]
+
+    def _gravity(self, cs, space):
+        """World gravity in the simulation space: the state's (given in its joint's frame) when the game feeds one,
+        else the node's own."""
+        if self.state:
+            joint = cs.get(self.state["joint"])
+            world = (joint[0] if joint else Quaternion()) @ Vector(self.state["gravity"])
+        else:
+            world = Vector(self.node["gravity"]) if self.node["gravity"] is not None else Vector((0.0, 0.0, -980.0))
+        return space[0].conjugated() @ world
 
     def outputs(self):
         return [a.bone for a in self.actors if a.simulated]
@@ -131,7 +147,7 @@ class RigidSim:
 
     def _motion(self, space, dt):
         """The moving space's velocity and acceleration (linear, angular) in simulation space."""
-        st = self.node["sim_space"]
+        st = self._settings()
         if st["world_alpha"] == 0.0 or dt < 1e-8:
             return None
         if self.node["space"] == "WorldSpace":
@@ -169,8 +185,7 @@ class RigidSim:
         for a in self.actors:
             if not a.simulated:
                 a.target = a.place(sim[a.bone])
-        world_gravity = Vector(self.node["gravity"]) if self.node["gravity"] is not None else Vector((0.0, 0.0, -980.0))
-        gravity = space[0].conjugated() @ world_gravity
+        gravity = self._gravity(cs, space)
         motion = self._motion(space, dt)
         delta = min(dt, MAX_STEP * MAX_STEPS)
         if self.step_time is None:
@@ -187,8 +202,8 @@ class RigidSim:
         return out
 
     def _step(self, h, frac, gravity, motion):
-        drag = Vector(self.node["sim_space"]["drag"]) if motion else ZERO
-        damping_alpha = self.node["sim_space"]["damping_alpha"]
+        drag = Vector(self._settings()["drag"]) if motion else ZERO
+        damping_alpha = self._settings()["damping_alpha"]
         for a in self.actors:
             if not a.simulated:
                 continue

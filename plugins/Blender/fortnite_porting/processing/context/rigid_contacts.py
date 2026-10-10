@@ -43,7 +43,12 @@ def detect(bodies, pairs, segments, cull):
         for a0, e0, r0 in segments[i]:
             wa0, we0 = b0.p + b0.q @ a0, b0.p + b0.q @ e0
             for a1, e1, r1 in segments[j]:
-                p0, p1 = closest(wa0, we0, b1.p + b1.q @ a1, b1.p + b1.q @ e1)
+                wa1, we1 = b1.p + b1.q @ a1, b1.p + b1.q @ e1
+                # no closer than their centres minus half lengths and radii: past the cull distance, skip the maths
+                reach = ((wa0 - we0).length + (wa1 - we1).length) * 0.5 + r0 + r1 + cull
+                if ((wa0 + we0) - (wa1 + we1)).length * 0.5 > reach:
+                    continue
+                p0, p1 = closest(wa0, we0, wa1, we1)
                 gap = p0 - p1
                 dist = gap.length
                 phi = dist - r0 - r1

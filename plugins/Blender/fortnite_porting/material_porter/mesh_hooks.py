@@ -133,11 +133,12 @@ def _dynamics(ctx):
     for m in ctx.imported_meshes:
         meta = m.get("Meta")
         if isinstance(meta, dict) and meta.get("AnimBlueprint"):
-            metas.setdefault(meta["AnimBlueprint"], meta.get("PhysicsAsset"))
+            metas.setdefault(meta["AnimBlueprint"], meta)
     if not metas:
         return
     try:
-        found = dynamics_read.nodes(list(metas), list(metas.values()))
+        found = dynamics_read.nodes(list(metas), [m.get("PhysicsAsset") for m in metas.values()],
+                                    [m.get("PhysicsAssets") for m in metas.values()], [m.get("DynamicsParameters") for m in metas.values()])
         for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
             bones = skeleton.data.bones
             mine = [n for n in found if (any(b["bone"] in bones and b["type"] == "Simulated" for b in n["physics"]["bodies"])

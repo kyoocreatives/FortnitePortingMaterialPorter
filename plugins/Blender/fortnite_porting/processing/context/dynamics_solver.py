@@ -77,21 +77,24 @@ def _world_inverse(rot, inv_local):
 
 
 class Body:
-    """A mass-1 box: momentum is velocity."""
-    __slots__ = ("pos", "rot", "lin", "ang", "inv_local", "inv_world", "inertia", "lin_damp", "ang_damp",
-                 "use_override", "override", "gravity_scale", "collision", "radius", "next_pos", "next_rot")
+    """A mass-1 box: momentum is velocity. `w` caches the spin (inverse inertia times angular momentum) while the
+    constraints iterate, so each pass updates it instead of recomputing it."""
+    __slots__ = ("pos", "rot", "lin", "ang", "inv_local", "inv_diag", "inv_world", "inertia", "lin_damp", "ang_damp",
+                 "use_override", "override", "gravity_scale", "collision", "radius", "next_pos", "next_rot", "w")
 
     def __init__(self, pos, rot, extents):
         moments = box_inertia(extents)
         self.pos, self.rot = pos.copy(), rot.copy()
         self.lin, self.ang = ZERO.copy(), ZERO.copy()
         self.inertia = Matrix.Diagonal(moments)
-        self.inv_local = Matrix.Diagonal(Vector([1.0 / m for m in moments]))
+        self.inv_diag = Vector([1.0 / m for m in moments])
+        self.inv_local = Matrix.Diagonal(self.inv_diag)
         self.inv_world = self.inv_local.copy()      # unturned until the first step, as in the engine
         self.lin_damp = self.ang_damp = None
         self.use_override, self.override, self.gravity_scale = False, ZERO.copy(), 1.0
         self.collision, self.radius = "CoM", 0.0
         self.next_pos, self.next_rot = self.pos, self.rot
+        self.w = ZERO.copy()
 
     def at(self, local):
         return self.rot @ local + self.pos
@@ -106,26 +109,48 @@ class Body:
 
 class Linear:
     """Keeps a point pair's speed along a normal at a target, impulses clamped in total."""
-    __slots__ = ("b0", "b1", "r0", "r1", "n", "target", "unbiased", "lo", "hi", "k", "sum")
+    __slots__ = ("b0", "b1", "r0", "r1", "n", "target", "unbiased", "lo", "hi", "k", "sum", "c0", "c1", "w0", "w1")
 
     def __init__(self, b0, b1, p0, p1, n, target, unbiased=0.0, lo=-MAX, hi=MAX):
         self.b0, self.b1, self.n = b0, b1, n
         self.target, self.unbiased, self.lo, self.hi, self.sum = target, unbiased, min(lo, hi), max(lo, hi), 0.0
         self.r0 = b0.rot @ p0 if b0 else p0
         self.r1 = b1.rot @ p1 if b1 else p1
-        d = sum(1.0 + (b.inv_world @ r.cross(n)).cross(r).dot(n) for b, r in ((b0, self.r0), (b1, self.r1)) if b)
+        d = 0.0
+        if b0:
+            d += 1.0 + (b0.inv_world @ self.r0.cross(n)).cross(self.r0).dot(n)
+        if b1:
+            d += 1.0 + (b1.inv_world @ self.r1.cross(n)).cross(self.r1).dot(n)
         self.k = 1.0 / d
 
+    def prepare(self):
+        """Lever terms for the passes: (w x r).n = w.(r x n), and how an impulse turns each body's spin."""
+        n = self.n
+        if self.b0:
+            self.c0 = self.r0.cross(n)
+            self.w0 = self.b0.inv_world @ self.c0
+        if self.b1:
+            self.c1 = self.r1.cross(n)
+            self.w1 = self.b1.inv_world @ self.c1
+
     def iterate(self, dt):
-        v0 = self.b0.spin().cross(self.r0) + self.b0.lin if self.b0 else ZERO
-        v1 = self.b1.spin().cross(self.r1) + self.b1.lin if self.b1 else ZERO
-        impulse = (-self.target - (v1 - v0).dot(self.n)) * self.k
+        b0, b1, n = self.b0, self.b1, self.n
+        rel = 0.0
+        if b1:
+            rel += b1.w.dot(self.c1) + b1.lin.dot(n)
+        if b0:
+            rel -= b0.w.dot(self.c0) + b0.lin.dot(n)
+        impulse = (-self.target - rel) * self.k
         impulse = min(self.hi * dt - self.sum, impulse)
         impulse = max(self.lo * dt - self.sum, impulse)
-        if self.b0:
-            self.b0.push(self.r0, self.n * -impulse)
-        if self.b1:
-            self.b1.push(self.r1, self.n * impulse)
+        if b0:
+            b0.lin -= n * impulse
+            b0.ang -= self.c0 * impulse
+            b0.w -= self.w0 * impulse
+        if b1:
+            b1.lin += n * impulse
+            b1.ang += self.c1 * impulse
+            b1.w += self.w1 * impulse
         self.sum += impulse
 
     def unbias(self):
@@ -134,24 +159,37 @@ class Linear:
 
 class Angular:
     """Keeps the relative spin about an axis at a target, torques clamped in total."""
-    __slots__ = ("b0", "b1", "axis", "target", "lo", "hi", "k", "sum")
+    __slots__ = ("b0", "b1", "axis", "target", "lo", "hi", "k", "sum", "w0", "w1")
 
     def __init__(self, b0, b1, axis, target=0.0, lo=-MAX, hi=MAX):
         self.b0, self.b1, self.axis, self.target, self.lo, self.hi, self.sum = b0, b1, axis, target, lo, hi, 0.0
-        d = sum(axis.dot(b.inv_world @ axis) for b in (b0, b1) if b)
+        d = 0.0
+        if b0:
+            d += axis.dot(b0.inv_world @ axis)
+        if b1:
+            d += axis.dot(b1.inv_world @ axis)
         self.k = 1.0 / d if d else 0.0
+
+    def prepare(self):
+        if self.b0:
+            self.w0 = self.b0.inv_world @ self.axis
+        if self.b1:
+            self.w1 = self.b1.inv_world @ self.axis
 
     def iterate(self, dt):
         if self.target == -MAX:
             return
-        spin = (self.b1.spin().dot(self.axis) if self.b1 else 0.0) - (self.b0.spin().dot(self.axis) if self.b0 else 0.0)
+        b0, b1, axis = self.b0, self.b1, self.axis
+        spin = (b1.w.dot(axis) if b1 else 0.0) - (b0.w.dot(axis) if b0 else 0.0)
         torque = (self.target - spin) * self.k
         torque = min(torque, self.hi * dt - self.sum)
         torque = max(torque, self.lo * dt - self.sum)
-        if self.b0:
-            self.b0.ang -= self.axis * torque
-        if self.b1:
-            self.b1.ang += self.axis * torque
+        if b0:
+            b0.ang -= axis * torque
+            b0.w -= self.w0 * torque
+        if b1:
+            b1.ang += axis * torque
+            b1.w += self.w1 * torque
         self.sum += torque
 
     def unbias(self):
@@ -174,7 +212,7 @@ class Spring:
             if self.b0:
                 self.b0.push(self.b0.rot @ self.a0, -impulse)
             self.b1.push(self.b1.rot @ self.a1, impulse)
-        if self.angular:
+        if self.angular and self.target.length_squared > 0.0:
             # a zero target turns nothing: the engine's turn to a zero vector is the identity
             axis, angle = axis_angle(find_between(self.b1.rot @ AXES[self.axis], self.frame @ self.target))
             added = axis * (-self.k_ang * angle) * dt
@@ -185,8 +223,8 @@ class Spring:
 
 def nailed(dt, out, b0, p0, b1, p1):
     gap = (b1.at(p1) - (b0.at(p0) if b0 else p0)) / dt
-    for k, n in enumerate(AXES.values()):
-        out.append(Linear(b0, b1, p0, p1, n.copy(), gap[k]))
+    for k, n in enumerate(AXES.values()):        # the axes are only read
+        out.append(Linear(b0, b1, p0, p1, n, gap[k]))
 
 
 def along(dt, out, b0, p0, b1, p1, axis, lo, hi):
@@ -262,18 +300,54 @@ def _init_velocity(body, dt, down):
     body.inv_world = _world_inverse(body.rot, body.inv_local)
 
 
-def _diff(q, inv_local, ang):
+def _diff(q, inv_diag, ang):
     qn = q.normalized()
-    w = _world_inverse(qn, inv_local) @ ang * 0.5
+    # R^T I^-1 R applied as rotations: turn back by q, scale by the local inverse inertia, turn forward
+    w = qn.conjugated() @ (inv_diag * (qn @ ang)) * 0.5
     return Quaternion((0.0, w.x, w.y, w.z)) @ qn
 
 
-def _rk4(q, inv_local, ang, dt):
-    d1 = _diff(q, inv_local, ang)
-    d2 = _diff(q + d1 * (dt / 2), inv_local, ang)
-    d3 = _diff(q + d2 * (dt / 2), inv_local, ang)
-    d4 = _diff(q + d3 * dt, inv_local, ang)
+def _rk4(q, inv_diag, ang, dt):
+    d1 = _diff(q, inv_diag, ang)
+    d2 = _diff(q + d1 * (dt / 2), inv_diag, ang)
+    d3 = _diff(q + d2 * (dt / 2), inv_diag, ang)
+    d4 = _diff(q + d3 * dt, inv_diag, ang)
     return (q + d1 * (dt / 6) + d2 * (dt / 3) + d3 * (dt / 3) + d4 * (dt / 6)).normalized()
+
+
+def _passes(body, linear, angular, dt, count):
+    """Linear.iterate and Angular.iterate for a node with one body (every row acts on it alone), in one loop: the
+    same arithmetic without the per-row calls."""
+    lin, ang, w = body.lin, body.ang, body.w
+    lrows = [(c, c.n, c.c1, c.w1, c.k) for c in linear]
+    arows = [(c, c.axis, c.w1, c.k) for c in angular]
+    for _ in range(count):
+        for c, n, c1, w1, k in lrows:
+            impulse = (-c.target - (w.dot(c1) + lin.dot(n))) * k
+            top = c.hi * dt - c.sum
+            if impulse > top:
+                impulse = top
+            bottom = c.lo * dt - c.sum
+            if impulse < bottom:
+                impulse = bottom
+            lin += n * impulse
+            ang += c1 * impulse
+            w += w1 * impulse
+            c.sum += impulse
+        for c, axis, w1, k in arows:
+            target = c.target
+            if target == -MAX:
+                continue
+            torque = (target - w.dot(axis)) * k
+            top = c.hi * dt - c.sum
+            if torque > top:
+                torque = top
+            bottom = c.lo * dt - c.sum
+            if torque < bottom:
+                torque = bottom
+            ang += axis * torque
+            w += w1 * torque
+            c.sum += torque
 
 
 def physics_update(dt, bodies, linear, angular, springs, down, force, acc, ang_acc, ang_vel, pre, post):
@@ -294,23 +368,36 @@ def physics_update(dt, bodies, linear, angular, springs, down, force, acc, ang_a
             b.ang -= (b.inertia @ ang_acc) * dt
     for s in springs:
         s.apply(dt)
-    for _ in range(pre):
-        for c in linear:
-            c.iterate(dt)
-        for c in angular:
-            c.iterate(dt)
+    for b in bodies:
+        b.w = b.inv_world @ b.ang
+    for c in linear:
+        c.prepare()
+    for c in angular:
+        c.prepare()
+    single = bodies[0] if len(bodies) == 1 else None
+    if single:
+        _passes(single, linear, angular, dt, pre)
+    else:
+        for _ in range(pre):
+            for c in linear:
+                c.iterate(dt)
+            for c in angular:
+                c.iterate(dt)
     for b in bodies:
         b.next_pos = b.pos + b.lin * dt
-        b.next_rot = _rk4(b.rot, b.inv_local, b.ang, dt)
+        b.next_rot = _rk4(b.rot, b.inv_diag, b.ang, dt)
     for c in linear:
         c.unbias()
     for c in angular:
         c.unbias()
-    for _ in range(post):
-        for c in linear:
-            c.iterate(dt)
-        for c in angular:
-            c.iterate(dt)
+    if single:
+        _passes(single, linear, angular, dt, post)
+    else:
+        for _ in range(post):
+            for c in linear:
+                c.iterate(dt)
+            for c in angular:
+                c.iterate(dt)
     for b in bodies:
         b.pos, b.rot = b.next_pos, b.next_rot
         b.inv_world = _world_inverse(b.rot, b.inv_local)

@@ -183,3 +183,18 @@ def ui(layout, obj):
     live = is_live(obj)
     row.operator("fpmp.dynamics_live", text="Live", icon='PLAY', depress=live).on = not live
     row.operator("fpmp.dynamics_bake", text="Simulate", icon='FILE_REFRESH')
+    if states(obj):
+        from .dynamics_runner import STATE
+        layout.operator_menu_enum("fpmp.dynamics_state", "state", text=obj.data.get(STATE) or "OnGround_Standing", icon='ARMATURE_DATA')
+
+
+def states(obj):
+    """The movement states the armature's dynamics parameters define, in their order."""
+    import json
+    raw = obj.data.get(KEY)
+    if not raw:
+        return []
+    for n in json.loads(raw)["nodes"]:
+        if n.get("states"):
+            return list(n["states"])
+    return []

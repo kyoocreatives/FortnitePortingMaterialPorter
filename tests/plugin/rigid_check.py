@@ -416,5 +416,53 @@ want = {rj.TWIST: 0.5 * (v0 * v1.x + v1 * v0.x + Vector((d, c.z, -c.y))), rj.SWI
 got = rj.locked_axes(q0, q1)
 check("locked rotation axes", all((got[k] - want[k]).length < 1e-6 for k in (0, 1, 2)), True)
 
+# --- switches, per-node assets, per-state parameters ---
+SWITCHED = dump(os.path.join(TMP, "sw.animbp.json"), [
+    {"Type": "AnimBlueprintGeneratedClass", "Name": "S_C",
+     "ChildProperties": [{"Name": n} for n in ("AnimGraphNode_CopyPoseFromMesh", "AnimGraphNode_RigidBody", "AnimGraphNode_RigidBody_1",
+                                                "AnimGraphNode_BlendListByBool", "AnimGraphNode_Root")]},
+    {"Type": "S_C", "Name": "Default__S_C",
+     "Properties": {"AnimGraphNode_CopyPoseFromMesh": {},
+                    "AnimGraphNode_RigidBody": {"ComponentPose": {"LinkID": 0}},
+                    "AnimGraphNode_RigidBody_1": {"ComponentPose": {"LinkID": 0}},
+                    "AnimGraphNode_BlendListByBool": {"BlendPose": [{"LinkID": 1}, {"LinkID": 2}]},
+                    "AnimGraphNode_Root": {"Result": {"LinkID": 3}}}}])
+PARAMS = dump(os.path.join(TMP, "x.dynparams.json"), [
+    {"Type": "FortCharacterDynamicsParameters", "Name": "X_Parameter",
+     "Properties": {"StateNames": ["OnGround_Standing", "EmoteOrMelee"],
+                    "GravityOverrideParameters": [{"GravityOverride": {"X": 0.0, "Y": 0.0, "Z": -980.0}, "JointName": "root"},
+                                                  {"GravityOverride": {"X": -980.0, "Y": 0.0, "Z": 0.0}, "JointName": "spine_05"}],
+                    "RigidBodyAnimNodeParameters": [{"SimSpaceSettings": {"WorldAlpha": 1.0, "MaxAngularVelocity": 3.0}},
+                                                    {"SimSpaceSettings": {"WorldAlpha": 0.8, "MaxAngularVelocity": 3.0}}]}}])
+other = dump(os.path.join(TMP, "y.physics.json"), [{"Type": "PhysicsAsset", "Name": "Y", "Properties": {"SkeletalBodySetups": []}}])
+read = dr.nodes([SWITCHED], [PHYS], [{"AnimGraphNode_RigidBody": other, "AnimGraphNode_RigidBody_1": PHYS}], [PARAMS])
+check("a bool switch runs only its false side", len(read), 1)
+check("each rigid node gets its own asset", [b["bone"] for b in read[0]["physics"]["bodies"]], ["head", "dyn_hair_1"])
+st = read[0]["states"]
+check("per-state gravity and joint", (st["EmoteOrMelee"]["gravity"], st["EmoteOrMelee"]["joint"], st["OnGround_Standing"]["gravity"]),
+      ([-980.0, 0.0, 0.0], "spine_05", [0.0, 0.0, -980.0]))
+check("per-state sim space with defaults", (st["EmoteOrMelee"]["sim_space"]["world_alpha"], st["EmoteOrMelee"]["sim_space"]["max_angular_velocity"],
+                                            st["EmoteOrMelee"]["sim_space"]["damping_alpha"]), (0.8, 3.0, 1.0))
+
+grav = rigid_node()
+grav["states"] = {"EmoteOrMelee": {"gravity": [-980.0, 0.0, 0.0], "joint": "head", "sim_space": grav["sim_space"]}}
+s = rs.RigidSim(grav, bones, state="EmoteOrMelee")
+turned_head = (Quaternion(Vector((0, 1, 0)), math.radians(-90.0)), Vector((0.0, 0.0, 100.0)))   # head's -X now points down
+hang = {"head": turned_head, "hair": (Quaternion(), Vector((0.0, 0.0, 100.0)))}
+s.evaluate(DT, hang, "head")
+check("a state's gravity turns with its joint", tuple(round(x, 3) for x in s._gravity(hang, (Quaternion(), Vector()))), (0.0, 0.0, -980.0))
+CHAINED = dump(os.path.join(TMP, "ch.animbp.json"), [
+    {"Type": "AnimBlueprintGeneratedClass", "Name": "C_C",
+     "ChildProperties": [{"Name": n} for n in ("AnimGraphNode_CopyPoseFromMesh", "AnimGraphNode_RigidBody", "AnimGraphNode_ModifyBone",
+                                                "AnimGraphNode_BlendListByBool", "AnimGraphNode_Root", "AnimGraphNode_ModifyBone_1")]},
+    {"Type": "C_C", "Name": "Default__C_C",
+     "Properties": {"AnimGraphNode_CopyPoseFromMesh": {},
+                    "AnimGraphNode_RigidBody": {"ComponentPose": {"LinkID": 0}},
+                    "AnimGraphNode_ModifyBone": {"ComponentPose": {"LinkID": 1}, "BoneToModify": {"BoneName": "on_true_side"}},
+                    "AnimGraphNode_ModifyBone_1": {"ComponentPose": {"LinkID": 0}, "BoneToModify": {"BoneName": "on_false_side"}},
+                    "AnimGraphNode_BlendListByBool": {"BlendPose": [{"LinkID": 2}, {"LinkID": 5}]},
+                    "AnimGraphNode_Root": {"Result": {"LinkID": 3}}}}])
+check("a whole chain behind the inactive side stays off", [n.get("bone") or n["kind"] for n in dr.nodes([CHAINED], [PHYS])], ["on_false_side"])
+
 print("[rigid_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

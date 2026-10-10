@@ -193,6 +193,28 @@ class FPMP_OT_DynamicsLive(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _states(self, context):
+    obj = _rig(context)
+    return [(s, s.replace("_", " "), "") for s in (dynamics_bake.states(obj) if obj else [])] or [("OnGround_Standing", "On Ground Standing", "")]
+
+
+class FPMP_OT_DynamicsState(bpy.types.Operator):
+    bl_idname = "fpmp.dynamics_state"
+    bl_label = "Movement State"
+    bl_description = "The character state whose dynamics settings apply (gravity, how much body motion reaches the chains); Simulate again after changing it"
+    bl_options = {'REGISTER', 'UNDO'}
+    state: bpy.props.EnumProperty(items=_states)
+
+    def execute(self, context):
+        from ..processing.context import dynamics_live
+        from ..processing.context.dynamics_runner import STATE
+        obj = _rig(context)
+        obj.data[STATE] = self.state
+        if dynamics_live.is_live(obj):
+            dynamics_live.set_live(obj, True)       # restart with the new state
+        return {'FINISHED'}
+
+
 class FPMP_PT_CreatureRig(bpy.types.Panel):
     bl_label = "Rig"
     bl_idname = "FPMP_PT_creature_rig"
@@ -270,7 +292,7 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
 
 
 classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn, FPMP_OT_DynamicsBake,
-           FPMP_OT_DynamicsOn, FPMP_OT_DynamicsLive, FPMP_OT_OfficialRigSwitch,
+           FPMP_OT_DynamicsOn, FPMP_OT_DynamicsLive, FPMP_OT_DynamicsState, FPMP_OT_OfficialRigSwitch,
            FPMP_OT_OfficialRigSetting, FPMP_OT_OfficialRigBodyControls,
            FPMP_OT_OfficialRigBake, FPMP_PT_CreatureRig)
 

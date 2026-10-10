@@ -125,6 +125,8 @@ public partial class ExportContext
             exportPart.Meta.DeformRig = DeformRig(additionalData);     // MP
             exportPart.Meta.AnimBlueprint = AnimBlueprint(additionalData);     // MP
             exportPart.Meta.PhysicsAsset = PhysicsAsset(additionalData, skeletalMesh);     // MP
+            exportPart.Meta.PhysicsAssets = PhysicsAssets(additionalData, skeletalMesh);     // MP
+            exportPart.Meta.DynamicsParameters = DynamicsParameters(additionalData);     // MP
         }        
         if (EffectsPick) PartEffects(part, exportPart);     // MP
         return ShellFur(part, exportPart);     // MP

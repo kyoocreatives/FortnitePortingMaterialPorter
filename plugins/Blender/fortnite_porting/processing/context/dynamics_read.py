@@ -76,6 +76,40 @@ def node(p):
     return out
 
 
+def _sim_space(space):
+    space = space or {}
+    return {"world_alpha": float(space.get("WorldAlpha", 0.0)), "velocity_scale_z": float(space.get("VelocityScaleZ", 1.0)),
+            "damping_alpha": float(space.get("DampingAlpha", 1.0)),
+            "max_linear_velocity": float(space.get("MaxLinearVelocity", 10000.0)),
+            "max_angular_velocity": float(space.get("MaxAngularVelocity", 10000.0)),
+            "max_linear_acceleration": float(space.get("MaxLinearAcceleration", 10000.0)),
+            "max_angular_acceleration": float(space.get("MaxAngularAcceleration", 10000.0)),
+            "drag": _vec(space.get("ExternalLinearDragV")), "linear_velocity": _vec(space.get("ExternalLinearVelocity")),
+            "angular_velocity": _vec(space.get("ExternalAngularVelocity"))}
+
+
+def states(path):
+    """A character dynamics parameters dump as {state: gravity, its joint, the RigidBody node's sim space}; the game
+    feeds the current state's values to the RigidBody nodes each frame."""
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        raw = json.load(open(path, encoding="utf-8"))
+    except ValueError:
+        return None
+    p = next((e.get("Properties") or {} for e in raw if e.get("Type") == "FortCharacterDynamicsParameters"), None)
+    if not p:
+        return None
+    gravity, rigid_ = p.get("GravityOverrideParameters") or [], p.get("RigidBodyAnimNodeParameters") or []
+    out = {}
+    for i, name in enumerate(p.get("StateNames") or []):
+        g = gravity[i] if i < len(gravity) else {}
+        r = rigid_[i] if i < len(rigid_) else {}
+        out[name] = {"gravity": _vec(g.get("GravityOverride"), (0.0, 0.0, -980.0)), "joint": g.get("JointName") or "root",
+                     "sim_space": _sim_space(r.get("SimSpaceSettings"))}
+    return out
+
+
 def rigid(p, physics):
     """A RigidBody node's settings and the physics asset it simulates."""
     space = p.get("SimSpaceSettings") or {}
@@ -86,14 +120,7 @@ def rigid(p, physics):
             "external_force": _vec(p.get("ExternalForce")),
             "component_acc": {"acc_scale": _vec(p.get("ComponentLinearAccScale")), "vel_scale": _vec(p.get("ComponentLinearVelScale")),
                               "clamp": _vec(p.get("ComponentAppliedLinearAccClamp"), (10000.0, 10000.0, 10000.0))},
-            "sim_space": {"world_alpha": float(space.get("WorldAlpha", 0.0)), "velocity_scale_z": float(space.get("VelocityScaleZ", 1.0)),
-                          "damping_alpha": float(space.get("DampingAlpha", 1.0)),
-                          "max_linear_velocity": float(space.get("MaxLinearVelocity", 10000.0)),
-                          "max_angular_velocity": float(space.get("MaxAngularVelocity", 10000.0)),
-                          "max_linear_acceleration": float(space.get("MaxLinearAcceleration", 10000.0)),
-                          "max_angular_acceleration": float(space.get("MaxAngularAcceleration", 10000.0)),
-                          "drag": _vec(space.get("ExternalLinearDragV")), "linear_velocity": _vec(space.get("ExternalLinearVelocity")),
-                          "angular_velocity": _vec(space.get("ExternalAngularVelocity"))},
+            "sim_space": _sim_space(space),
             "alpha": float(p.get("Alpha", 1.0)), "physics": physics}
 
 
@@ -130,7 +157,21 @@ def _reader(name):
     return next((r for prefix, r in READERS.items() if name == prefix or name.startswith(prefix + "_")), None)
 
 
-def _part(raw, physics=None):
+def _links(name, props):
+    """The pose links a node evaluates: a bool or int blend list only its active one (its bound value is unknown here,
+    so the cooked default: false, index 0; without a backpack or cape that is what Fortnite's switches read)."""
+    node, out = props[name], []
+    for key, v in node.items():
+        links = v if isinstance(v, list) else [v]
+        if key == "BlendPose" and name.startswith("AnimGraphNode_BlendListByBool") and len(links) == 2:
+            links = [links[0] if node.get("bActiveValue") else links[1]]
+        elif key == "BlendPose" and name.startswith("AnimGraphNode_BlendListByInt") and links:
+            links = [links[min(int(node.get("ActiveChildIndex", 0)), len(links) - 1)]]
+        out += [l for l in links if isinstance(l, dict) and isinstance(l.get("LinkID"), int)]
+    return out
+
+
+def _part(raw, physics=None, by_node=None, table=None):
     cls = next((e for e in raw if e.get("Type") == "AnimBlueprintGeneratedClass"), None)
     cdo = next((e for e in raw if str(e.get("Name", "")).startswith("Default__")), None)
     if cls is None or cdo is None:
@@ -144,27 +185,51 @@ def _part(raw, physics=None):
         if name in seen or not isinstance(props.get(name), dict):
             return
         seen.add(name)
-        for v in props[name].values():
-            for link in v if isinstance(v, list) else [v]:      # blends take arrays of pose links
-                if isinstance(link, dict) and isinstance(link.get("LinkID"), int) and 0 <= link["LinkID"] < len(names):
-                    visit(names[link["LinkID"]])
+        for link in _links(name, props):
+            if 0 <= link["LinkID"] < len(names):
+                visit(names[link["LinkID"]])
         order.append(name)
 
     for root in [n for n in names if n.startswith("AnimGraphNode_Root")]:
         visit(root)
-    unreached = [n for n in names if _reader(n) and n not in seen and n in props]
+    off = _switched_off(props, names, seen)
+    unreached = [n for n in names if _reader(n) and n not in seen and n in props and n not in off]
     if unreached:           # state machine states aren't linked from the root
         Log.info("[Material Porter] dynamics: %d nodes outside the main graph run last" % len(unreached))
     skipped = [n for n in order if not _reader(n) and "ComponentPose" in props[n]]
     if skipped:
         Log.info("[Material Porter] dynamics: not replayed: %s" % ", ".join(n.replace("AnimGraphNode_", "") for n in skipped))
-    found = [_reader(n)(props[n], physics) for n in order + unreached if _reader(n)]
+    found = []
+    for n in order + unreached:
+        reader = _reader(n)
+        if reader is None:
+            continue
+        item = reader(props[n], (by_node or {}).get(n) or physics)
+        if item and item["kind"] == "rigid_body" and table:
+            item["states"] = table
+        found.append(item)
     return [n for n in found if n and (n["kind"] == "rigid_body" or n["bone"])]
 
 
-def nodes(paths, physics=None):
+def _switched_off(props, names, seen):
+    """Nodes reachable only through the inactive side of a switch (the active graph is `seen`)."""
+    stack = []
+    for name, node in props.items():
+        if name in seen and name.startswith(("AnimGraphNode_BlendListByBool", "AnimGraphNode_BlendListByInt")):
+            active = {l["LinkID"] for l in _links(name, props)}
+            stack += [l["LinkID"] for l in node.get("BlendPose") or [] if isinstance(l, dict) and l.get("LinkID") not in active]
+    off = set()
+    while stack:
+        index = stack.pop()
+        if not 0 <= index < len(names) or names[index] in off or names[index] in seen or names[index] not in props:
+            continue
+        off.add(names[index])
+        stack += [l["LinkID"] for l in _links(names[index], props)]
+    return off
+
+def nodes(paths, physics=None, by_node=None, params=None):
     """Every part's replayed nodes, parts in import order (the body's first: the others copy its pose); physics names
-    each part's physics asset dump."""
+    each part's physics asset dump, by_node each RigidBody node's, params its dynamics parameters dump."""
     from .physics_read import asset
     out = []
     for i, path in enumerate(paths):
@@ -175,5 +240,7 @@ def nodes(paths, physics=None):
         except ValueError as e:
             Log.warn("[Material Porter] dynamics: %s unreadable (%s)" % (path, e))
             continue
-        out += [dict(n, part=i) for n in _part(raw, asset(physics[i]) if physics and i < len(physics) else None)]
+        nodes_assets = {k: asset(v) for k, v in ((by_node[i] if by_node and i < len(by_node) else None) or {}).items()}
+        out += [dict(n, part=i) for n in _part(raw, asset(physics[i]) if physics and i < len(physics) else None, nodes_assets,
+                                                states(params[i]) if params and i < len(params) else None)]
     return out
