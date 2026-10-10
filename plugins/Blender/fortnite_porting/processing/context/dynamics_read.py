@@ -150,7 +150,8 @@ def modify_bone(p):
 READERS = {"AnimGraphNode_AnimDynamics": lambda p, phys: dict(node(p), kind="anim_dynamics"),
            "AnimGraphNode_RigidBody": lambda p, phys: rigid(p, phys) if phys else None,
            "AnimGraphNode_Constraint": lambda p, phys: constraint(p),
-           "AnimGraphNode_ModifyBone": lambda p, phys: modify_bone(p)}
+           "AnimGraphNode_ModifyBone": lambda p, phys: modify_bone(p),
+           "AnimGraphNode_ControlRig": lambda p, program: control_rig(p, program)}
 
 
 def _reader(name):
@@ -171,7 +172,54 @@ def _links(name, props):
     return out
 
 
-def _part(raw, physics=None, by_node=None, table=None):
+CUSTOM, CONTROL_RIG = "__CustomProperty_", "AnimGraphNode_ControlRig"
+SPACES = {"anim_dynamics": ["Component", "Actor", "World", "RootRelative", "BoneRelative"],
+          "rigid_body": ["ComponentSpace", "WorldSpace", "BaseBoneSpace"]}
+
+
+def _overrides(item, props, name, bound, values):
+    """What the game's bound variables set on a node, in the reader's terms."""
+    out, kind = {}, item["kind"]
+    if kind == "control_rig":
+        rig_vars = {var: values[src] for (node, var), src in bound.items() if node == CONTROL_RIG and src in values}
+        return {"variables": rig_vars} if rig_vars else {}
+    float_alpha = _enum(props.get("AlphaInputType"), "Float") == "Float"
+    for (node, prop), src in bound.items():
+        if node != name or src not in values:
+            continue
+        v = values[src]
+        if prop == "Alpha" and float_alpha and isinstance(v, (int, float)):
+            out["alpha"] = float(v)
+        elif prop == "bAlphaBoolEnabled" and not float_alpha:
+            out["alpha"] = 1.0 if v else 0.0
+        elif prop == "SimulationSpace" and kind in SPACES:
+            if isinstance(v, str):
+                out["space"] = _enum(v, None)
+            elif isinstance(v, (int, float)) and 0 <= int(v) < len(SPACES[kind]):
+                out["space"] = SPACES[kind][int(v)]
+    return out
+
+
+def _by_state(script, table):
+    """The event graph's variables in each movement state (states sharing inputs run once)."""
+    from . import anim_script
+    runs, out = {}, {}
+    for state in list(dict.fromkeys(anim_script.states() + list(table or {}))):
+        given = anim_script.inputs(state)
+        key = json.dumps(given, sort_keys=True)
+        if key not in runs:
+            runs[key] = dict(script.run(given))
+        out[state] = runs[key]
+    return out
+
+
+def control_rig(p, program):
+    """A Control Rig node running the character's rig: its compiled program (rig_vm), the functions after the shared
+    deform one."""
+    return {"kind": "control_rig", "program": program, "alpha": float(p.get("Alpha", 1.0)), "variables": {}} if program else None
+
+
+def _part(raw, physics=None, by_node=None, table=None, script=None, rig=None):
     cls = next((e for e in raw if e.get("Type") == "AnimBlueprintGeneratedClass"), None)
     cdo = next((e for e in raw if str(e.get("Name", "")).startswith("Default__")), None)
     if cls is None or cdo is None:
@@ -200,16 +248,21 @@ def _part(raw, physics=None, by_node=None, table=None):
     if skipped:
         Log.info("[Material Porter] dynamics: not replayed: %s" % ", ".join(n.replace("AnimGraphNode_", "") for n in skipped))
     bound = _bound(cdo)
+    values = _by_state(script, table) if script is not None and bound else {}
     found = []
     for n in order + unreached:
         reader = _reader(n)
         if reader is None:
             continue
-        item = reader(props[n], (by_node or {}).get(n) or physics)
+        item = reader(props[n], rig if n.startswith(CONTROL_RIG) else (by_node or {}).get(n) or physics)
         if item and table and (item["kind"] == "rigid_body" or (n, "GravityOverride") in bound):
             item["states"] = table
+        if item and values:
+            per = {state: _overrides(item, props[n], n, bound, v) for state, v in values.items()}
+            if any(per.values()):
+                item["by_state"] = per
         found.append(item)
-    return [n for n in found if n and (n["kind"] == "rigid_body" or n["bone"])]
+    return [n for n in found if n and (n["kind"] in ("rigid_body", "control_rig") or n["bone"])]
 
 
 def _bound(cdo):
@@ -226,6 +279,8 @@ def _bound(cdo):
         d = path(dest)
         if len(d) == 2:
             out[tuple(d)] = ".".join(path(src))
+        elif len(d) == 1 and str(d[0]).startswith(CUSTOM):       # a Control Rig node's exposed rig variable
+            out[(CONTROL_RIG, d[0][len(CUSTOM):].rsplit("_", 1)[0])] = ".".join(path(src))
     return out
 
 
@@ -245,9 +300,11 @@ def _switched_off(props, names, seen):
         stack += [l["LinkID"] for l in _links(names[index], props)]
     return off
 
-def nodes(paths, physics=None, by_node=None, params=None):
+def nodes(paths, physics=None, by_node=None, params=None, scripts=None, rigs=None):
     """Every part's replayed nodes, parts in import order (the body's first: the others copy its pose); physics names
-    each part's physics asset dump, by_node each RigidBody node's, params its dynamics parameters dump."""
+    each part's physics asset dump, by_node each RigidBody node's, params its dynamics parameters dump, scripts its anim
+    blueprint with bytecode, rigs its Control Rig dump."""
+    from . import anim_script, rig_vm
     from .physics_read import asset
     out = []
     for i, path in enumerate(paths):
@@ -259,6 +316,8 @@ def nodes(paths, physics=None, by_node=None, params=None):
             Log.warn("[Material Porter] dynamics: %s unreadable (%s)" % (path, e))
             continue
         nodes_assets = {k: asset(v) for k, v in ((by_node[i] if by_node and i < len(by_node) else None) or {}).items()}
+        script = anim_script.load(scripts[i]) if scripts and i < len(scripts) and scripts[i] else None
         out += [dict(n, part=i) for n in _part(raw, asset(physics[i]) if physics and i < len(physics) else None, nodes_assets,
-                                                states(params[i]) if params and i < len(params) else None)]
+                                                states(params[i]) if params and i < len(params) else None, script,
+                                                rig_vm.load(rigs[i]) if rigs and i < len(rigs) and rigs[i] else None)]
     return out

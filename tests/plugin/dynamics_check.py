@@ -450,5 +450,109 @@ fed["states"] = {"EmoteOrMelee": {"gravity": [0.0, 0.0, -980.0], "joint": "b", "
 out = ds.Sim(fed, {}, "EmoteOrMelee").evaluate(0.1, cs, "b")
 check("the state's gravity replaces the cooked override", out["b"][1].z, -980.0 / 900.0)
 
+# --- values the game binds, from running the anim blueprint's update ---
+from fpmp_baseline.processing.context import anim_script  # noqa: E402
+
+
+def var(name, local=False):
+    return {"Token": "EX_LocalVariable" if local else "EX_InstanceVariable", "Variable": {"Property": {"Name": name}} if local else {"Path": [name]}}
+
+
+def let(at, name, expr, local=False):
+    return {"Token": "EX_Let", "StatementIndex": at, "Variable": var(name, local), "Expression": expr}
+
+
+def math_(fn, *args):
+    return {"Token": "EX_CallMath", "Function": {"ObjectName": "Class'KismetMathLibrary:%s'" % fn}, "Parameters": list(args)}
+
+
+dbl = lambda v: {"Token": "EX_DoubleConst", "Value": v}  # noqa: E731
+uber = [{"Token": "EX_PushExecutionFlow", "StatementIndex": 0, "PushingAddress": 90},
+        {"Token": "EX_ComputedJump", "StatementIndex": 5, "CodeOffsetExpression": var("EntryPoint", True)},
+        {"Token": "EX_JumpIfNot", "StatementIndex": 10, "CodeOffset": 30, "BooleanExpression": var("bIsInFrontEnd")},
+        let(20, "Space", {"Token": "EX_ByteConst", "Value": 2}),
+        {"Token": "EX_PopExecutionFlow", "StatementIndex": 25},
+        let(30, "Space", {"Token": "EX_ByteConst", "Value": 3}),
+        let(40, "Eased", math_("FInterpTo", var("Eased"), math_("Conv_BoolToDouble", var("bIsCrouching")), var("Dt", True), dbl(8.0))),
+        let(50, "Dyn", math_("SelectFloat", dbl(0.5), dbl(1.0), math_("BooleanOR", var("bIsCrouching"), var("bIsSkyDiving")))),
+        {"Token": "EX_PopExecutionFlow", "StatementIndex": 60},
+        {"Token": "EX_Return", "StatementIndex": 90}]
+update = [{"Token": "EX_LetValueOnPersistentFrame", "StatementIndex": 0, "DestinationProperty": {"Property": {"Name": "Dt"}},
+           "AssignmentExpression": var("DeltaTimeX", True)},
+          {"Token": "EX_LocalFinalFunction", "StatementIndex": 10, "Function": {"ObjectName": "Function'X_C:ExecuteUbergraph_X'"},
+           "Parameters": [{"Token": "EX_IntConst", "Value": 10}]},
+          {"Token": "EX_Return", "StatementIndex": 20}]
+script_dump = [{"Type": "AnimBlueprintGeneratedClass", "Name": "X_C", "ChildProperties": [{"Name": "Eased", "Type": "DoubleProperty"}]},
+               {"Type": "X_C", "Name": "Default__X_C", "Properties": {"Space": "AnimPhysSimSpaceType::BoneRelative"}},
+               {"Type": "Function", "Name": "ExecuteUbergraph_X", "ScriptBytecode": uber},
+               {"Type": "Function", "Name": "BlueprintUpdateAnimation", "ScriptBytecode": update}]
+run = anim_script.Script(script_dump)
+check("standing: the update's branch and values", [run.run(anim_script.inputs("OnGround_Standing"))[k] for k in ("Space", "Dyn", "Eased")],
+      [3, 1.0, 0.0])
+crouched = run.run({"bIsCrouching": True})
+check("crouched: eased to 1", (crouched["Dyn"], round(crouched["Eased"], 3)), (0.5, 1.0))
+check("front end: the other branch", run.run({"bIsInFrontEnd": True})["Space"], 2)
+
+script_path = dump_path + ".animscript.json"
+json.dump(script_dump, open(script_path, "w", encoding="utf-8"))
+access2 = {"PathSegments": [{"Name": "Space"}, {"Name": "AnimGraphNode_AnimDynamics"}, {"Name": "SimulationSpace"},
+                            {"Name": "Dyn"}, {"Name": "AnimGraphNode_AnimDynamics"}, {"Name": "Alpha"}],
+           "SrcPaths": [{"PathSegmentStartIndex": 0, "PathSegmentCount": 1}, {"PathSegmentStartIndex": 3, "PathSegmentCount": 1}],
+           "DestPaths": [{"PathSegmentStartIndex": 1, "PathSegmentCount": 2}, {"PathSegmentStartIndex": 4, "PathSegmentCount": 2}]}
+scripted = [dump[0], dict(dump[1], SerializedSparseClassData={"AnimBlueprintExtension_PropertyAccess": {"Library": access2}})]
+scripted_path = dump_path + ".scripted.json"
+json.dump(scripted, open(scripted_path, "w", encoding="utf-8"))
+tag = next(n for n in dr.nodes([scripted_path], scripts=[script_path]) if n["bone"] == "dyn_tag")
+check("the bound values per state", (tag["by_state"]["OnGround_Standing"], tag["by_state"]["Front_End"]["space"]),
+      ({"space": "RootRelative", "alpha": 1.0}, "World"))
+from fpmp_baseline.processing.context.dynamics_runner import STATE as _STATE  # noqa: E402
+bound_arm = armature("bound_arm")
+store(bound_arm, dict(tag_node(gravity_override=[0.0, 0.0, 0.0]), alpha=1.0,
+                      by_state={"OnGround_Standing": {"alpha": 1.0}, "Skydive_FloatingDown": {"alpha": 0.5}}))
+bound_arm.data[_STATE] = "Skydive_FloatingDown"
+check("the runner takes the state's values", Runner(bound_arm).alpha["dyn_tag"], 0.5)
+
+def compose_cs(run, loc):
+    out = {}
+    for n in run.order:
+        p = run.parent_of[n]
+        out[n] = (out[p][0] @ loc[n][0], out[p][0] @ loc[n][1] + out[p][1]) if p in out else loc[n]
+    return out
+
+
+# --- a Control Rig turning a parent the dynamics don't simulate
+turn_upper = {"Rotation": {"X": 0.0, "Y": 0.0, "Z": math.sin(math.radians(20)), "W": math.cos(math.radians(20))}}
+rig_program = {"start": 0, "code": [{"o": 101, "f": "ModifyTransforms", "a": [[1, 0, -1], [1, 1, -1], [1, 2, -1], [1, 3, -1], [1, 4, -1]]},
+                                    {"o": 80}],
+               "callables": [], "units": {"ModifyTransforms": ["ItemToModify", "Weight", "WeightMinimum", "WeightMaximum", "Mode"]},
+               "literals": {"0": [{"Item": {"Name": "upperarm"}, "Transform": turn_upper}], "1": 1.0, "2": 0.0, "3": 1.0, "4": 2},
+               "defaults": {}, "lit_paths": [], "work_paths": [], "ext_paths": [], "variables": [], "bones": ["upperarm"],
+               "nulls": [], "writes": ["upperarm"]}
+rigged = armature("rigged")
+store(rigged, {"kind": "control_rig", "program": rig_program, "alpha": 1.0, "variables": {}},
+      tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=5000.0))
+run = Runner(rigged)
+check("the rig hands on nothing it doesn't share with a simulation", [s.outputs() for s in run.sims if hasattr(s, "machine")], [[]])
+pose_in = run.sample()
+cs_out = run.tick(pose_in)
+loc_t, q_t = run.basis(cs_out, "dyn_tag")
+twin_world = rigged.pose.bones["upperarm"].matrix @ (rigged.data.bones["upperarm"].matrix_local.inverted() @ rigged.data.bones["dyn_tag"].matrix_local)     @ Matrix.LocRotScale(loc_t, q_t, None)
+want_world = run_world = None
+from fpmp_baseline.processing.context.dynamics_runner import from_game  # noqa: E402
+want_world = from_game(cs_out["dyn_tag"], run.inv["dyn_tag"], run.unit)
+check("a twin under a rig-turned parent keeps the turn", round((twin_world.to_quaternion().rotation_difference(want_world.to_quaternion())).angle, 4), 0.0)
+
+# each node's alpha is its own: a later switched-off control on the same bone doesn't switch off the simulation
+shared = armature("shared")
+store(shared, tag_node(gravity_override=[980.0, 0.0, 0.0], body={"ang_min": [-60.0] * 3, "ang_max": [60.0] * 3}),
+      {"kind": "modify_bone", "bone": "dyn_tag", "translation": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0],
+       "translation_mode": "Ignore", "rotation_mode": "Ignore", "scale_mode": "Ignore", "translation_space": "ComponentSpace",
+       "rotation_space": "ComponentSpace", "alpha": 0.0})
+run = Runner(shared)
+pose0 = run.sample()
+cs_fall = run.start(pose0)
+swing = math.degrees(cs_fall["dyn_tag"][0].rotation_difference(compose_cs(run, pose0)["dyn_tag"][0]).angle)
+check("a switched-off control leaves the simulation's result", swing > 1.0, True)
+
 print("[dynamics_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

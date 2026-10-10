@@ -36,11 +36,16 @@ def _node(n, parent_of, bones, unit, state=None):
     from ...material_porter.effects import ue_offset
     from .bone_controls import BoneControl
     from .rigid_solver import RigidSim
+    n = dict(n, **(n.get("by_state") or {}).get(state or "OnGround_Standing", {}))      # what the game binds in that state
     kind = n.get("kind", "anim_dynamics")
     if kind == "anim_dynamics":
         return Sim(n, parent_of, state) if n["bone"] in bones else None
     if kind == "rigid_body":
         return RigidSim(n, parent_of, state)
+    if kind == "control_rig":
+        from .rig_node import RigNode
+        rest = {b.name: to_game(b.matrix_local, ue_offset(b), unit) for b in bones}
+        return RigNode(n, parent_of, rest, state)
     if n["bone"] not in bones:
         return None
     named = [n["bone"]] + [s["target"] for s in n.get("setups", []) if s["target"] in bones]
@@ -63,7 +68,9 @@ class Runner:
         self.unit = unit = stored.get("scale", 0.01)
         self.state = obj.data.get(STATE)
         sims = [s for s in (_node(n, parent_of, bones, unit, self.state) for n in stored["nodes"]) if s is not None]
-        self.sims = [s for s in sims if s.outputs() and all(name in bones for name in s.bones())]
+        for rig in [s for s in sims if hasattr(s, "restrict")]:
+            rig.restrict({name for other in sims if not hasattr(other, "restrict") for name in other.outputs()})
+        self.sims = [s for s in sims if (s.outputs() or hasattr(s, "restrict")) and all(name in bones for name in s.bones())]
         self.root = next(b.name for b in bones if b.parent is None)
         need = {self.root}
         for s in self.sims:
@@ -78,7 +85,8 @@ class Runner:
         self.offsets = {n: ue_offset(bones[n]) for n in self.order}
         self.inv = {n: o.inverted() for n, o in self.offsets.items()}
         self.simulated = list(dict.fromkeys(b for s in self.sims for b in s.outputs()))
-        self.alpha = {b: s.node.get("alpha", 1.0) for s in self.sims for b in s.outputs()}
+        self.twinned = set(self.simulated)
+        self.alpha = {b: s.node.get("alpha", 1.0) for s in self.sims for b in s.outputs()}     # the last writer's, for reports
         self.children = {n: [c for c in self.order if parent_of[c] == n] for n in self.order}
         scene = obj.users_scene[0] if obj.users_scene else bpy.context.scene
         fps = scene.render.fps / scene.render.fps_base
@@ -96,12 +104,13 @@ class Runner:
 
     def tick(self, loc):
         parent_of = self.parent_of
+        self.input = loc                # what Blender evaluates under the twins
         loc, cs = dict(loc), {}         # the locals reaching each node: earlier nodes' results included
         for n in self.order:
             cs[n] = compose(loc[n], cs[parent_of[n]]) if parent_of[n] in cs else loc[n]
         for s in self.sims:
             for name, t in s.evaluate(self.dt, cs, self.root).items():
-                a, par = self.alpha[name], cs.get(parent_of[name])
+                a, par = s.node.get("alpha", 1.0), cs.get(parent_of[name])        # each node blends its own result
                 if a < 1e-5:
                     continue
                 local = relative(t, par) if par else t
@@ -128,6 +137,15 @@ class Runner:
             cs = self.tick({n: blend(prev[n], loc[n], k / self.steps) for n in self.order})
         return cs
 
+    def _evaluated(self, cs, name):
+        """A bone as Blender poses it under the twins: a twinned one at its result, any other at its input local under
+        its parent (a Control Rig's change to it only reaches the simulation)."""
+        if name in self.twinned or not hasattr(self, "input"):
+            return cs[name]
+        par = self.parent_of[name]
+        own = self.input[name]
+        return compose(own, self._evaluated(cs, par)) if par in cs else own
+
     def basis(self, cs, name):
         """A simulated bone's result as its twin's local pose (location, rotation)."""
         bone = self.obj.data.bones[name]
@@ -135,6 +153,6 @@ class Runner:
         par = self.parent_of[name]
         m = from_game(cs[name], self.inv[name], self.unit)
         if par in cs:
-            m = from_game(cs[par], self.inv[par], self.unit).inverted() @ m
+            m = from_game(self._evaluated(cs, par), self.inv[par], self.unit).inverted() @ m
         loc, q, _ = (rest.inverted() @ m).decompose()
         return loc, q

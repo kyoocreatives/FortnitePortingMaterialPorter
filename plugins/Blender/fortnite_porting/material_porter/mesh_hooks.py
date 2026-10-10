@@ -138,11 +138,13 @@ def _dynamics(ctx):
         return
     try:
         found = dynamics_read.nodes(list(metas), [m.get("PhysicsAsset") for m in metas.values()],
-                                    [m.get("PhysicsAssets") for m in metas.values()], [m.get("DynamicsParameters") for m in metas.values()])
+                                    [m.get("PhysicsAssets") for m in metas.values()], [m.get("DynamicsParameters") for m in metas.values()],
+                                    [m.get("AnimScript") for m in metas.values()], [m.get("DeformRig") for m in metas.values()])
         for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
             bones = skeleton.data.bones
             mine = [n for n in found if (any(b["bone"] in bones and b["type"] == "Simulated" for b in n["physics"]["bodies"])
-                                         if n["kind"] == "rigid_body" else n["bone"] in bones)]
+                                         if n["kind"] == "rigid_body" else any(w in bones for w in n["program"]["writes"])
+                                         if n["kind"] == "control_rig" else n["bone"] in bones)]
             if mine:
                 skeleton.data[dynamics_bake.KEY] = json.dumps({"scale": getattr(ctx, "scale", 0.01), "nodes": mine})
                 Log.info("%s: %d dynamic bones" % (skeleton.name, len(mine)))

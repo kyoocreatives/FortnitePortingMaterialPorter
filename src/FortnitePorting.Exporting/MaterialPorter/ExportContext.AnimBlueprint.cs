@@ -58,6 +58,24 @@ public partial class ExportContext
     /// reads at runtime, found in its event graph's bytecode and dumped once next to it; null when it reads none.</summary>
     public string? DynamicsParameters(UObject additionalData)
     {
+        if (ScriptPackage(additionalData) is not { } package) return null;
+        foreach (var function in package.GetExports().OfType<UStruct>())
+            foreach (var constant in Expressions(function.ScriptBytecode ?? []).OfType<EX_ObjectConst>())
+                if (constant.Value.TryLoad(out UObject asset) && asset.ExportType == "FortCharacterDynamicsParameters")
+                    return DumpPackage(asset, "dynparams.json");
+        return null;
+    }
+
+    /// <summary>The part's anim blueprint with its functions' bytecode, dumped once next to it: the plugin runs its
+    /// update to learn the values the game binds to the dynamics nodes; null when it runs none.</summary>
+    public string? AnimScript(UObject additionalData)
+    {
+        return ScriptPackage(additionalData)?.GetExports().OfType<UClass>().FirstOrDefault() is { } cls
+            ? DumpPackage(cls, "animscript.json") : null;
+    }
+
+    private global::CUE4Parse.UE4.Assets.IPackage? ScriptPackage(UObject additionalData)
+    {
         if (DynamicsDefaults(additionalData) is not { } found || found.Blueprint.Owner is not { Provider: { } provider } owner)
             return null;
         var readScript = provider.ReadScriptData;
@@ -65,20 +83,18 @@ public partial class ExportContext
         {
             provider.ReadScriptData = true;
             var package = provider.LoadPackage(owner.Name);
-            foreach (var function in package.GetExports().OfType<UStruct>())
-                foreach (var constant in Expressions(function.ScriptBytecode ?? []).OfType<EX_ObjectConst>())
-                    if (constant.Value.TryLoad(out UObject asset) && asset.ExportType == "FortCharacterDynamicsParameters")
-                        return DumpPackage(asset, "dynparams.json");
+            _ = package.GetExports().ToList();      // read while the bytecode is on
+            return package;
         }
-        catch (Exception e)     // a graph that won't read costs the per-state values, never the export
+        catch (Exception e)     // a graph that won't read costs the runtime values, never the export
         {
-            Serilog.Log.Warning("[Material Porter] {Anim}: dynamics parameters not found: {Error}", found.Blueprint.Name, e.Message);
+            Serilog.Log.Warning("[Material Porter] {Anim}: event graph not read: {Error}", found.Blueprint.Name, e.Message);
+            return null;
         }
         finally
         {
             provider.ReadScriptData = readScript;
         }
-        return null;
     }
 
     private static IEnumerable<KismetExpression> Expressions(IEnumerable<KismetExpression> roots)
