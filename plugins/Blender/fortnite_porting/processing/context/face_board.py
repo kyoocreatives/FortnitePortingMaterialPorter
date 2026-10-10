@@ -32,7 +32,8 @@ FLIPBOOK = {"name": "flipbook",
                        "flipbook_face_r_brow_index": ("fb_browcolumncount", "fb_browrowcount"),
                        "flipbook_face_l_eye_index": ("fb_eyecolumncount", "fb_eyerowcount"),
                        "flipbook_face_r_eye_index": ("fb_eyecolumncount", "fb_eyerowcount"),
-                       "flipbook_face_mouth_index": ("fb_mouthcolumncount", "fb_mouthrowcount")},
+                       "flipbook_face_mouth_index": (("fb_mouthcolumncount", "fb_mouthrowcount"),
+                                                     ("mouth_subimagesx", "mouth_subimagesy"))},
             "pads": (("Brows", ("fb_browuvoffsetx", "fb_browuvoffsety"), "C"),
                      ("Eyes", ("fb_eyeuvoffsetx", "fb_eyeuvoffsety"), "C"),
                      ("Mouth", ("fb_mouthuvoffsetx", "fb_mouthuvoffsety"), "C"))}
@@ -47,6 +48,8 @@ TOON = {"name": "toon", "sliders": (), "counts": {}, "pads": (),
                    ("Brows", "C", (("None", ()), ("Up", ("R_brow_up_pose",)), ("Raised", ("C_glabella_up_pose",)),
                                    ("Angry", ("C_glabella_down_pose",)))))}
 KINDS = (LEGO, FLIPBOOK, TOON)
+# pupils that follow the look curves (Peabody's): a pad, each side's curve 0 to 1
+LOOK = ("Look", ("look_left_pose", "look_right_pose", "look_up_pose", "look_down_pose"), "C")
 COUNT = 16          # expressions a slider reaches when the face doesn't say
 PAD_UV = 0.1        # UV a pad moves its feature at full reach
 STEP = "fpmp_face_step"
@@ -97,10 +100,11 @@ def kind(found):
 
 def count(found, key, inputs=None):
     """Expressions a slider steps through: the face's columns x rows when it has them, else COUNT."""
-    columns_rows = kind(found)["counts"].get(key)
+    pairs = kind(found)["counts"].get(key) or ()
     inputs = inputs or found[0][1]
-    if columns_rows and all(c in inputs for c in columns_rows):
-        return max(int(round(inputs[columns_rows[0]].default_value * inputs[columns_rows[1]].default_value)), 1)
+    for columns, rows in pairs if pairs and isinstance(pairs[0], tuple) else (pairs,) if pairs else ():
+        if columns in inputs and rows in inputs:
+            return max(int(round(inputs[columns].default_value * inputs[rows].default_value)), 1)
     return COUNT
 
 
@@ -115,6 +119,11 @@ def _layout(found):
     sliders = [s for s in k["sliders"] if s[0] in have]
     pads = [p for p in k["pads"] if all(i in have for i in p[1])]
     return sliders, pads
+
+
+def _looks(found):
+    have = _have(found)
+    return [LOOK] if all(c in have for c in LOOK[1]) else []
 
 
 def _states(found):
@@ -133,7 +142,8 @@ def bones(edit, found, parent, at, left, up, size):
     sliders, pads = _layout(found)
     sliders = sliders + [(None, name, role) for name, role, _ in _states(found)]      # states rest at their first
     step = size * STEP_OF_HEAD
-    rows = len(sliders) + (1 if pads else 0)
+    looks = _looks(found)
+    rows = len(sliders) + (1 if pads or looks else 0)
     board = edit.new(BOARD)
     board.head, board.tail = at, at + up * step * ROW
     board.align_roll(left.cross(up))            # board X along the figure's left (expressions count up that way)
@@ -149,6 +159,12 @@ def bones(edit, found, parent, at, left, up, size):
     for j, (name, _, _) in enumerate(pads):
         b = edit.new(PREFIX + name + "_UV")
         b.head = at + left * step * (2.0 + 5.0 * j)
+        b.tail = b.head + up * step * 0.5
+        b.align_roll(left.cross(up))
+        b.parent, b.use_deform = board, False
+    for j, (name, _, _) in enumerate(looks):
+        b = edit.new(PREFIX + name)
+        b.head = at + left * step * (2.0 + 5.0 * (len(pads) + j))
         b.tail = b.head + up * step * 0.5
         b.align_roll(left.cross(up))
         b.parent, b.use_deform = board, False
@@ -202,6 +218,22 @@ def _slider(obj, bone, role, step, rest, most):
     limit.use_transform_limit = True
 
 
+def _pad(obj, bone, role, step):
+    """A pad's square, moving a step each way across and up the board."""
+    bone.custom_shape = rig_shapes.ensure("CR_Square")
+    bone.use_custom_shape_bone_size = False
+    bone.custom_shape_scale_xyz = (step * SIZE,) * 3
+    rig_style.style(bone, role, secondary=True)
+    _assign(obj, bone.name, "Secondary")
+    bone.lock_location, bone.lock_rotation, bone.lock_scale = (False, False, True), (True, True, True), (True, True, True)
+    limit = bone.constraints.new('LIMIT_LOCATION')
+    limit.owner_space = 'LOCAL'
+    limit.use_min_x = limit.use_max_x = limit.use_min_y = limit.use_max_y = True
+    limit.min_x, limit.max_x, limit.min_y, limit.max_y = -step, step, -step, step
+    limit.use_transform_limit = True
+    return bone
+
+
 def wire(obj, found, size):
     """Shapes, limits and drivers (pose mode), for the bones `bones` made."""
     pose = obj.pose.bones
@@ -215,7 +247,8 @@ def wire(obj, found, size):
     board.custom_shape = rig_shapes.ensure("CR_Square")
     board.use_custom_shape_bone_size = False
     # frame: expressions 0 to the widest count across (a step of margin), every row up
-    rows = len(sliders) + len(states) + (1 if pads else 0)
+    looks = _looks(found)
+    rows = len(sliders) + len(states) + (1 if pads or looks else 0)
     board.custom_shape_scale_xyz = (step * (widest + 1) * 0.5, step * ROW * rows * 0.5, 1.0)
     board.custom_shape_translation = (step * (widest - 1) * 0.5, step * ROW * (rows - 1) * 0.5, 0.0)
     rig_style.style(board, "C")
@@ -232,22 +265,16 @@ def wire(obj, found, size):
             _drive(mat, inputs[key], obj, bone.name, "X", "max(0,min(%d,%d+round(x/%r)))" % (mat_most, mat_rest, step))
         controls[bone.name] = found[0][1][key].name
     for name, (x_key, y_key), role in pads:
-        bone = pose[PREFIX + name + "_UV"]
-        bone.custom_shape = rig_shapes.ensure("CR_Square")
-        bone.use_custom_shape_bone_size = False
-        bone.custom_shape_scale_xyz = (step * SIZE,) * 3
-        rig_style.style(bone, role, secondary=True)
-        _assign(obj, bone.name, "Secondary")
-        bone.lock_location, bone.lock_rotation, bone.lock_scale = (False, False, True), (True, True, True), (True, True, True)
-        limit = bone.constraints.new('LIMIT_LOCATION')
-        limit.owner_space = 'LOCAL'
-        limit.use_min_x = limit.use_max_x = limit.use_min_y = limit.use_max_y = True
-        limit.min_x, limit.max_x, limit.min_y, limit.max_y = -step, step, -step, step
-        limit.use_transform_limit = True
+        bone = _pad(obj, pose[PREFIX + name + "_UV"], role, step)
         for mat, inputs in found:
             for axis, key in (("X", x_key), ("Y", y_key)):
                 rest = inputs[key].default_value
                 _drive(mat, inputs[key], obj, bone.name, axis, "%r+x/%r*%r" % (rest, step, PAD_UV))
+    for name, (left_key, right_key, up_key, down_key), role in looks:
+        bone = _pad(obj, pose[PREFIX + name], role, step)
+        for mat, inputs in found:
+            for key, axis, sign in ((left_key, "X", ""), (right_key, "X", "-"), (up_key, "Y", ""), (down_key, "Y", "-")):
+                _drive(mat, inputs[key], obj, bone.name, axis, "max(0,min(1,%sx/%r))" % (sign, step))
     for name, role, st in states:
         bone = pose[PREFIX + name]
         _slider(obj, bone, role, step, 0, len(st) - 1)
@@ -299,7 +326,8 @@ def add(obj, head, left=None, up=Vector((0.0, 0.0, 1.0)), size=None):
     points = [p for b in edit for p in (b.head, b.tail)] or [Vector()]
     top = max(p.z for p in points)
     span = max(max(p[i] for p in points) - min(p[i] for p in points) for i in range(3))
-    size = size or (edit[head].length if head else span * 0.25)
+    # a head bone can be a centimetre long (Peely's): the head mesh's reach sizes the board then
+    size = size or (max(edit[head].length, clear) if head else span * 0.25)
     if head:
         parent, at = head, edit[head].head + left * max(size * 1.4, clear * 1.15 + size * 0.5) + up * size * 0.2
     else:

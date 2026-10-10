@@ -731,6 +731,8 @@ attach_face(clear, "clearfig", FLIP)
 bpy.data.objects["clearfig head"].data.vertices[1].co = (0.3, 0.0, 1.05)
 face_board.add(clear, head="head")
 check("the flipbook board starts past the head mesh", clear.data.bones[face_board.BOARD].head_local.x > 0.3, True)
+check("a short head bone's board is sized by the head mesh", round(face_board.step_of(clear), 4),
+      round(face_board.clearance(clear, "head", (1.0, 0.0, 0.0)) * face_board.STEP_OF_HEAD, 4))
 
 # a toon face (Peely's): its material picks the mouth cell and the eye and brow pieces from the face's curves;
 # sliders step through the states the game tells apart
@@ -767,6 +769,34 @@ check("toon frown: the closed-mouth frown curve", on(toon_values(2)), ["R_frown_
 check("toon blink and angry brows", on(toon_values(0, 1, 3)), ["C_glabella_down_pose", "R_blink_pose"])
 check("toon sliders stop at their last state", on(toon_values(20, 9, 9)), ["C_glabella_down_pose", "Jaw_open_Pose", "R_Frown_pose", "R_squint_inner_pose"])
 check("toon leaves other inputs", tnode.inputs["Default Face"].default_value, 0.0)
+
+# a flipbook face whose pupils follow the look curves (Peabody's): a Look pad, the mouth sheet's own size
+PEAS = {"flipbook_face_mouth_index": 0.0, "Mouth_SubimagesX": 4.0, "Mouth_SubimagesY": 2.0,
+        "look_left_pose": 0.0, "look_right_pose": 0.0, "look_up_pose": 0.0, "look_down_pose": 0.0}
+pf = bpy.data.objects.new("peasfig", bpy.data.armatures.new("peasfig"))
+bpy.context.scene.collection.objects.link(pf)
+bpy.context.view_layer.objects.active = pf
+bpy.ops.object.mode_set(mode='EDIT')
+hb = pf.data.edit_bones.new("head")
+hb.head, hb.tail = (0, 0, 1.0), (0, 0, 1.2)
+bpy.ops.object.mode_set(mode='OBJECT')
+pmat, pnode = attach_face(pf, "peasfig", PEAS)
+check("the mouth sheet's own size", face_board.count(face_board.faces(pf), "flipbook_face_mouth_index"), 8)
+face_board.add(pf, head="head")
+check("peas controls", sorted(n for n in pf.pose.bones.keys() if n.startswith("CR_Face_")), ["CR_Face_Look", "CR_Face_Mouth"])
+pstep = face_board.step_of(pf)
+
+
+def look(x, y):
+    pf.pose.bones["CR_Face_Look"].location.x, pf.pose.bones["CR_Face_Look"].location.y = x * pstep, y * pstep
+    pf.update_tag()
+    bpy.context.view_layer.update()
+    return {k[5:-5]: round(pnode.inputs[k].default_value, 2) for k in PEAS if k.startswith("look_")}
+
+
+check("look rest", look(0, 0), {"left": 0.0, "right": 0.0, "up": 0.0, "down": 0.0})
+check("look left and up", look(1, 0.5), {"left": 1.0, "right": 0.0, "up": 0.5, "down": 0.0})
+check("look right and down, held at full", look(-3, -1), {"left": 0.0, "right": 1.0, "up": 0.0, "down": 1.0})
 
 print("[rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 if FAILS:
