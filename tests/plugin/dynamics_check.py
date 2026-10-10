@@ -542,6 +542,33 @@ from fpmp_baseline.processing.context.dynamics_runner import from_game  # noqa: 
 want_world = from_game(cs_out["dyn_tag"], run.inv["dyn_tag"], run.unit)
 check("a twin under a rig-turned parent keeps the turn", round((twin_world.to_quaternion().rotation_difference(want_world.to_quaternion())).angle, 4), 0.0)
 
+# a switch fed by a variable picks its side per movement state; nodes off in a state get alpha 0 there
+switch_dump = [dict(dump[0], ChildProperties=[{"Name": n} for n in ("AnimGraphNode_CopyPoseFromMesh", "AnimGraphNode_AnimDynamics",
+                                                                     "AnimGraphNode_AnimDynamics_1", "AnimGraphNode_BlendListByBool",
+                                                                     "AnimGraphNode_Root")]),
+               {"Type": "X_AnimBP_C", "Name": "Default__X_AnimBP_C",
+                "Properties": {"AnimGraphNode_CopyPoseFromMesh": {}, "AnimGraphNode_Root": {"Result": {"LinkID": 3}},
+                               "AnimGraphNode_AnimDynamics": dict(AD_A, ComponentPose={"LinkID": 0}),
+                               "AnimGraphNode_AnimDynamics_1": dict(AD_B, ComponentPose={"LinkID": 0}),
+                               "AnimGraphNode_BlendListByBool": {"BlendPose": [{"LinkID": 1}, {"LinkID": 2}]}},
+                "SerializedSparseClassData": {
+                    "AnimBlueprintExtension_PropertyAccess": {"Library": {
+                        "PathSegments": [{"Name": "bIsPlayingEmote"}, {"Name": "__AnimBlueprintMutables"}, {"Name": "__BoolProperty"}],
+                        "SrcPaths": [{"PathSegmentStartIndex": 0, "PathSegmentCount": 1}],
+                        "DestPaths": [{"PathSegmentStartIndex": 1, "PathSegmentCount": 2}],
+                        "CopyBatchArray": [{"Copies": [{"AccessIndex": 0, "DestAccessStartIndex": 0, "DestAccessEndIndex": 1}]}]}},
+                    "AnimGraphNode_BlendListByBool": {"CopyRecords": [{"CopyIndex": 0}]}}}]
+switch_path = dump_path + ".switch.json"
+json.dump(switch_dump, open(switch_path, "w", encoding="utf-8"))
+empty_script = dump_path + ".switch.animscript.json"
+json.dump([{"Type": "AnimBlueprintGeneratedClass", "Name": "X_C", "ChildProperties": []}, {"Type": "X_C", "Name": "Default__X_C", "Properties": {}}],
+          open(empty_script, "w", encoding="utf-8"))
+sw = {n["bone"]: n for n in dr.nodes([switch_path], scripts=[empty_script])}
+alpha_of = lambda bone, state: ((sw[bone].get("by_state") or {}).get(state) or {}).get("alpha", 1.0)  # noqa: E731
+check("both sides of a fed switch are kept", sorted(sw), ["dyn_b", "dyn_tag"])
+check("an emote runs the true side only", (alpha_of("dyn_tag", "EmoteOrMelee"), alpha_of("dyn_b", "EmoteOrMelee")), (1.0, 0.0))
+check("standing runs the false side only", (alpha_of("dyn_tag", "OnGround_Standing"), alpha_of("dyn_b", "OnGround_Standing")), (0.0, 1.0))
+
 # a bake keys each frame against that frame's parents, not the last one's
 moving = armature("moving")
 key_arm(moving, [(0, 0.0), (10, 80.0)])
@@ -569,6 +596,18 @@ pose0 = run.sample()
 cs_fall = run.start(pose0)
 swing = math.degrees(cs_fall["dyn_tag"][0].rotation_difference(compose_cs(run, pose0)["dyn_tag"][0]).angle)
 check("a switched-off control leaves the simulation's result", swing > 1.0, True)
+
+
+# a node's alpha past 1 blends as 1 (the engine clamps it): a cooked 10 doesn't overshoot the simulation tenfold
+def swung(alpha):
+    arm_ = armature("alpha%s" % alpha)
+    store(arm_, dict(tag_node(gravity_override=[980.0, 0.0, 0.0], body={"ang_min": [-60.0] * 3, "ang_max": [60.0] * 3}), alpha=alpha))
+    run_ = Runner(arm_)
+    p0 = run_.sample()
+    return math.degrees(run_.start(p0)["dyn_tag"][0].rotation_difference(compose_cs(run_, p0)["dyn_tag"][0]).angle)
+
+
+check("an alpha over 1 swings as far as 1", round(swung(10.0), 3), round(swung(1.0), 3))
 
 print("[dynamics_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

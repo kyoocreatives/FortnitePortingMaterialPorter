@@ -158,17 +158,45 @@ def _reader(name):
     return next((r for prefix, r in READERS.items() if name == prefix or name.startswith(prefix + "_")), None)
 
 
-def _links(name, props):
-    """The pose links a node evaluates: a bool or int blend list only its active one (its bound value is unknown here,
-    so the cooked default: false, index 0; without a backpack or cape that is what Fortnite's switches read)."""
+SWITCHES = ("AnimGraphNode_BlendListByBool", "AnimGraphNode_BlendListByInt")
+ALL = object()      # follow every side of every switch
+
+
+def _links(name, props, chosen=None):
+    """The pose links a node evaluates: a bool or int blend list only its active one. chosen: the switches' values
+    (the game's bound variables in a state), else the cooked default (false, index 0); ALL follows every side."""
     node, out = props[name], []
+    value = None if chosen is None or chosen is ALL else chosen.get(name)
     for key, v in node.items():
         links = v if isinstance(v, list) else [v]
-        if key == "BlendPose" and name.startswith("AnimGraphNode_BlendListByBool") and len(links) == 2:
-            links = [links[0] if node.get("bActiveValue") else links[1]]
-        elif key == "BlendPose" and name.startswith("AnimGraphNode_BlendListByInt") and links:
-            links = [links[min(int(node.get("ActiveChildIndex", 0)), len(links) - 1)]]
+        if key == "BlendPose" and name.startswith(SWITCHES) and links and chosen is not ALL:
+            if name.startswith("AnimGraphNode_BlendListByBool") and len(links) == 2:
+                on = node.get("bActiveValue") if value is None else value
+                links = [links[0] if on else links[1]]
+            elif name.startswith("AnimGraphNode_BlendListByInt"):
+                index = node.get("ActiveChildIndex", 0) if value is None else value
+                links = [links[min(max(int(index or 0), 0), len(links) - 1)]]
         out += [l for l in links if isinstance(l, dict) and isinstance(l.get("LinkID"), int)]
+    return out
+
+
+def _switch_sources(cdo):
+    """Each switch's bound variable, {node: source}: the game copies it into the blueprint's mutable data the switch
+    reads (its node's copy records name the copy)."""
+    sparse = cdo.get("SerializedSparseClassData") or {}
+    lib = (sparse.get("AnimBlueprintExtension_PropertyAccess") or {}).get("Library") or {}
+    seg, srcs = lib.get("PathSegments") or [], lib.get("SrcPaths") or []
+    copies = [c for batch in lib.get("CopyBatchArray") or [] for c in batch.get("Copies") or []]
+    out = {}
+    for name, data in sparse.items():
+        if not name.startswith(SWITCHES) or not isinstance(data, dict):
+            continue
+        for record in data.get("CopyRecords") or []:
+            i = record.get("CopyIndex", -1)
+            if 0 <= i < len(copies) and 0 <= copies[i].get("AccessIndex", -1) < len(srcs):
+                p = srcs[copies[i]["AccessIndex"]]
+                start = p.get("PathSegmentStartIndex", 0)
+                out[name] = ".".join(seg[k].get("Name") for k in range(start, start + p.get("PathSegmentCount", 0)) if k < len(seg))
     return out
 
 
@@ -227,30 +255,42 @@ def _part(raw, physics=None, by_node=None, table=None, script=None, rig=None):
     # a pose link's LinkID indexes the class's anim node properties in field order
     names = [c.get("Name") for c in cls.get("ChildProperties") or [] if str(c.get("Name", "")).startswith("AnimGraphNode_")]
     props = cdo.get("Properties") or {}
-    order, seen = [], set()
 
-    def visit(name):            # inputs first: the order the graph evaluates
-        if name in seen or not isinstance(props.get(name), dict):
-            return
-        seen.add(name)
-        for link in _links(name, props):
-            if 0 <= link["LinkID"] < len(names):
-                visit(names[link["LinkID"]])
-        order.append(name)
+    def walk(chosen=None):
+        order, seen = [], set()
 
-    for root in [n for n in names if n.startswith("AnimGraphNode_Root")]:
-        visit(root)
-    off = _switched_off(props, names, seen)
+        def visit(name):            # inputs first: the order the graph evaluates
+            if name in seen or not isinstance(props.get(name), dict):
+                return
+            seen.add(name)
+            for link in _links(name, props, chosen):
+                if 0 <= link["LinkID"] < len(names):
+                    visit(names[link["LinkID"]])
+            order.append(name)
+        for root in [n for n in names if n.startswith("AnimGraphNode_Root")]:
+            visit(root)
+        return order, seen
+
+    bound, sources = _bound(cdo), _switch_sources(cdo)
+    values = _by_state(script, table) if script is not None and (bound or sources) else {}
+    live = None
+    if sources and values:      # the switches read the game's variables: every side runs in some state
+        order, seen = walk(ALL)
+        live = {state: walk({n: v.get(src, False) for n, src in sources.items()})[1] for state, v in values.items()}
+        off = set(seen) - set().union(*live.values())
+    else:
+        order, seen = walk()
+        off = _switched_off(props, names, seen)
     unreached = [n for n in names if _reader(n) and n not in seen and n in props and n not in off]
     if unreached:           # state machine states aren't linked from the root
         Log.info("[Material Porter] dynamics: %d nodes outside the main graph run last" % len(unreached))
     skipped = [n for n in order if not _reader(n) and "ComponentPose" in props[n]]
     if skipped:
         Log.info("[Material Porter] dynamics: not replayed: %s" % ", ".join(n.replace("AnimGraphNode_", "") for n in skipped))
-    bound = _bound(cdo)
-    values = _by_state(script, table) if script is not None and bound else {}
     found = []
     for n in order + unreached:
+        if n in off:
+            continue
         reader = _reader(n)
         if reader is None:
             continue
@@ -259,10 +299,14 @@ def _part(raw, physics=None, by_node=None, table=None, script=None, rig=None):
             item["states"] = table
         if item and values:
             per = {state: _overrides(item, props[n], n, bound, v) for state, v in values.items()}
+            if live is not None and n in seen:      # off in the states whose switches skip it
+                per = {state: dict(o, alpha=0.0) if n not in live[state] else o for state, o in per.items()}
             if any(per.values()):
                 item["by_state"] = per
         found.append(item)
     return [n for n in found if n and (n["kind"] in ("rigid_body", "control_rig") or n["bone"])]
+
+
 
 
 def _bound(cdo):

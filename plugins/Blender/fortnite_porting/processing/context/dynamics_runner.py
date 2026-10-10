@@ -37,6 +37,8 @@ def _node(n, parent_of, bones, unit, state=None):
     from .bone_controls import BoneControl
     from .rigid_solver import RigidSim
     n = dict(n, **(n.get("by_state") or {}).get(state or "OnGround_Standing", {}))      # what the game binds in that state
+    if n.get("alpha", 1.0) < 1e-5:          # switched off in this state: the game skips it
+        return None
     kind = n.get("kind", "anim_dynamics")
     if kind == "anim_dynamics":
         return Sim(n, parent_of, state) if n["bone"] in bones else None
