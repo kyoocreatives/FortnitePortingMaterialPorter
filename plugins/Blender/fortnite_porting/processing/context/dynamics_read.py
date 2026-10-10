@@ -1,6 +1,7 @@
 """Fortnite's AnimDynamics nodes from a part's anim blueprint dump (CUE4Parse JSON), in the order the graph runs them,
 with the engine's defaults where the cooked asset leaves a value out."""
 import json
+import re
 import os
 
 from ...logger import Log
@@ -304,6 +305,9 @@ def _part(raw, physics=None, by_node=None, table=None, script=None, rig=None):
         item = reader(props[n], rig if n.startswith(CONTROL_RIG) else (by_node or {}).get(n) or physics)
         if item and table and (item["kind"] == "rigid_body" or (n, "GravityOverride") in bound):
             item["states"] = table
+        own = _gravity_table(item, n, bound, values) if item else None
+        if own:
+            item["states"] = own
         if item and values:
             per = {state: _overrides(item, props[n], n, bound, v) for state, v in values.items()}
             if live is not None and n in seen:      # off in the states whose switches skip it
@@ -314,6 +318,18 @@ def _part(raw, physics=None, by_node=None, table=None, script=None, rig=None):
     return [n for n in found if n and (n["kind"] in ("rigid_body", "control_rig") or n["bone"])]
 
 
+def _gravity_table(item, name, bound, values):
+    """A node's gravity from the blueprint's own per-state table (its graph's state function picks the row), as
+    states() gives the character's: {state: gravity in its joint's frame, the joint, the node's sim space}."""
+    src = next((bound[(name, p)] for p in ("OverrideWorldGravity", "GravityOverride") if (name, p) in bound), None)
+    found = next((_read(v, src) for v in values.values()), None) if src else None
+    rows = found.get("by_state") if isinstance(found, dict) else None
+    if not isinstance(rows, dict):
+        return None
+    field = lambda row, prefix: next((v for k, v in row.items() if k.startswith(prefix)), None)  # noqa: E731
+    return {re.sub(r"_\d+_[0-9A-Fa-f]+$", "", key): {"gravity": _vec(field(row, "GravityOverride_"), (0.0, 0.0, -980.0)),
+                                                         "joint": field(row, "JointName_") or "root", "sim_space": item.get("sim_space")}
+            for key, row in rows.items() if isinstance(row, dict)}
 
 
 def _bound(cdo):

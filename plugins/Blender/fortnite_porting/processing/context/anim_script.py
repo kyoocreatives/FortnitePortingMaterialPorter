@@ -93,6 +93,8 @@ MATH = {
 OUTS = {"BreakVector": lambda v: _vec(v), "BreakRotator": lambda r: _vec(r),
         "BreakTransform": lambda t: (None, None, None)}
 
+STATE_GRAVITY = "Gravity Override State Function"     # (self, time, table, rban table, ..) -> gravity, state, ..
+
 _VARS = ("EX_LocalVariable", "EX_LocalOutVariable", "EX_InstanceVariable", "EX_DefaultVariable", "EX_ClassSparseDataVariable")
 _LETS = ("EX_Let", "EX_LetBool", "EX_LetObj", "EX_LetWeakObjPtr", "EX_LetDelegate", "EX_LetMulticastDelegate")
 _CALLS = ("EX_CallMath", "EX_FinalFunction", "EX_LocalFinalFunction", "EX_VirtualFunction", "EX_LocalVirtualFunction")
@@ -112,7 +114,7 @@ def _function(e):
     f = e.get("Function")
     if isinstance(f, dict):
         return f.get("ObjectName", "").rstrip("'").split(":")[-1].split("'")[-1]
-    return e.get("VirtualFunctionName")
+    return f if isinstance(f, str) else e.get("VirtualFunctionName")      # a virtual call names its function
 
 
 def _default(kind):
@@ -227,8 +229,11 @@ class Script:
         if t in _CALLS:
             return self._invoke(e, frame)
         if t in ("EX_Context", "EX_Context_FailSilent", "EX_ClassContext"):
-            # calls on other objects (the mesh, the pawn, montages): the game isn't running, they answer unset
-            return self._eval(e.get("ContextExpression"), frame) if self._eval(e.get("ObjectExpression"), frame) == "self" else None
+            # calls on other objects (the mesh, the pawn, montages): the game isn't running, they answer unset;
+            # a function library's default object holds pure helpers, run like our own
+            obj = e.get("ObjectExpression") or {}
+            library = obj.get("Token") == "EX_ObjectConst" and "FunctionLibrary" in str((obj.get("Value") or {}).get("ObjectName"))
+            return self._eval(e.get("ContextExpression"), frame) if library or self._eval(obj, frame) == "self" else None
         if t in ("EX_True", "EX_False"):
             return t == "EX_True"
         if t == "EX_Self":
@@ -260,6 +265,11 @@ class Script:
                 return MATH[name](*[self._eval(p, frame) for p in params])
             except (TypeError, ValueError, ZeroDivisionError):
                 return None
+        if str(name).startswith(STATE_GRAVITY) and len(params) > 7:
+            # the parameters table it reads by movement state: the reader picks the row (and its joint) per state
+            table = self._eval(params[2], frame)
+            self._write(params[7], {"by_state": table} if isinstance(table, dict) else None, frame)
+            return None
         if name in OUTS:
             outs = OUTS[name](self._eval(params[0], frame) if params else None)
             for target, value in zip(params[1:], outs):

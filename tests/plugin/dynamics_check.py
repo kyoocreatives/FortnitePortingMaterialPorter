@@ -505,6 +505,32 @@ json.dump(scripted, open(scripted_path, "w", encoding="utf-8"))
 tag = next(n for n in dr.nodes([scripted_path], scripts=[script_path]) if n["bone"] == "dyn_tag")
 check("the bound values per state", (tag["by_state"]["OnGround_Standing"], tag["by_state"]["Front_End"]["space"]),
       ({"space": "RootRelative", "alpha": 1.0}, "World"))
+# gravity from the blueprint's own per-state table: the graph's state function picks the current state's row
+self_ = {"Token": "EX_Self"}
+library = {"Token": "EX_ObjectConst", "Value": {"ObjectName": "FortAnimationBPFunctionLibrary_C'Default__FortAnimationBPFunctionLibrary_C'"}}
+gravity_update = [{"Token": "EX_Context", "StatementIndex": 0, "ObjectExpression": library, "ContextExpression": {
+                   "Token": "EX_LocalVirtualFunction", "Function": "Gravity Override State Function DEPRECATED",
+                   "Parameters": [self_, dbl(0.0), var("Gravity Override Params"), var("T", True), {"Token": "EX_False"},
+                                  {"Token": "EX_NameConst", "Value": "root"}, self_, var("G", True), var("S", True), var("GS", True), var("R", True)]}},
+                  let(10, "GravityOverride", var("G", True)),
+                  {"Token": "EX_Return", "StatementIndex": 20}]
+gravity_table = {"OnGround_Standing_32_ABC": {"GravityOverride_15_X": {"X": 0.0, "Y": 0.0, "Z": -980.0}, "JointName_27_Y": "root"},
+                 "Skydive_DivingDown_30_DEF": {"GravityOverride_15_X": {"X": -1500.0, "Y": 0.0, "Z": 0.0}, "JointName_27_Y": "pelvis"}}
+gravity_script = [{"Type": "AnimBlueprintGeneratedClass", "Name": "X_C", "ChildProperties": []},
+                  {"Type": "X_C", "Name": "Default__X_C", "Properties": {"Gravity Override Params": gravity_table}},
+                  {"Type": "Function", "Name": "BlueprintUpdateAnimation", "ScriptBytecode": gravity_update}]
+gravity_script_path = dump_path + ".gravity.animscript.json"
+json.dump(gravity_script, open(gravity_script_path, "w", encoding="utf-8"))
+access3 = {"PathSegments": [{"Name": "GravityOverride"}, {"Name": "AnimGraphNode_AnimDynamics"}, {"Name": "GravityOverride"}],
+           "SrcPaths": [{"PathSegmentStartIndex": 0, "PathSegmentCount": 1}], "DestPaths": [{"PathSegmentStartIndex": 1, "PathSegmentCount": 2}]}
+gravity_bp = [dump[0], dict(dump[1], SerializedSparseClassData={"AnimBlueprintExtension_PropertyAccess": {"Library": access3}})]
+gravity_bp_path = dump_path + ".gravitybp.json"
+json.dump(gravity_bp, open(gravity_bp_path, "w", encoding="utf-8"))
+tabled = next(n for n in dr.nodes([gravity_bp_path], scripts=[gravity_script_path]) if n["bone"] == "dyn_tag")
+check("a gravity the blueprint's state table feeds is read per state",
+      [(tabled.get("states") or {}).get(s, {}).get(k) for s in ("OnGround_Standing", "Skydive_DivingDown") for k in ("gravity", "joint")],
+      [[0.0, 0.0, -980.0], "root", [-1500.0, 0.0, 0.0], "pelvis"])
+
 from fpmp_baseline.processing.context.dynamics_runner import STATE as _STATE  # noqa: E402
 bound_arm = armature("bound_arm")
 store(bound_arm, dict(tag_node(gravity_override=[0.0, 0.0, 0.0]), alpha=1.0,
