@@ -205,21 +205,28 @@ SPACES = {"anim_dynamics": ["Component", "Actor", "World", "RootRelative", "Bone
           "rigid_body": ["ComponentSpace", "WorldSpace", "BaseBoneSpace"]}
 
 
+def _read(values, src):
+    """A bound source's value in a state; "!" flips it (an unset variable is the native default, false)."""
+    return not values.get(src[1:]) if src.startswith("!") else values.get(src)
+
+
 def _overrides(item, props, name, bound, values):
     """What the game's bound variables set on a node, in the reader's terms."""
     out, kind = {}, item["kind"]
     if kind == "control_rig":
-        rig_vars = {var: values[src] for (node, var), src in bound.items() if node == CONTROL_RIG and src in values}
+        rig_vars = {var: _read(values, src) for (node, var), src in bound.items() if node == CONTROL_RIG and _read(values, src) is not None}
         return {"variables": rig_vars} if rig_vars else {}
     float_alpha = _enum(props.get("AlphaInputType"), "Float") == "Float"
     for (node, prop), src in bound.items():
-        if node != name or src not in values:
+        if node != name:
             continue
-        v = values[src]
-        if prop == "Alpha" and float_alpha and isinstance(v, (int, float)):
+        v = _read(values, src)
+        if prop == "bAlphaBoolEnabled" and not float_alpha:
+            out["alpha"] = 1.0 if v else 0.0        # unset: the native variable's default, false
+        elif v is None:
+            continue
+        elif prop == "Alpha" and float_alpha and isinstance(v, (int, float)):
             out["alpha"] = float(v)
-        elif prop == "bAlphaBoolEnabled" and not float_alpha:
-            out["alpha"] = 1.0 if v else 0.0
         elif prop == "SimulationSpace" and kind in SPACES:
             if isinstance(v, str):
                 out["space"] = _enum(v, None)
@@ -318,13 +325,20 @@ def _bound(cdo):
     def path(p):
         start = p.get("PathSegmentStartIndex", 0)
         return [seg[i].get("Name") for i in range(start, start + p.get("PathSegmentCount", 0)) if i < len(seg)]
+    copies = [c for batch in lib.get("CopyBatchArray") or [] for c in batch.get("Copies") or []]
+    negated = set()         # destinations of copies their node flips ("!" + source)
+    for data in (cdo.get("SerializedSparseClassData") or {}).values():
+        for record in (data.get("CopyRecords") or []) if isinstance(data, dict) else []:
+            i = record.get("CopyIndex", -1)
+            if _enum(record.get("PostCopyOperation"), "None") == "LogicalNegateBool" and 0 <= i < len(copies):
+                negated.update(range(copies[i].get("DestAccessStartIndex", 0), copies[i].get("DestAccessEndIndex", 0)))
     out = {}
-    for src, dest in zip(lib.get("SrcPaths") or [], lib.get("DestPaths") or []):
-        d = path(dest)
+    for k, (src, dest) in enumerate(zip(lib.get("SrcPaths") or [], lib.get("DestPaths") or [])):
+        d, s = path(dest), ("!" if k in negated else "") + ".".join(path(src))
         if len(d) == 2:
-            out[tuple(d)] = ".".join(path(src))
+            out[tuple(d)] = s
         elif len(d) == 1 and str(d[0]).startswith(CUSTOM):       # a Control Rig node's exposed rig variable
-            out[(CONTROL_RIG, d[0][len(CUSTOM):].rsplit("_", 1)[0])] = ".".join(path(src))
+            out[(CONTROL_RIG, d[0][len(CUSTOM):].rsplit("_", 1)[0])] = s
     return out
 
 

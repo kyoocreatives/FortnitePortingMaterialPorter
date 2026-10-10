@@ -569,6 +569,33 @@ check("both sides of a fed switch are kept", sorted(sw), ["dyn_b", "dyn_tag"])
 check("an emote runs the true side only", (alpha_of("dyn_tag", "EmoteOrMelee"), alpha_of("dyn_b", "EmoteOrMelee")), (1.0, 0.0))
 check("standing runs the false side only", (alpha_of("dyn_tag", "OnGround_Standing"), alpha_of("dyn_b", "OnGround_Standing")), (0.0, 1.0))
 
+# nodes gated by one bool, one through a negating copy (a skydive rig and a ground rig): an unset variable reads false
+gate_dump = [dict(dump[0], ChildProperties=[{"Name": n} for n in ("AnimGraphNode_CopyPoseFromMesh", "AnimGraphNode_AnimDynamics",
+                                                                   "AnimGraphNode_AnimDynamics_1", "AnimGraphNode_Root")]),
+             {"Type": "X_AnimBP_C", "Name": "Default__X_AnimBP_C",
+              "Properties": {"AnimGraphNode_CopyPoseFromMesh": {}, "AnimGraphNode_Root": {"Result": {"LinkID": 2}},
+                             "AnimGraphNode_AnimDynamics": dict(AD_A, ComponentPose={"LinkID": 0}, AlphaInputType="EAnimAlphaInputType::Bool"),
+                             "AnimGraphNode_AnimDynamics_1": dict(AD_B, ComponentPose={"LinkID": 1}, AlphaInputType="EAnimAlphaInputType::Bool")},
+              "SerializedSparseClassData": {
+                  "AnimBlueprintExtension_PropertyAccess": {"Library": {
+                      "PathSegments": [{"Name": "bIsSkyDiving"}, {"Name": "AnimGraphNode_AnimDynamics"}, {"Name": "bAlphaBoolEnabled"},
+                                       {"Name": "AnimGraphNode_AnimDynamics_1"}, {"Name": "bAlphaBoolEnabled"}],
+                      "SrcPaths": [{"PathSegmentStartIndex": 0, "PathSegmentCount": 1}, {"PathSegmentStartIndex": 0, "PathSegmentCount": 1}],
+                      "DestPaths": [{"PathSegmentStartIndex": 1, "PathSegmentCount": 2}, {"PathSegmentStartIndex": 3, "PathSegmentCount": 2}],
+                      "CopyBatchArray": [{"Copies": [{"AccessIndex": 0, "DestAccessStartIndex": 0, "DestAccessEndIndex": 1},
+                                                     {"AccessIndex": 1, "DestAccessStartIndex": 1, "DestAccessEndIndex": 2}]}]}},
+                  "AnimGraphNode_AnimDynamics": {"CopyRecords": [{"CopyIndex": 0}]},
+                  "AnimGraphNode_AnimDynamics_1": {"CopyRecords": [{"CopyIndex": 1, "PostCopyOperation": "EPostCopyOperation::LogicalNegateBool"}]}}}]
+gate_path = dump_path + ".gate.json"
+json.dump(gate_dump, open(gate_path, "w", encoding="utf-8"))
+sw = {n["bone"]: n for n in dr.nodes([gate_path], scripts=[empty_script])}
+check("on the ground only the negated gate runs", (alpha_of("dyn_tag", "OnGround_Standing"), alpha_of("dyn_b", "OnGround_Standing")), (0.0, 1.0))
+check("skydiving only the plain gate runs", (alpha_of("dyn_tag", "Skydive_DivingDown"), alpha_of("dyn_b", "Skydive_DivingDown")), (1.0, 0.0))
+
+switched_off = armature("switched_off")
+store(switched_off, dict(tag_node(gravity_override=[0.0, 0.0, 0.0]), by_state={"OnGround_Standing": {"alpha": 0.0}}))
+check("a node off in the state isn't simulated at all", Runner(switched_off).sims, [])
+
 # a bake keys each frame against that frame's parents, not the last one's
 moving = armature("moving")
 key_arm(moving, [(0, 0.0), (10, 80.0)])
