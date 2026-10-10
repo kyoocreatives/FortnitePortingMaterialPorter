@@ -14,6 +14,7 @@ Parameters come in as Value nodes, so the socket paths are exercised, not
 just constant folding.
 """
 import colorsys
+import itertools
 import json
 import math
 import os
@@ -30,6 +31,9 @@ GUID = {name: guid for guid, name in ATTRIBUTE_OF_GUID.items()}
 TMP = tempfile.mkdtemp(prefix="ue_graph_test_")
 FAILS = []
 PASSES = [0]
+# load_graph caches by (path, mtime, size): a file rewritten within one clock tick reads as the old graph
+SAVED = set()
+REWRITTEN = [0]
 
 
 # ------------------------------------------------------------ evaluator
@@ -199,8 +203,12 @@ def value(v):
 
 # ------------------------------------------------------------ graphs
 class G:
+    # (not id(g): a freed graph's id comes back, and with it its file name)
+    _ids = itertools.count()
+
     def __init__(self):
         self.nodes, self.n = [], 0
+        self.id = next(G._ids)
 
     def add(self, t, _name=None, _outer=None, **props):
         self.n += 1
@@ -217,6 +225,8 @@ class G:
             nodes.append({"Type": "MaterialEditorOnlyData", "Name": "MaterialEditorOnlyData_0",
                           "Properties": {pin: out if isinstance(out, dict) else R(out)}})
         path = os.path.join(TMP, fname + ".json")
+        REWRITTEN[0] += path in SAVED
+        SAVED.add(path)
         json.dump(nodes, open(path, "w", encoding="utf-8"))
         return path
 
@@ -385,7 +395,7 @@ def run(g, out, **over):
     env = TestEnv(**over)
     tr = Translator(tree, env)
     env.h[0] = tr
-    path = g.save("M_%d" % id(g), out)
+    path = g.save("M_%d" % g.id, out)
     v = tr.material_output(path, "EmissiveColor")
     warnings = list(tr.warnings) + [w for ft in tr.functions.values() for w in ft.tr.warnings]
     return value(v), warnings, tr
@@ -397,7 +407,7 @@ def run_val(g, out, **over):
     env = TestEnv(**over)
     tr = Translator(tree, env)
     env.h[0] = tr
-    v = tr.material_output(g.save("M_%d" % id(g), out), "EmissiveColor")
+    v = tr.material_output(g.save("M_%d" % g.id, out), "EmissiveColor")
     if not v.const:
         # what reads the result: a node no one reads is dead to merge_duplicates
         go = tree.nodes.new("NodeGroupOutput")
@@ -416,7 +426,7 @@ def run_attrs(g, out, **over):
     env = TestEnv(**over)
     tr = Translator(tree, env)
     env.h[0] = tr
-    path = g.save("M_%d" % id(g), out, pin="MaterialAttributes")
+    path = g.save("M_%d" % g.id, out, pin="MaterialAttributes")
     vals = tr.material_attributes(path)
     return {k: value(v) for k, v in vals.items()}, tr
 
@@ -1410,6 +1420,8 @@ tree.links.new(a.outputs[0], b.inputs[1])
 go = tree.nodes.new("NodeGroupOutput"); tree.links.new(b.outputs[0], go.inputs[0])
 merge_duplicates(tree)
 check("settled: constant maths folds to the group output's own value", (count(tree, "ShaderNodeMath"), round(go.inputs[0].default_value, 4)), (0, 1.0))
+
+check("no graph file written twice", REWRITTEN[0], 0)
 
 print("[translator_test] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 for f in FAILS:
