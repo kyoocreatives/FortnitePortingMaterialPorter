@@ -76,7 +76,61 @@ def node(p):
     return out
 
 
-def _part(raw):
+def rigid(p, physics):
+    """A RigidBody node's settings and the physics asset it simulates."""
+    space = p.get("SimSpaceSettings") or {}
+    return {"kind": "rigid_body", "space": _enum(p.get("SimulationSpace"), "ComponentSpace"),
+            "base_bone": _bone(p.get("BaseBoneRef")),
+            "gravity": _vec(p.get("OverrideWorldGravity")) if p.get("bOverrideWorldGravity") else None,
+            "use_default_as_simulated": bool(p.get("bUseDefaultAsSimulated", False)),
+            "external_force": _vec(p.get("ExternalForce")),
+            "component_acc": {"acc_scale": _vec(p.get("ComponentLinearAccScale")), "vel_scale": _vec(p.get("ComponentLinearVelScale")),
+                              "clamp": _vec(p.get("ComponentAppliedLinearAccClamp"), (10000.0, 10000.0, 10000.0))},
+            "sim_space": {"world_alpha": float(space.get("WorldAlpha", 0.0)), "velocity_scale_z": float(space.get("VelocityScaleZ", 1.0)),
+                          "damping_alpha": float(space.get("DampingAlpha", 1.0)),
+                          "max_linear_velocity": float(space.get("MaxLinearVelocity", 10000.0)),
+                          "max_angular_velocity": float(space.get("MaxAngularVelocity", 10000.0)),
+                          "max_linear_acceleration": float(space.get("MaxLinearAcceleration", 10000.0)),
+                          "max_angular_acceleration": float(space.get("MaxAngularAcceleration", 10000.0)),
+                          "drag": _vec(space.get("ExternalLinearDragV")), "linear_velocity": _vec(space.get("ExternalLinearVelocity")),
+                          "angular_velocity": _vec(space.get("ExternalAngularVelocity"))},
+            "alpha": float(p.get("Alpha", 1.0)), "physics": physics}
+
+
+def constraint(p):
+    """A Constraint node: the bone pulled toward weighted targets."""
+    setups = [{"target": _bone(c.get("TargetBone")), "offset": _enum(c.get("OffsetOption"), "Offset_RefPose"),
+               "type": _enum(c.get("TransformType"), "Translation"),
+               "axes": [bool((c.get("PerAxis") or {}).get(k, True)) for k in ("bX", "bY", "bZ")]}
+              for c in p.get("ConstraintSetup") or []]
+    weights = [float(w) for w in p.get("ConstraintWeights") or []]
+    return {"kind": "constraint", "bone": _bone(p.get("BoneToModify")), "setups": setups,
+            "weights": weights + [0.0] * (len(setups) - len(weights)), "alpha": float(p.get("Alpha", 1.0))}
+
+
+def modify_bone(p):
+    """A ModifyBone node: translation, rotation and scale set or added in a chosen space."""
+    rot = p.get("Rotation") or {}
+    out = {"kind": "modify_bone", "bone": _bone(p.get("BoneToModify")), "translation": _vec(p.get("Translation")),
+           "rotation": [float(rot.get("Pitch", 0.0)), float(rot.get("Yaw", 0.0)), float(rot.get("Roll", 0.0))],
+           "scale": _vec(p.get("Scale"), (1.0, 1.0, 1.0)), "alpha": float(p.get("Alpha", 1.0))}
+    for k in ("Translation", "Rotation", "Scale"):
+        out[k.lower() + "_mode"] = _enum(p.get(k + "Mode"), "BMM_Ignore").replace("BMM_", "")
+        out[k.lower() + "_space"] = _enum(p.get(k + "Space"), "BCS_ComponentSpace").replace("BCS_", "")
+    return out
+
+
+READERS = {"AnimGraphNode_AnimDynamics": lambda p, phys: dict(node(p), kind="anim_dynamics"),
+           "AnimGraphNode_RigidBody": lambda p, phys: rigid(p, phys) if phys else None,
+           "AnimGraphNode_Constraint": lambda p, phys: constraint(p),
+           "AnimGraphNode_ModifyBone": lambda p, phys: modify_bone(p)}
+
+
+def _reader(name):
+    return next((r for prefix, r in READERS.items() if name == prefix or name.startswith(prefix + "_")), None)
+
+
+def _part(raw, physics=None):
     cls = next((e for e in raw if e.get("Type") == "AnimBlueprintGeneratedClass"), None)
     cdo = next((e for e in raw if str(e.get("Name", "")).startswith("Default__")), None)
     if cls is None or cdo is None:
@@ -98,15 +152,20 @@ def _part(raw):
 
     for root in [n for n in names if n.startswith("AnimGraphNode_Root")]:
         visit(root)
-    unreached = [n for n in names if n.startswith("AnimGraphNode_AnimDynamics") and n not in seen and n in props]
+    unreached = [n for n in names if _reader(n) and n not in seen and n in props]
     if unreached:           # state machine states aren't linked from the root
         Log.info("[Material Porter] dynamics: %d nodes outside the main graph run last" % len(unreached))
-    found = [node(props[n]) for n in order + unreached if n.startswith("AnimGraphNode_AnimDynamics")]
-    return [n for n in found if n["bone"]]
+    skipped = [n for n in order if not _reader(n) and "ComponentPose" in props[n]]
+    if skipped:
+        Log.info("[Material Porter] dynamics: not replayed: %s" % ", ".join(n.replace("AnimGraphNode_", "") for n in skipped))
+    found = [_reader(n)(props[n], physics) for n in order + unreached if _reader(n)]
+    return [n for n in found if n and (n["kind"] == "rigid_body" or n["bone"])]
 
 
-def nodes(paths):
-    """Every part's AnimDynamics nodes, parts in import order (the body's first: the others copy its pose)."""
+def nodes(paths, physics=None):
+    """Every part's replayed nodes, parts in import order (the body's first: the others copy its pose); physics names
+    each part's physics asset dump."""
+    from .physics_read import asset
     out = []
     for i, path in enumerate(paths):
         if not path or not os.path.isfile(path):
@@ -116,5 +175,5 @@ def nodes(paths):
         except ValueError as e:
             Log.warn("[Material Porter] dynamics: %s unreadable (%s)" % (path, e))
             continue
-        out += [dict(n, part=i) for n in _part(raw)]
+        out += [dict(n, part=i) for n in _part(raw, asset(physics[i]) if physics and i < len(physics) else None)]
     return out

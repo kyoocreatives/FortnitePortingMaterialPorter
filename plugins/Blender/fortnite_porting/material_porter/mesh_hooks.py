@@ -126,16 +126,22 @@ def _correctives(ctx):
 
 
 def _dynamics(ctx):
-    """The parts' AnimDynamics nodes, kept on each skeleton that has their bones for the animation bakes."""
+    """The parts' dynamic bone nodes (AnimDynamics, RigidBody and the controls after it), kept on each skeleton that has
+    their bones for the animation bakes."""
     from ..processing.context import dynamics_bake, dynamics_read
-    paths = list(dict.fromkeys(m["Meta"]["AnimBlueprint"] for m in ctx.imported_meshes
-                               if isinstance(m.get("Meta"), dict) and m["Meta"].get("AnimBlueprint")))
-    if not paths:
+    metas = {}
+    for m in ctx.imported_meshes:
+        meta = m.get("Meta")
+        if isinstance(meta, dict) and meta.get("AnimBlueprint"):
+            metas.setdefault(meta["AnimBlueprint"], meta.get("PhysicsAsset"))
+    if not metas:
         return
     try:
-        found = dynamics_read.nodes(paths)
+        found = dynamics_read.nodes(list(metas), list(metas.values()))
         for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
-            mine = [n for n in found if n["bone"] in skeleton.data.bones]
+            bones = skeleton.data.bones
+            mine = [n for n in found if (any(b["bone"] in bones and b["type"] == "Simulated" for b in n["physics"]["bodies"])
+                                         if n["kind"] == "rigid_body" else n["bone"] in bones)]
             if mine:
                 skeleton.data[dynamics_bake.KEY] = json.dumps({"scale": getattr(ctx, "scale", 0.01), "nodes": mine})
                 Log.info("%s: %d dynamic bones" % (skeleton.name, len(mine)))

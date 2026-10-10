@@ -134,6 +134,23 @@ def _drop(obj):
             bpy.data.actions.remove(a)
 
 
+def _node(n, parent_of, bones, unit):
+    """The replayer for one stored node, by its kind; None when the armature lacks what it needs."""
+    from ...material_porter.effects import ue_offset
+    from .bone_controls import BoneControl
+    from .rigid_solver import RigidSim
+    kind = n.get("kind", "anim_dynamics")
+    if kind == "anim_dynamics":
+        return Sim(n, parent_of) if n["bone"] in bones else None
+    if kind == "rigid_body":
+        return RigidSim(n, parent_of)
+    if n["bone"] not in bones:
+        return None
+    named = [n["bone"]] + [s["target"] for s in n.get("setups", []) if s["target"] in bones]
+    rest = {b: _to_game(bones[b].matrix_local, ue_offset(bones[b]), unit) for b in named}
+    return BoneControl(n, parent_of, rest)
+
+
 def bake(obj, rate=60):
     """Simulate the armature's dynamics nodes over its animation; (bones keyed, frames) or (0, 0)."""
     from ...material_porter.effects import ue_offset
@@ -144,8 +161,9 @@ def bake(obj, rate=60):
     stored = json.loads(raw)
     bones = obj.data.bones
     parent_of = {b.name: b.parent.name if b.parent else None for b in bones}
-    sims = [Sim(n, parent_of) for n in stored["nodes"] if n["bone"] in bones]
-    sims = [s for s in sims if all(name in bones for name in s.bones())]
+    unit = stored.get("scale", 0.01)
+    sims = [s for s in (_node(n, parent_of, bones, unit) for n in stored["nodes"]) if s is not None]
+    sims = [s for s in sims if s.outputs() and all(name in bones for name in s.bones())]
     if not sims:
         return 0, 0
     _drop(obj)      # never sample the last bake as input
@@ -163,7 +181,6 @@ def bake(obj, rate=60):
         depth[b.name] = depth[b.parent.name] + 1 if b.parent else 0
     order = sorted(need, key=lambda n: depth[n])        # parents before children
     offsets = {n: ue_offset(bones[n]) for n in order}
-    unit = stored.get("scale", 0.01)
     scene = obj.users_scene[0] if obj.users_scene else bpy.context.scene
 
     keep = scene.frame_current
@@ -177,8 +194,8 @@ def bake(obj, rate=60):
     fps = scene.render.fps / scene.render.fps_base
     steps = max(1, round(rate / fps))
     dt = 1.0 / (fps * steps)
-    simulated = list(dict.fromkeys(d["bone"] for s in sims for d in s.defs))
-    alpha = {d["bone"]: s.node["alpha"] for s in sims for d in s.defs}
+    simulated = list(dict.fromkeys(b for s in sims for b in s.outputs()))
+    alpha = {b: s.node.get("alpha", 1.0) for s in sims for b in s.outputs()}
     children = {n: [c for c in order if parent_of[c] == n] for n in order}
 
     def tick(loc):

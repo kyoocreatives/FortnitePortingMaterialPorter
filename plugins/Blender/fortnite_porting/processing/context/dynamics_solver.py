@@ -348,6 +348,9 @@ class Sim:
         rel = [n["relative_bone"]] if n["space"] == "BoneRelative" and n.get("relative_bone") else []
         return [d["bone"] for d in self.defs] + driving + rel
 
+    def outputs(self):
+        return [d["bone"] for d in self.defs]
+
     def _space(self, cs, root):
         space = self.node["space"]
         if space == "RootRelative":
