@@ -19,6 +19,17 @@ public static class Fork
     /// <summary>Upstream's Blender plugin listens on 40000.</summary>
     public const int BlenderPort = 40010;
 
+    /// <summary>FORTNITEPORTING_MP_QUIET=1 (Debug test instances): the window opens minimized and never takes the focus,
+    /// so a test run doesn't interrupt whatever is in front.</summary>
+    public static void Quiet(Avalonia.Controls.Window window)
+    {
+#if DEBUG
+        if (Environment.GetEnvironmentVariable("FORTNITEPORTING_MP_QUIET") != "1") return;
+        window.ShowActivated = false;
+        window.WindowState = Avalonia.Controls.WindowState.Minimized;
+#endif
+    }
+
     /// <summary>UEFN island export (downloaded islands, unlock by map code): owner builds only, set by the git-ignored Fork.local.props (MPIslands).</summary>
 #if MP_ISLANDS
     public const bool Islands = true;

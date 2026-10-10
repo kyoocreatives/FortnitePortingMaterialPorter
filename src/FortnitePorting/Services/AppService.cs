@@ -68,6 +68,7 @@ public class AppService : IService
         Lifetime.Startup += OnAppStart;
         Lifetime.Exit += OnAppExit;
         Lifetime.MainWindow = new AppWindow();
+        MaterialPorter.Fork.Quiet(Lifetime.MainWindow);     // MP
     }
     
     
