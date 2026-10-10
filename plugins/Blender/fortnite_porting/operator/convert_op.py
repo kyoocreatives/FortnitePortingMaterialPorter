@@ -251,6 +251,31 @@ class FPMP_OT_MaterialAnimation(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FPMP_OT_RoadFromCurve(bpy.types.Operator):
+    """Run the selected road segment mesh along the active curve, the way Fortnite's road splines repeat one segment
+    (select the segment, then the curve last)"""
+    bl_idname = "fpmp.road_from_curve"
+    bl_label = "Road from Curve"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        active = context.active_object
+        return active is not None and active.type == 'CURVE' and any(o.type == 'MESH' for o in context.selected_objects)
+
+    def execute(self, context):
+        from ..material_porter import road
+        curve = context.active_object
+        segment = next(o for o in context.selected_objects if o.type == 'MESH')
+        built = road.road_from_curve(segment, curve)
+        for o in context.selected_objects:
+            o.select_set(False)
+        built.select_set(True)
+        context.view_layer.objects.active = built
+        self.report({'INFO'}, "%s runs along %s; edit the curve to reshape it" % (segment.name, curve.name))
+        return {'FINISHED'}
+
+
 class FPMP_PT_Exact(bpy.types.Panel):
     bl_label = "Exact Materials"
     bl_idname = "FPMP_PT_exact"
@@ -273,6 +298,8 @@ class FPMP_PT_Exact(bpy.types.Panel):
         from ..material_porter.material_time import is_animated
         on = is_animated(context.scene)
         col.operator(FPMP_OT_MaterialAnimation.bl_idname, text="Animated Materials", icon='TIME', depress=on).on = not on
+        col.separator()
+        col.operator(FPMP_OT_RoadFromCurve.bl_idname, icon='CURVE_PATH')
 
 
 class FPMP_OT_AddShellFur(bpy.types.Operator):
@@ -339,7 +366,7 @@ class FPMP_PT_ShellFur(bpy.types.Panel):
             self.layout.operator(FPMP_OT_RemoveShellFur.bl_idname, icon='X')
 
 
-classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_OT_MaterialAnimation, FPMP_PT_Exact, FPMP_OT_CreatureRig, FPMP_OT_VehicleRig, FPMP_OT_LegoRig,
+classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_OT_MaterialAnimation, FPMP_OT_RoadFromCurve, FPMP_PT_Exact, FPMP_OT_CreatureRig, FPMP_OT_VehicleRig, FPMP_OT_LegoRig,
            FPMP_OT_AddShellFur, FPMP_OT_RemoveShellFur, FPMP_PT_ShellFur)
 
 
