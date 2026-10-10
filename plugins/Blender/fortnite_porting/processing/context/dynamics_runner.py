@@ -38,7 +38,7 @@ def _node(n, parent_of, bones, unit, state=None):
     from .rigid_solver import RigidSim
     kind = n.get("kind", "anim_dynamics")
     if kind == "anim_dynamics":
-        return Sim(n, parent_of) if n["bone"] in bones else None
+        return Sim(n, parent_of, state) if n["bone"] in bones else None
     if kind == "rigid_body":
         return RigidSim(n, parent_of, state)
     if n["bone"] not in bones:

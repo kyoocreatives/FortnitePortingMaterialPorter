@@ -429,5 +429,26 @@ for f in range(1, 11):
 check("when playback stops the current frame's result lands", tuple(live.pose.bones["DYN_dyn_tag"].rotation_quaternion), exact, 1e-6)
 dl.set_live(live, False)
 
+# --- gravity fed by the movement state through Property Access ---
+access = {"PathSegments": [{"Name": "GravityOverride"}, {"Name": "AnimGraphNode_AnimDynamics"}, {"Name": "GravityOverride"}],
+          "SrcPaths": [{"PathSegmentStartIndex": 0, "PathSegmentCount": 1}],
+          "DestPaths": [{"PathSegmentStartIndex": 1, "PathSegmentCount": 2}]}
+bound = [dump[0], dict(dump[1], Properties=dict(dump[1]["Properties"], AnimGraphNode_AnimDynamics=dict(
+             AD_A, bUseGravityOverride=True, GravityOverride={"X": 0.0, "Y": 0.0, "Z": 500.0})),
+         SerializedSparseClassData={"AnimBlueprintExtension_PropertyAccess": {"Library": access}})]
+bound_path = dump_path + ".bound.json"
+json.dump(bound, open(bound_path, "w", encoding="utf-8"))
+params_path = dump_path + ".dynparams.json"
+json.dump([{"Type": "FortCharacterDynamicsParameters", "Name": "P", "Properties": {
+    "StateNames": ["EmoteOrMelee"], "GravityOverrideParameters": [{"GravityOverride": {"X": 0.0, "Y": 0.0, "Z": -980.0}, "JointName": "root"}]}}],
+          open(params_path, "w", encoding="utf-8"))
+read = {n["bone"]: n for n in dr.nodes([bound_path], None, None, [params_path])}
+check("a bound gravity override takes the states, an unbound one doesn't",
+      ("states" in read["dyn_tag"], "states" in read["dyn_b"]), (True, False))
+fed = node([body_def(lin_types=["Free"] * 3, ang_min=[-45.0] * 3, ang_max=[45.0] * 3)], gravity_override=[0.0, 0.0, 500.0])
+fed["states"] = {"EmoteOrMelee": {"gravity": [0.0, 0.0, -980.0], "joint": "b", "sim_space": {}}}
+out = ds.Sim(fed, {}, "EmoteOrMelee").evaluate(0.1, cs, "b")
+check("the state's gravity replaces the cooked override", out["b"][1].z, -980.0 / 900.0)
+
 print("[dynamics_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

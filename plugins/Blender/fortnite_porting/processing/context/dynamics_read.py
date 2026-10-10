@@ -199,16 +199,34 @@ def _part(raw, physics=None, by_node=None, table=None):
     skipped = [n for n in order if not _reader(n) and "ComponentPose" in props[n]]
     if skipped:
         Log.info("[Material Porter] dynamics: not replayed: %s" % ", ".join(n.replace("AnimGraphNode_", "") for n in skipped))
+    bound = _bound(cdo)
     found = []
     for n in order + unreached:
         reader = _reader(n)
         if reader is None:
             continue
         item = reader(props[n], (by_node or {}).get(n) or physics)
-        if item and item["kind"] == "rigid_body" and table:
+        if item and table and (item["kind"] == "rigid_body" or (n, "GravityOverride") in bound):
             item["states"] = table
         found.append(item)
     return [n for n in found if n and (n["kind"] == "rigid_body" or n["bone"])]
+
+
+def _bound(cdo):
+    """Node properties the game sets each frame through Property Access, as {(node, property): source}; Fortnite binds
+    the dynamics nodes' gravity to the variable its movement state parameters fill."""
+    lib = ((cdo.get("SerializedSparseClassData") or {}).get("AnimBlueprintExtension_PropertyAccess") or {}).get("Library") or {}
+    seg = lib.get("PathSegments") or []
+
+    def path(p):
+        start = p.get("PathSegmentStartIndex", 0)
+        return [seg[i].get("Name") for i in range(start, start + p.get("PathSegmentCount", 0)) if i < len(seg)]
+    out = {}
+    for src, dest in zip(lib.get("SrcPaths") or [], lib.get("DestPaths") or []):
+        d = path(dest)
+        if len(d) == 2:
+            out[tuple(d)] = ".".join(path(src))
+    return out
 
 
 def _switched_off(props, names, seen):

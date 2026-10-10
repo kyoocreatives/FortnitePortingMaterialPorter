@@ -19,6 +19,18 @@ DEFAULT_BODY = {"bone": None, "box": [10.0, 10.0, 10.0], "offset": [0.0, 0.0, 0.
                 "ang_min": [0.0] * 3, "ang_max": [0.0] * 3, "target": [0.0] * 3, "collision": "CoM", "radius": 10.0}
 
 
+def state_entry(node, state):
+    """The node's movement-state parameters (the game feeds them in each frame), None without any."""
+    table = node.get("states") or {}
+    return table.get(state) or table.get("OnGround_Standing")
+
+
+def state_gravity(entry, cs):
+    """A state's gravity in component space: the parameters give it in its joint's frame."""
+    joint = cs.get(entry["joint"])
+    return (joint[0] if joint else Quaternion()) @ Vector(entry["gravity"])
+
+
 def compose(a, b):
     """The engine's a*b on (rotation, position): a expressed in b's frame."""
     return b[0] @ a[0], b[0] @ a[1] + b[1]
@@ -425,15 +437,18 @@ class Sim:
     """One AnimDynamics node: evaluate() takes the pose reaching it (component transforms by bone name) and returns
     its bodies' bones."""
 
-    def __init__(self, node, parent_of):
+    def __init__(self, node, parent_of, state=None):
         self.node, self.defs, self.bodies, self.joints = node, chain_defs(node, parent_of), None, []
+        self.state = state_entry(node, state) if node.get("gravity_override") is not None else None
+        self.parent_of = parent_of
         self.prev_space, self.prev_spin = Quaternion(), ZERO.copy()
 
     def bones(self):
         n = self.node
         driving = [lim["bone"] for lim in n["planar"] + n["spherical"] if lim.get("bone")]
         rel = [n["relative_bone"]] if n["space"] == "BoneRelative" and n.get("relative_bone") else []
-        return [d["bone"] for d in self.defs] + driving + rel
+        joint = [self.state["joint"]] if self.state and self.state["joint"] in self.parent_of else []
+        return [d["bone"] for d in self.defs] + driving + rel + joint
 
     def outputs(self):
         return [d["bone"] for d in self.defs]
@@ -533,7 +548,7 @@ class Sim:
             force = Vector(n["external_force"])
             if not nearly_zero(force):
                 force = inv @ force
-            override = Vector(n["gravity_override"] or (0.0, 0.0, 0.0))
+            override = state_gravity(self.state, cs) if self.state else Vector(n["gravity_override"] or (0.0, 0.0, 0.0))
             if n["gravity_override"] is not None and not n["gravity_in_sim"]:
                 override = inv @ override
             for b in self.bodies:

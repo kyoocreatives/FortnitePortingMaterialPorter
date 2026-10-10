@@ -6,7 +6,7 @@ from mathutils import Quaternion, Vector
 
 from ...logger import Log
 from . import rigid_contacts as contacts
-from .dynamics_solver import compose, relative
+from .dynamics_solver import compose, relative, state_entry, state_gravity
 from .rigid_bodies import conditioning, mass_properties
 from .rigid_joints import Joint, SolverBody, angvel, integrate, settings
 
@@ -48,8 +48,7 @@ class RigidSim:
 
     def __init__(self, node, parent_of, state=None):
         self.node = node
-        table = node.get("states") or {}
-        self.state = table.get(state) or table.get("OnGround_Standing")
+        self.state = state_entry(node, state)
         asset = node["physics"]
         default = node.get("use_default_as_simulated", False)
         bodies = [b for b in asset["bodies"] if b["bone"] in parent_of]
@@ -130,8 +129,7 @@ class RigidSim:
         """World gravity in the simulation space: the state's (given in its joint's frame) when the game feeds one,
         else the node's own."""
         if self.state:
-            joint = cs.get(self.state["joint"])
-            world = (joint[0] if joint else Quaternion()) @ Vector(self.state["gravity"])
+            world = state_gravity(self.state, cs)
         else:
             world = Vector(self.node["gravity"]) if self.node["gravity"] is not None else Vector((0.0, 0.0, -980.0))
         return space[0].conjugated() @ world
