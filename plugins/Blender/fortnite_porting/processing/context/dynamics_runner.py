@@ -137,22 +137,22 @@ class Runner:
             cs = self.tick({n: blend(prev[n], loc[n], k / self.steps) for n in self.order})
         return cs
 
-    def _evaluated(self, cs, name):
+    def _evaluated(self, cs, name, loc):
         """A bone as Blender poses it under the twins: a twinned one at its result, any other at its input local under
         its parent (a Control Rig's change to it only reaches the simulation)."""
-        if name in self.twinned or not hasattr(self, "input"):
+        if name in self.twinned or loc is None:
             return cs[name]
         par = self.parent_of[name]
-        own = self.input[name]
-        return compose(own, self._evaluated(cs, par)) if par in cs else own
+        return compose(loc[name], self._evaluated(cs, par, loc)) if par in cs else loc[name]
 
-    def basis(self, cs, name):
-        """A simulated bone's result as its twin's local pose (location, rotation)."""
+    def basis(self, cs, name, loc=None):
+        """A simulated bone's result as its twin's local pose (location, rotation); loc: the frame's input (the last
+        tick's by default)."""
         bone = self.obj.data.bones[name]
         rest = bone.parent.matrix_local.inverted() @ bone.matrix_local if bone.parent else bone.matrix_local
         par = self.parent_of[name]
         m = from_game(cs[name], self.inv[name], self.unit)
         if par in cs:
-            m = from_game(self._evaluated(cs, par), self.inv[par], self.unit).inverted() @ m
+            m = from_game(self._evaluated(cs, par, loc or getattr(self, "input", None)), self.inv[par], self.unit).inverted() @ m
         loc, q, _ = (rest.inverted() @ m).decompose()
         return loc, q

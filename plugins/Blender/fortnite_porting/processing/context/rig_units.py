@@ -369,7 +369,7 @@ UNITS = {
     "MathDoubleClamp": clamp, "MathFloatClamp": clamp,
     "DISPATCH_RigVMDispatch_If": if_, "DISPATCH_RigVMDispatch_SelectInt32": select_int32,
     "DISPATCH_RigVMDispatch_CastEnumToInt": cast_enum, "DISPATCH_RigVMDispatch_Print": nothing,
-    "ControlFlowBranch": branch, "Sequence": nothing, "BeginExecution": nothing,
+    "ControlFlowBranch": branch, "Sequence": nothing, "BeginExecution": nothing, "PrepareForExecution": nothing,
     "SphericalPoseReader": spherical_pose_reader, "GetRelativeTransformForItem": get_relative_transform,
     "ModifyTransforms": modify_transforms, "AlphaInterp": alpha_interp, "AnimEvalRichCurve": anim_eval_rich_curve,
     "MathQuaternionSwingTwist": swing_twist, "MathQuaternionToEuler": quaternion_to_euler,

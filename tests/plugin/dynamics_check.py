@@ -542,6 +542,22 @@ from fpmp_baseline.processing.context.dynamics_runner import from_game  # noqa: 
 want_world = from_game(cs_out["dyn_tag"], run.inv["dyn_tag"], run.unit)
 check("a twin under a rig-turned parent keeps the turn", round((twin_world.to_quaternion().rotation_difference(want_world.to_quaternion())).angle, 4), 0.0)
 
+# a bake keys each frame against that frame's parents, not the last one's
+moving = armature("moving")
+key_arm(moving, [(0, 0.0), (10, 80.0)])
+store(moving, {"kind": "control_rig", "program": rig_program, "alpha": 1.0, "variables": {}},
+      tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=5000.0))
+db.bake(moving)
+db.set_on(moving, False)
+scene.frame_set(0)
+fresh = Runner(moving)
+first = fresh.start(fresh.sample())
+db.set_on(moving, True)
+scene.frame_set(0)
+baked0 = moving.pose.bones["dyn_tag"].matrix.to_quaternion()
+check("the bake's first frame matches its own simulation",
+      round(math.degrees(baked0.rotation_difference(from_game(first["dyn_tag"], fresh.inv["dyn_tag"], fresh.unit).to_quaternion()).angle), 1), 0.0, 0.5)
+
 # each node's alpha is its own: a later switched-off control on the same bone doesn't switch off the simulation
 shared = armature("shared")
 store(shared, tag_node(gravity_override=[980.0, 0.0, 0.0], body={"ang_min": [-60.0] * 3, "ang_max": [60.0] * 3}),

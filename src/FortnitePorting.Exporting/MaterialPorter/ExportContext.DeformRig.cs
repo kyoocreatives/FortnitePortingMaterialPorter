@@ -25,11 +25,13 @@ public partial class ExportContext
             .Select(s => s?.StructType as FStructFallback)
             .FirstOrDefault(s => s is not null);
         if (node is null) return null;
-        // the rig class: under ControlRigAssetReference in current builds, ControlRigClass in older ones
-        UClass? rigClass = null;
-        if (node.TryGetValue(out FStructFallback reference, "ControlRigAssetReference"))
-            reference.TryGetValue(out rigClass, "BlueprintRigClass");
-        if (rigClass is null) node.TryGetValue(out rigClass, "ControlRigClass");
+        // the rig: a blueprint class under ControlRigAssetReference in current builds (ControlRigClass in older ones),
+        // or a cooked runtime asset (ControlRigRuntimeAsset) there instead
+        UObject? rigClass = null;
+        if (node.TryGetValue(out FStructFallback reference, "ControlRigAssetReference")
+            && !reference.TryGetValue(out rigClass, "BlueprintRigClass"))
+            reference.TryGetValue(out rigClass, "ControlRigAsset");
+        if (rigClass is null && node.TryGetValue(out UClass oldClass, "ControlRigClass")) rigClass = oldClass;
         if (rigClass?.Owner is not { } package) return null;
         var path = GetExportPath(rigClass, "deformrig.json");
         try

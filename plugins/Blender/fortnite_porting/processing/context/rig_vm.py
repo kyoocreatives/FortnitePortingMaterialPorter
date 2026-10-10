@@ -48,6 +48,15 @@ def _strings(value, out):
             _strings(v, out)
 
 
+def _variables(dump, cls):
+    """The rig's variables in memory order: a blueprint rig's class properties, a runtime rig's property bag."""
+    if cls is not None:
+        return [p["Name"] for p in cls.get("ChildProperties") or []]
+    asset = next((e for e in dump if e.get("Type") == "ControlRigRuntimeAsset"), {})
+    bag = (asset.get("Properties") or {}).get("Variables") or {}
+    return [d["Name"] for d in bag.get("PropertyDescs") or []]
+
+
 def compile_rig(dump):
     """The program from a rig dump: instructions from its forward solve (skipping SKIP's callables), the literals and
     work defaults they use, its variables in memory order, and the elements it names."""
@@ -153,7 +162,7 @@ def compile_rig(dump):
             "lit_paths": [p["SegmentPath"] for p in lit.get("PropertyPathDescriptions") or []],
             "work_paths": [p["SegmentPath"] for p in work.get("PropertyPathDescriptions") or []],
             "ext_paths": [p["SegmentPath"] for p in vm.get("ExternalPropertyPathDescriptions") or []],
-            "variables": [p["Name"] for p in (cls or {}).get("ChildProperties") or []],
+            "variables": _variables(dump, cls),
             "bones": sorted(n for k, n in elements if k == "Bone"), "nulls": [n for n in nulls if n],
             "writes": sorted(n for k, n in writes if k == "Bone")}
 

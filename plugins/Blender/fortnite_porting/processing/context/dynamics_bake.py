@@ -136,21 +136,21 @@ def bake(obj, rate=60):
         frames.append(run.advance(poses[i - 1], poses[i]))
     _push_down(obj)
     _twins(obj, run.simulated)
-    _write(obj, run, frames, start)
+    _write(obj, run, frames, start, poses)
     set_on(obj, True)
     Log.info("[Material Porter] dynamics: %d bones over %d frames in %.1fs" % (len(run.simulated), len(frames), time.time() - t0))
     return len(run.simulated), len(frames)
 
 
-def _write(obj, run, frames, start):
+def _write(obj, run, frames, start, poses):
     ad = obj.animation_data or obj.animation_data_create()
     action = bpy.data.actions.new("%s %s" % (obj.name, TRACK))
     ad.action = action
     times = np.arange(start, start + len(frames), dtype=np.float32)
     for name in run.simulated:
         locs, rots, prev = [], [], None
-        for cs in frames:
-            loc, q = run.basis(cs, name)
+        for cs, pose in zip(frames, poses):
+            loc, q = run.basis(cs, name, pose)
             if prev is not None and q.dot(prev) < 0.0:      # no flips between keys
                 q.negate()
             prev = q
