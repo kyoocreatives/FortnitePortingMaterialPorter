@@ -35,4 +35,5 @@ public class ExportHeadMeta : ExportPoseAssetMeta
 {
     public readonly Dictionary<ECustomHatType, string> MorphNames = new();
     public FLinearColor SkinColor;
+    public string? FaceDNA;     // MP: the head's RigLogic data (riglogic_face)
 }

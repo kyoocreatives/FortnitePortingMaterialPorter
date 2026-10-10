@@ -79,6 +79,7 @@ public partial class ExportContext
                         }
                     }
 
+                    meta.FaceDNA = FaceDna(skeletalMesh);     // MP
                     exportPart.Meta = meta;
                     break;
                 }

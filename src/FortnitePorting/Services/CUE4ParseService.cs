@@ -249,6 +249,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
         
         ObjectTypeRegistry.RegisterEngine(typeof(UFortGameFeatureData).Assembly);
         MaterialPorter.SkippedExports.Register();     // MP
+        FortnitePorting.Exporting.MaterialPorter.UFortFaceDna.Register();     // MP
 
         Provider.LoadOnDemandTocs = AppSettings.Installation.CurrentProfile is { TextureStreamingEnabled: true, UseTextureStreaming: true };
         Provider.LoadExtraDirectories = AppSettings.Installation.CurrentProfile.LoadInstalledBundles;

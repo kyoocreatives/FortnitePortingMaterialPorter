@@ -116,6 +116,7 @@ def expression(node, var):
 
 # --- the board in Blender
 MARK, MESHES, STEP = "fpmp_metahuman_board", "fpmp_metahuman_board_meshes", "fpmp_metahuman_board_step"
+BONES = "fpmp_metahuman_board_bones"         # the board drives the facial bones (RigLogic), not the shape keys
 PREFIX = "MB_"
 OFF_BOARD = (None, "faceAndEyesAimFollowHead")       # Epic's eye-aim frame beside the board: needs its aim solve
 BOARD = PREFIX + "Board"
@@ -272,6 +273,11 @@ def _group(obj, name=None):
 def _drive(obj, key, node, s, axes, built):
     driver = key.driver_add("value").driver
     driver.type = 'SCRIPTED'
+    driver.expression = _expression(obj, driver, node, s, axes, built)
+
+
+def _expression(obj, driver, node, s, axes, built):
+    """A board formula as the driver's expression, its knobs added as the driver's variables."""
     used = {}
 
     def var(control, axis):
@@ -286,19 +292,38 @@ def _drive(obj, key, node, s, axes, built):
             v.targets[0].transform_space = 'LOCAL_SPACE'
         reach = _length(axes[control][axis]) * s
         return "(%s/%s)" % (used[(control, axis)], _num(reach)) if reach > 1e-9 else "0.0"
-    driver.expression = expression(node, var)
+    return expression(node, var)
 
 
-def add(obj, size=None):
-    """The board beside the head, its knobs driving the head's expression shape keys. Returns the drivers made
-    (0 when the armature doesn't fit or already has its board)."""
+def _rig(obj, dna):
+    """The head's RigLogic data, or None (no file, or unreadable: the board drives the shape keys instead)."""
+    if not dna:
+        return None
+    from . import riglogic_read
+    try:
+        return riglogic_read.read(dna)
+    except (OSError, riglogic_read.RigLogicError) as e:
+        print("[MetaHuman board] %s: RigLogic data unreadable (%s), shape keys instead" % (obj.name, e))
+        return None
+
+
+def add(obj, size=None, dna=None):
+    """The board beside the head, its knobs driving the face: the facial bones through the head's RigLogic data (`dna`,
+    a .rigdna file), else the expression shape keys. Returns the drivers made on raw controls or shape keys (0 when
+    the armature doesn't fit or already has its board)."""
     data = load()
     if obj.data.get(MARK) or not fits(obj):
         return 0
     size = size or max(obj.data.bones["head"].length * 5.0, 0.3)
     keys = _keys(obj, data)
-    # FP heads carry about a third of Epic's expression curves: knobs nothing reads aren't built
-    live = set().union(*(_read(data["curves"]["CTRL_expressions_" + k.name], set()) for _, k in keys))
+    rig = _rig(obj, dna)
+    if rig is not None:
+        # the raw controls the board has formulas for; the knobs are what those formulas read
+        formulas = {n: data["curves"][n.replace(".", "_")] for n in rig["raw"] if n.replace(".", "_") in data["curves"]}
+        live = set().union(*(_read(node, set()) for node in formulas.values()))
+    else:
+        # FP heads carry about a third of Epic's expression curves: knobs nothing reads aren't built
+        live = set().union(*(_read(data["curves"]["CTRL_expressions_" + k.name], set()) for _, k in keys))
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='EDIT')
     s = _bones(obj, data, size, live)
@@ -312,15 +337,25 @@ def add(obj, size=None):
         if PREFIX + c["name"] in obj.pose.bones:
             _knob(obj, c, s)
     bpy.ops.object.mode_set(mode='OBJECT')
-    for _, key in keys:
-        _drive(obj, key, data["curves"]["CTRL_expressions_" + key.name], s, {c["name"]: c["axes"] for c in data["controls"]},
-               {b.name[len(PREFIX):] for b in obj.data.bones if b.name.startswith(PREFIX)})
+    axes = {c["name"]: c["axes"] for c in data["controls"]}
+    built = {b.name[len(PREFIX):] for b in obj.data.bones if b.name.startswith(PREFIX)}
+    if rig is not None:
+        from . import riglogic_face
+        riglogic_face.build(obj, rig, formulas, lambda driver, node: _expression(obj, driver, node, s, axes, built))
+        for _, key in keys:         # the bones carry the face: its shape keys rest while the board is on
+            key.driver_add("value").driver.expression = "0"
+        obj.data[BONES] = True
+        made = len(formulas)
+    else:
+        for _, key in keys:
+            _drive(obj, key, data["curves"]["CTRL_expressions_" + key.name], s, axes, built)
+        made = len(keys)
     obj.data[MARK] = True
     obj.data[MESHES] = sorted({m.name for m, _ in keys})
     if any(m.data.shape_keys.animation_data and (m.data.shape_keys.animation_data.action or
                                                  len(m.data.shape_keys.animation_data.nla_tracks)) for m, _ in keys):
         obj.fpmp_face_board = False         # the face is already animated (a lobby pose): it keeps playing
-    return len(keys)
+    return made
 
 
 def set_on(obj, on):
@@ -329,8 +364,11 @@ def set_on(obj, on):
         mesh = bpy.data.objects.get(name)
         ad = mesh.data.shape_keys.animation_data if mesh is not None and mesh.data.shape_keys else None
         for fc in (ad.drivers if ad else ()):
-            if any(t.id == obj for v in fc.driver.variables for t in v.targets):
+            if any(t.id == obj for v in fc.driver.variables for t in v.targets) or                     (obj.data.get(BONES) and not fc.driver.variables):
                 fc.mute = not on
+    if obj.data.get(BONES):
+        from . import riglogic_face
+        riglogic_face.set_on(obj, on)
 
 
 def on_animation_import(obj):

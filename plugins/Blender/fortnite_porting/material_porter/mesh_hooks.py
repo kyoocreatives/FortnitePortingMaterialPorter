@@ -97,7 +97,10 @@ def _metahuman(ctx):
     for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
         try:
             if metahuman_board.fits(skeleton):
-                Log.info("%s: MetaHuman board, %d shape keys" % (skeleton.name, metahuman_board.add(skeleton)))
+                # the head part's meta names it; the board may sit on the body's armature (merged parts)
+                dna = next((m["Meta"].get("FaceDNA") for m in ctx.imported_meshes
+                            if isinstance(m.get("Meta"), dict) and m["Meta"].get("FaceDNA")), None)
+                Log.info("%s: MetaHuman board, %d drivers" % (skeleton.name, metahuman_board.add(skeleton, dna=dna)))
         except Exception as e:
             Log.error("%s: MetaHuman board (%s: %s)" % (skeleton.name, type(e).__name__, e))
             if bpy.context.mode != 'OBJECT':
