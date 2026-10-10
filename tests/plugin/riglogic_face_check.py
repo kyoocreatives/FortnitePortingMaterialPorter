@@ -264,6 +264,25 @@ lobby.fpmp_face_board = False
 bpy.context.scene.frame_set(1)
 check("board off again: the keys play", round(lobby_mesh.data.shape_keys.key_blocks["jawOpen"].value, 3), 0.8)
 
+# the face costs every update while it has drivers (Blender re-reads each one): board off drops them, board on rebuilds
+tiny_spec = dict(board_spec, rows=[(1, 3, {0: -20.0, 1: 0.001})])        # eyeBlinkL turns the jaw a thousandth of a degree
+tiny = os.path.join(TMP, "tiny.rigdna")
+riglogic_writer.write(tiny, tiny_spec)
+lean, _ = head_3l("lean")
+mb.add(lean, dna=tiny)
+rl = lambda o: [d for d in (o.animation_data.drivers if o.animation_data else []) if d.data_path.startswith('pose.bones["RL_')]  # noqa: E731
+reads = lambda o, name: sum(1 for d in rl(o) for v in d.driver.variables if name in v.targets[0].data_path)  # noqa: E731
+check("an unseeable term isn't driven", reads(lean, "eyeBlinkL") - sum(1 for d in rl(lean) if d.data_path.endswith('["CTRL_expressions.eyeBlinkL"]')), 0)
+lean.fpmp_face_board = False
+check("board off: no face drivers left", len(rl(lean)), 0)
+lean.fpmp_face_board = True
+check("board on: the face drivers are back", len(rl(lean)) > 0, True)
+lean.pose.bones["MB_CTRL_C_jaw"].location.z = mb.unit(lean, "CTRL_C_jaw", "y")
+lean.update_tag()
+bpy.context.view_layer.update()
+check("and the jaw follows the knob again", lean.pose.bones["FACIAL_C_Jaw"].matrix.to_quaternion().rotation_difference(
+    lean.data.bones["FACIAL_C_Jaw"].matrix_local.to_quaternion()).angle > 0.1, True)
+
 # the import hook: the head part's meta names the DNA; the board may sit on another part's armature (the body's)
 from types import SimpleNamespace  # noqa: E402
 from fpmp_baseline.material_porter import mesh_hooks  # noqa: E402

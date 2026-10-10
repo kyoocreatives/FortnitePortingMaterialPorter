@@ -126,6 +126,7 @@ def expression(node, var):
 # --- the board in Blender
 MARK, MESHES, STEP = "fpmp_metahuman_board", "fpmp_metahuman_board_meshes", "fpmp_metahuman_board_step"
 MATERIALS = "fpmp_metahuman_board_materials"
+DNA = "fpmp_metahuman_board_dna"             # the RigLogic data the face's drivers are rebuilt from
 OLD = "fpmp_metahuman_board_legacy"           # a legacy head: the board drives its *_pose keys
 BONES = "fpmp_metahuman_board_bones"         # the board drives the facial bones (RigLogic), not the shape keys
 PREFIX = "MB_"
@@ -382,7 +383,7 @@ def add(obj, size=None, dna=None):
         live = set().union(*(_read(node, set()) for node in formulas.values()))
     elif rig is not None:
         # the raw controls the board has formulas for; the knobs are what those formulas read
-        formulas = {n: data["curves"][n.replace(".", "_")] for n in rig["raw"] if n.replace(".", "_") in data["curves"]}
+        formulas = _formulas(rig, data)
         live = set().union(*(_read(node, set()) for node in formulas.values()))
     else:
         # FP heads carry about a third of Epic's expression curves: knobs nothing reads aren't built
@@ -417,7 +418,8 @@ def add(obj, size=None, dna=None):
         made = len(targets)
     elif rig is not None:
         from . import riglogic_face
-        riglogic_face.build(obj, rig, formulas, lambda driver, node: _expression(obj, driver, node, s, axes, built))
+        riglogic_face.build(obj, rig, formulas, _writer(obj, data))
+        obj.data[DNA] = dna
         for _, key in keys:         # the bones carry the face: its shape keys rest while the board is on
             key.driver_add("value").driver.expression = "0"
         obj.data[BONES] = True
@@ -465,6 +467,29 @@ def _reader(obj, driver, formulas):
     return name
 
 
+def _formulas(rig, data):
+    """The raw controls the board has formulas for (their names as the DNA has them)."""
+    return {n: data["curves"][n.replace(".", "_")] for n in rig["raw"] if n.replace(".", "_") in data["curves"]}
+
+
+def _writer(obj, data):
+    """write(driver, formula): the formula as the driver's expression over the board's knobs."""
+    s, axes = step(obj), {c["name"]: c["axes"] for c in data["controls"]}
+    built = {b.name[len(PREFIX):] for b in obj.data.bones if b.name.startswith(PREFIX)}
+    return lambda driver, node: _expression(obj, driver, node, s, axes, built)
+
+
+def _face_drivers(obj, on):
+    """The RigLogic face's drivers only while the board drives it: they cost every update of the armature."""
+    from . import riglogic_face
+    if not on:
+        riglogic_face.undrive(obj)
+    elif not riglogic_face.driven(obj):
+        rig = _rig(obj, obj.data.get(DNA))
+        if rig is not None:
+            riglogic_face.drive(obj, rig, _formulas(rig, load()), _writer(obj, load()))
+
+
 def set_on(obj, on):
     """Mute or unmute the board's shape-key drivers (the face's own keys play while they're muted)."""
     owners = [bpy.data.objects.get(n) for n in obj.data.get(MESHES, [])]
@@ -478,6 +503,7 @@ def set_on(obj, on):
                 fc.mute = not on
     if obj.data.get(BONES):
         from . import riglogic_face
+        _face_drivers(obj, on)
         riglogic_face.set_on(obj, on)
 
 

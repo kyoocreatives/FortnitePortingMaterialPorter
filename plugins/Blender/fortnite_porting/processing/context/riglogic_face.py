@@ -11,6 +11,8 @@ from .driver_batch import Batch
 EXPR, MCH, POSE, COPY = "RL_Expressions", "RL_", "RL_pose_", "RL copy"
 LONGEST = 250       # characters per chunk expression: Blender keeps 255
 MECHANICS = "Face Mechanics"
+# terms too small to see (a hundredth of a millimetre, 0.005 degrees): each driver input costs every update
+UNSEEN = (0.001, 0.005, 1e-4)        # cm, degrees, scale
 FLIP = Matrix(((1, 0, 0), (0, -1, 0), (0, 0, 1)))     # the dump's frame mirrors Y against the game's
 
 
@@ -137,14 +139,36 @@ def build(obj, rig, formulas, var):
     built = _bones(obj, rig)
     bpy.ops.object.mode_set(mode='OBJECT')
     _mechanics(obj, [EXPR] + [MCH + n for n in built] + [POSE + n for n in built])
-    with Batch() as batch:
-        _properties(obj, rig, formulas, var, batch)
-        _channels(obj, rig, built, batch)
+    for name in built:
+        obj.pose.bones[MCH + name].rotation_mode = 'XYZ'
+        copy = obj.pose.bones[name].constraints.new('COPY_TRANSFORMS')
+        copy.name, copy.target, copy.subtarget = COPY, obj, POSE + name
+    drive(obj, rig, formulas, var)
     return len(built)
 
 
+def drive(obj, rig, formulas, var):
+    """The face's drivers on the bones `build` made (the board's switch drops them: see undrive)."""
+    built = [b.name[len(MCH):] for b in obj.data.bones if b.name.startswith(MCH) and not b.name.startswith((EXPR, POSE))]
+    with Batch() as batch:
+        _properties(obj, rig, formulas, var, batch)
+        _channels(obj, rig, built, batch)
+
+
+def undrive(obj):
+    """Drop the face's drivers: Blender re-reads every driver of the armature on every update, the face's thousands too."""
+    ad = obj.animation_data
+    for fc in [fc for fc in (ad.drivers if ad else []) if fc.data_path.startswith('pose.bones["%s' % MCH)]:
+        ad.drivers.remove(fc)
+
+
+def driven(obj):
+    ad = obj.animation_data
+    return any(fc.data_path.startswith('pose.bones["%s' % MCH) for fc in (ad.drivers if ad else []))
+
+
 def _channels(obj, rig, built, batch):
-    """Per driven joint, its mechanism bone's channels as coefficient sums, and the joint copying it."""
+    """Per driven joint, its mechanism bone's channels as coefficient sums."""
     from ...material_porter.effects import ue_rest
     index = {n: i for i, n in enumerate(rig["joints"])}
     for name in built:
@@ -152,8 +176,7 @@ def _channels(obj, rig, built, batch):
         local = (ue_rest(b.parent).inverted() @ ue_rest(b)).to_3x3()
         to_bone = local.transposed() @ FLIP * 0.01          # parent-frame cm -> the bone's own frame, metres
         pb = obj.pose.bones[MCH + name]
-        pb.rotation_mode = 'XYZ'
-        rows = {a: rig["channels"].get((index[name], a), []) for a in range(9)}
+        rows = {a: [(i, c) for i, c in rig["channels"].get((index[name], a), []) if abs(c) >= UNSEEN[a // 3]] for a in range(9)}
         chunks = [0]
         for axis in range(3):
             terms = {}
@@ -170,8 +193,6 @@ def _channels(obj, rig, built, batch):
         for axis in range(3):
             if rows[6 + axis]:
                 _sum(obj, pb, "scale", axis, [(_input_path(rig, i), c) for i, c in rows[6 + axis]], 1.0, chunks, batch)
-        copy = obj.pose.bones[name].constraints.new('COPY_TRANSFORMS')
-        copy.name, copy.target, copy.subtarget = COPY, obj, POSE + name
 
 
 def set_on(obj, on):

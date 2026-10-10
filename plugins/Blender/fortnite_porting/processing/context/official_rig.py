@@ -730,10 +730,28 @@ def _settle_order(data, controls, targets):
     return out
 
 
+def _lands(have, want):
+    turn = have.to_quaternion().rotation_difference(want.to_quaternion()).angle
+    return (have.to_translation() - want.to_translation()).length < 1e-5 and min(turn, 2.0 * math.pi - turn) < 1e-5 and \
+        (have.to_scale() - want.to_scale()).length < 1e-5
+
+
 def bake_to_controls(obj, start, end):
     """Key every control from the animated bones over start..end, then turn the rig on (FK everywhere). The bones'
     own keys stay underneath in an NLA track, so the bones Epic's controls don't drive keep their animation.
     Returns the frames baked."""
+    # the face board's drivers would re-run on every update the bake makes: it's off meanwhile
+    board = bool(obj.data.get("fpmp_metahuman_board")) and getattr(obj, "fpmp_face_board", False)
+    if board:
+        obj.fpmp_face_board = False
+    try:
+        return _bake(obj, start, end)
+    finally:
+        if board:
+            obj.fpmp_face_board = True
+
+
+def _bake(obj, start, end):
     data, scene, pb = load(), bpy.context.scene, obj.pose.bones
     built = set(pb.keys())
     order = [item["name"] for kind, item in _buildable(data, built) if kind == "control"]
@@ -755,22 +773,22 @@ def bake_to_controls(obj, start, end):
         pb[chain["switch"]][chain["switch"]] = 0.0
     set_on(obj, True)
     keyed = _settle_order(data, [c for c in order if c in poses[start]], targets)
+    # each control's rest under its parent: a control under another control is placed from that control's target,
+    # without a depsgraph update (an update re-runs every driver of the armature: the face's thousands)
+    rest = {c: (pb[c].parent.bone.matrix_local.inverted() @ pb[c].bone.matrix_local) if pb[c].parent else
+            pb[c].bone.matrix_local.copy() for c in keyed}
     for f in range(start, end + 1):
         scene.frame_set(f)
-        # spaces follow bones other controls drive (the arm's space rides the clavicle), so settle in passes
-        for _ in range(4):
-            moved = False
+        want = poses[f]
+        # spaces follow bones other controls drive (the arm's space rides the clavicle): settle in passes, one update each
+        for _ in range(6):
             for control in keyed:
-                pose_bone, want = pb[control], poses[f][control]
-                turn = pose_bone.matrix.to_quaternion().rotation_difference(want.to_quaternion()).angle
-                if (pose_bone.matrix.to_translation() - want.to_translation()).length < 1e-5 and \
-                        min(turn, 2.0 * math.pi - turn) < 1e-5 and \
-                        (pose_bone.matrix.to_scale() - want.to_scale()).length < 1e-5:
-                    continue            # already there: no depsgraph update
-                pose_bone.matrix = want
-                bpy.context.view_layer.update()
-                moved = True
-            if not moved:
+                parent = pb[control].parent
+                above = want[parent.name] if parent is not None and parent.name in want else \
+                    (parent.matrix if parent is not None else Matrix())
+                pb[control].matrix_basis = (above @ rest[control]).inverted() @ want[control]
+            bpy.context.view_layer.update()
+            if all(_lands(pb[c].matrix, want[c]) for c in keyed):
                 break
         for control in keyed:
             pose_bone = pb[control]
