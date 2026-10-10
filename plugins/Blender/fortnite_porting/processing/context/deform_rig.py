@@ -2,10 +2,9 @@
 two limb bones, each corrective slides/scales (and turns) additively by a weight read from the pose, with the
 character's tuning (spec 2026-10-10-deform-correctives). Weights read hidden reader bones in the game's frame:
 - angle: Epic's rotator channel (yaw, pitch, roll) of the driver's turn from rest, remapped and clamped;
-- spr: Epic's spherical pose reader. Its convention is the one under which Epic's left and right settings mirror
-  exactly on the real skeleton: the offset is a change of frame, the reading is the driver's turn from rest, width and
-  height are the Z and Y sides of an X axis. The region sits opposite the rest direction (correctives rest at rest);
-  that and the elliptical falloff follow Epic's documented behaviour, not its source.
+- spr: Epic's spherical pose reader, as the engine computes it (checked against UE 5.8): the driver's axis, turned from
+  rest, in the sphere's frame (its rest under the rotation offset), against the frame's Z; an inner and an outer
+  ellipse on the polar plane, the output 1 inside the inner, 0 outside the outer, by distance between.
 """
 import json
 import math
@@ -18,7 +17,6 @@ MARK, ON = "fpmp_deform_rig", "fpmp_deform_rig_on"
 GROUP = "Deform Mechanics"
 FLIP = Matrix(((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, 1.0)))     # Epic's axes vs the game frame in Blender
 ORDERS = ("XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX")                      # Epic's EEulerRotationOrder
-SIDES = ((2, 1), (0, 2), (1, 0))                                         # per driver axis: its width and height axes
 CHANNELS = {"Yaw": "atan2(-2*(w*z+x*y),1-2*(y*y+z*z))", "Pitch": "asin(clamp(2*(x*z-w*y),-1,1))",
             "Roll": "atan2(2*(w*x+y*z),1-2*(x*x+y*y))"}
 
@@ -77,32 +75,54 @@ def _rotator(q, channel):
     return math.degrees(math.atan2(-2 * (w * x + y * z), 1 - 2 * (x * x + y * y)))
 
 
-def _scales(weight, key):
-    pw, nw, ph, nh = weight[key]
-    if weight.get("flip_width"):
-        pw, nw = nw, pw
-    if weight.get("flip_height"):
-        ph, nh = nh, ph
-    return pw, nw, ph, nh
+def _regions(weight):
+    """RemapAndConvertInputs: (inner, outer) as (half angle in radians, [pw, nw, ph, nh])."""
+    inner = min(max(0.5, weight["region"] * 180.0), 178.0)
+    outer = min(max(inner + 1.0, weight["falloff"] * 180.0), 179.0)
+    fi = list(weight["region_scale"])
+    fo = [inner * a / outer + (1.0 - inner * a / outer) * f for a, f in zip(fi, weight["falloff_scale"])]
+    for f in (fi, fo):
+        if weight.get("flip_width"):
+            f[0], f[1] = f[1], f[0]
+        if weight.get("flip_height"):
+            f[2], f[3] = f[3], f[2]
+    return (math.radians(inner), fi), (math.radians(outer), fo)
 
 
-def _cone(u, weight):
-    """Epic's spherical pose reader on the driver's direction u (the region's axes): 1 inside the active ellipse, a
-    smooth falloff to 0 across the falloff band."""
-    axis = Vector(weight["axis"])
-    k = max(range(3), key=lambda i: abs(axis[i]))
-    sign = 1.0 if axis[k] >= 0 else -1.0
-    wi, hi = SIDES[k]
-    a, b = sign * u[wi], sign * u[hi]
-    theta = math.acos(max(-1.0, min(1.0, -sign * u[k]))) / math.pi
+def _ellipse(px, py, sx, sy):
+    """DistanceToEllipse (two refinements, as Epic's): (distance, inside)."""
+    ax, ay = abs(px), abs(py)
+    tx = ty = 0.70710678118
+    for _ in range(2):
+        ex = (sx * sx - sy * sy) * tx ** 3 / sx
+        ey = (sy * sy - sx * sx) * ty ** 3 / sy
+        r = math.hypot(sx * tx - ex, sy * ty - ey)
+        q = max(math.hypot(ax - ex, ay - ey), 1e-12)
+        tx = min(1.0, max(0.0, ((ax - ex) * r / q + ex) / sx))
+        ty = min(1.0, max(0.0, ((ay - ey) * r / q + ey) / sy))
+        n = max(math.hypot(tx, ty), 1e-12)
+        tx, ty = tx / n, ty / n
+    cx, cy = sx * (-tx if px < 0 else tx), sy * (-ty if py < 0 else ty)
+    return math.hypot(cx - px, cy - py), cx * cx + cy * cy > px * px + py * py
 
-    def radius(size, key):
-        pw, nw, ph, nh = _scales(weight, key)
-        p, q = (pw if a >= 0 else nw), (ph if b >= 0 else nh)
-        return size * p * q * math.sqrt(a * a + b * b) / max(1e-9, math.sqrt(q * q * a * a + p * p * b * b))
-    r, f = radius(weight["region"], "region_scale"), radius(weight["falloff"], "falloff_scale")
-    x = max(0.0, min(1.0, (theta - r) / max(f, 1e-6)))
-    return (1 - x) * (1 - x) * (1 + 2 * x)
+
+def spr_value(n, weight):
+    """Epic's spherical pose reader for the driver's direction n in the sphere's frame (Epic's axes)."""
+    if abs(n[2] + 1.0) < 1e-4:
+        return 0.0
+    mag = math.acos(max(-1.0, min(1.0, n[2]))) / math.pi
+    if mag < 1e-8:
+        return 1.0
+    side = max(math.hypot(n[0], n[1]), 1e-12)
+    px, py = n[0] / side * mag, n[1] / side * mag
+    (ai, fi), (ao, fo) = _regions(weight)
+    di, inner = _ellipse(px, py, (fi[0] if px > 0 else fi[1]) * ai / math.pi, (fi[2] if py > 0 else fi[3]) * ai / math.pi)
+    do, outer = _ellipse(px, py, (fo[0] if px > 0 else fo[1]) * ao / math.pi, (fo[2] if py > 0 else fo[3]) * ao / math.pi)
+    if inner:
+        return 1.0
+    if not outer or di + do < 1e-4:
+        return 0.0
+    return 1.0 - di / (di + do)
 
 
 def _turn(obj, reader):
@@ -124,9 +144,9 @@ def reference_weight(obj, spec):
         lo, hi = weight["from"]
         value = (_rotator((-q.x, q.y, -q.z, q.w), weight["channel"]) - lo) / (hi - lo)
         return max(0.0, min(1.0, value)) if weight.get("clamp", True) else value
-    off = _offset(weight["offset"])
-    u = off.transposed() @ FLIP @ turn @ FLIP @ off @ Vector(weight["axis"])
-    return max(0.0, min(1.0, _cone(u, weight) * weight.get("scale", 1.0)))
+    # the driver's axis turned from rest, in the sphere's frame: its rest under the offset
+    n = _offset(weight["offset"]).transposed() @ FLIP @ turn @ FLIP @ Vector(weight["axis"])
+    return max(0.0, min(1.0, spr_value(n, weight) * weight.get("scale", 1.0)))
 
 
 # --- drivers
@@ -197,27 +217,43 @@ def _weight(obj, pb, k, layer, reader):
         text = "(%s*57.29578%s)/%s" % (CHANNELS[weight["channel"]], _signed(-lo), _num(hi - lo))
         _prop(obj, pb, key, "clamp(%s,0,1)" % text if weight.get("clamp", True) else text, _quat_vars(reader))
         return _path(pb, key)
+    # spr_value, staged: each step a property on the bone (an expression keeps 255 characters)
+    def stage(name, expression, reads):
+        _prop(obj, pb, "dr_s%d_%s" % (k, name), expression, [(r, _path(pb, "dr_s%d_%s" % (k, r))) for r in reads])
     off = _offset(weight["offset"])
-    axis = Vector(weight["axis"])
-    for n, text in zip("xyz", _rotated(off.transposed() @ FLIP, FLIP @ off @ axis)):
-        _prop(obj, pb, "dr_u%d%s" % (k, n), text, _quat_vars(reader))
-    i = max(range(3), key=lambda m: abs(axis[m]))
-    neg = "" if axis[i] >= 0 else "-"
-    along, wide, high = "xyz"[i], "xyz"[SIDES[i][0]], "xyz"[SIDES[i][1]]
-    var = {n: (n, _path(pb, "dr_u%d%s" % (k, n))) for n in "xyz"}
-    _prop(obj, pb, "dr_t%d" % k, "acos(clamp(%s%s,-1,1))/pi" % ("" if neg else "-", along), [var[along]])
-    for tag, size, scales in (("r", weight["region"], "region_scale"), ("f", weight["falloff"], "falloff_scale")):
-        pw, nw, ph, nh = _scales(weight, scales)
-        _prop(obj, pb, "dr_%s%dp" % (tag, k), "%s if %s%s>=0 else %s" % (_num(pw), neg, wide, _num(nw)), [var[wide]])
-        _prop(obj, pb, "dr_%s%dq" % (tag, k), "%s if %s%s>=0 else %s" % (_num(ph), neg, high, _num(nh)), [var[high]])
-        _prop(obj, pb, "dr_%s%d" % (tag, k), "%s*p*q*sqrt(a*a+b*b)/max(1e-9,sqrt(q*q*a*a+p*p*b*b))" % _num(size),
-              [("a", var[wide][1]), ("b", var[high][1]), ("p", _path(pb, "dr_%s%dp" % (tag, k))),
-               ("q", _path(pb, "dr_%s%dq" % (tag, k)))])
-    _prop(obj, pb, "dr_x%d" % k, "clamp((t-r)/max(f,1e-6),0,1)",
-          [("t", _path(pb, "dr_t%d" % k)), ("r", _path(pb, "dr_r%d" % k)), ("f", _path(pb, "dr_f%d" % k))])
+    for n, text in zip("xyz", _rotated(off.transposed() @ FLIP, FLIP @ Vector(weight["axis"]))):
+        _prop(obj, pb, "dr_s%d_%s" % (k, n), text, _quat_vars(reader))
+    stage("m", "acos(clamp(z,-1,1))/pi", "z")
+    stage("px", "x/max(sqrt(x*x+y*y),1e-12)*m", ("x", "y", "m"))
+    stage("py", "y/max(sqrt(x*x+y*y),1e-12)*m", ("x", "y", "m"))
+    for tag, (angle, f) in zip("io", _regions(weight)):
+        size = angle / math.pi
+        stage(tag + "sx", "%s if px>0 else %s" % (_num(f[0] * size), _num(f[1] * size)), ("px",))
+        stage(tag + "sy", "%s if py>0 else %s" % (_num(f[2] * size), _num(f[3] * size)), ("py",))
+        sx, sy, tx, ty = tag + "sx", tag + "sy", "0.70710678118", "0.70710678118"
+        for j in (1, 2):
+            pre, reads = "%s%d" % (tag, j), (sx, sy) + (() if j == 1 else ("%s%dtx" % (tag, j - 1), "%s%dty" % (tag, j - 1)))
+            # every divisor guarded where it divides: a driver can run before one it reads ever has (a property
+            # still 0), and one that divides by zero once stays broken
+            stage(pre + "ex", "(%s*%s-%s*%s)*%s*%s*%s/max(%s,1e-9)" % (sx, sx, sy, sy, tx, tx, tx, sx), reads)
+            stage(pre + "ey", "(%s*%s-%s*%s)*%s*%s*%s/max(%s,1e-9)" % (sy, sy, sx, sx, ty, ty, ty, sy), reads)
+            e = (pre + "ex", pre + "ey")
+            stage(pre + "r", "sqrt(pow(%s*%s-%s,2)+pow(%s*%s-%s,2))" % (sx, tx, e[0], sy, ty, e[1]), reads + e)
+            stage(pre + "q", "max(sqrt(pow(abs(px)-%s,2)+pow(abs(py)-%s,2)),1e-12)" % e, ("px", "py") + e)
+            for c, sz, p in (("ux", sx, "px"), ("uy", sy, "py")):
+                stage(pre + c, "clamp(((abs(%s)-%s)*%sr/max(%sq,1e-12)+%s)/max(%s,1e-9),0,1)" % (p, e[c == "uy"], pre, pre, e[c == "uy"], sz),
+                      (p, e[c == "uy"], pre + "r", pre + "q", sz))
+            stage(pre + "tx", "%sux/max(sqrt(%sux*%sux+%suy*%suy),1e-12)" % ((pre,) * 5), (pre + "ux", pre + "uy"))
+            stage(pre + "ty", "%suy/max(sqrt(%sux*%sux+%suy*%suy),1e-12)" % ((pre,) * 5), (pre + "ux", pre + "uy"))
+            tx, ty = pre + "tx", pre + "ty"
+        stage(tag + "cx", "%s*(-%s if px<0 else %s)" % (sx, tx, tx), ("px", sx, tx))
+        stage(tag + "cy", "%s*(-%s if py<0 else %s)" % (sy, ty, ty), ("py", sy, ty))
+        stage(tag + "d", "sqrt(pow(%scx-px,2)+pow(%scy-py,2))" % (tag, tag), ("px", "py", tag + "cx", tag + "cy"))
+        stage(tag + "in", "1 if %scx*%scx+%scy*%scy>px*px+py*py else 0" % ((tag,) * 4), ("px", "py", tag + "cx", tag + "cy"))
+    out = "0 if abs(z+1)<0.0001 else (1 if m<1e-8 else (1 if iin else (0 if oin<1 or id+od<0.0001 else 1-id/max(id+od,1e-9))))"
     scale = weight.get("scale", 1.0)
-    cone = "(1-x)*(1-x)*(1+2*x)"
-    _prop(obj, pb, key, cone if scale == 1.0 else "clamp(%s*%s,0,1)" % (_num(scale), cone), [("x", _path(pb, "dr_x%d" % k))])
+    _prop(obj, pb, key, out if scale == 1.0 else "clamp(%s*(%s),0,1)" % (_num(scale), out),
+          [(r, _path(pb, "dr_s%d_%s" % (k, r))) for r in ("z", "m", "iin", "oin", "id", "od")])
     return _path(pb, key)
 
 

@@ -187,6 +187,14 @@ def turn(obj, name, axis, deg):
 
 lib = dr.library()
 tun = dr.tuning(None)
+# Epic's spherical pose reader on the upper arm's reader: the driver's direction in the sphere's frame (its Z is the
+# region's centre) -> the output, as the engine gives it (checked against UE 5.8)
+UP = next(p["weight"] for p in lib["parts"] if p["bone"] == "deform_upperarm_up_l")
+for deg, az, want in ((0, 0, 1.0), (180, 0, 0.0), (90, 0, 0.0), (60, 0, 0.666667), (70, 0, 0.444444), (70, 180, 0.555556),
+                      (75, 90, 0.416667), (80, 270, 0.277778), (65, 45, 0.611028), (85, 135, 0.138889)):
+    t, a = math.radians(deg), math.radians(az)
+    n = (math.sin(t) * math.cos(a), math.sin(t) * math.sin(a), math.cos(t))
+    check("Epic's reader at %d deg, azimuth %d" % (deg, az), round(deform_rig.spr_value(n, UP), 5), round(want, 5))
 sk = skeleton("deform")
 rest = {b.name: (sk.matrix_world @ b.matrix_local).copy() for b in sk.data.bones}
 built = deform_rig.build(sk, lib, tun)
@@ -230,9 +238,9 @@ base_turn = (world(sk, "deform_elbow_in_base_l").to_quaternion().rotation_differ
 check("the base takes 40% of the forearm's turn", round(math.degrees(base_turn), 1), 24.0, tol=1.0)
 # the right side mirrors: with Epic's right axes, the mirrored pose is the same local turn
 for limb, part, axis in (("lowerarm", "deform_elbow_in", (0, 0, 1)), ("upperarm", "deform_upperarm_up", (0, 1, 0)),
-                         ("upperarm", "deform_upperarm_up", (0, 0, 1)), ("hand", "deform_wrist_up", (0, 0, 1))):
+                         ("hand", "deform_wrist_up", (0, 0, 1))):
     moves = 0.0
-    for deg in (-70, 70):
+    for deg in (-110, -70, 70, 110):
         for side in "lr":
             turn(sk, limb + "_" + side, axis, deg)
         wl, wr = sk.pose.bones[part + "_l"]["dr_w0"], sk.pose.bones[part + "_r"]["dr_w0"]
@@ -295,6 +303,8 @@ for deg in (-90, -45, 45, 90):
           round(10.0 * w_ref, 2), tol=0.05)
     moved = max(moved, w_ref)
 check("the extra's reader moves", moved > 0.05, True)
+check("no reader driver broke on the way (a division by zero breaks one for good)",
+      [d.data_path for d in ex.animation_data.drivers if not d.driver.is_valid], [])
 
 # --- the import hook: a part's meta names its rig dump; keyed limbs drive the correctives
 hooked = skeleton("hooked")
