@@ -5,7 +5,10 @@ from mathutils import Quaternion, Vector
 
 from .dynamics_solver import compose, relative
 from .rig_vm import Machine
+from .rig_constraints import UNITS as CONSTRAINTS
 from .rig_units import UNITS
+
+UNITS = {**UNITS, **CONSTRAINTS}
 
 IDENTITY = (Quaternion(), Vector((0.0, 0.0, 0.0)))
 

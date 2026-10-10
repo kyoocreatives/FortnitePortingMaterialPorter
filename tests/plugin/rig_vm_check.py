@@ -80,6 +80,17 @@ m.reset({})
 m.run(None, 1 / 60, {"Crouching": False})
 check("and its false side otherwise", m.work.get(1), -1.0)
 
+# --- compiling: a null the program names but the dumped hierarchy lacks is still placed
+tiny = [{"Type": "ControlRigBlueprintGeneratedClass", "ChildProperties": []},
+        {"Type": "RigVM", "ByteCodeStorage": {"Entries": ['(Name="Forwards Solve",InstructionIndex=0)'], "CallableInfos": [], "BranchInfos": [],
+                                              "Instructions": [{"OpCode": 101, "FunctionIndex": 0, "Arguments": [{"MemoryType": 1, "RegisterIndex": 0, "RegisterOffset": 65535}]},
+                                                               {"OpCode": 80}]},
+         "LiteralMemoryStorage": {"PropertyDescs": [{"Name": "L0"}], "Values": {"L0": "Null/thigh_l_null"}, "PropertyPathDescriptions": []},
+         "DefaultWorkMemoryStorage": {"PropertyDescs": [], "Values": {}, "PropertyPathDescriptions": []},
+         "FunctionNamesStorage": ["FRigUnit_GetRelativeTransformForItem::Execute"],
+         "LocalizedRegistry": {"Functions": [{"Name": "FRigUnit_GetRelativeTransformForItem::Execute", "Arguments": [{"LocalNameString": "Parent"}]}]}}]
+check("a null named only by the program is placed", rig_vm.compile_rig(tiny)["nulls"], ["thigh_l_null"])
+
 # --- the hierarchy a rig runs on
 from fpmp_baseline.processing.context.rig_node import Hierarchy  # noqa: E402
 
@@ -112,7 +123,8 @@ class Mini:
 
 
 def call(unit, mini, pc=0, **named):
-    ru.UNITS[unit](mini, {k: (v if isinstance(v, str) and k in ("Result", "Swing", "Twist", "RelativeTransform", "OutputParam", "Transform")
+    ru.UNITS[unit](mini, {k: (v if isinstance(v, str) and k in ("Result", "Swing", "Twist", "RelativeTransform", "OutputParam", "Transform",
+                                                                  "Remainder", "Chopped", "Exists", "Local")
                               else ("v", v)) for k, v in named.items()}, [], pc)
 
 
@@ -151,6 +163,93 @@ q_wide = Euler((math.radians(170.0), math.radians(20.0), math.radians(-160.0)), 
 e_wide = ru.epic_euler(q_wide, "XZY")
 check("euler middle angle within 90", abs(e_wide[2]) <= math.pi / 2 + 1e-6, True)
 check("and it rebuilds the rotation", round(Euler(e_wide, "XZY").to_quaternion().rotation_difference(q_wide).angle, 5), 0.0)
+
+# --- the smaller units characters' rigs run
+m5 = Mini(h3)
+call("MathBoolOr", m5, A=False, B=True, Result="r")
+check("bool or", m5.out["r"], True)
+call("MathIntClamp", m5, Value=7, Minimum=0, Maximum=3, Result="r")
+check("int clamp", m5.out["r"], 3)
+call("NameTruncate", m5, Name="thigh_l_ctrl", Count=5, FromEnd=True, Remainder="r", Chopped="c")
+check("a name loses its end", (m5.out["r"], m5.out["c"]), ("thigh_l", "_ctrl"))
+call("ItemExists", m5, Item={"Name": "skirt"}, Exists="r")
+check("an item the rig has exists", m5.out["r"], True)
+call("ItemExists", m5, Item={"Name": "thigh_l_ctrl"}, Exists="r")
+check("one it lacks doesn't", m5.out["r"], False)
+g = {"Rotation": {"X": 0.0, "Y": 0.0, "Z": 0.0, "W": 1.0}, "Translation": {"X": 5.0, "Y": 0.0, "Z": 0.0}}
+pt = {"Rotation": {"X": 0.0, "Y": 0.0, "Z": 0.0, "W": 1.0}, "Translation": {"X": 2.0, "Y": 0.0, "Z": 0.0}}
+call("MathTransformMakeRelative", m5, Global=g, Parent=pt, Local="r")
+check("make relative writes its local", m5.out["r"]["Translation"]["X"], 3.0)
+
+# --- lazy inputs: the If's inputs sit behind a jump and run when the If does
+lazy_if = program([
+    {"o": rig_vm.JUMP_FWD, "i": 3},
+    ex("MathDoubleMul", L(0), L(1), W(1)),
+    ex("MathDoubleAbs", L(2), W(2)),
+    {"o": rig_vm.EXECUTE, "f": "DISPATCH_RigVMDispatch_If", "a": [X(0), W(1), W(2), W(3)]},
+    {"o": rig_vm.EXIT},
+], {0: 2.0, 1: 3.0, 2: -5.0}, lit_paths=[])
+lazy_if = rig_vm.finish(lazy_if)
+m9 = rig_vm.Machine(lazy_if, UNITS)
+m9.run(None, 1 / 60, {"Crouching": True})
+check("an If computes its skipped inputs", m9.work.get(3), 6.0)
+m9.run(None, 1 / 60, {"Crouching": False})
+check("and picks the other side", m9.work.get(3), 5.0)
+
+# --- a for-each loop: the iterator re-runs after each pass, the body's lazy branch each pass
+loop = program([
+    {"o": rig_vm.ZERO, "t": W(0)},
+    {"o": rig_vm.EXECUTE, "f": "DISPATCH_RigVMDispatch_ArrayIterator", "a": [L(0), W(1), W(2), W(3), W(4), W(0)]},
+    {"o": rig_vm.JUMP_TO_BRANCH, "arg": W(0), "branches": {"ExecuteContext": 3, "Completed": 7}},
+    {"o": rig_vm.BEGIN_BLOCK},
+    {"o": rig_vm.RUN, "arg": W(9), "first": 8, "last": 8},
+    {"o": rig_vm.END_BLOCK},
+    {"o": rig_vm.JUMP_BACK, "i": 5},
+    {"o": rig_vm.EXIT},
+    ex("MathDoubleMul", W(1), W(5), W(5)),
+], {0: [2.0, 3.0, 4.0]})
+m6 = rig_vm.Machine(loop, UNITS)
+m6.work[5] = 1.0
+m6.run(None, 1 / 60, {})
+check("a for-each runs its body once per element", (m6.work.get(5), m6.work.get(2), m6.work.get(1)), (24.0, 3, 4.0))
+
+from fpmp_baseline.processing.context import rig_constraints as rc  # noqa: E402
+units_all = dict(ru.UNITS, **rc.UNITS)
+
+
+def call2(unit, mini, **named):
+    units_all[unit](mini, {k: (v if isinstance(v, str) and k in ("Result",) else ("v", v)) for k, v in named.items()}, [], 0)
+
+
+h4 = Hierarchy(parents, rest, [])
+h4.load(dict(rest))
+h4.set_local("thigh_l", (turned, Vector((0, 20, 0))))
+call2("PositionConstraintLocalSpaceOffset", Mini(h4), Child="Bone/skirt", bMaintainOffset=True, Parents=[{"Item": "Bone/thigh_l", "Weight": 1.0}], Weight=1.0)
+check("a position constraint keeps its rest offset", tuple(round(c, 4) for c in h4.get_global("skirt")[1]), (0.0, 10.0, 5.0))
+h5 = Hierarchy(parents, rest, [])
+h5.load(dict(rest))
+spun = Quaternion(Vector((0, 0, 1)), math.radians(30.0))
+h5.set_local("thigh_l", (turned @ spun, Vector((0, 10, 0))))
+call2("RotationConstraintLocalSpaceOffset", Mini(h5), Child="Bone/skirt", bMaintainOffset=True, Parents=[{"Item": "Bone/thigh_l", "Weight": 1.0}], Weight=1.0)
+check("a rotation constraint follows the parent's turn from rest", round(math.degrees(h5.get_local("skirt")[0].angle), 3), 30.0)
+m7 = Mini(h5)
+call2("AimBoneMath", m7, InputTransform={"Rotation": {"W": 1.0}, "Translation": {"X": 0.0}},
+      Primary={"Weight": 1.0, "Axis": {"X": 1.0, "Y": 0.0, "Z": 0.0}, "Target": {"X": 0.0, "Y": 5.0, "Z": 0.0}, "Kind": "EControlRigVectorKind::Location"},
+      Secondary={"Weight": 0.0}, Weight=1.0, Result="r")
+check("aim turns the axis onto the target", tuple(round(c, 4) for c in ru.quat(m7.out["r"]["Rotation"]) @ Vector((1, 0, 0))), (0.0, 1.0, 0.0))
+h6 = Hierarchy(parents, rest, [])
+h6.load(dict(rest))
+call2("OffsetTransformForItem", Mini(h6), Item="Bone/skirt", OffsetTransform={"Rotation": {"W": 1.0}, "Translation": {"X": 2.0, "Y": 0.0, "Z": 0.0}}, Weight=1.0)
+check("an offset moves the item in its own space", tuple(round(c, 4) for c in h6.get_global("skirt")[1]), (2.0, 0.0, 5.0))
+m8 = Mini(h6)
+call2("MathDoubleDiv", m8, A=3.0, B=0.0, Result="r")
+check("dividing by zero gives 0", m8.out["r"], 0.0)
+call2("MathQuaternionFromRotatorV2", m8, Value={"Pitch": 0.0, "Yaw": 90.0, "Roll": 0.0}, Result="r")
+check("a 90 yaw turns X onto Y", tuple(round(c, 4) for c in ru.quat(m8.out["r"]) @ Vector((1, 0, 0))), (0.0, 1.0, 0.0))
+
+call2("MathTransformTransformVector", m8, Transform={"Rotation": {"X": -math.sin(math.pi / 4), "Y": 0.0, "Z": 0.0, "W": math.cos(math.pi / 4)},
+                                                    "Translation": {"X": 1.0, "Y": 2.0, "Z": 3.0}}, Location={"X": 0.0, "Y": 0.0, "Z": 4.0}, Result="r")
+check("a point through a transform (the engine's own case)", tuple(round(m8.out["r"][k], 4) for k in "XYZ"), (1.0, 6.0, 3.0))
 
 print("[rig_vm_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

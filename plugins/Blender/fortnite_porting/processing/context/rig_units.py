@@ -2,6 +2,7 @@
 machine, its named operands, the operand list and its instruction index (for state kept between runs). Memory holds
 values as the dump writes them: vectors and quaternions as {"X", "Y", "Z"(, "W")}, transforms as {"Rotation",
 "Translation", "Scale3D"}, element keys as "Bone/name" or {"Type", "Name"}."""
+import copy
 import math
 
 from mathutils import Quaternion, Vector
@@ -361,6 +362,190 @@ def quaternion_to_euler(m, a, ops, pc):
     _set(m, a, "Result", {"X": math.degrees(e[0]), "Y": math.degrees(e[1]), "Z": math.degrees(e[2])})
 
 
+def _vector_unit(fn, names):
+    def unit(m, a, ops, pc):
+        _set(m, a, "Result", fn(*[_get(m, a, n) for n in names]))
+    return unit
+
+
+def _ints(fn):
+    return _binary(lambda x, y: fn(int(num(x)), int(num(y))))
+
+
+def _name(v):
+    return "" if v in (None, "None") else str(v)
+
+
+def item_exists(m, a, ops, pc):
+    name = element(_get(m, a, "Item"))
+    _set(m, a, "Exists", bool(name) and m.h.has(name))
+
+
+def name_truncate(m, a, ops, pc):
+    name, count = _name(_get(m, a, "Name")), max(int(num(_get(m, a, "Count"))), 0)
+    if _get(m, a, "FromEnd"):
+        keep, chopped = (name[:-count], name[-count:]) if count else (name, "")
+    else:
+        keep, chopped = name[count:], name[:count]
+    _set(m, a, "Remainder", keep)
+    _set(m, a, "Chopped", chopped)
+
+
+def quat_slerp(m, a, ops, pc):
+    q0, q1 = quat(_get(m, a, "A")), quat(_get(m, a, "B"))
+    _set(m, a, "Result", quat_out(_lerp((q0, Vector()), (q1, Vector()), num(_get(m, a, "T")))[0]))
+
+
+def make_relative(m, a, ops, pc):
+    _set(m, a, "Local", transform_out(relative(transform(_get(m, a, "Global")), transform(_get(m, a, "Parent")))))
+
+
+# --- more math
+
+def to_euler_transform(m, a, ops, pc):
+    """An FRotator (degrees) of the rotation, with its +-90 pitch cases; location and scale passed through."""
+    t = _get(m, a, "Value") or {}
+    q = quat(t.get("Rotation"))
+    x, y, z, w = q.x, q.y, q.z, q.w
+    st = z * x - w * y
+    if st < -0.4999995:
+        pitch, yaw, roll = -90.0, math.degrees(-2 * math.atan2(x, w)), 0.0
+    elif st > 0.4999995:
+        pitch, yaw, roll = 90.0, math.degrees(2 * math.atan2(x, w)), 0.0
+    else:
+        pitch = math.degrees(math.asin(2 * st))
+        yaw = math.degrees(math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z)))
+        roll = math.degrees(math.atan2(-2 * (w * x + y * z), 1 - 2 * (x * x + y * y)))
+    yaw = yaw if -180.0 < yaw <= 180.0 else (yaw + 180.0) % 360.0 - 180.0
+    _set(m, a, "Result", {"Location": t.get("Translation") or {"X": 0.0, "Y": 0.0, "Z": 0.0},
+                          "Rotation": {"Pitch": pitch, "Yaw": yaw, "Roll": roll}, "Scale": t.get("Scale3D") or {"X": 1.0, "Y": 1.0, "Z": 1.0}})
+
+
+def quat_from_euler(m, a, ops, pc):
+    from .deform_rig import ORDERS, _epic_quat
+    order = _get(m, a, "RotationOrder", 5)
+    order = int(num(order)) if not isinstance(order, str) else ORDERS.index(order.split("::")[-1]) if order.split("::")[-1] in ORDERS else 5
+    _set(m, a, "Result", quat_out(_epic_quat(list(vec(_get(m, a, "Euler"))), order).to_quaternion()))
+
+
+def quat_from_rotator(m, a, ops, pc):
+    """Yaw about Z after pitch and roll, the two negated (the game's handedness)."""
+    r = _get(m, a, "Value") or {}
+    pitch, yaw, roll = (math.radians(num(r.get(k)) % 360.0) for k in ("Pitch", "Yaw", "Roll"))
+    _set(m, a, "Result", quat_out(Quaternion((0, 0, 1), yaw) @ Quaternion((0, 1, 0), -pitch) @ Quaternion((1, 0, 0), -roll)))
+
+
+def quat_scale(m, a, ops, pc):
+    q = quat(_get(m, a, "Value"))
+    axis = Vector((q.x, q.y, q.z))
+    axis = axis.normalized() if axis.length_squared >= 1e-8 else Vector((1.0, 0.0, 0.0))
+    angle = 2.0 * math.acos(max(-1.0, min(1.0, q.w)))      # w's sign kept: a negative one turns the long way
+    _set(m, a, "Result", quat_out(Quaternion(axis, angle * num(_get(m, a, "Factor"), 1.0))))
+
+
+def _pow(x, y):
+    try:
+        return math.pow(num(x), num(y))
+    except (ValueError, OverflowError, ZeroDivisionError):
+        return float("nan") if num(x) < 0 else float("inf")
+
+
+# --- arrays (dispatches: positional operands)
+
+def _array(m, o):
+    v = m.get(o)
+    return v if isinstance(v, list) else []
+
+
+def array_iterator(m, a, ops, pc):
+    """One pass of a for-each: the next element and its index, or Completed past the end."""
+    array, element_, index, count, ratio, block = ops[:6]
+    items = _array(m, array)
+    if m.get(block) in (None, "", "None", 0):
+        m.set(block, "ExecuteContext")
+        m.set(count, len(items))
+        m.set(index, -1)
+    i = int(num(m.get(index))) + 1
+    m.set(index, i)
+    m.set(ratio, i / (len(items) - 1) if len(items) > 1 else 0.0)
+    if i >= len(items):
+        m.set(block, "Completed")
+    else:
+        m.set(element_, copy.deepcopy(items[i]))
+
+
+def _index(items, i):
+    i = i + len(items) if i < 0 else i
+    return i if 0 <= i < len(items) else None
+
+
+def array_get(m, a, ops, pc):
+    items = _array(m, ops[0])
+    i = _index(items, int(num(m.get(ops[1]))))
+    if i is not None:
+        m.set(ops[2], copy.deepcopy(items[i]))
+
+
+def array_set(m, a, ops, pc):
+    items = list(_array(m, ops[0]))
+    i = _index(items, int(num(m.get(ops[1]))))
+    if i is not None:
+        items[i] = copy.deepcopy(m.get(ops[2]))
+        m.set(ops[0], items)
+
+
+def array_set_num(m, a, ops, pc):
+    items, n = list(_array(m, ops[0])), int(num(m.get(ops[1])))
+    if n >= 0:
+        m.set(ops[0], items[:n] + [None] * max(0, n - len(items)))
+
+
+def array_add(m, a, ops, pc):
+    items = list(_array(m, ops[0])) + [copy.deepcopy(m.get(ops[1]))]
+    m.set(ops[0], items)
+    if len(ops) > 2:
+        m.set(ops[2], len(items) - 1)
+
+
+def array_init(m, a, ops, pc):
+    m.set(ops[0], [copy.deepcopy(m.get(ops[2])) for _ in range(max(0, int(num(m.get(ops[1])))))])
+
+
+# --- items and names
+
+def get_transform_array(m, a, ops, pc):
+    initial, local = bool(_get(m, a, "bInitial")), int(num(_get(m, a, "Space", 1))) == 0
+    out = []
+    for item in _get(m, a, "Items") or []:
+        name = element(item)
+        t = (m.h.get_local(name, initial) if local else m.h.get_global(name, initial)) if name and m.h.has(name) else (Quaternion(), Vector())
+        out.append(transform_out(t))
+    _set(m, a, "Transforms", out)
+
+
+def transforms_to_srt(m, a, ops, pc):
+    items = _get(m, a, "Transforms") or []
+    if items:       # an empty input leaves the outputs as they were
+        for key, part in (("Translations", "Translation"), ("Rotations", "Rotation"), ("Scales", "Scale3D")):
+            _set(m, a, key, [(t or {}).get(part) for t in items])
+
+
+def get_parent(m, a, ops, pc):
+    name = element(_get(m, a, "Child"))
+    _set(m, a, "Parent", {"Type": "Bone", "Name": (m.h.parent.get(name) if name else None) or "None"})
+
+
+def name_replace(m, a, ops, pc):
+    import re
+    name, old, new = _name(_get(m, a, "Name")), _name(_get(m, a, "Old")), _name(_get(m, a, "New"))
+    _set(m, a, "Result", re.sub(re.escape(old), lambda _: new, name, flags=re.IGNORECASE) if name and old else name)
+
+
+IGNORED = ("DebugLineNoSpace", "DebugLine", "DebugTransformMutableNoSpace", "DebugTransformMutableItemSpace", "DebugPoint",
+           "SetCurveValue", "DISPATCH_RigDispatch_GetAnimAttribute", "DISPATCH_RigDispatch_SetAnimAttribute",
+           "FortDeformRig", "DrawControlRigSpline", "HierarchySetShapeSettings", "SetShapeTransform")    # the deform drivers do the last
+
+
 UNITS = {
     "MathDoubleMul": _binary(lambda x, y: num(x) * num(y)), "MathFloatMul": _binary(lambda x, y: num(x) * num(y)),
     "MathDoubleAdd": _binary(lambda x, y: num(x) + num(y)), "MathDoubleSub": _binary(lambda x, y: num(x) - num(y)),
@@ -374,4 +559,40 @@ UNITS = {
     "ModifyTransforms": modify_transforms, "AlphaInterp": alpha_interp, "AnimEvalRichCurve": anim_eval_rich_curve,
     "MathQuaternionSwingTwist": swing_twist, "MathQuaternionToEuler": quaternion_to_euler,
     "ParentConstraint": parent_constraint, "GetTransform": get_transform, "SetTransform": set_transform,
+    "MathBoolOr": _binary(lambda x, y: bool(x) or bool(y)), "MathBoolAnd": _binary(lambda x, y: bool(x) and bool(y)),
+    "MathBoolNot": _unary(lambda x: not x), "MathDoubleMax": _binary(lambda x, y: max(num(x), num(y))),
+    "MathDoubleMin": _binary(lambda x, y: min(num(x), num(y))), "MathDoubleLess": _binary(lambda x, y: num(x) < num(y)),
+    "MathDoubleGreater": _binary(lambda x, y: num(x) > num(y)), "MathDoubleNegate": _unary(lambda x: -num(x)),
+    "MathIntLess": _ints(lambda x, y: x < y), "MathIntGreater": _ints(lambda x, y: x > y), "MathIntSub": _ints(lambda x, y: x - y),
+    "MathIntAdd": _ints(lambda x, y: x + y), "MathIntToFloat": _unary(lambda x: float(int(num(x)))),
+    "MathIntToDouble": _unary(lambda x: float(int(num(x)))), "MathFloatAdd": _binary(lambda x, y: num(x) + num(y)),
+    "MathFloatSub": _binary(lambda x, y: num(x) - num(y)),
+    "MathVectorMake": _vector_unit(lambda x, y, z: vec_out(Vector((num(x), num(y), num(z)))), ("X", "Y", "Z")),
+    "MathVectorSub": _binary(lambda x, y: vec_out(vec(x) - vec(y))), "MathVectorAdd": _binary(lambda x, y: vec_out(vec(x) + vec(y))),
+    "MathVectorCross": _binary(lambda x, y: vec_out(vec(x).cross(vec(y)))), "MathVectorLength": _unary(lambda x: vec(x).length),
+    "MathVectorScale": _vector_unit(lambda v, f: vec_out(vec(v) * num(f)), ("Value", "Factor")),
+    "MathVectorUnit": _unary(lambda x: vec_out(vec(x).normalized() if vec(x).length > 1e-8 else Vector())),
+    "MathIntClamp": _vector_unit(lambda v, lo, hi: min(max(int(num(v)), int(num(lo))), int(num(hi))), ("Value", "Minimum", "Maximum")),
+    "MathDoubleLerp": _vector_unit(lambda x, y, t: num(x) + (num(y) - num(x)) * num(t), ("A", "B", "T")),
+    "MathQuaternionInverse": _unary(lambda q: quat_out(quat(q).conjugated())), "MathQuaternionSlerp": quat_slerp,
+    "MathTransformMul": _binary(lambda x, y: transform_out(compose(transform(x), transform(y)))),
+    "MathTransformMakeRelative": make_relative,
+    "ItemExists": item_exists, "NameTruncate": name_truncate,
+    "NameConcat": _binary(lambda x, y: _name(x) + _name(y)),
+    "NameReplace": name_replace, "MathTransformToEulerTransform": to_euler_transform, "MathQuaternionFromEuler": quat_from_euler,
+    "MathQuaternionFromRotatorV2": quat_from_rotator, "MathQuaternionScaleV2": quat_scale,
+    "MathDoublePow": _binary(_pow), "MathDoubleDiv": _binary(lambda x, y: 0.0 if abs(num(y)) <= 1e-8 else num(x) / num(y)),
+    "MathFloatDiv": _binary(lambda x, y: 0.0 if abs(num(y)) <= 1e-8 else num(x) / num(y)),
+    "DISPATCH_RigVMDispatch_ArrayIterator": array_iterator, "DISPATCH_RigVMDispatch_ArrayGetAtIndex": array_get,
+    "DISPATCH_RigVMDispatch_ArraySetAtIndex": array_set, "DISPATCH_RigVMDispatch_ArraySetNum": array_set_num,
+    "DISPATCH_RigVMDispatch_ArrayAdd": array_add, "DISPATCH_RigVMDispatch_ArrayInit": array_init,
+    "DISPATCH_RigVMDispatch_ArrayGetNum": lambda m, a, ops, pc: m.set(ops[1], len(_array(m, ops[0]))),
+    "DISPATCH_RigVMDispatch_ArrayReset": lambda m, a, ops, pc: m.set(ops[0], []),
+    "DISPATCH_RigVMDispatch_ArrayClone": lambda m, a, ops, pc: m.set(ops[1], copy.deepcopy(_array(m, ops[0]))),
+    "GetTransformItemArray": get_transform_array, "MathTransformArrayToSRT": transforms_to_srt, "HierarchyGetParent": get_parent,
+    "MathTransformTransformVector": _vector_unit(lambda t, v: vec_out(compose((Quaternion(), vec(v)), transform(t))[1]), ("Transform", "Location")),
+    "DISPATCH_RigVMDispatch_CoreEquals": lambda m, a, ops, pc: m.set(ops[-1], m.get(ops[0]) == m.get(ops[1])),
+    "MathDoubleArraySum": lambda m, a, ops, pc: _set(m, a, "Sum", sum(num(x) for x in (_get(m, a, "Array") or []))),
+    "ItemArray": nothing, "FindItemsWithMetadataTag": lambda m, a, ops, pc: _set(m, a, "Items", []),
 }
+UNITS.update({name: nothing for name in IGNORED})

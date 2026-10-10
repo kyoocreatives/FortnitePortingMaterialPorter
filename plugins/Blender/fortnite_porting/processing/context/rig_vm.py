@@ -158,13 +158,14 @@ def compile_rig(dump):
     hierarchy = next((e for e in dump if e.get("Type") == "RigHierarchy"), {})
     nulls = sorted({(e.get("LoadedKey") or {}).get("Name") for e in hierarchy.get("Elements") or []
                     if (e.get("LoadedKey") or {}).get("Type") == 2})
-    return {"start": start, "code": code, "callables": callables, "units": units, "literals": literals, "defaults": defaults,
-            "lit_paths": [p["SegmentPath"] for p in lit.get("PropertyPathDescriptions") or []],
-            "work_paths": [p["SegmentPath"] for p in work.get("PropertyPathDescriptions") or []],
-            "ext_paths": [p["SegmentPath"] for p in vm.get("ExternalPropertyPathDescriptions") or []],
-            "variables": _variables(dump, cls),
-            "bones": sorted(n for k, n in elements if k == "Bone"), "nulls": [n for n in nulls if n],
-            "writes": sorted(n for k, n in writes if k == "Bone")}
+    return finish({"start": start, "code": code, "callables": callables, "units": units, "literals": literals, "defaults": defaults,
+                   "lit_paths": [p["SegmentPath"] for p in lit.get("PropertyPathDescriptions") or []],
+                   "work_paths": [p["SegmentPath"] for p in work.get("PropertyPathDescriptions") or []],
+                   "ext_paths": [p["SegmentPath"] for p in vm.get("ExternalPropertyPathDescriptions") or []],
+                   "variables": _variables(dump, cls),
+                   "bones": sorted(n for k, n in elements if k == "Bone"),
+                   "nulls": sorted({n for n in nulls if n} | {n for k, n in elements if k == "Null"}),
+                   "writes": sorted(n for k, n in writes if k == "Bone")})
 
 
 def identity(t, tol=1e-4):
@@ -172,6 +173,18 @@ def identity(t, tol=1e-4):
     r, p, s = t.get("Rotation") or {}, t.get("Translation") or {}, t.get("Scale3D") or {"X": 1.0, "Y": 1.0, "Z": 1.0}
     return (abs(abs(float(r.get("W", 1.0) or 0.0)) - 1.0) < tol and all(abs(float(p.get(k, 0.0) or 0.0)) < 1e-3 for k in "XYZ")
             and all(abs(float(s.get(k, 1.0) or 0.0) - 1.0) < tol for k in "XYZ"))
+
+
+def finish(program):
+    """Marks lazy inputs: instructions a forward jump skips that end at a unit are that unit's lazy pins (an If's
+    sides, a Select's cases); the unit runs them first. Idempotent; returns the program."""
+    code = program["code"]
+    for j, x in enumerate(code):
+        if x.get("o") == JUMP_FWD and x.get("i", 0) > 1:
+            t = j + x["i"]
+            if t < len(code) and code[t].get("o") == EXECUTE:
+                code[t]["pre"] = [j + 1, t - 1]
+    return program
 
 
 def _walk(value, path, create=False):
@@ -191,7 +204,7 @@ class Machine:
     """One rig program's memory and its run; units come from rig_units.UNITS, the pose from a hierarchy."""
 
     def __init__(self, program, units, variables=None):
-        self.p, self.units = program, units
+        self.p, self.units = finish(program), units
         self.lit = {int(k): v for k, v in program["literals"].items()}
         self.state = {}         # units' state between runs (interpolations), by instruction
         self.missing = set()    # units this program runs that aren't ported (they do nothing)
@@ -267,6 +280,9 @@ class Machine:
             if op == EXIT:
                 return
             if op == EXECUTE:
+                if "pre" in x and tuple(x["pre"]) not in self.lazy:     # its lazy inputs, once per pass
+                    self.lazy.add(tuple(x["pre"]))
+                    self._range(*x["pre"])
                 unit = self.units.get(x["f"])
                 if unit is None:
                     self.missing.add(x["f"])
@@ -302,6 +318,11 @@ class Machine:
                 if x["first"] not in self.lazy:     # a lazy branch runs once per call
                     self.lazy.add(x["first"])
                     self._range(x["first"], x["last"])
+            elif op == BEGIN_BLOCK:         # a loop body: its lazy branches run again each pass
+                self._blocks = getattr(self, "_blocks", []) + [self.lazy]
+                self.lazy = set()
+            elif op == END_BLOCK and getattr(self, "_blocks", None):
+                self.lazy = self._blocks.pop()
             elif op == CALL and not x.get("skip"):
                 self._call(self.p["callables"][x["c"]], x["a"])
             pc += 1
