@@ -217,6 +217,27 @@ def wire(obj, found, size):
     obj["fpmp_face_board_inputs"] = controls
 
 
+def clearance(obj, head, left):
+    """How far the head's meshes reach beside the head bone along `left` (what's above the head bone: face, hair, hat),
+    so a board placed past it never sits inside the head; FP's head bones are too short to tell."""
+    import numpy as np
+    base = obj.data.bones[head].head_local
+    to_armature = obj.matrix_world.inverted()
+    far = 0.0
+    for o in _meshes(obj):
+        n = len(o.data.vertices)
+        if not n:
+            continue
+        co = np.empty(n * 3, dtype=np.float32)
+        o.data.vertices.foreach_get("co", co)
+        m = np.array(to_armature @ o.matrix_world)
+        points = co.reshape(-1, 3) @ m[:3, :3].T + m[:3, 3]
+        above = points[points[:, 2] >= base.z]
+        if len(above):
+            far = max(far, float(((above - np.array(base)) @ np.array(left)).max()))
+    return far
+
+
 def add(obj, head, left=None, up=Vector((0.0, 0.0, 1.0)), size=None):
     """A board on an existing rig (object mode in and out): beside `head`, or above the model on the root when
     there's no head bone. False when the armature has no face to drive or already has a board."""
@@ -224,6 +245,7 @@ def add(obj, head, left=None, up=Vector((0.0, 0.0, 1.0)), size=None):
     if not found or kind(found) is None or BOARD in obj.data.bones:
         return False
     left = left if left is not None else Vector((1.0, 0.0, 0.0))      # the figure faces -Y: its left is +X
+    clear = clearance(obj, head, left) if head else 0.0
     view_layer = bpy.context.view_layer
     view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='EDIT')
@@ -233,7 +255,7 @@ def add(obj, head, left=None, up=Vector((0.0, 0.0, 1.0)), size=None):
     span = max(max(p[i] for p in points) - min(p[i] for p in points) for i in range(3))
     size = size or (edit[head].length if head else span * 0.25)
     if head:
-        parent, at = head, edit[head].head + left * size * 1.4 + up * size * 0.2
+        parent, at = head, edit[head].head + left * max(size * 1.4, clear + size * 0.5) + up * size * 0.2
     else:
         roots = [b.name for b in edit if b.parent is None]
         parent = roots[0]

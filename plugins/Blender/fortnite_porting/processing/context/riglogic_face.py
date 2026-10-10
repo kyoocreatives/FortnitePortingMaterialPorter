@@ -6,6 +6,8 @@ import math
 import bpy
 from mathutils import Matrix
 
+from .driver_batch import Batch
+
 EXPR, MCH, POSE, COPY = "RL_Expressions", "RL_", "RL_pose_", "RL copy"
 LONGEST = 250       # characters per chunk expression: Blender keeps 255
 MECHANICS = "Face Mechanics"
@@ -42,20 +44,18 @@ def _input_path(rig, i):
     return 'pose.bones["%s"]["%s"]' % (EXPR, name)
 
 
-def _properties(obj, rig, formulas, var):
+def _properties(obj, rig, formulas, var, batch):
     """The raw controls (from the board's formulas) and the correctives, as properties on one hidden bone."""
     pb = obj.pose.bones[EXPR]
     for name in rig["raw"]:
         pb[name] = 0.0
         if name in formulas:
-            driver = pb.driver_add('["%s"]' % name).driver
-            driver.type = 'SCRIPTED'
+            driver = batch.new(pb, '["%s"]' % name)
             driver.expression = var(driver, formulas[name])
     for k, p in enumerate(rig["psds"]):
         name = "psd%d" % k
         pb[name] = 0.0
-        driver = pb.driver_add('["%s"]' % name).driver
-        driver.type = 'SCRIPTED'
+        driver = batch.new(pb, '["%s"]' % name)
         terms = ["min(1,max(0,%s))" % _prop_var(driver, v, obj, _input_path(rig, i)) for v, i in zip(_names(), p["inputs"])]
         driver.expression = "min(1,%s*%s)" % (_num(p["weight"]), "*".join(terms))
 
@@ -86,13 +86,12 @@ def _bones(obj, rig):
     return built
 
 
-def _chunk(obj, pb, terms, chunks):
+def _chunk(obj, pb, terms, chunks, batch):
     """One chunk property summing coef * input over as many terms as fit an expression; returns the terms left."""
     key = "c%d" % chunks[0]
     chunks[0] += 1
     pb[key] = 0.0
-    driver = pb.driver_add('["%s"]' % key).driver
-    driver.type = 'SCRIPTED'
+    driver = batch.new(pb, '["%s"]' % key)
     names, text, used = _names(), "", 0
     for input_path, c in terms:
         name = next(names)
@@ -107,14 +106,13 @@ def _chunk(obj, pb, terms, chunks):
     return key, terms[used:]
 
 
-def _sum(obj, pb, path, index, terms, offset, chunks):
+def _sum(obj, pb, path, index, terms, offset, chunks, batch):
     """Drive pb's channel to offset + sum(coef * input), through chunk properties."""
     parts = []
     while terms:
-        key, terms = _chunk(obj, pb, terms, chunks)
+        key, terms = _chunk(obj, pb, terms, chunks, batch)
         parts.append(key)
-    driver = pb.driver_add(path, index).driver
-    driver.type = 'SCRIPTED'
+    driver = batch.new(pb, path, index)
     names = _names()
     driver.expression = "+".join([_num(offset)] + [_prop_var(driver, next(names), obj, 'pose.bones["%s"]["%s"]' % (pb.name, k))
                                                    for k in parts])
@@ -134,13 +132,20 @@ def build(obj, rig, formulas, var):
     """RigLogic's face on the armature (see the module docstring). `formulas`: raw control name -> the board's formula
     for it; `var(driver, formula)` adds the formula's variables to the driver and returns its expression. Returns the
     number of driven joints built."""
-    from ...material_porter.effects import ue_rest
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='EDIT')
     built = _bones(obj, rig)
-    bpy.ops.object.mode_set(mode='POSE')
+    bpy.ops.object.mode_set(mode='OBJECT')
     _mechanics(obj, [EXPR] + [MCH + n for n in built] + [POSE + n for n in built])
-    _properties(obj, rig, formulas, var)
+    with Batch() as batch:
+        _properties(obj, rig, formulas, var, batch)
+        _channels(obj, rig, built, batch)
+    return len(built)
+
+
+def _channels(obj, rig, built, batch):
+    """Per driven joint, its mechanism bone's channels as coefficient sums, and the joint copying it."""
+    from ...material_porter.effects import ue_rest
     index = {n: i for i, n in enumerate(rig["joints"])}
     for name in built:
         b = obj.data.bones[name]
@@ -157,18 +162,16 @@ def build(obj, rig, formulas, var):
                     terms[i] = terms.get(i, 0.0) + to_bone[axis][k] * c
             terms = [(_input_path(rig, i), c) for i, c in terms.items() if abs(c) > 1e-12]
             if terms:
-                _sum(obj, pb, "location", axis, terms, 0.0, chunks)
+                _sum(obj, pb, "location", axis, terms, 0.0, chunks, batch)
         for axis, sign in ((0, -1.0), (1, 1.0), (2, -1.0)):          # Euler degrees, mirrored like FLIP
             if rows[3 + axis]:
                 _sum(obj, pb, "rotation_euler", axis,
-                     [(_input_path(rig, i), sign * math.radians(c)) for i, c in rows[3 + axis]], 0.0, chunks)
+                     [(_input_path(rig, i), sign * math.radians(c)) for i, c in rows[3 + axis]], 0.0, chunks, batch)
         for axis in range(3):
             if rows[6 + axis]:
-                _sum(obj, pb, "scale", axis, [(_input_path(rig, i), c) for i, c in rows[6 + axis]], 1.0, chunks)
+                _sum(obj, pb, "scale", axis, [(_input_path(rig, i), c) for i, c in rows[6 + axis]], 1.0, chunks, batch)
         copy = obj.pose.bones[name].constraints.new('COPY_TRANSFORMS')
         copy.name, copy.target, copy.subtarget = COPY, obj, POSE + name
-    bpy.ops.object.mode_set(mode='OBJECT')
-    return len(built)
 
 
 def set_on(obj, on):

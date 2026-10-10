@@ -125,6 +125,7 @@ def expression(node, var):
 
 # --- the board in Blender
 MARK, MESHES, STEP = "fpmp_metahuman_board", "fpmp_metahuman_board_meshes", "fpmp_metahuman_board_step"
+MATERIALS = "fpmp_metahuman_board_materials"
 OLD = "fpmp_metahuman_board_legacy"           # a legacy head: the board drives its *_pose keys
 BONES = "fpmp_metahuman_board_bones"         # the board drives the facial bones (RigLogic), not the shape keys
 PREFIX = "MB_"
@@ -149,10 +150,32 @@ def _legacy_keys(obj):
     return [(m, k) for m in _meshes(obj) for k in m.data.shape_keys.key_blocks if k.name in names]
 
 
+def _legacy_inputs(obj):
+    """[(material, group input, legacy curve)]: material inputs named after mapped legacy curves. A flipbook face
+    (Peely's) picks its cell from them, as the game drives them from the face's curves."""
+    names = {n.lower(): n for n in load_legacy()["curves"]}
+    out, seen = [], set()
+    for m in face_board._meshes(obj):
+        for slot in m.material_slots:
+            mat = slot.material
+            if mat is None or mat.node_tree is None or mat.name in seen:
+                continue
+            seen.add(mat.name)
+            out += [(mat, i, names[i.name.lower()]) for n in mat.node_tree.nodes if n.type == 'GROUP'
+                    for i in n.inputs if i.type == 'VALUE' and not i.is_linked and i.name.lower() in names]
+    return out
+
+
+def _socket_path(socket):
+    """A group input's value path by its identifier: the material builder may add inputs before it later, which
+    shifts an index path onto another input."""
+    return '%s.inputs["%s"].default_value' % (socket.node.path_from_id(), socket.identifier)
+
+
 def _legacy(obj):
-    """A legacy head (faceAttach, no FACIAL bones) with enough of the mapped *_pose keys."""
+    """A legacy head (faceAttach, no FACIAL bones) with enough of the mapped *_pose keys, or a material reading them."""
     return "faceAttach" in obj.data.bones and "FACIAL_C_FacialRoot" not in obj.data.bones and \
-        len(_legacy_keys(obj)) >= ENOUGH
+        (len(_legacy_keys(obj)) >= ENOUGH or bool(_legacy_inputs(obj)))
 
 
 def fits(obj):
@@ -185,7 +208,7 @@ def _layout(data, size, live):
                if c["kind"] in ("slider", "box") and c["name"] in live and c["group"] not in OFF_BOARD}
 
 
-def _bones(obj, data, size, live):
+def _bones(obj, data, size, live, clear):
     """Board and knob bones (edit mode): the board beside the head, knobs at Epic's places, pointing into the board
     so their local X runs right and Z up."""
     edit = obj.data.edit_bones
@@ -193,8 +216,8 @@ def _bones(obj, data, size, live):
     s, places = _layout(data, size, live)
     v = load_drawing()["verts"]
     ups = v[1::2]
-    # the drawing's left edge a head length and a half beside the head, its middle a head length above the head bone
-    origin = head.head + Vector((head.length * 1.5 - min(v[0::2]) * s, 0.0, head.length - (min(ups) + max(ups)) / 2 * s))
+    # the drawing's left edge past the head mesh, its middle a head length above the head bone
+    origin = head.head + Vector((clear - min(v[0::2]) * s, 0.0, head.length - (min(ups) + max(ups)) / 2 * s))
     master = edit.new(MASTER)        # above the drawing's top left corner
     master.head = origin + Vector((min(v[0::2]) * s, 0.0, max(ups) * s + size * 0.04))
     master.tail = master.head + Vector((0.0, size * 0.1, 0.0))
@@ -347,9 +370,11 @@ def add(obj, size=None, dna=None):
     keys = _legacy_keys(obj) if legacy else _keys(obj, data)
     rig = None if legacy else _rig(obj, dna)
     if legacy:
-        # the 3L curves the mapped keys read, as the board's formulas give them
+        # what the board drives: shape keys and material inputs, each with its legacy curve
+        targets = [(k, "value", k.name) for _, k in keys] + [(i.id_data, _socket_path(i), c) for _, i, c in _legacy_inputs(obj)]
+        # the 3L curves those curves read, as the board's formulas give them
         stacks = load_legacy()["curves"]
-        formulas = {e["Value"]: data["curves"][e["Value"]] for _, k in keys for e in stacks[k.name]
+        formulas = {e["Value"]: data["curves"][e["Value"]] for _, _, c in targets for e in stacks[c]
                     if e["ElementType"] == 1 and e["Value"] in data["curves"]}
         live = set().union(*(_read(node, set()) for node in formulas.values()))
     elif rig is not None:
@@ -359,9 +384,10 @@ def add(obj, size=None, dna=None):
     else:
         # FP heads carry about a third of Epic's expression curves: knobs nothing reads aren't built
         live = set().union(*(_read(data["curves"]["CTRL_expressions_" + k.name], set()) for _, k in keys))
+    clear = max(obj.data.bones["head"].length * 1.5, face_board.clearance(obj, "head", Vector((1.0, 0.0, 0.0))) + size * 0.1)
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='EDIT')
-    s = _bones(obj, data, size, live)
+    s = _bones(obj, data, size, live, clear)
     bpy.ops.object.mode_set(mode='POSE')
     obj.data[STEP] = s
     board = obj.pose.bones[BOARD]
@@ -382,9 +408,10 @@ def add(obj, size=None, dna=None):
     axes = {c["name"]: c["axes"] for c in data["controls"]}
     built = {b.name[len(PREFIX):] for b in obj.data.bones if b.name.startswith(PREFIX)}
     if legacy:
-        _legacy_drive(obj, keys, formulas, lambda driver, node: _expression(obj, driver, node, s, axes, built))
+        _legacy_drive(obj, targets, formulas, lambda driver, node: _expression(obj, driver, node, s, axes, built))
         obj.data[OLD] = True
-        made = len(keys)
+        obj.data[MATERIALS] = sorted({m.name for m, _, _ in _legacy_inputs(obj)})
+        made = len(targets)
     elif rig is not None:
         from . import riglogic_face
         riglogic_face.build(obj, rig, formulas, lambda driver, node: _expression(obj, driver, node, s, axes, built))
@@ -404,37 +431,44 @@ def add(obj, size=None, dna=None):
     return made
 
 
-def _legacy_drive(obj, keys, formulas, write):
-    """The board's 3L curves as props on its board bone, and each legacy key their mapped sum."""
+def _legacy_drive(obj, targets, formulas, write):
+    """The board's 3L curves as props on its board bone, and each target (owner, path, legacy curve) their mapped sum."""
     from ...material_porter import curve_expressions
+    from .driver_batch import Batch
     board = obj.pose.bones[BOARD]
-    for name, node in formulas.items():
-        board[name] = 0.0
-        driver = board.driver_add('["%s"]' % name).driver
-        driver.type = 'SCRIPTED'
-        driver.expression = write(driver, node)
-    for _, key in keys:
-        driver = key.driver_add("value").driver
-        driver.type = 'SCRIPTED'
-        used = {}
+    with Batch() as batch:
+        for name, node in formulas.items():
+            board[name] = 0.0
+            driver = batch.new(board, '["%s"]' % name)
+            driver.expression = write(driver, node)
+        for owner, path, curve in targets:
+            driver = batch.new(owner, path)
+            driver.expression = curve_expressions.text(load_legacy()["curves"][curve], _reader(obj, driver, formulas))
 
-        def name(curve):
-            if curve not in formulas:
-                return "0.0"        # a 3L curve the board doesn't make (Fortnite's own brow curves): at rest
-            if curve not in used:
-                used[curve] = "c%d" % len(used)
-                v = driver.variables.new()
-                v.name, v.type = used[curve], 'SINGLE_PROP'
-                v.targets[0].id, v.targets[0].data_path = obj, 'pose.bones["%s"]["%s"]' % (BOARD, curve)
-            return used[curve]
-        driver.expression = curve_expressions.text(load_legacy()["curves"][key.name], name)
+
+def _reader(obj, driver, formulas):
+    """name(3L curve) for curve_expressions.text: the driver's variable reading it on the board bone."""
+    used = {}
+
+    def name(curve):
+        if curve not in formulas:
+            return "0.0"        # a 3L curve the board doesn't make (Fortnite's own brow curves): at rest
+        if curve not in used:
+            used[curve] = "c%d" % len(used)
+            v = driver.variables.new()
+            v.name, v.type = used[curve], 'SINGLE_PROP'
+            v.targets[0].id, v.targets[0].data_path = obj, 'pose.bones["%s"]["%s"]' % (BOARD, curve)
+        return used[curve]
+    return name
 
 
 def set_on(obj, on):
     """Mute or unmute the board's shape-key drivers (the face's own keys play while they're muted)."""
-    for name in obj.data.get(MESHES, []):
-        mesh = bpy.data.objects.get(name)
-        ad = mesh.data.shape_keys.animation_data if mesh is not None and mesh.data.shape_keys else None
+    owners = [bpy.data.objects.get(n) for n in obj.data.get(MESHES, [])]
+    owners = [o.data.shape_keys for o in owners if o is not None and o.data.shape_keys]
+    owners += [m.node_tree for m in (bpy.data.materials.get(n) for n in obj.data.get(MATERIALS, [])) if m and m.node_tree]
+    for owner in owners:
+        ad = owner.animation_data
         for fc in (ad.drivers if ad else ()):
             if any(t.id == obj for v in fc.driver.variables for t in v.targets) or \
                     ((obj.data.get(BONES) or obj.data.get(OLD)) and not fc.driver.variables):

@@ -719,6 +719,19 @@ except Exception:
 tasty_style.add_face_board = real_add
 check("Tasty restyle failure doesn't break the import", survived, True)
 
+# the flipbook board clears the head mesh, however short the head bone
+clear = bpy.data.objects.new("clearfig", bpy.data.armatures.new("clearfig"))
+bpy.context.scene.collection.objects.link(clear)
+bpy.context.view_layer.objects.active = clear
+bpy.ops.object.mode_set(mode='EDIT')
+hb = clear.data.edit_bones.new("head")
+hb.head, hb.tail = (0, 0, 1.0), (0, 0, 1.01)
+bpy.ops.object.mode_set(mode='OBJECT')
+attach_face(clear, "clearfig", FLIP)
+bpy.data.objects["clearfig head"].data.vertices[1].co = (0.3, 0.0, 1.05)
+face_board.add(clear, head="head")
+check("the flipbook board starts past the head mesh", clear.data.bones[face_board.BOARD].head_local.x > 0.3, True)
+
 print("[rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 if FAILS:
     sys.exit(1)
