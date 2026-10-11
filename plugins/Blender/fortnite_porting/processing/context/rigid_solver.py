@@ -260,11 +260,17 @@ class RigidSim:
                                      0.0, ZERO.copy(), False))
         for j in self.joints:
             j.init(h, bodies)
-        touching = contacts.detect(bodies, self.pairs, [a.segments for a in self.actors], self.solver["cull_distance"],
-                                   self.overlaps, h, self.solver["max_depenetration"])
-        for _ in range(self.solver["position_iterations"]):
+        manifold = self.solver.get("manifolds", True)
+
+        def found(corrected=False):
+            return contacts.detect(bodies, self.pairs, [a.segments for a in self.actors], self.solver["cull_distance"],
+                                   self.overlaps, h, self.solver["max_depenetration"], manifold, corrected)
+        touching = found()
+        for it in range(self.solver["position_iterations"]):
             for j in self.joints:
                 j.apply_position(h, bodies)
+            if not manifold and it > 0:     # without manifolds the engine finds the contacts again each iteration
+                touching = found(corrected=True)
             contacts.apply_position(touching, bodies)
         for b in bodies:
             if b.dynamic:

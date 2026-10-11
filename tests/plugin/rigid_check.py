@@ -86,6 +86,7 @@ check("solver settings, defaults elsewhere", (asset["solver"]["position_iteratio
                                               asset["solver"]["projection_iterations"], asset["solver"]["linear_solver"],
                                               asset["solver"]["cull_distance"]), (8, 1, 1, False, 3.0))
 check("a missing asset reads None", pr.asset(PHYS + ".none"), None)
+check("manifolds are on unless the asset turns them off", asset["solver"]["manifolds"], True)
 
 ABP = dump(os.path.join(TMP, "x.animbp.json"), [
     {"Type": "AnimBlueprintGeneratedClass", "Name": "X_C",
@@ -245,8 +246,18 @@ seen = {}
 check("a starting overlap isn't pushed out", pushed(*(lambda bs: (bs, rc.detect(bs, [(0, 1)], [sphere, sphere], 3.0, seen, DT)))(overlap(3.0))), 0.0)
 check("but may not go deeper than it began", pushed(*(lambda bs: (bs, rc.detect(bs, [(0, 1)], [sphere, sphere], 3.0, seen, DT)))(overlap(2.5))), 0.5)
 # the asset's max depenetration velocity caps each step's push-out (0: no cap)
-capped = {(0, 1): 0.0}
+capped = {(0, 1, 0, 0, 0): 0.0}      # a contact already touching: no starting overlap to keep
 check("a push-out is capped at the asset's speed", pushed(*(lambda bs: (bs, rc.detect(bs, [(0, 1)], [sphere, sphere], 3.0, capped, DT, 30.0)))(overlap(2.0))), 0.5)
+# contacts per shape pair; with manifolds, aligned or deep capsules also touch at their ends (the engine's one-shot manifold)
+rod = [(Vector((-10.0, 0.0, 0.0)), Vector((10.0, 0.0, 0.0)), 2.0)]
+tilt = Quaternion(Vector((0, 0, 1)), math.radians(20.0))      # within the engine's 30 degrees: still aligned
+lying = lambda dz: [rj.SolverBody(Vector(), Quaternion(), Vector(), Quaternion(), Vector(), Vector(), 0.0, Vector(), False),  # noqa: E731
+                    rj.SolverBody(Vector((0.0, 0.0, dz)), tilt, Vector((0.0, 0.0, dz)), tilt, Vector(), Vector(), 1.0,
+                                  Vector((1.0, 1.0, 1.0)), True)]
+check("parallel capsules: the closest point and two ends", len(rc.detect(lying(3.5), [(0, 1)], [rod, rod], 3.0, manifold=True)), 3)
+check("without manifolds just the closest point", len(rc.detect(lying(3.5), [(0, 1)], [rod, rod], 3.0, manifold=False)), 1)
+check("each pair of shapes makes its own contact", len(rc.detect(lying(3.5), [(0, 1)], [rod + [(Vector((0.0, 5.0, 0.0)), Vector((0.0, 5.0, 0.0)), 2.0)],
+                                                                                        [(Vector(), Vector(), 2.0)]], 3.0, manifold=False)), 2)
 p0, p1 = rc.closest(Vector((0, 0, 0)), Vector((10, 0, 0)), Vector((5, 3, -1)), Vector((5, 3, 1)))
 check("closest points of crossing segments", (tuple(p0), tuple(p1)), ((5.0, 0.0, 0.0), (5.0, 3.0, 0.0)))
 
@@ -323,6 +334,26 @@ check("a component speeding up swings the chain back", shoved(1.0) < -0.2, True)
 check("with no acceleration scale it doesn't", round(shoved(0.0), 4), round(shoved(0.0, motion=None), 4))
 
 
+def detections(manifolds):
+    """How often one step looks for contacts: once with manifolds, every position iteration without."""
+    n = rigid_node()
+    n["physics"]["solver"]["manifolds"] = manifolds
+    s_ = rs.RigidSim(n, bones)
+    s_.evaluate(DT, pose, "head")
+    count, real = [0], rc.detect
+
+    def counted(*a, **k):
+        count[0] += 1
+        return real(*a, **k)
+    rc.detect = counted
+    try:
+        s_._step(DT, 1.0, Vector(), None)
+    finally:
+        rc.detect = real
+    return count[0]
+
+
+check("without manifolds contacts are found again each iteration", (detections(True), detections(False)), (1, 6))
 k = rs.RigidSim(rigid_node(), bones)
 k.evaluate(DT, pose, "head")
 head = k.actors[0]

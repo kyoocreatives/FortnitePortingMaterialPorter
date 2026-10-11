@@ -133,4 +133,5 @@ def asset(path):
             "solver": {"position_iterations": int(solver.get("PositionIterations", 6)), "velocity_iterations": int(solver.get("VelocityIterations", 1)),
                        "projection_iterations": int(solver.get("ProjectionIterations", 1)), "cull_distance": float(solver.get("CullDistance", 3.0)),
                        "max_depenetration": float(solver.get("MaxDepenetrationVelocity", 0.0)), "fixed_step": float(solver.get("FixedTimeStep", 0.0)),
-                       "linear_solver": bool(solver.get("bUseLinearJointSolver", True))}}
+                       "linear_solver": bool(solver.get("bUseLinearJointSolver", True)),
+                       "manifolds": bool(solver.get("bUseManifolds", True))}}
