@@ -3,6 +3,7 @@ node between two frames, turn the result into the twins' pose. The bake and the 
 import json
 
 import bpy
+import numpy as np
 from mathutils import Matrix, Quaternion, Vector
 
 from .dynamics_solver import Sim, compose, relative
@@ -79,7 +80,7 @@ class Runner:
         if stored.get("cloth"):
             from .cloth_solver import ClothSim
             rest = {b.name: to_game(b.matrix_local, ue_offset(b), unit) for b in bones}
-            self.clothes = [{"mesh": c["mesh"], "sims": [ClothSim(x, rest, self.state, self.root) for x in c["clothes"]]}
+            self.clothes = [{"id": c["id"], "slots": c["slots"], "sims": [ClothSim(x, rest, self.state, self.root) for x in c["clothes"]]}
                             for c in stored["cloth"]]
         need = {self.root}
         wanted = [name for s in self.sims for name in s.bones()]
@@ -141,9 +142,12 @@ class Runner:
         return cs
 
     def cloth(self):
-        """The last tick's cloth by mesh name: world positions (cm, the game's axes) and normals of all its assets."""
-        import numpy as np
-        return {c["mesh"]: (np.concatenate([p for p, _ in c["out"]]), np.concatenate([n for _, n in c["out"]]))
+        """The last tick's cloth by mesh id: its render slots in component space (cm, the game's axes)."""
+        from .cloth_solver import mapped
+        q, t = self.component
+        to_component = np.array(q.conjugated().to_matrix())
+        return {c["id"]: (mapped(c["slots"], np.concatenate([p for p, _ in c["out"]]), np.concatenate([n for _, n in c["out"]]))
+                          - np.array(t)) @ to_component.T
                 for c in self.clothes if c.get("out")}
 
     def _component(self, motion):

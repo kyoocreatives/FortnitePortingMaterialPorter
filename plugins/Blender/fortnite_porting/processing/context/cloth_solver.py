@@ -31,9 +31,9 @@ def table(pair, h, n):
     return stiffness(np.array([lo + j / 15.0 * (hi - lo) for j in range(16)]), h, n)
 
 
-def _authored(cloth, name, pair, verts, quantized=True, clamp=True):
+def _authored(cloth, name, pair, verts, quantized=True, clamp=True, stiff=True):
     """A weighted value per constraint: low + (high - low) * the mean painted weight of its vertices (quantized to the
-    engine's 16 steps); low everywhere without a map or with low == high."""
+    engine's 16 steps, a stiffness's low and high kept in [0, 1]); low everywhere without a map or with low == high."""
     lo, hi = float(pair[0]), float(pair[1])
     verts = np.asarray(verts, np.int64).reshape(len(verts), -1) if len(verts) else np.zeros((0, 1), np.int64)
     m = cloth["maps"].get(name)
@@ -42,7 +42,8 @@ def _authored(cloth, name, pair, verts, quantized=True, clamp=True):
     m = np.asarray(m, np.float64)
     w = (np.clip(m, 0.0, 1.0) if clamp else m)[verts].mean(axis=1)
     if quantized:
-        lo, hi = min(max(lo, 0.0), 1.0), min(max(hi, 0.0), 1.0)
+        if stiff:
+            lo, hi = min(max(lo, 0.0), 1.0), min(max(hi, 0.0), 1.0)
         w = np.trunc(np.clip(w, 0.0, 1.0) * 15.0) / 15.0
     return lo + (hi - lo) * w
 
@@ -139,6 +140,18 @@ def backstop(P, anchor, normal, radius, distance, dyn, legacy):
     inside = ~tiny & (length < r[:, 0])
     P[dyn[tiny]] = (a - ((D - r) if legacy else D) * n)[tiny]
     P[dyn[inside]] = C[inside] + (r[inside] / length[inside][:, None]) * d[inside]
+
+
+def mapped(slots, pos, nrm):
+    """The engine's render mapping (notes 6.2) for each slot: its influences' barycentric points (the third
+    barycentric is 1 - b0 - b1) pushed along the particles' normals, weighted; (slots, 3) in the particles' space."""
+    tri = np.asarray(slots["tri"], np.int64)
+    if not len(tri):
+        return np.zeros((0, 3))
+    b, d, w = np.asarray(slots["bary"]), np.asarray(slots["dist"]), np.asarray(slots["weight"])
+    coef = np.stack([b[..., 0], b[..., 1], 1.0 - b[..., 0] - b[..., 1]], axis=-1)
+    points = (coef[..., None] * (pos[tri] + nrm[tri] * d[..., None, None])).sum(-2)
+    return (w[..., None] * points).sum(1) / w.sum(1)[:, None]
 
 
 class Collider:
@@ -335,7 +348,9 @@ class ClothSim:
         self.fluid = settings.get("FluidDensity", FLUID_DENSITY)
         self.state_gravity = {"gravity": settings["gravity"], "joint": settings["joint"]} if "gravity" in settings else None
         self.teleport_rotation = settings.get("teleport_rotation", 0.0)
+        self.teleport_distance = settings.get("teleport_distance", TELEPORT_DISTANCE)
         self.root = root or next(iter(rest))
+        self.reference = cloth["reference"] if cloth["reference"] in rest else self.root
         x = np.array(cloth["positions"], np.float64)
         self.n = n = len(x)
         self.bind, self.bind_normals = x, np.array(cloth["normals"] or [[0.0, 0.0, 1.0]] * n, np.float64)
@@ -346,15 +361,15 @@ class ClothSim:
         self.dyn = np.where(self.dynamic)[0]
         self.mass = self._masses(x)
         self.w = np.where(self.dynamic, 1.0 / self.mass, 0.0)
-        bones = sorted({b for inf in cloth["influences"] for b, _ in inf if b in rest})
+        # a bone the armature lacks skins to the root, as the engine maps an unknown bone
+        bones = sorted({b if b in rest else self.root for inf in cloth["influences"] for b, _ in inf})
         self.bones = bones
         index = {b: i for i, b in enumerate(bones)}
         self.inf_bone = np.zeros((n, 12), np.int64)
         self.inf_w = np.zeros((n, 12))
         for v, inf in enumerate(cloth["influences"]):
             for k, (b, wt) in enumerate(inf[:12]):
-                if b in index:
-                    self.inf_bone[v, k], self.inf_w[v, k] = index[b], wt
+                self.inf_bone[v, k], self.inf_w[v, k] = index[b if b in rest else self.root], wt
         self._build(x)
         self.colliders = [(s, None) for s in cloth["colliders"] if s["bone"] in rest]
         self.frames = 0
@@ -417,7 +432,7 @@ class ClothSim:
             for batch in cloth["tethers"]:
                 b = np.array(batch, np.float64).reshape(-1, 3)
                 s, e = b[:, 0].astype(np.int64), b[:, 1].astype(np.int64)
-                scale = np.clip(_authored(cloth, "TetherScale", c["TetherScale"], e, clamp=True), 0.01, 10.0) \
+                scale = np.clip(_authored(cloth, "TetherScale", c["TetherScale"], e, stiff=False), 0.01, 10.0) \
                     if "TetherScale" in maps else np.full(len(e), min(max(c["TetherScale"][0], 0.01), 10.0))
                 self.tethers.append((s, e, b[:, 2] * scale, _authored(cloth, "TetherStiffness", c["TetherStiffness"], e)))
         # aerodynamics per triangle, clamped to [0, 10]
@@ -436,7 +451,7 @@ class ClothSim:
 
     def bones_needed(self):
         joint = [self.state_gravity["joint"]] if self.state_gravity else []
-        return set(self.bones) | {self.cloth["reference"], self.root} | {s["bone"] for s, _ in self.colliders} | set(joint)
+        return set(self.bones) | {self.reference, self.root} | {s["bone"] for s, _ in self.colliders} | set(joint)
 
     # --- per frame ---
     def _world(self, cs, name, component):
@@ -472,7 +487,7 @@ class ClothSim:
         last, self.last_root = getattr(self, "last_root", None), root
         if last is None:
             return False
-        if (root[1] - last[1]).length > TELEPORT_DISTANCE:
+        if (root[1] - last[1]).length > self.teleport_distance:
             return True
         if self.teleport_rotation > 0.0:
             m = (root[0] @ last[0].conjugated()).to_matrix()
@@ -485,7 +500,7 @@ class ClothSim:
         self.dt = dt = self.dt + SMOOTHING * (delta - self.dt)
         speed = delta / raw_dt * dt / delta if raw_dt > 0.0 else 0.0
         L = np.array(component[1])
-        ref = self._world(cs, self.cloth["reference"], component)
+        ref = self._world(cs, self.reference, component)
         anim, anim_n = self._skin(cs, component)
         reset = self.frames == 0 or self._teleport(cs, component)
         self.frames += 1

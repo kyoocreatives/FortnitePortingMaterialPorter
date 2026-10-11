@@ -147,12 +147,12 @@ def _cloth_parts(ctx):
                 if c:
                     total += len(c["positions"])
                     c["by_state"] = cloth_read.states(meta.get("AnimScript"), c["name"])
-            bpy.context.view_layer.update()
-            unit = getattr(ctx, "scale", 0.01) / max(obj.matrix_world.to_scale().x, 1e-8)
             part = len(out) + 1
-            mapped = cloth_render.attach(obj, found["sections"], offsets, unit, part)
-            out.append({"part": part, "clothes": [c for c in found["clothes"] if c], "anim": meta.get("AnimBlueprint")})
-            Log.info("%s: cloth on %d vertices" % (obj.name, mapped))
+            slots = cloth_render.attach(obj, found["sections"], offsets, part)
+            Log.info("%s: cloth on %d vertices" % (obj.name, len(slots["tri"])))
+            if slots["tri"]:        # else the blueprint keeps its fallback for those bones
+                out.append({"part": part, "clothes": [c for c in found["clothes"] if c], "anim": meta.get("AnimBlueprint"),
+                            "slots": slots, "particles": total})
         except Exception as e:      # an odd cloth file costs the cloth, never the import
             Log.error("[Material Porter] %s: cloth (%s: %s)" % (obj.name, type(e).__name__, e))
     return out
@@ -171,14 +171,12 @@ def _cloth(ctx):
         held = [by_part[p] for p in cloth_render.parts(obj) if p in by_part]
         if not held:
             continue
-        offsets, clothes = {}, []
-        for p in held:
-            offsets[p["part"]] = sum(len(c["positions"]) for c in clothes)
-            clothes += p["clothes"]
-            clothed.add(p["anim"])
+        slots, offsets = cloth_render.join([(p["part"], p["slots"], p["particles"]) for p in held])
+        clothes = [c for p in held for c in p["clothes"]]
+        clothed.update(p["anim"] for p in held)
         cloth_render.relink(obj, offsets)
-        cloth_render.cache(obj, sum(len(c["positions"]) for c in clothes))
-        out.setdefault(skeleton, []).append({"mesh": obj.name, "clothes": clothes})
+        cloth_render.cache(obj, len(slots["tri"]))
+        out.setdefault(skeleton, []).append({"id": cloth_render.tag(obj), "mesh": obj.name, "clothes": clothes, "slots": slots})
     return out, clothed
 
 
@@ -215,7 +213,12 @@ def after_parts(ctx, rig_type, tasty):
     shells.apply(ctx, [m.get("Mesh") for m in ctx.imported_meshes])
     settle_effects(ctx)
     _correctives(ctx)
-    _dynamics(ctx, *_cloth(ctx))
+    try:
+        cloth = _cloth(ctx)
+    except Exception as e:      # the cloth is lost, never the dynamic bones or the import
+        Log.error("[Material Porter] cloth (%s: %s)" % (type(e).__name__, e))
+        cloth = ({}, set())
+    _dynamics(ctx, *cloth)
 
     if rig_type == tasty:
         for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:

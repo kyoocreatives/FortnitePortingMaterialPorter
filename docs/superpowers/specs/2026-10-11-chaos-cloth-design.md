@@ -82,18 +82,18 @@ Bake and the live preview both drive it.
   cloth next to the nodes (`{"scale", "nodes", "cloth"}`).
 - Import: the mapping goes onto each part's vertices before the parts are joined (marked by part), and is relinked
   onto the joined mesh's cache after.
-- Render mesh: a hidden point cache object per cloth mesh holds the simulation's positions and normals per frame (mesh
-  space, Blender units); a geometry nodes modifier after the Armature modifier maps the cloth section's vertices from
-  it with the render mapping (stored as integer and float attributes at import) and leaves every other vertex as
-  skinned. A frame without cached data shows the skinned mesh.
+- Render mesh: the bake and the live preview map the simulation onto each cloth vertex's slot with the engine's formula
+  (several influences per vertex weighted); a hidden point cache per cloth mesh holds the slots (mesh space; the bake's
+  per frame, the live preview's for its one frame) and a geometry nodes modifier after the Armature reads the shown
+  one, leaving every other vertex, and every frame without data, skinned. Meshes are found by an id kept on them.
 - Bake fills the cache for the bake range in the same pass as the bone bake; live writes the current frame's slot.
   The Dynamics toggle mutes the modifier with the twins.
 
 ## Out of scope
 
 Self-collision, world collision, wind gusts, ChaosClothAsset panel cloth, cloth LOD blending, GPU skin cache tangent
-recompute, float32 rounding, one-sided tapered capsules (collide two-sided), render mappings with several influences
-per vertex (left skinned), velocity and acceleration clamps (off by default).
+recompute, float32 rounding, one-sided tapered capsules (collide two-sided), velocity and acceleration clamps (off by default),
+bending-element buckling, the controller's outer drag and lift (used only when an asset enables outer drag or lift).
 
 ## Testing
 

@@ -58,6 +58,13 @@ def _config(props, defaults):
     return out
 
 
+def _outer(export):
+    """An export's outer object name ("Type'Package:Name'" in the dump)."""
+    outer = export.get("Outer")
+    name = outer.get("ObjectName", "") if isinstance(outer, dict) else str(outer or "")
+    return name.rstrip("'").split(":")[-1].split("'")[-1]
+
+
 def _tethers(data):
     """Batches of (kinematic, dynamic, rest length)."""
     out = []
@@ -140,8 +147,11 @@ def _cloth(asset, exports, physics, lod, parent_of):
     props = asset.get("Properties") or {}
     configs = {}
     for entry in props.get("ClothConfigs") or []:
-        name = str((entry.get("Value") or {}).get("ObjectName", "")).rstrip("'").split(":")[-1].split(".")[-1]
-        configs[entry.get("Key")] = next((e for e in exports if e.get("Name") == name and e.get("Type") == entry.get("Key")), None)
+        # "Type'Package:Outer.Name'": names repeat across outers (each asset's own ChaosClothConfig)
+        path = str((entry.get("Value") or {}).get("ObjectName", "")).rstrip("'").split(":")[-1].split(".")
+        found = [e for e in exports if e.get("Name") == path[-1] and e.get("Type") == entry.get("Key")]
+        outer = [e for e in found if len(path) > 1 and _outer(e) == path[-2]]
+        configs[entry.get("Key")] = (outer or found or [None])[0]
     mesh = ((props.get("LodData") or [{}])[lod] or {}).get("PhysicalMeshData") or {}
     positions = [_xyz(v) for v in mesh.get("Vertices") or []]
     n = len(positions)
@@ -184,12 +194,14 @@ def _row(table, state):
 
 def _settings(row, core):
     """What the cloth controller library pushes to the asset for one state's row and the core settings."""
-    out = {"LinearVelocityScale": _xyz(_field(row, "LinearVelocityScale") or {}),
-           "AngularVelocityScale": float(_field(row, "AngularVelocityScale") or 0.0),
-           "FictitiousAngularScale": float(_field(row, "FictitiousAngularScale") or 0.0),
-           "gravity": _xyz(_field(row, "GravityOverride") or {}), "joint": _field(row, "JointName") or "root",
+    lin, ang, fict, gravity = (_field(row, n) for n in ("LinearVelocityScale", "AngularVelocityScale", "FictitiousAngularScale",
+                                                         "GravityOverride"))
+    out = {"LinearVelocityScale": _xyz(lin) if isinstance(lin, dict) else None,
+           "AngularVelocityScale": None if ang is None else float(ang), "FictitiousAngularScale": None if fict is None else float(fict),
            "Drag": _pair(_field(row, "DragCoefficient")), "Lift": _pair(_field(row, "LiftCoefficient")),
            "FluidDensity": 1e-6, "TetherScale": [1.0, 1.0]}
+    if isinstance(gravity, dict):       # a row without one leaves the asset's gravity
+        out["gravity"], out["joint"] = _xyz(gravity), _field(row, "JointName") or "root"
     for key, name in (("EdgeStiffnessWeighted", "EdgeStiffness"), ("BendingStiffnessWeighted", "BendingStiffness"),
                       ("AreaStiffnessWeighted", "AreaStiffness"), ("TetherStiffness", "TetherStiffness"),
                       ("AnimDriveStiffness", "AnimDriveStiffness"), ("AnimDriveDamping", "AnimDriveDamping")):

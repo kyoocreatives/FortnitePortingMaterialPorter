@@ -9,7 +9,7 @@ import bpy
 from mathutils import Quaternion, Vector
 
 from . import cloth_render
-from .dynamics_bake import BAKED, GROUP, KEY, TWIN, _curves, _track, _twins
+from .dynamics_bake import BAKED, GROUP, KEY, TWIN, _cloth, _curves, _track, _twins
 from .dynamics_runner import Runner
 
 LIVE = "fpmp_dynamics_live"
@@ -141,6 +141,8 @@ def set_live(obj, on):
         if track is not None:
             track.mute = True
         obj.data[LIVE] = True
+        for o in _cloth(obj):
+            cloth_render.set_on(o, True)
         install()
         _constraints(obj, True)
         toggled = needs_toggle(run)
@@ -154,6 +156,8 @@ def set_live(obj, on):
         return True
     if LIVE in obj.data:
         del obj.data[LIVE]
+    for o in _cloth(obj):       # back to the bake's cloth
+        cloth_render.show(o, False)
     for pb in obj.pose.bones:
         if pb.name.startswith(TWIN):
             pb.location, pb.rotation_quaternion = Vector(), Quaternion()
@@ -190,7 +194,7 @@ def _step(obj, scene):
         cs = run.advance(state["pose"], pose)
     state["frame"], state["pose"] = frame, pose
     if run.clothes:
-        cloth_render.store_frame(run.cloth(), frame, run.unit)
+        cloth_render.store_frame(run.cloth(), frame, run.unit, obj)
     state["pending"] = [(slot,) + run.basis(cs, name) for name, slot in zip(run.simulated, state["slots"])]
     _states[obj.name_full] = state
 

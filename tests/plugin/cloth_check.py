@@ -51,36 +51,42 @@ def entry(bary, dist, tri, flag=0):
     return list(bary) + [dist] + [0.0, 0.0, 1.0, 0.0] * 2 + list(tri) + [flag, 1.0]
 
 
-# on the second asset's triangle: vertex 1 all cloth (its stored third barycentric is ignored), vertex 2 flagged as
-# never simulated, vertex 3 half blended; vertex 0 outside the section; offsets in cm, mesh in metres
+# on the second asset's triangle: vertex 1 all cloth, vertex 2 flagged as never simulated, vertex 3 half blended;
+# vertex 0 outside the section
 sections = [{"base": 1, "count": 3, "asset": 1, "mapping": [entry((0.2, 0.3, 0.9), 10.0, (0, 1, 2)), entry((1.0, 0.0, 0.0), 0.0, (0, 1, 2), 0xFFFF),
                                                              entry((0.0, 0.0, 1.0), 0.0, (0, 1, 2), 32768)]}]
-check("simulated vertices are mapped", cr.attach(render, sections, [0, 3], 0.01), 2)
-check("their simulation vertices, offset by asset", [cr._ints(me, n) for n in ("cloth_a", "cloth_b", "cloth_c")],
-      [[-1, 3, -1, 3], [-1, 4, -1, 4], [-1, 5, -1, 5]])
+slots = cr.attach(render, sections, [0, 3])
+check("simulated vertices get slots", cr._ints(me, "cloth_slot"), [-1, 0, -1, 1])
+check("their simulation vertices, offset by asset", slots["tri"], [[[3, 4, 5]], [[3, 4, 5]]])
+two = [{"base": 0, "count": 1, "asset": 0, "mapping": [entry((1.0, 0.0, 0.0), 0.0, (0, 1, 2)) + [], entry((0.0, 1.0, 0.0), 0.0, (0, 1, 2))]}]
+two[0]["mapping"][0][16], two[0]["mapping"][1][16] = 0.25, 0.75
+wide = bpy.data.objects.new("wide", bpy.data.meshes.new("wide"))
+wide.data.from_pydata([(0, 0, 0)], [], [])
+multi = cr.attach(wide, two, [0])
+check("several influences per vertex keep their weights", multi["weight"], [[0.25, 0.75]])
 
 joined = bpy.data.objects.new("joined", bpy.data.meshes.new("joined"))
 joined.data.from_pydata([(0, 0, 0)] * 3, [], [])
-cr.attach(joined, [{"base": 1, "count": 1, "asset": 0, "mapping": [entry((1.0, 0.0, 0.0), 0.0, (0, 1, 2))]}], [0], 0.01, 2)
+cr.attach(joined, [{"base": 1, "count": 1, "asset": 0, "mapping": [entry((1.0, 0.0, 0.0), 0.0, (0, 1, 2))]}], [0], 2)
 check("a part marks its cloth vertices", cr.parts(joined), [2])
 cr.relink(joined, {2: 7})
-check("relinking moves a part's indices to its place in the joined cache", cr._ints(joined.data, "cloth_a"), [-1, 7, -1])
-cache = cr.cache(render, 6)
-pos = np.zeros((2, 6, 3), np.float32)
-nrm = np.zeros((2, 6, 3), np.float32)
-pos[:, 3:] = [(0, 0, 0), (1, 0, 0), (0, 1, 0)]
-pos[1, 3:, 2] += 1.0
-nrm[:, :, 2] = 1.0
-cr.write(cache, 1, pos, nrm)
-check("a mapped vertex sits on its barycentric point plus the normal offset", evaluated(render, 1)[1], (0.3, 0.5, 0.1))
+check("relinking moves a part's slots to their place in the joined cache", cr._ints(joined.data, "cloth_slot"), [-1, 7, -1])
+both_, offs = cr.join([(1, slots, 6), (2, multi, 3)])
+check("joined slots: later particles shifted, fewer influences padded", (offs, both_["tri"][2], both_["weight"][0]),
+      ({1: 0, 2: 2}, [[6, 7, 8], [6, 7, 8]], [1.0, 0.0]))
+
+cache = cr.cache(render, 2)
+pos = np.array([[(0.3, 0.5, 0.1), (0.0, 1.0, 0.0)], [(0.3, 0.5, 1.1), (0.0, 1.0, 0.0)]], np.float32)
+cr.write(cache, 1, pos)
+check("a mapped vertex sits on its slot", evaluated(render, 1)[1], (0.3, 0.5, 0.1))
 check("it follows the cache frame by frame", evaluated(render, 2)[1], (0.3, 0.5, 1.1))
 check("the other vertices stay skinned", evaluated(render, 2)[0:3:2], [(5.0, 5.0, 5.0), (7.0, 7.0, 7.0)])
 check("a partly static triangle blends cloth and skinning", evaluated(render, 1)[3], (4.0, 4.5, 4.0), 1e-3)
 check("a frame outside the cache shows the skinned mesh", evaluated(render, 3)[1], (6.0, 6.0, 6.0))
-one = np.zeros((6, 3), np.float32)
-one[3:] = [(0, 0, 2), (1, 0, 2), (0, 1, 2)]
-cr.write_frame(cache, 3, one, nrm[0])
-check("one frame written later extends the cache", evaluated(render, 3)[1], (0.3, 0.5, 2.1))
+cr.write(cr.cache(render, 2, live=True), 3, np.array([[(0.3, 0.5, 2.1), (0.0, 1.0, 0.0)]], np.float32))
+check("the live cache shows its one frame", evaluated(render, 3)[1], (0.3, 0.5, 2.1))
+cr.show(render, False)
+check("the bake's cache is shown again, untouched", (evaluated(render, 2)[1], evaluated(render, 3)[1]), ((0.3, 0.5, 1.1), (6.0, 6.0, 6.0)))
 cr.set_on(render, False)
 check("switched off, the mesh is skinned", evaluated(render, 1)[1], (6.0, 6.0, 6.0))
 cr.set_on(render, True)
@@ -255,6 +261,11 @@ P = np.array([[1.0, 0.0, 5.0]])
 cs_.collide(P, P.copy(), np.array([0]), cs_.Collider(tapered, (Quaternion(), Vector())), 0.0, 0.0, H)
 check("a tapered capsule's radius a quarter down from its first end", P[0].tolist(), [3.5, 0.0, 5.0])
 
+particles = np.array([[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0], [1, 0, 0], [0, 1, 0]], np.float64)
+up = np.tile([0.0, 0.0, 1.0], (6, 1))
+check("render mapping: third barycentric 1 - b0 - b1, offset along the normals", cs_.mapped(slots, particles, up)[0].tolist(), [0.3, 0.5, 10.0])
+check("several influences average by weight", cs_.mapped(multi, particles[3:], up[3:])[0].tolist(), [0.75, 0.0, 0.0])
+
 moved = (Quaternion(), Vector((10.0, 0.0, 0.0)))
 for lin, want in ((0.0, 10.0), (1.0, 0.0)):
     g = cs_.carried((Quaternion(), Vector()), moved, [lin] * 3, 0.0, 1.0, Vector())
@@ -289,24 +300,52 @@ dress = bpy.data.meshes.new("dress")
 dress.from_pydata([(0.0, 0.0, 1.0), (0.05, 0.0, 1.0)], [], [])
 worn = bpy.data.objects.new("dress", dress)
 scene.collection.objects.link(worn)
+worn.parent = arm
 skirt = dict(square, positions=[[0.0, 0.0, 100.0], [10.0, 0.0, 100.0], [0.0, 10.0, 100.0], [10.0, 10.0, 100.0]], influences=[[["root", 1.0]]] * 4)
-cr.attach(worn, [{"base": 0, "count": 1, "asset": 0, "mapping": [entry((0.0, 0.0, 1.0), 0.0, (0, 1, 3))]}], [0], 0.01)
-arm.data[db.KEY] = json.dumps({"scale": 0.01, "nodes": [], "cloth": [{"mesh": worn.name, "clothes": [skirt]}]})
-check("a cloth-only armature bakes", db.bake(arm)[1], 30)
+worn_slots = cr.attach(worn, [{"base": 0, "count": 1, "asset": 0, "mapping": [entry((0.0, 0.0, 1.0), 0.0, (0, 1, 3))]}], [0])
+arm.data[db.KEY] = json.dumps({"scale": 0.01, "nodes": [], "cloth": [{"id": cr.tag(worn), "mesh": worn.name, "clothes": [skirt], "slots": worn_slots}]})
+worn.name = "dress renamed"
+check("a cloth-only armature bakes (its mesh renamed since import)", db.bake(arm)[1], 30)
 ys = [evaluated(worn, f)[0] for f in (1, 30)]
 check("the cloth vertex hangs down from its pinned edge", (ys[1][2] < 0.99, abs(ys[1][1]) < 0.11), (True, True))
 check("unmapped vertices stay skinned", evaluated(worn, 30)[1], (0.05, 0.0, 1.0))
+check("a cloth-only rig has the Dynamics toggle", db.is_on(arm), True)
 db.set_on(arm, False)
-check("the Dynamics toggle turns the cloth off too", evaluated(worn, 30)[0], (0.0, 0.0, 1.0))
+check("the Dynamics toggle turns the cloth off too", (evaluated(worn, 30)[0], db.is_on(arm)), ((0.0, 0.0, 1.0), False))
 db.set_on(arm, True)
+arm.location.x = 3.0
+bpy.context.view_layer.update()
+check("cloth results land in the mesh's space wherever the armature stands",
+      tuple(round(c, 4) for c in cr._to_mesh(worn, arm, np.array([[10.0, 20.0, 30.0]]), 0.01)[0]), (0.1, -0.2, 0.3))
+arm.location.x = 0.0
+bpy.context.view_layer.update()
+baked = evaluated(worn, 30)[0]
 from fpmp_baseline.processing.context import dynamics_live as dl  # noqa: E402
-bpy.data.objects.remove(bpy.data.objects[worn.name + " cloth"])
-worn.modifiers.remove(worn.modifiers["Cloth"])
 check("live preview starts on a cloth-only armature", dl.set_live(arm, True), True)
 for f in range(2, 12):
     scene.frame_set(f)
 check("live writes each frame's cloth", evaluated(worn, 11)[0][2] < 0.999, True)
 dl.set_live(arm, False)
+check("after live, the bake's cloth is back", evaluated(worn, 30)[0], baked)
+
+ghost = cs_.ClothSim(dict(loose, influences=[[["ghost", 1.0]]] * 4, reference="ghost"), rest)
+check("a missing bone skins to the root and stands in as reference", ghost.step(H, rest, (Quaternion(), Vector()))[0][1].tolist(), [10.0, 0.0, 0.0])
+far = cs_.ClothSim(dict(loose, by_state={"OnGround_Standing": {"teleport_distance": 5.0}}), rest)
+far.step(H, rest, (Quaternion(), Vector()))
+far.step(H, rest, (Quaternion(), Vector()))
+far.step(H, rest, (Quaternion(), Vector()))
+before = float(np.abs(far.V).max())
+far.step(H, {"root": (Quaternion(), Vector((10.0, 0.0, 0.0)))}, (Quaternion(), Vector()))
+check("the blueprint's teleport distance resets the cloth", float(np.abs(far.V).max()) < 0.6 * before, True)
+scaled = cs_._authored(dict(square, maps={"TetherScale": [1.0] * 4}), "TetherScale", [1.0, 2.0], np.array([0]), stiff=False)
+check("a tether scale above 1 survives its weight map", scaled.tolist(), [2.0])
+row = rd._settings({"LinearVelocityScale_7_A": vec(0.1, 0.1, 0.1)}, {})
+check("a row without gravity or angular fields leaves the asset's", sorted(row), ["FluidDensity", "LinearVelocityScale", "TetherScale"])
+twin = {"Type": "ChaosClothConfig", "Name": "ChaosClothConfig", "Outer": {"ObjectName": "ClothingAssetCommon'M:Cape_Cloth'"}, "Properties": {"Density": 9.0}}
+own = {"Type": "ChaosClothConfig", "Name": "ChaosClothConfig", "Outer": {"ObjectName": "ClothingAssetCommon'M:Skirt_Cloth'"}, "Properties": {"Density": 2.0}}
+asset = {"Name": "Skirt_Cloth", "Properties": {"ClothConfigs": [{"Key": "ChaosClothConfig", "Value": {"ObjectName": "ChaosClothConfig'M:Skirt_Cloth.ChaosClothConfig'"}}],
+                                               "LodData": [{"PhysicalMeshData": mesh_data}], "UsedBoneNames": ["pelvis"], "UsedBoneIndices": [1], "ReferenceBoneIndex": 1}}
+check("each asset reads its own config", rd._cloth(asset, [twin, own], None, 0, parents)["config"]["Density"], 2.0)
 
 print("[cloth_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

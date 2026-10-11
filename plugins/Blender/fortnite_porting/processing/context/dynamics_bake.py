@@ -27,18 +27,25 @@ def _curves(action):
     return [fc for layer in action.layers for strip in layer.strips for bag in strip.channelbags for fc in bag.fcurves]
 
 
+def _cloth(obj):
+    """The armature's cloth meshes that still exist."""
+    found = (cloth_render.find(c["id"]) for c in json.loads(obj.data.get(KEY) or "{}").get("cloth") or [])
+    return [o for o in found if o is not None]
+
+
 def is_on(obj):
     t = _track(obj)
-    return t is not None and not t.mute
+    if t is not None:
+        return not t.mute
+    return any(o.modifiers.get(cloth_render.MODIFIER) is not None and o.modifiers[cloth_render.MODIFIER].show_viewport for o in _cloth(obj))
 
 
 def set_on(obj, on):
     t = _track(obj)
     if t is not None:
         t.mute = not on
-    for c in json.loads(obj.data.get(KEY) or "{}").get("cloth") or []:
-        if c["mesh"] in bpy.data.objects:
-            cloth_render.set_on(bpy.data.objects[c["mesh"]], on)
+    for o in _cloth(obj):
+        cloth_render.set_on(o, on)
     for pb in obj.pose.bones:
         c = pb.constraints.get(BAKED)
         if c is not None:
@@ -147,7 +154,7 @@ def bake(obj, rate=60):
         _twins(obj, run.simulated)
         _write(obj, run, frames, start, poses)
     if run.clothes:
-        cloth_render.store(cloth, start, run.unit)
+        cloth_render.store(cloth, start, run.unit, obj)
     set_on(obj, True)
     Log.info("[Material Porter] dynamics: %d bones over %d frames in %.1fs" % (len(run.simulated), len(frames), time.time() - t0))
     return len(run.simulated), len(frames)
@@ -187,7 +194,7 @@ def ui(layout, obj):
     if not obj.data.get(KEY):
         return
     row = layout.row(align=True)
-    if _track(obj) is not None:
+    if _track(obj) is not None or _cloth(obj):
         on = is_on(obj)
         row.operator("fpmp.dynamics_on", text="Dynamics", icon='PHYSICS', depress=on).on = not on
     from .dynamics_live import is_live
@@ -204,7 +211,12 @@ def states(obj):
     raw = obj.data.get(KEY)
     if not raw:
         return []
-    for n in json.loads(raw)["nodes"]:
+    stored = json.loads(raw)
+    for n in stored["nodes"]:
         if n.get("states"):
             return list(n["states"])
+    for c in stored.get("cloth") or []:        # a cloth-only rig: its blueprint's cloth states
+        for x in c["clothes"]:
+            if x.get("by_state"):
+                return list(x["by_state"])
     return []

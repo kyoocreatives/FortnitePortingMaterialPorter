@@ -1,16 +1,19 @@
-"""The render mesh follows its simulated cloth as the engine maps it: each cloth-section vertex sits on a simulation
-triangle at its barycentric point, pushed along the interpolated normal, blended with its skinned position by how much
-of its triangle moves. A hidden point cache holds the simulation per
-frame (mesh space); a geometry nodes modifier after the Armature reads the current frame's and leaves every other vertex
-(and every frame without data) skinned."""
+"""The render mesh follows its simulated cloth as the engine maps it (cloth_solver.mapped): each cloth-section vertex
+gets a slot whose position the bake or live preview computes per frame, blended with its skinned position by how much
+of its triangle moves. Hidden point caches hold the slots (mesh space): the bake's per frame, the live preview's for its
+one frame; a geometry nodes modifier after the Armature reads the shown one's current frame and leaves every other
+vertex (and every frame without data) skinned."""
+import uuid
+
 import bpy
 import numpy as np
 
 GROUP = "FPMP Cloth"
 MODIFIER = "Cloth"
 UNSIMULATED = 0xFFFF        # the fourth index: how static the triangle is, 0xFFFF = plain skinning
-_INTS = ("cloth_a", "cloth_b", "cloth_c")
 FLIP = np.diag([1.0, -1.0, 1.0])        # the game's axes vs Blender's
+ID = "fpmp_cloth"           # on a cloth mesh: the id the armature's cloth entries name it by
+CACHE = "fpmp_cloth_cache"  # on a cache object: its mesh's id; on cache data: "<id>/bake" or "<id>/live"
 
 
 def _ints(mesh, name):
@@ -19,38 +22,62 @@ def _ints(mesh, name):
     return out.tolist()
 
 
-def attach(obj, sections, offsets, unit, part=1):
-    """Maps the mesh's cloth-section vertices onto the cache's points (each asset's particles from its offset; normal
-    offsets in cm, times unit) and marks them with their part (for relink after a join); returns how many vertices
-    follow the cloth."""
+def _set(mesh, name, kind, values):
+    a = mesh.attributes.get(name) or mesh.attributes.new(name, kind, 'POINT')
+    a.data.foreach_set("value", values)
+
+
+def attach(obj, sections, offsets, part=1):
+    """Gives the mesh's cloth-section vertices their slots (marked with their part, for relink after a join); returns
+    the slots' mapping onto the simulation particles (each asset's from its offset), as cloth_solver.mapped reads it."""
     mesh, n = obj.data, len(obj.data.vertices)
-    tri = np.full((n, 3), -1, np.int32)
-    bary = np.zeros((n, 3), np.float32)
-    dist = np.zeros(n, np.float32)
-    blend = np.zeros(n, np.float32)
+    slot, blend = np.full(n, -1, np.int32), np.zeros(n, np.float32)
+    tri, bary, dist, weight, count = [], [], [], [], 0
     for s in sections:
         m = np.asarray(s["mapping"], np.float64)
-        if not len(m) or len(m) != s["count"]:
-            continue        # several influences per vertex: not replayed
-        rows = np.arange(s["base"], s["base"] + s["count"])
-        live = m[:, 15] != UNSIMULATED
-        tri[rows[live]] = m[live, 12:15].astype(np.int32) + offsets[s["asset"]]
-        bary[rows[live], :2] = m[live, 0:2]
-        bary[rows[live], 2] = 1.0 - m[live, 0] - m[live, 1]       # the engine ignores the stored third one
-        dist[rows[live]] = m[live, 3] * unit
-        blend[rows[live]] = 1.0 - m[live, 15] / UNSIMULATED
-    for i, name in enumerate(_INTS):
-        a = mesh.attributes.get(name) or mesh.attributes.new(name, 'INT', 'POINT')
-        a.data.foreach_set("value", tri[:, i])
-    a = mesh.attributes.get("cloth_bary") or mesh.attributes.new("cloth_bary", 'FLOAT_VECTOR', 'POINT')
-    a.data.foreach_set("vector", bary.ravel())
-    a = mesh.attributes.get("cloth_dist") or mesh.attributes.new("cloth_dist", 'FLOAT', 'POINT')
-    a.data.foreach_set("value", dist)
-    a = mesh.attributes.get("cloth_blend") or mesh.attributes.new("cloth_blend", 'FLOAT', 'POINT')
-    a.data.foreach_set("value", blend)
-    a = mesh.attributes.get("cloth_part") or mesh.attributes.new("cloth_part", 'INT', 'POINT')
-    a.data.foreach_set("value", np.where(tri[:, 0] >= 0, part, 0).astype(np.int32))
-    return int((tri[:, 0] >= 0).sum())
+        if not s["count"] or len(m) % s["count"]:
+            continue
+        k = len(m) // s["count"]
+        m = m.reshape(s["count"], k, 17)
+        valid = m[:, :, 15] < UNSIMULATED
+        w = np.where(valid, m[:, :, 16] if k > 1 else 1.0, 0.0)
+        share = np.where(valid, 1.0 - m[:, :, 15] / UNSIMULATED, 0.0).sum(1) / k
+        keep = np.where((w.sum(1) > 1e-4) & (share > 0.0))[0]
+        rows = s["base"] + keep
+        slot[rows] = count + np.arange(len(keep))
+        count += len(keep)
+        blend[rows] = share[keep]
+        tri.append(m[keep, :, 12:15].astype(np.int64) + offsets[s["asset"]])
+        bary.append(m[keep, :, 0:2])
+        dist.append(m[keep, :, 3])
+        weight.append(w[keep])
+    _set(mesh, "cloth_slot", 'INT', slot)
+    _set(mesh, "cloth_blend", 'FLOAT', blend)
+    _set(mesh, "cloth_part", 'INT', np.where(slot >= 0, part, 0).astype(np.int32))
+    if not tri:
+        return {"tri": [], "bary": [], "dist": [], "weight": []}
+    k = max(t.shape[1] for t in tri)
+
+    def pad(arrays, fill):
+        return np.concatenate([np.pad(a, [(0, 0), (0, k - a.shape[1])] + [(0, 0)] * (a.ndim - 2), constant_values=fill) for a in arrays])
+    return {"tri": pad(tri, 0).tolist(), "bary": pad(bary, 0.0).tolist(), "dist": pad(dist, 0.0).tolist(), "weight": pad(weight, 0.0).tolist()}
+
+
+def join(parts_slots):
+    """Several parts' slots as one joined mesh's, from (part, slots, particles) in cache order: the slots and each part's
+    first slot. Particle indices move past the earlier parts' particles; fewer influences are padded with weight 0."""
+    k = max([len(s["tri"][0]) for _, s, _ in parts_slots if s["tri"]] or [1])
+    out, offsets, particles = {"tri": [], "bary": [], "dist": [], "weight": []}, {}, 0
+    for part, s, count in parts_slots:
+        offsets[part] = len(out["tri"])
+        for t, b, d, w in zip(s["tri"], s["bary"], s["dist"], s["weight"]):
+            pad = k - len(t)
+            out["tri"].append([[i + particles for i in tri] for tri in t] + [[0, 0, 0]] * pad)
+            out["bary"].append(list(b) + [[0.0, 0.0]] * pad)
+            out["dist"].append(list(d) + [0.0] * pad)
+            out["weight"].append(list(w) + [0.0] * pad)
+        particles += count
+    return out, offsets
 
 
 def parts(obj):
@@ -60,27 +87,47 @@ def parts(obj):
 
 
 def relink(obj, offsets):
-    """Moves each part's simulation indices to its place in the joined mesh's cache (offsets by part)."""
+    """Moves each part's slots to their place in the joined mesh's cache (offsets by part)."""
     part = np.array(_ints(obj.data, "cloth_part"))
     shift = np.array([offsets.get(int(p), 0) for p in part], np.int32)
-    for name in _INTS:
-        v = np.array(_ints(obj.data, name), np.int32)
-        obj.data.attributes[name].data.foreach_set("value", np.where(part > 0, v + shift, v))
+    v = np.array(_ints(obj.data, "cloth_slot"), np.int32)
+    obj.data.attributes["cloth_slot"].data.foreach_set("value", np.where(part > 0, v + shift, v))
 
 
-def cache(obj, points):
-    """The mesh's hidden cache object (made on first use) holding `points` particles per frame, wired to its modifier."""
-    name = obj.name + " cloth"
-    c = bpy.data.objects.get(name)
-    if c is not None and c.data.get("points") == points and MODIFIER in obj.modifiers:
-        return c
+def tag(obj):
+    """The mesh's cloth id (kept through renames), given on first use."""
+    if not obj.get(ID):
+        obj[ID] = uuid.uuid4().hex
+    return obj[ID]
+
+
+def find(cloth_id):
+    return next((o for o in bpy.data.objects if o.type == 'MESH' and o.get(ID) == cloth_id), None)
+
+
+def _holder(obj):
+    """The mesh's hidden cache object, made on first use. It stays the modifier's input for good: a hidden object the
+    modifier stops reading drops out of evaluation, so bake and live swap its data instead."""
+    c = next((o for o in bpy.data.objects if o.get(CACHE) == tag(obj)), None)
     if c is None:
-        c = bpy.data.objects.new(name, bpy.data.meshes.new(name))
+        c = bpy.data.objects.new(obj.name + " cloth", bpy.data.meshes.new(obj.name + " cloth"))
         for col in obj.users_collection:
             col.objects.link(c)
         c.hide_viewport = c.hide_render = c.hide_select = True
-    c.data.clear_geometry()
-    c.data["points"], c.data["start"] = points, 0
+        c[CACHE] = obj[ID]
+    return c
+
+
+def cache(obj, points, live=False):
+    """The mesh's cache data for the bake (or the live preview's, one frame), made on first use and shown."""
+    key = "%s/%s" % (tag(obj), "live" if live else "bake")
+    data = next((m for m in bpy.data.meshes if m.get(CACHE) == key), None)
+    if data is None:
+        data = bpy.data.meshes.new(obj.name + (" cloth live" if live else " cloth bake"))
+        data[CACHE], data["owner"] = key, obj[ID]
+    if data.get("points") != points:
+        data.clear_geometry()
+        data["points"], data["start"], data["frames"] = points, 0, 0
     mod = obj.modifiers.get(MODIFIER)
     if mod is None:
         mod = obj.modifiers.new(MODIFIER, 'NODES')
@@ -88,34 +135,46 @@ def cache(obj, points):
         if armature:        # right after skinning, before outlines and the like
             obj.modifiers.move(len(obj.modifiers) - 1, armature[-1] + 1)
     mod.node_group = _group()
-    _inputs(obj, Cache=c, Points=points, Count=0)
-    return c
+    show(obj, live)
+    return data
 
 
-def _to_mesh(obj, pos, nrm, unit):
-    """World positions (cm) and normals in the game's axes -> the mesh's own space."""
-    m = np.array(obj.matrix_world.inverted())
-    p = (np.asarray(pos) @ FLIP) * unit @ m[:3, :3].T + m[:3, 3]
-    n = np.asarray(nrm) @ FLIP @ m[:3, :3].T
-    return p, n / np.maximum(np.linalg.norm(n, axis=-1), 1e-12)[..., None]
+def show(obj, live):
+    """Shows the mesh's bake cache or its live one (nothing there: skinned)."""
+    if MODIFIER not in obj.modifiers:
+        return
+    key = "%s/%s" % (obj.get(ID), "live" if live else "bake")
+    data = next((m for m in bpy.data.meshes if m.get(CACHE) == key), None)
+    holder = _holder(obj)
+    if data is None:
+        _inputs(obj, Cache=holder, Count=0)
+    else:
+        holder.data = data
+        _inputs(obj, Cache=holder, Points=data["points"], Start=data["start"], Count=data["frames"])
+    obj.update_tag()
 
 
-def store(frames, start, unit):
-    """A bake's cloth, frames = per frame {mesh name: (positions, normals)} from the runner."""
-    for name in frames[0] if frames else ():
-        obj = bpy.data.objects.get(name)
-        if obj is None:
-            continue
-        pos, nrm = zip(*[_to_mesh(obj, *f[name], unit) for f in frames])
-        write(cache(obj, len(pos[0])), start, np.stack(pos), np.stack(nrm))
+def _to_mesh(obj, arm, pos, unit):
+    """Component-space positions (cm, the game's axes) -> the mesh's own space."""
+    m = np.array(obj.matrix_world.inverted() @ arm.matrix_world)
+    return (np.asarray(pos) @ FLIP) * unit @ m[:3, :3].T + m[:3, 3]
 
 
-def store_frame(result, frame, unit):
-    """One live frame of the runner's cloth."""
-    for name, (pos, nrm) in result.items():
-        obj = bpy.data.objects.get(name)
+def store(frames, start, unit, arm):
+    """A bake's cloth, frames = per frame {cloth id: slot positions} from the runner."""
+    for cloth_id in frames[0] if frames else ():
+        obj = find(cloth_id)
         if obj is not None:
-            write_frame(cache(obj, len(pos)), frame, *_to_mesh(obj, pos, nrm, unit))
+            pos = np.stack([_to_mesh(obj, arm, f[cloth_id], unit) for f in frames])
+            write(cache(obj, pos.shape[1]), start, pos)
+
+
+def store_frame(result, frame, unit, arm):
+    """One live frame of the runner's cloth, in the live cache."""
+    for cloth_id, pos in result.items():
+        obj = find(cloth_id)
+        if obj is not None:
+            _store(cache(obj, len(pos), live=True), frame, _to_mesh(obj, arm, pos, unit)[None], np.ones(1, bool))
 
 
 def _inputs(obj, **values):
@@ -125,58 +184,22 @@ def _inputs(obj, **values):
         getattr(mod.properties.inputs, ids[k]).value = v
 
 
-def _owner(c):
-    return next(o for o in bpy.data.objects if o.type == 'MESH' and MODIFIER in o.modifiers
-                and o.modifiers[MODIFIER].node_group is not None and o.name + " cloth" == c.name)
-
-
-def _store(c, start, pos, nrm, valid):
-    mesh = c.data
+def _store(data, start, pos, valid):
     f, n = pos.shape[:2]
-    mesh.clear_geometry()
-    mesh.vertices.add(f * n)
-    mesh.vertices.foreach_set("co", np.ascontiguousarray(pos, np.float32).ravel())
-    a = mesh.attributes.new("cloth_normal", 'FLOAT_VECTOR', 'POINT')
-    a.data.foreach_set("vector", np.ascontiguousarray(nrm, np.float32).ravel())
-    a = mesh.attributes.new("cloth_valid", 'FLOAT', 'POINT')
-    a.data.foreach_set("value", np.repeat(valid.astype(np.float32), n))
-    mesh["start"] = start
-    mesh.update()
-    owner = _owner(c)
-    _inputs(owner, Start=start, Count=f)
-    owner.update_tag()
+    data.clear_geometry()
+    data.vertices.add(f * n)
+    data.vertices.foreach_set("co", np.ascontiguousarray(pos, np.float32).ravel())
+    _set(data, "cloth_valid", 'FLOAT', np.repeat(valid.astype(np.float32), n))
+    data["start"], data["frames"] = start, f
+    data.update()
+    owner = find(data["owner"])
+    if owner is not None:
+        show(owner, data[CACHE].endswith("/live"))
 
 
-def _read(c):
-    mesh, n = c.data, c.data["points"]
-    f = len(mesh.vertices) // n if n else 0
-    pos = np.zeros(f * n * 3, np.float32)
-    nrm = np.zeros(f * n * 3, np.float32)
-    valid = np.zeros(f * n, np.float32)
-    if f:
-        mesh.vertices.foreach_get("co", pos)
-        mesh.attributes["cloth_normal"].data.foreach_get("vector", nrm)
-        mesh.attributes["cloth_valid"].data.foreach_get("value", valid)
-    return mesh["start"], pos.reshape(f, n, 3), nrm.reshape(f, n, 3), valid.reshape(f, n)[:, 0] if f else valid
-
-
-def write(c, start, pos, nrm):
-    """The whole cache from frame `start` on: pos and nrm shaped (frames, points, 3)."""
-    _store(c, start, np.asarray(pos), np.asarray(nrm), np.ones(len(pos), bool))
-
-
-def write_frame(c, frame, pos, nrm):
-    """One frame's particles, growing the cache to reach it (frames in between show the skinned mesh)."""
-    start, p, q, valid = _read(c)
-    n = c.data["points"]
-    if not len(p):
-        start = frame
-    lo, hi = min(start, frame), max(start + len(p), frame + 1)
-    grown = [np.zeros((hi - lo, n, 3), np.float32) for _ in range(2)] + [np.zeros(hi - lo, bool)]
-    grown[0][start - lo:start - lo + len(p)], grown[1][start - lo:start - lo + len(p)] = p, q
-    grown[2][start - lo:start - lo + len(p)] = valid > 0.5
-    grown[0][frame - lo], grown[1][frame - lo], grown[2][frame - lo] = pos, nrm, True
-    _store(c, lo, *grown)
+def write(data, start, pos):
+    """A whole cache from frame `start` on: pos shaped (frames, slots, 3)."""
+    _store(data, start, np.asarray(pos), np.ones(len(pos), bool))
 
 
 def set_on(obj, on):
@@ -216,7 +239,7 @@ def _group():
         a.data_type, a.inputs["Name"].default_value = kind, name
         return a.outputs["Attribute"]
 
-    def sample(value, index, kind='FLOAT_VECTOR'):
+    def sample(value, index, kind):
         s = n.new('GeometryNodeSampleIndex')
         s.data_type, s.domain = kind, 'POINT'
         link(info.outputs["Geometry"], s.inputs["Geometry"])
@@ -224,16 +247,9 @@ def _group():
         link(index, s.inputs["Index"])
         return s.outputs[0]
 
-    def vmath(op, *ins):
-        m = n.new('ShaderNodeVectorMath')
-        m.operation = op
-        for i, v in enumerate(ins):
-            link(v, m.inputs[i])
-        return m
-
-    def compare(op, a, b=None, value=0):
+    def compare(kind, op, a, b=None, value=0):
         c = n.new('FunctionNodeCompare')
-        c.data_type, c.operation = 'INT', op
+        c.data_type, c.operation = kind, op
         link(a, _enabled(c)[0])
         if b is None:
             _enabled(c)[1].default_value = value
@@ -250,30 +266,25 @@ def _group():
     frame = n.new('FunctionNodeFloatToInt')
     link(n.new('GeometryNodeInputSceneTime').outputs["Frame"], frame.inputs[0])
     rel = imath('SUBTRACT', frame.outputs[0], gi.outputs["Start"])
-    base = imath('MULTIPLY', rel, gi.outputs["Points"])
-    position, normal = n.new('GeometryNodeInputPosition').outputs[0], attr("cloth_normal", 'FLOAT_VECTOR')
-    split = n.new('ShaderNodeSeparateXYZ')
-    link(attr("cloth_bary", 'FLOAT_VECTOR'), split.inputs[0])
-    dist, total, first = attr("cloth_dist", 'FLOAT'), None, None
-    for name, axis in zip(_INTS, "XYZ"):
-        index = imath('ADD', attr(name, 'INT'), base)
-        first = first or index
-        moved = vmath('MULTIPLY_ADD', sample(normal, index), dist, sample(position, index))     # p + n * d
-        part = vmath('SCALE', moved.outputs[0])
-        link(split.outputs[axis], part.inputs["Scale"])
-        total = part if total is None else vmath('ADD', total.outputs[0], part.outputs[0])
-    valid = n.new('FunctionNodeCompare')
-    valid.data_type, valid.operation = 'FLOAT', 'GREATER_THAN'
-    link(sample(attr("cloth_valid", 'FLOAT'), first, 'FLOAT'), _enabled(valid)[0])
-    _enabled(valid)[1].default_value = 0.5
-    selected = both(both(compare('GREATER_EQUAL', attr("cloth_a", 'INT'), value=0), compare('GREATER_EQUAL', rel, value=0)),
-                    both(compare('LESS_THAN', rel, gi.outputs["Count"]), valid.outputs[0]))
+    slot = attr("cloth_slot", 'INT')
+    index = imath('ADD', slot, imath('MULTIPLY', rel, gi.outputs["Points"]))
+    skinned = n.new('GeometryNodeInputPosition').outputs[0]
+    cloth = sample(skinned, index, 'FLOAT_VECTOR')
+    valid = compare('FLOAT', 'GREATER_THAN', sample(attr("cloth_valid", 'FLOAT'), index, 'FLOAT'), value=0.5)
+    selected = both(both(compare('INT', 'GREATER_EQUAL', slot, value=0), compare('INT', 'GREATER_EQUAL', rel, value=0)),
+                    both(compare('INT', 'LESS_THAN', rel, gi.outputs["Count"]), valid))
+    toward = n.new('ShaderNodeVectorMath')
+    toward.operation = 'SUBTRACT'
+    link(cloth, toward.inputs[0])
+    link(skinned, toward.inputs[1])
+    lerp = n.new('ShaderNodeVectorMath')
+    lerp.operation = 'MULTIPLY_ADD'
+    link(toward.outputs[0], lerp.inputs[0])
+    link(attr("cloth_blend", 'FLOAT'), lerp.inputs[1])
+    link(skinned, lerp.inputs[2])
     move = n.new('GeometryNodeSetPosition')
     link(gi.outputs["Geometry"], move.inputs["Geometry"])
     link(selected, move.inputs["Selection"])
-    skinned = n.new('GeometryNodeInputPosition').outputs[0]
-    toward = vmath('SUBTRACT', total.outputs[0], skinned)
-    lerp = vmath('MULTIPLY_ADD', toward.outputs[0], attr("cloth_blend", 'FLOAT'), skinned)
     link(lerp.outputs[0], move.inputs["Position"])
     link(move.outputs[0], go.inputs[0])
     return g
