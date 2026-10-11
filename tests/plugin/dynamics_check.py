@@ -264,6 +264,13 @@ db.set_on(breezy, True)
 scene.frame_set(30)
 blown_tail = breezy.pose.bones["dyn_tag"].tail.copy()
 check("a wind field leans the hanging tag downwind (+X)", blown_tail.x - calm_tail.x > 0.005, True)
+gale.location.x, gale.field.use_max_distance, gale.field.distance_max = -10.0, True, 5.0
+bpy.context.view_layer.update()
+db.bake(breezy)
+scene.frame_set(30)
+check("a field whose max distance stops short of the character doesn't reach it",
+      round((breezy.pose.bones["dyn_tag"].tail - calm_tail).length, 5), 0.0)
+gale.location.x, gale.field.use_max_distance = 0.0, False
 gale.hide_viewport = True
 bpy.context.view_layer.update()
 db.bake(breezy)

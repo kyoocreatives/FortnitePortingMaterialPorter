@@ -81,6 +81,37 @@ check("a still field blows nothing", wind.velocity([up], 1.0), None)
 up.field.strength = float("nan")
 check("a broken strength blows nothing", wind.velocity([up], 1.0), None)
 
+# range: Blender's own falloff (effect.cc) at the character's root
+up.field.strength, up.fpmp_wind_turbulence = 2.0, 0.0
+up.rotation_euler = Euler((0.0, 0.0, 0.0))
+up.location = (0.0, 0.0, 0.0)
+bpy.context.view_layer.update()
+f = up.field
+check("default falloff: full strength anywhere", rounded(wind.velocity([up], 1.0, Vector((40.0, -7.0, 3.0)))), (0.0, 0.0, 2.0))
+f.use_max_distance, f.distance_max = True, 3.0
+check("a plane field reaches up to its max distance along its axis", rounded(wind.velocity([up], 1.0, Vector((50.0, 0.0, 2.5)))), (0.0, 0.0, 2.0))
+check("and no further", wind.velocity([up], 1.0, Vector((0.0, 0.0, 3.5))), None)
+f.shape = 'POINT'
+check("a point field measures from its centre", wind.velocity([up], 1.0, Vector((2.5, 2.5, 0.0))), None)
+f.use_max_distance, f.falloff_power = False, 2.0
+check("power falloff: (1 + d)^-power", rounded(wind.velocity([up], 1.0, Vector((0.0, 1.0, 0.0)))), (0.0, 0.0, 0.5))
+f.use_min_distance, f.distance_min = True, 2.0
+check("inside min distance: full strength", rounded(wind.velocity([up], 1.0, Vector((0.0, 1.0, 0.0)))), (0.0, 0.0, 2.0))
+check("past it the falloff starts from it", rounded(wind.velocity([up], 1.0, Vector((0.0, 3.0, 0.0)))), (0.0, 0.0, 0.5))
+f.use_min_distance, f.falloff_power, f.shape = False, 0.0, 'PLANE'
+f.z_direction = 'POSITIVE'
+check("positive Z only: nothing behind the field", (wind.velocity([up], 1.0, Vector((0.0, 0.0, -1.0))),
+                                                    rounded(wind.velocity([up], 1.0, Vector((0.0, 0.0, 1.0))))), (None, (0.0, 0.0, 2.0)))
+f.z_direction, f.falloff_type = 'BOTH', 'TUBE'
+f.use_radial_max, f.radial_max = True, 1.0
+check("a tube reaches its radius off the axis", (rounded(wind.velocity([up], 1.0, Vector((0.5, 0.0, 4.0)))),
+                                                 wind.velocity([up], 1.0, Vector((1.5, 0.0, 4.0)))), ((0.0, 0.0, 2.0), None))
+f.falloff_type, f.use_radial_max = 'CONE', True
+f.radial_max = 30.0
+check("a cone reaches its angle off the axis", (rounded(wind.velocity([up], 1.0, Vector((1.0, 0.0, 4.0)))),
+                                                wind.velocity([up], 1.0, Vector((4.0, 0.0, 1.0)))), ((0.0, 0.0, 2.0), None))
+f.falloff_type, f.use_radial_max = 'SPHERE', False
+
 fresh = bpy.data.objects.new("Fresh", None)
 check("the gust properties' defaults", (round(fresh.fpmp_wind_gust, 4), round(fresh.fpmp_wind_gust_speed, 4), round(fresh.fpmp_wind_turbulence, 4)),
       (0.4, 0.3, 15.0))

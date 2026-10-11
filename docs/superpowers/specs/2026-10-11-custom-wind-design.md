@@ -12,7 +12,9 @@ game's dynamics: with no wind field in the scene every result stays exactly what
 
 - **Wind fields are Blender's own.** An empty with a Wind force field (`field.type == 'WIND'`). Its local +Z is the
   direction (the viewport arrow), `field.strength` is the speed in m/s. Both can be keyframed. Several fields add up.
-  The field's shape, falloff, noise and flow settings are ignored: the wind is uniform in space. Fields that are hidden
+  Its reach follows Blender's own falloff (Shape: Plane along its axis, Point from its centre, Line off its axis;
+  Falloff Sphere/Tube/Cone, Min/Max Distance, Power, radial settings, Z Direction), evaluated at the character's root.
+  The field's noise and flow settings are ignored. Fields that are hidden
   (viewport) or whose collection is excluded don't blow.
 - **Gusts and turbulence** are three properties every object gets (`fpmp_wind_gust`, `fpmp_wind_gust_speed`,
   `fpmp_wind_turbulence`), drawn in a "Character Wind" panel in the Physics tab when the active object is a wind field:
@@ -76,5 +78,5 @@ moving or keyframing a field changes the next Live frame or bake.
 
 ## Out of scope
 
-Field shapes and falloff, Blender's own field noise/flow, per-bone sampling (the wind is read at the character's
+Blender's own field noise/flow, per-bone sampling (the wind is read at the character's
 root), wind on the corrective rigs and Control Rig nodes.

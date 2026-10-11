@@ -158,7 +158,8 @@ class Runner:
         scene = bpy.context.scene
         now = wind.scene_time(scene)
         if getattr(self, "wind_at", (None,))[0] != now:       # read once a frame: a map scene has many objects to scan
-            v = wind.velocity(wind.fields(scene), now)
+            root = self.obj.matrix_world @ self.obj.pose.bones[self.root].head      # where the character feels it
+            v = wind.velocity(wind.fields(scene), now, root)
             self.wind_at = (now, None if v is None else FLIP @ (v / scene.unit_settings.scale_length) / self.unit)
         world = self.wind_at[1]
         local = None if world is None else self.component[0].conjugated() @ world
