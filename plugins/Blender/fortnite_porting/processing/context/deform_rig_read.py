@@ -7,6 +7,8 @@ import json
 import os
 import re
 
+from .rig_vm import entry_index
+
 LIBRARY = os.path.join(os.path.dirname(__file__), "deform_rig.json")
 SUFFIX = re.compile(r"^(.*)_\d+_[0-9A-F]{32}$")         # a Blueprint struct member's generated suffix
 SCALES = ("PositiveWidth", "NegativeWidth", "PositiveHeight", "NegativeHeight")
@@ -63,7 +65,7 @@ class _Rig:
         entries = [e for e in bc["Entries"] if "Forwards Solve" in str(e)]
         if not entries:
             raise DeformRigError("no forward solve")
-        self.start = int(re.search(r"InstructionIndex=(\d+)", str(entries[0])).group(1))
+        self.start = entry_index(entries[0])
         self.state = {}
 
     def resolve(self, op):

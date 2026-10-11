@@ -4,6 +4,7 @@ anim graph orders them. The shared deform function stays with deform_rig (driver
 after it, like a skirt kept off the legs. Units: rig_units."""
 import copy
 import json
+import re
 
 # opcodes of ERigVMOpCode used by cooked rigs
 ZERO, FALSE, TRUE, COPY = 65, 66, 67, 68
@@ -57,8 +58,12 @@ def _variables(dump, cls):
     return [d["Name"] for d in bag.get("PropertyDescs") or []]
 
 
-def _entry_index(entry):
-    return int(str(entry).split("InstructionIndex=")[1].split(")")[0]) if isinstance(entry, str) else entry["InstructionIndex"]
+def entry_index(entry):
+    """An entry's first instruction; the dump leaves a zero index out."""
+    if not isinstance(entry, str):
+        return int(entry.get("InstructionIndex", 0))
+    m = re.search(r"InstructionIndex=(\d+)", entry)
+    return int(m.group(1)) if m else 0
 
 
 def compile_rig(dump):
@@ -72,7 +77,7 @@ def compile_rig(dump):
     entry = next((e for e in bc["Entries"] if "Forwards Solve" in str(e)), None)
     if entry is None:
         raise RigVMError("no forward solve")
-    start = _entry_index(entry)
+    start = entry_index(entry)
     setup = next((e for e in bc["Entries"] if "Construction" in str(e)), None)
     lit, work = vm["LiteralMemoryStorage"], vm["DefaultWorkMemoryStorage"]
     lit_names = [d["Name"] for d in lit["PropertyDescs"]]
@@ -173,7 +178,7 @@ def compile_rig(dump):
         spaces[key["Name"]] = {"type": "Control" if key.get("Type") == 4 else "Null",
                                "parent": None if parent in (None, "None") else parent, "local": initial(e.get("PoseStorage")),
                                "offset": initial(e.get("Offset"))}
-    return finish({"start": start, "construction": _entry_index(setup) if setup is not None else None, "code": code, "callables": callables, "units": units, "literals": literals, "defaults": defaults,
+    return finish({"start": start, "construction": entry_index(setup) if setup is not None else None, "code": code, "callables": callables, "units": units, "literals": literals, "defaults": defaults,
                    "lit_paths": [p["SegmentPath"] for p in lit.get("PropertyPathDescriptions") or []],
                    "work_paths": [p["SegmentPath"] for p in work.get("PropertyPathDescriptions") or []],
                    "ext_paths": [p["SegmentPath"] for p in vm.get("ExternalPropertyPathDescriptions") or []],

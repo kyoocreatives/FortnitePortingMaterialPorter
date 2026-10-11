@@ -344,9 +344,13 @@ big = skeleton("unscaled")
 deform_rig.build(big, lib, tun, scale=1.0)
 turn(big, "lowerarm_l", (0, 0, 1), -120)
 check("unscaled imports slide in cm", round(big.pose.bones["deform_elbow_in_l"].location.length, 3), 9.0)
+# a forward solve at instruction 0: the dump leaves the zero index out
+zero = dump()
+zero[0]["ByteCodeStorage"]["Entries"] = ['(Name="Forwards Solve")']
+check("an entry without an index starts at 0", dr.tuning(write("zero.json", zero))["values"], dr.tuning(write("indexed.json", dump()))["values"])
 # a dump whose forward solve can't be found reads as the library, whatever the error
 broken = dump()
-broken[0]["ByteCodeStorage"]["Entries"] = ['(Name="Forwards Solve")']
+broken[0]["ByteCodeStorage"]["Entries"] = ['(Name="Construction")']
 check("an unreadable dump: the library values", dr.tuning(write("broken.json", broken))["values"], lib["values"])
 
 

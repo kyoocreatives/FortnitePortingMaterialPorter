@@ -90,6 +90,8 @@ tiny = [{"Type": "ControlRigBlueprintGeneratedClass", "ChildProperties": []},
          "FunctionNamesStorage": ["FRigUnit_GetRelativeTransformForItem::Execute"],
          "LocalizedRegistry": {"Functions": [{"Name": "FRigUnit_GetRelativeTransformForItem::Execute", "Arguments": [{"LocalNameString": "Parent"}]}]}}]
 check("a null named only by the program is placed", rig_vm.compile_rig(tiny)["nulls"], ["thigh_l_null"])
+zero = [dict(tiny[0]), dict(tiny[1], ByteCodeStorage=dict(tiny[1]["ByteCodeStorage"], Entries=['(Name="Forwards Solve")']))]
+check("an entry without an index starts at 0 (the dump leaves zeros out)", rig_vm.compile_rig(zero)["nulls"], ["thigh_l_null"])
 
 # the construction event: its own entry in the same code, kept by the compile and run once before the first solve
 built = [dict(tiny[0]), dict(tiny[1], ByteCodeStorage=dict(tiny[1]["ByteCodeStorage"], Entries=[
