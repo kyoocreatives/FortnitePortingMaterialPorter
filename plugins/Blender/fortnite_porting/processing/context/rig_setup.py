@@ -35,7 +35,15 @@ def add_control(m, a, ops, pc):
     value = transform(_get(m, a, "InitialValue"))
     if int(num((_get(m, a, "Settings") or {}).get("InitialSpace"))) == GLOBAL:
         value = relative(value, compose(offset, m.h.get_global(parent)) if parent else offset)
-    _set(m, a, "Item", _key("Control", m.h.add("Control", _name(_get(m, a, "Name")) or "NewControl", parent, compose(value, offset))))
+    name = m.h.add("Control", _name(_get(m, a, "Name")) or "NewControl", parent, compose(value, offset))
+    m.h.offsets[name] = (offset, offset)
+    _set(m, a, "Item", _key("Control", name))
+
+
+def set_control_offset(m, a, ops, pc):
+    name = _name(_get(m, a, "Control"))
+    if name and m.h.kind.get(name) == "Control":
+        m.h.set_offset(name, transform(_get(m, a, "Offset")), int(num(_get(m, a, "Space"))) == GLOBAL)
 
 
 def set_default_parent(m, a, ops, pc):
@@ -134,4 +142,4 @@ UNITS = {"HierarchyAddNull": add_null, "HierarchyAddControlTransform": add_contr
          "DISPATCH_RigDispatch_ToString": to_string, "MathIntToName": int_to_name, "MathTransformMakeAbsolute": make_absolute,
          "ParentConstraintMath": parent_constraint_math, "SetMetadataTag": set_tag, "FindItemsWithMetadataTag": find_tagged,
          "DISPATCH_RigDispatch_SetMetadata": lambda m, a, ops, pc: m.set(ops[-1], True),
-         "DebugTransformArrayMutableNoSpace": lambda m, a, ops, pc: None}
+         "DebugTransformArrayMutableNoSpace": lambda m, a, ops, pc: None, "SetControlOffset": set_control_offset}

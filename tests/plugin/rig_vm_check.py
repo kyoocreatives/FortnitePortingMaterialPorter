@@ -443,5 +443,120 @@ finally:
     rn.UNITS.update(saved_units)
 check("a rig's results come back parents first", order, chain)
 
+# --- the units the survey of characters' rigs found missing (2026-10-11)
+def turned_by(q, axis=(1, 0, 0)):
+    return tuple(round(c, 4) for c in ru.quat(q) @ Vector(axis))
+
+
+h10 = Hierarchy({"root": None, "thigh_l": "root"}, {"root": (Quaternion(), Vector((0, 0, 100))), "thigh_l": (Quaternion(), Vector((10, 0, 90)))}, [])
+m14 = Mini(h10)
+call3("MathVectorRemap", m14, outs=("Result",), Value={"X": 5.0, "Y": 0.0, "Z": 9.0}, SourceMinimum={"X": 7.0, "Y": 7.0, "Z": 7.0},
+      SourceMaximum={"X": 3.0, "Y": 3.0, "Z": 3.0}, TargetMinimum=None, TargetMaximum={"X": 0.0, "Y": 0.0, "Z": 17.0}, bClamp=True, Result="r")
+check("a vector remap, per axis, clamped", ru.vec(m14.out["r"]).to_tuple(), (0.0, 0.0, 0.0))
+call3("MathVectorRemap", m14, outs=("Result",), Value={"X": 5.0, "Y": 5.0, "Z": 5.0}, SourceMinimum={"X": 7.0, "Y": 7.0, "Z": 7.0},
+      SourceMaximum={"X": 3.0, "Y": 3.0, "Z": 3.0}, TargetMinimum=None, TargetMaximum={"X": 2.0, "Y": 0.0, "Z": 17.0}, bClamp=True, Result="r")
+check("half way along each", ru.vec(m14.out["r"]).to_tuple(), (1.0, 0.0, 8.5))
+call3("MathVectorRemap", m14, outs=("Result",), Value={"X": 5.0, "Y": 5.0, "Z": 5.0}, SourceMinimum={"X": 7.0, "Y": 3.0, "Z": 7.0},
+      SourceMaximum={"X": 3.0, "Y": 3.0, "Z": 3.0}, TargetMinimum={"X": 1.0, "Y": 1.0, "Z": 1.0}, TargetMaximum={"X": 2.0, "Y": 0.0, "Z": 17.0},
+      bClamp=None, Result="r")
+check("one axis with equal source ends zeroes every ratio (the engine's way)", ru.vec(m14.out["r"]).to_tuple(), (1.0, 1.0, 1.0))
+yaw90 = ru.quat_out(Quaternion((0, 0, 1), math.radians(90)))
+pitch90 = ru.quat_out(Quaternion((0, 1, 0), math.radians(90)))
+call3("MathQuaternionMul", m14, outs=("Result",), A=yaw90, B=pitch90, Result="r")
+check("A * B turns by B first", turned_by(m14.out["r"]), (0.0, 0.0, -1.0))
+call3("MathQuaternionFromRotator", m14, outs=("Result",), Rotator={"Pitch": 0.0, "Yaw": 90.0, "Roll": 0.0}, Result="r")
+check("the old rotator node: a 90 yaw turns X onto Y", turned_by(m14.out["r"]), (0.0, 1.0, 0.0))
+call3("AlphaInterpQuat", m14, outs=("Result",), Value=yaw90, Scale=0.5, Bias=None, Result="r")
+check("an alpha interp on a quaternion: the turn scaled", round(math.degrees(ru.quat(m14.out["r"]).angle), 3), 45.0)
+call3("SetTranslation", m14, Item="Bone/thigh_l", Space=None, bInitial=None, Value={"X": 1.0, "Y": 2.0, "Z": 3.0}, Weight=1.0)
+check("set translation, local", at(h10.get_global("thigh_l")), (1.0, 2.0, 103.0))
+call3("SetRotation", m14, Item="Bone/thigh_l", Space=1, bInitial=None, Value=yaw90, Weight=0.5)
+check("set rotation, global, half weight", round(math.degrees(h10.get_global("thigh_l")[0].angle), 3), 45.0)
+call3("SetRelativeTransformForItem", m14, Child="Bone/thigh_l", Parent="Bone/root", bParentInitial=None,
+      Value={"Rotation": {"W": 1.0}, "Translation": {"X": 6.0, "Y": 0.0, "Z": 0.0}}, Weight=1.0)
+check("set relative: the child at Value in the parent's space", (at(h10.get_global("thigh_l")), round(h10.get_global("thigh_l")[0].angle, 5)),
+      ((6.0, 0.0, 100.0), 0.0))
+h10.set_local("root", (Quaternion(), Vector((0, 0, 110))))
+call3("SetRelativeTransformForItem", m14, Child="Bone/thigh_l", Parent="Bone/root", bParentInitial=True,
+      Value={"Rotation": {"W": 1.0}, "Translation": {"X": 6.0, "Y": 0.0, "Z": 0.0}}, Weight=1.0)
+check("or in the parent's initial space", at(h10.get_global("thigh_l")), (6.0, 0.0, 100.0))
+call3("HierarchyAddControlTransform", m14, outs=("Item",), InitialValue=shift(0.0, 2.0), OffsetTransform=shift(3.0), OffsetSpace=None,
+      Settings={}, Parent="Bone/root", Name="ctl", Item="i")
+call3("SetControlOffset", m14, Control="ctl", Offset=shift(0.0, 0.0, 50.0), Space=1)
+check("a control's new global offset keeps its value", at(h10.get_global("ctl")), (0.0, 2.0, 50.0))
+call3("SetControlOffset", m14, Control="ctl", Offset=shift(5.0), Space=None)
+check("a local one sits under the parent", at(h10.get_global("ctl")), (5.0, 2.0, 110.0))
+check("and its rest moves with it", at(h10.get_global("ctl", True)), (5.0, 2.0, 100.0))
+
+from fpmp_baseline.processing.context import rig_motion  # noqa: E402
+check("UE's Perlin noise", [round(rig_motion.perlin(x), 6) for x in (0.0, 0.5, 3.0, 1.25)],
+      [0.0, 0.375, 0.0, round(2 * (0.0625 + (0.375 - 0.0625) * (0.25 ** 3 * (0.25 * (0.25 * 6 - 15) + 10))), 6)])
+h11 = Hierarchy({"root": None, "tip": "root"}, {"root": (Quaternion(), Vector()), "tip": (Quaternion(), Vector((0, 0, 10)))}, [])
+m15 = Mini(h11, dt=1 / 30)
+wave = dict(Targets=[{"Item": "Bone/tip", "Ratio": 1.0}], WaveSpeed={"X": 0.0, "Y": 0.0, "Z": 2.0}, WaveFrequency={"X": 0.0, "Y": 0.0, "Z": 0.0},
+            WaveAmplitude={"X": 0.0, "Y": 0.0, "Z": 30.0}, WaveOffset={"X": 0.0, "Y": 0.0, "Z": math.pi / 2}, WaveNoise=None, WaveEase=None,
+            WaveMinimum=0.5, WaveMaximum=1.0, RotationOrder=None)
+for frame in range(2):
+    h11.load({"root": (Quaternion(), Vector()), "tip": (Quaternion(), Vector((0, 0, 10)))})
+    call3("ItemHarmonics", m15, **wave)
+    check("item harmonics, frame %d: a sine wave turn about Z" % frame, round(math.degrees(h11.get_global("tip")[0].angle), 3),
+          round(30.0 * math.cos(2.0 * frame / 30), 3))
+    check("item harmonics, frame %d: about Z" % frame, turned_by(ru.quat_out(h11.get_global("tip")[0]), (0, 0, 1)), (0.0, 0.0, 1.0))
+
+# a quaternion spring: snaps to its first target, then follows the next without overshoot (critical damping)
+m16 = Mini(h11, dt=1 / 30)
+spring = dict(Current=ru.quat_out(Quaternion()), Strength=2.0, CriticalDamping=1.0, Torque=None, bUseCurrentInput=None,
+              bInitializeFromTarget=None, TargetVelocityAmount=None)
+call3("SpringInterpQuaternionV2", m16, outs=("Result", "AngularVelocity"), Target=ru.quat_out(Quaternion()), Result="r", AngularVelocity="w", **spring)
+check("a spring starts on its target", round(ru.quat(m16.out["r"]).angle, 6), 0.0)
+angles = []
+for frame in range(60):
+    call3("SpringInterpQuaternionV2", m16, outs=("Result", "AngularVelocity"), Target=yaw90, Result="r", AngularVelocity="w", **spring)
+    angles.append(math.degrees(ru.quat(m16.out["r"]).rotation_difference(ru.quat(yaw90)).angle))
+check("then eases toward the next", 0.0 < angles[0] < 90.0, True)
+check("never overshooting", all(b <= a + 1e-6 for a, b in zip(angles, angles[1:])), True)
+check("and arrives", angles[-1] < 0.5, True)
+check("its angular velocity about the turn's axis", abs(ru.vec(m16.out["w"]).x) < 1e-6 and abs(ru.vec(m16.out["w"]).y) < 1e-6, True)
+
+# a transform as it was SecondsAgo, from a buffer of past values
+m17 = Mini(h11, dt=1 / 30)
+def offset_at(x, ago):
+    call3("TimeOffsetTransform", m17, outs=("Result",), Value=shift(x), SecondsAgo=ago, BufferSize=31, TimeRange=1.0, Result="r")
+    return round(ru.vec(m17.out["r"]["Translation"]).x, 5)
+
+
+check("a time offset passes its first value", offset_at(0.0, 1 / 30), 0.0)
+check("then a frame ago", offset_at(1.0, 1 / 30), 0.0)
+check("half a frame ago: half way", offset_at(2.0, 0.5 / 30), 1.5)
+check("no time ago: the value", offset_at(3.0, 0.0), 3.0)
+check("no time range passes the value", (call3("TimeOffsetTransform", m17, outs=("Result",), Value=shift(9.0), SecondsAgo=0.5, BufferSize=31,
+                                                TimeRange=None, Result="r"), ru.vec(m17.out["r"]["Translation"]).x)[1], 9.0)
+
+# a chain's harmonics: a wave down the chain, eased by each item's place in it
+chain3 = {"a": None, "b": "a", "c": "b"}
+chain3_rest = {"a": (Quaternion(), Vector()), "b": (Quaternion(), Vector((10, 0, 0))), "c": (Quaternion(), Vector((20, 0, 0)))}
+h12 = Hierarchy(chain3, chain3_rest, [])
+h12.load(dict(chain3_rest))
+m18 = Mini(h12, dt=1 / 30)
+flat = {"EditorCurveData": {"Keys": [{"Time": 0.0, "Value": 1.0}, {"Time": 1.0, "Value": 1.0}]}}
+call3("ChainHarmonicsPerItem", m18, ChainRoot="Bone/a", Speed={"X": 0.0, "Y": 0.0, "Z": 0.0},
+      Reach={"bEnabled": False}, Pendulum={"bEnabled": False}, WaveCurve=flat,
+      Wave={"bEnabled": True, "WaveFrequency": {"X": 0.0, "Y": 0.0, "Z": 0.0}, "WaveAmplitude": {"X": 0.0, "Y": 0.0, "Z": 0.5},
+            "WaveOffset": {"X": 0.0, "Y": 0.0, "Z": math.pi / 2}, "WaveNoise": {"X": 0.0, "Y": 0.0, "Z": 0.0}, "WaveMinimum": 0.0,
+            "WaveMaximum": 1.0, "WaveEase": "ERigVMAnimEasingType::Linear"})
+check("a chain wave turns each item by its share (radians), adding down the chain",
+      [round(math.degrees(h12.get_global(n)[0].angle), 3) for n in "abc"], [0.0, round(math.degrees(0.25), 3), round(math.degrees(0.75), 3)])
+h13 = Hierarchy(chain3, chain3_rest, [])
+m19 = Mini(h13, dt=1 / 30)
+pendulum = {"bEnabled": True, "PendulumStiffness": 0.0, "PendulumGravity": {"X": 0.0, "Y": 0.0, "Z": -980.0}, "PendulumBlend": 0.75,
+            "PendulumDrag": 0.98, "PendulumMinimum": 1.0, "PendulumMaximum": 1.0, "PendulumEase": "ERigVMAnimEasingType::Linear",
+            "UnwindAxis": {"X": 0.0, "Y": 1.0, "Z": 0.0}, "UnwindMinimum": 0.0, "UnwindMaximum": 0.0}
+for frame in range(30):
+    h13.load(dict(chain3_rest))
+    call3("ChainHarmonicsPerItem", m19, ChainRoot="Bone/a", Speed={"X": 0.0, "Y": 0.0, "Z": 0.0}, Reach={"bEnabled": False},
+          Wave={"bEnabled": False}, WaveCurve=flat, Pendulum=pendulum)
+tip = h13.get_global("c")[1]
+check("a pendulum chain swings down under gravity, keeping its lengths",
+      (tip.z < -5.0, round((h13.get_global("b")[1] - h13.get_global("a")[1]).length, 4)), (True, 10.0))
 print("[rig_vm_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

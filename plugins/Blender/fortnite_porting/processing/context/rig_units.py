@@ -212,8 +212,17 @@ def modify_transforms(m, a, ops, pc):
 
 
 def alpha_interp(m, a, ops, pc):
+    _set(m, a, "Result", _scale_bias_clamp(m, a, num(_get(m, a, "Value")), pc))
+
+
+def alpha_interp_quat(m, a, ops, pc):
+    """The rotation scaled by AlphaInterp's result for 1 (a slerp from identity)."""
+    q, t = quat(_get(m, a, "Value")), _scale_bias_clamp(m, a, 1.0, pc)
+    _set(m, a, "Result", quat_out(Quaternion().slerp(q if q.w >= 0.0 else -q, t).normalized()))
+
+
+def _scale_bias_clamp(m, a, v, pc):
     """Map, scale and bias, clamp, then ease toward the result from last run's (its first run takes it as is)."""
-    v = num(_get(m, a, "Value"))
     if _get(m, a, "bMapRange"):
         r_in, r_out = _get(m, a, "InRange") or {}, _get(m, a, "OutRange") or {}
         i0, i1 = num(r_in.get("Min")), num(r_in.get("Max"))
@@ -229,7 +238,7 @@ def alpha_interp(m, a, ops, pc):
             if speed > 0.0 and abs(v - last) > 1e-4:
                 v = last + (v - last) * min(max(m.dt * speed, 0.0), 1.0)
         m.state[pc] = v
-    _set(m, a, "Result", v)
+    return v
 
 
 def _curve(curve, t):
@@ -366,6 +375,38 @@ def set_transform(m, a, ops, pc):
                num(_get(m, a, "Weight")))
 
 
+def _set_part(part):
+    """SetTranslation / SetRotation: the item's transform in Space with one part replaced by Value."""
+    def unit(m, a, ops, pc):
+        name, local = element(_get(m, a, "Item")), int(num(_get(m, a, "Space"))) == 0
+        if _get(m, a, "bInitial") or name is None or not m.h.has(name):
+            return
+        rot, pos = m.h.get_local(name) if local else m.h.get_global(name)
+        value = _get(m, a, "Value")
+        _write(m, name, (quat(value), pos) if part == "rotation" else (rot, vec(value)), local, num(_get(m, a, "Weight")))
+    return unit
+
+
+def set_relative_transform(m, a, ops, pc):
+    """The child at Value in the parent's space (current or initial), blended in globally by Weight."""
+    parent = element(_get(m, a, "Parent"))
+    base = m.h.get_global(parent, bool(_get(m, a, "bParentInitial"))) if parent and m.h.has(parent) else (Quaternion(), Vector())
+    _write(m, element(_get(m, a, "Child")), compose(transform(_get(m, a, "Value")), base), False, num(_get(m, a, "Weight")))
+
+
+def vector_remap(m, a, ops, pc):
+    """Per axis like MathDoubleRemap, except that one axis with equal source ends zeroes every ratio (the engine's)."""
+    v, s0, s1 = vec(_get(m, a, "Value")), vec(_get(m, a, "SourceMinimum")), vec(_get(m, a, "SourceMaximum"))
+    t0, t1 = vec(_get(m, a, "TargetMinimum")), vec(_get(m, a, "TargetMaximum"))
+    if any(abs(s1[i] - s0[i]) <= 1e-8 for i in range(3)):
+        ratio = [0.0, 0.0, 0.0]
+    else:
+        ratio = [(v[i] - s0[i]) / (s1[i] - s0[i]) for i in range(3)]
+    if _get(m, a, "bClamp"):
+        ratio = [min(max(r, 0.0), 1.0) for r in ratio]
+    _set(m, a, "Result", vec_out(Vector([t0[i] + (t1[i] - t0[i]) * ratio[i] for i in range(3)])))
+
+
 def quaternion_to_euler(m, a, ops, pc):
     """AnimationCore's euler: X, Y, Z turns (degrees) applied in the order's sequence (deform_rig._epic_quat's inverse)."""
     from .deform_rig import ORDERS
@@ -441,9 +482,9 @@ def quat_from_euler(m, a, ops, pc):
     _set(m, a, "Result", quat_out(_epic_quat(list(vec(_get(m, a, "Euler"))), order).to_quaternion()))
 
 
-def quat_from_rotator(m, a, ops, pc):
+def quat_from_rotator(m, a, ops, pc, arg="Value"):
     """Yaw about Z after pitch and roll, the two negated (the game's handedness)."""
-    r = _get(m, a, "Value") or {}
+    r = _get(m, a, arg) or {}
     pitch, yaw, roll = (math.radians(num(r.get(k)) % 360.0) for k in ("Pitch", "Yaw", "Roll"))
     _set(m, a, "Result", quat_out(Quaternion((0, 0, 1), yaw) @ Quaternion((0, 1, 0), -pitch) @ Quaternion((1, 0, 0), -roll)))
 
@@ -705,5 +746,9 @@ UNITS = {
                                                                        "Scale3D": _get(m, a, "Scale") or {"X": 0.0, "Y": 0.0, "Z": 0.0}}),
     "KalmanFloat": kalman, "MathTransformClampSpatially": clamp_spatially, "SetTransformItemArray": set_transform_array,
     "HierarchySetPoseItemArray": set_pose,
+    "SetTranslation": _set_part("translation"), "SetRotation": _set_part("rotation"),
+    "SetRelativeTransformForItem": set_relative_transform, "AlphaInterpQuat": alpha_interp_quat, "MathVectorRemap": vector_remap,
+    "MathQuaternionMul": _binary(lambda x, y: quat_out(quat(x) @ quat(y))),
+    "MathQuaternionFromRotator": lambda m, a, ops, pc: quat_from_rotator(m, a, ops, pc, "Rotator"),
 }
 UNITS.update({name: nothing for name in IGNORED})

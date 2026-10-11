@@ -6,11 +6,12 @@ from mathutils import Quaternion, Vector
 from .dynamics_solver import compose, relative
 from .rig_vm import Machine
 from .rig_constraints import UNITS as CONSTRAINTS
+from .rig_motion import UNITS as MOTION
 from .rig_splines import UNITS as SPLINES
 from .rig_setup import UNITS as SETUP
 from .rig_units import UNITS, transform
 
-UNITS = {**UNITS, **CONSTRAINTS, **SPLINES, **SETUP}
+UNITS = {**UNITS, **CONSTRAINTS, **SPLINES, **SETUP, **MOTION}
 
 IDENTITY = (Quaternion(), Vector((0.0, 0.0, 0.0)))
 
@@ -29,6 +30,7 @@ class Hierarchy:
         self.rest_global = dict(rest)
         self.kind = {n: "Bone" for n in rest}
         self.tags = {}          # metadata tags units set on items
+        self.offsets = {}       # controls' offsets (now, at rest) under their parent, folded into their locals
         self._place(spaces or {})
         for null in nulls:      # "<bone>_null": a rest-pose reference for that bone, beside it under its parent
             if null in self.rest_global:
@@ -55,6 +57,7 @@ class Hierarchy:
                 local = transform(s["local"])
                 if _stored(s.get("offset")):
                     local = compose(local, transform(s["offset"]))
+                    self.offsets[n] = (transform(s["offset"]),) * 2
                 self.parent[n] = s.get("parent")
                 self.rest_global[n] = compose(local, self.rest_global[s["parent"]]) if s.get("parent") else local
                 self.kind[n] = s.get("type") or "Null"
@@ -81,6 +84,25 @@ class Hierarchy:
         if child in self.local:
             self.local[child] = relative(now_g, self.get_global(parent))
         self._dirty(child)
+
+    def set_offset(self, name, offset, space_global):
+        """A control's new offset, now and at rest, its value kept (SetControlOffset); a global one is taken under the
+        parent's current and initial globals."""
+        p = self.parent.get(name)
+        now = relative(offset, self.get_global(p)) if space_global and p else offset
+        rest = relative(offset, self.get_global(p, True)) if space_global and p else offset
+        old_now, old_rest = self.offsets.get(name, (IDENTITY, IDENTITY))
+        self.local[name] = compose(relative(self.get_local(name), old_now), now)
+        self.rest_local[name] = compose(relative(self.rest_local[name], old_rest), rest)
+        self.offsets[name] = (now, rest)
+        stack = [name]      # the rest globals under it follow
+        while stack:
+            n = stack.pop()
+            q = self.parent.get(n)
+            self.rest_global[n] = compose(self.rest_local[n], self.rest_global[q]) if q else self.rest_local[n]
+            stack += [c for c, pc in self.parent.items() if pc == n]
+        self.changed.add(name)
+        self._dirty(name)
 
     def load(self, cs):
         """Locals from the component pose reaching the node; nulls stay at rest."""
