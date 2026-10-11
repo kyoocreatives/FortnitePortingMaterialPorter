@@ -148,4 +148,11 @@ class RigNode:
     def evaluate(self, dt, cs, root):
         self.h.load(cs)
         self.machine.run(self.h, dt, self.node.get("variables"))
-        return {n: self.h.get_global(n) for n in self.h.changed if n in self.parent_of}
+        # parents first: the runner places each result under its parent's (set order varied from run to run)
+        return {n: self.h.get_global(n) for n in sorted((n for n in self.h.changed if n in self.parent_of), key=self._depth)}
+
+    def _depth(self, name):
+        d = 0
+        while self.parent_of.get(name):
+            d, name = d + 1, self.parent_of[name]
+        return d

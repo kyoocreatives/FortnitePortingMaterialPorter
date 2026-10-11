@@ -426,5 +426,20 @@ call3("SetMetadataTag", m13, Item="Control/ctl", Tag="BodyCtrl", NameSpace=1)
 call3("FindItemsWithMetadataTag", m13, outs=("Items",), Tag="BodyCtrl", NameSpace=1, Items="found")
 check("a tag set on an item is found", [ru.element(i) for i in m13.out["found"]], ["ctl"])
 
+# a rig's results come back parents first, whatever order it changed them in (a child applied before its parent
+# would be placed relative to the parent's old pose: the bake varied from run to run)
+chain = ["c%02d" % i for i in range(10)]
+chain_parents = {n: (chain[i - 1] if i else None) for i, n in enumerate(chain)}
+chain_rest = {n: (Quaternion(), Vector((0, 0, i))) for i, n in enumerate(chain)}
+saved_units = dict(rn.UNITS)
+rn.UNITS["GetRelativeTransformForItem"] = lambda m, a, ops, pc: [m.h.set_local(n, (Quaternion(), Vector((0.1, 0, 1)))) for n in reversed(chain)]
+try:
+    node = rn.RigNode({"program": dict(compiled, construction=None)}, chain_parents, chain_rest)
+    order = list(node.evaluate(1 / 30, dict(chain_rest), chain[0]))
+finally:
+    rn.UNITS.clear()
+    rn.UNITS.update(saved_units)
+check("a rig's results come back parents first", order, chain)
+
 print("[rig_vm_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)
