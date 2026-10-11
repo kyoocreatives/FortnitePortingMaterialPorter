@@ -122,6 +122,7 @@ class Runner:
         loc, cs = dict(loc), {}         # the locals reaching each node: earlier nodes' results included
         for n in self.order:
             cs[n] = compose(loc[n], cs[parent_of[n]]) if parent_of[n] in cs else loc[n]
+        self._wind()
         for s in self.sims:
             for name, t in s.evaluate(self.dt, cs, self.root).items():
                 a, par = s.node.get("alpha", 1.0), cs.get(parent_of[name])        # each node blends its own result
@@ -149,6 +150,24 @@ class Runner:
         return {c["id"]: (mapped(c["slots"], np.concatenate([p for p, _ in c["out"]]), np.concatenate([n for _, n in c["out"]]))
                           - np.array(t)) @ to_component.T
                 for c in self.clothes if c.get("out")}
+
+    def _wind(self):
+        """The scene's custom wind fields at this frame, handed to the nodes in the game's numbers (cm/s): the bodies
+        in the component's space, the cloth in the world."""
+        from . import wind
+        scene = bpy.context.scene
+        now = wind.scene_time(scene)
+        if getattr(self, "wind_at", (None,))[0] != now:       # read once a frame: a map scene has many objects to scan
+            v = wind.velocity(wind.fields(scene), now)
+            self.wind_at = (now, None if v is None else FLIP @ (v / scene.unit_settings.scale_length) / self.unit)
+        world = self.wind_at[1]
+        local = None if world is None else self.component[0].conjugated() @ world
+        for s in self.sims:
+            if hasattr(s, "wind"):
+                s.wind = local
+        for c in self.clothes:
+            for s in c["sims"]:
+                s.wind = None if world is None else np.array(world)
 
     def _component(self, motion):
         for s in self.sims:

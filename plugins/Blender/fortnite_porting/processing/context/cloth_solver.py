@@ -346,6 +346,7 @@ class ClothSim:
         self.config = dict(cloth["config"], **{k: v for k, v in settings.items() if k in cloth["config"]})
         self.shared = dict(cloth["shared"], **{k: v for k, v in settings.items() if k in cloth["shared"]})
         self.fluid = settings.get("FluidDensity", FLUID_DENSITY)
+        self.wind = None        # the runner's custom wind this frame (the cloth's world, cm/s): air its drag and lift feel
         self.state_gravity = {"gravity": settings["gravity"], "joint": settings["joint"]} if "gravity" in settings else None
         self.teleport_rotation = settings.get("teleport_rotation", 0.0)
         self.teleport_distance = settings.get("teleport_distance", TELEPORT_DISTANCE)
@@ -616,7 +617,9 @@ class ClothSim:
         N = np.cross(x2 - x0, x1 - x0)
         a2 = np.linalg.norm(N, axis=1)
         N = N / np.where(a2 > 1e-12, a2, 1.0)[:, None]
-        v = -(V[t[:, 0]] + V[t[:, 1]] + V[t[:, 2]]) / 3.0       # no wind
+        v = -(V[t[:, 0]] + V[t[:, 1]] + V[t[:, 2]]) / 3.0       # the air against each triangle
+        if self.wind is not None:
+            v = v + self.wind
         vn = (v * N).sum(1)
         rho = 0.25 * self.fluid
         vv = (v * v).sum(1)

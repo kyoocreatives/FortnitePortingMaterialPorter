@@ -12,6 +12,7 @@ DAMPING = 0.7           # momentum fraction lost per second unless overridden
 MAX_DT = 1.0 / 30.0     # the engine's longest step
 CORIOLIS, CENTRIFUGAL, EULER = 0.5, 1.0, 1.0
 GRAVITY = 980.0
+WIND_ACCEL = 0.5        # per second: custom wind's push on bodies per unit of its speed (2 m/s pushes like 0.1 g)
 AXES = {"X": Vector((1.0, 0.0, 0.0)), "Y": Vector((0.0, 1.0, 0.0)), "Z": Vector((0.0, 0.0, 1.0))}
 ZERO = Vector((0.0, 0.0, 0.0))
 SWING = {"X": ("Y", "Z"), "Y": ("X", "Z"), "Z": ("X", "Y")}
@@ -454,6 +455,7 @@ class Sim:
         self.parent_of = parent_of
         self.prev_space, self.prev_spin = Quaternion(), ZERO.copy()
         self.clock = 0.0
+        self.wind = None        # the runner's custom wind this frame (component space, cm/s)
 
     def bones(self):
         n = self.node
@@ -561,6 +563,8 @@ class Sim:
             force = Vector(n["external_force"])
             if not nearly_zero(force):
                 force = inv @ force
+            if self.wind is not None:       # custom wind (component space): a push on the mass-1 bodies
+                force = force + inv @ (self.wind * WIND_ACCEL)
             override = state_gravity(self.state, cs, self.clock) if self.state else Vector(n["gravity_override"] or (0.0, 0.0, 0.0))
             if n["gravity_override"] is not None and not n["gravity_in_sim"]:
                 override = inv @ override

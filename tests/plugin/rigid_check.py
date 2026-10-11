@@ -562,6 +562,11 @@ turned_head = (Quaternion(Vector((0, 1, 0)), math.radians(-90.0)), Vector((0.0, 
 hang = {"head": turned_head, "hair": (Quaternion(), Vector((0.0, 0.0, 100.0)))}
 s.evaluate(DT, hang, "head")
 check("a state's gravity turns with its joint", tuple(round(x, 3) for x in s._gravity(hang, (Quaternion(), Vector()))), (0.0, 0.0, -980.0))
+from fpmp_baseline.processing.context.wind import WIND_ACCEL  # noqa: E402
+s.wind = Vector((0.0, 200.0, 0.0))
+check("custom wind adds its push to the gravity", tuple(round(x, 3) for x in s._gravity(hang, (Quaternion(), Vector()))),
+      (0.0, round(WIND_ACCEL * 200.0, 3), -980.0))
+s.wind = None
 windy_node = rigid_node()
 windy_node["states"] = {"OnGround_Standing": {"gravity": [0.0, 0.0, -100.0], "joint": "root", "sim_space": windy_node["sim_space"],
                                               "wind": {"frequency": [0.0, 0.0, 0.5], "amplitude": [0.0, 0.0, 50.0]}}}

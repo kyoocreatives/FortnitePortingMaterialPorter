@@ -238,6 +238,13 @@ kd = math.log(1.0 - 0.01) * 60.0
 check("a free particle falls with the engine's damping and smoothed step", float(pos[2][2]),
       -980.0 * dt1 * (math.exp(kd * dt1) - 1.0) / kd, 1e-4)
 check("a kinematic particle stays on its animated position", pos[0].tolist(), [0.0, 0.0, 0.0])
+calm = dict(loose["config"], Gravity=[0.0, 0.0, 0.0])
+for drag, name in ((1.0, "a cloth with drag drifts downwind"), (0.0, "one without drag and lift ignores the wind")):
+    blown = cs_.ClothSim(dict(loose, config=dict(calm, Drag=[drag, drag])), rest)
+    blown.wind = np.array([0.0, 0.0, 500.0])
+    for _ in range(5):
+        pos, _ = blown.step(H, rest, (Quaternion(), Vector()))
+    check(name, bool(pos[2][2] > 1e-3), drag > 0.0)
 
 P = np.array([[0.0, 0.0, 0.0], [12.0, 0.0, 0.0]])
 cs_.springs(P, np.array([0.0, 1.0]), [np.array([0])], np.array([0]), np.array([1]), np.array([10.0]), np.array([1.0]))

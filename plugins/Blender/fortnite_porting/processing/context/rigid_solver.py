@@ -6,7 +6,7 @@ from mathutils import Quaternion, Vector
 
 from ...logger import Log
 from . import rigid_contacts as contacts
-from .dynamics_solver import compose, relative, state_entry, state_gravity
+from .dynamics_solver import WIND_ACCEL, compose, relative, state_entry, state_gravity
 from .rigid_bodies import conditioning, mass_properties
 from .rigid_joints import Joint, SolverBody, angvel, integrate, settings
 
@@ -96,6 +96,7 @@ class RigidSim:
                       and self.actors[i].segments and self.actors[k].segments]
         self.started, self.step_time = False, None
         self.clock = 0.0        # the game's time, which the wind sways on
+        self.wind = None        # the runner's custom wind this frame (component space, cm/s)
         self.space_hist = None
         self.overlaps = {}      # each touching pair's allowed starting overlap
         self.component_motion = None        # the character's own (velocity, acceleration, rotation) this frame, world
@@ -136,6 +137,8 @@ class RigidSim:
             world = state_gravity(self.state, cs, self.clock)
         else:
             world = Vector(self.node["gravity"]) if self.node["gravity"] is not None else Vector((0.0, 0.0, -980.0))
+        if self.wind is not None:       # custom wind (component space): a push like gravity's
+            world = world + self.wind * WIND_ACCEL
         return space[0].conjugated() @ world
 
     def outputs(self):

@@ -103,6 +103,13 @@ check("inertia turned as R^T I^-1 R", inv[0][1], c * s * (1 / 6.020833 - 1 / 2.6
 fall = node([body_def(lin_types=["Free"] * 3, ang_min=[-45.0] * 3, ang_max=[45.0] * 3)], gravity_override=[0.0, 0.0, -980.0])
 out = ds.Sim(fall, {}).evaluate(0.1, cs, "b")
 check("a long frame steps 1/30", out["b"][1].z, -980.0 / 900.0)
+from fpmp_baseline.processing.context.wind import WIND_ACCEL  # noqa: E402
+blown = ds.Sim(node([body_def(lin_types=["Free"] * 3, ang_min=[-45.0] * 3, ang_max=[45.0] * 3)], gravity_override=[0.0, 0.0, 0.0]), {})
+blown.wind = Vector((300.0, 0.0, 0.0))
+pushed = ds.Sim(node([body_def(lin_types=["Free"] * 3, ang_min=[-45.0] * 3, ang_max=[45.0] * 3)], gravity_override=[WIND_ACCEL * 300.0, 0.0, 0.0]), {})
+check("wind pushes a body like that much more gravity downwind", tuple(blown.evaluate(0.1, cs, "b")["b"][1]), tuple(pushed.evaluate(0.1, cs, "b")["b"][1]))
+still_air = ds.Sim(fall, {})
+check("no wind leaves a body as it was", tuple(still_air.evaluate(0.1, cs, "b")["b"][1]), (0.0, 0.0, -980.0 / 900.0))
 
 pair = {"a": (Quaternion(), ZERO.copy()), "b": (Quaternion(), Vector((10.0, 0.0, 0.0)))}
 chain = node([body_def(bone="a", box=[5.0, 5.0, 5.0], offset=[5.0, 0.0, 0.0], ang_min=[-89.0] * 3, ang_max=[89.0] * 3)],
@@ -236,6 +243,33 @@ check("it settles back", math.degrees(anim60[1].angle(sim60[1])) < 2.0, True)
 check("keys are finite", all(math.isfinite(kp.co[1]) for fc in db._curves(db._track(swing).strips[0].action) for kp in fc.keyframe_points), True)
 db.bake(swing)
 check("a re-bake replaces the track", [t.name for t in swing.animation_data.nla_tracks].count(db.TRACK), 1)
+
+# custom wind: a Blender Wind field blowing +X leans the hanging tag that way; hidden, it doesn't blow
+from fpmp_baseline.processing.context import wind  # noqa: E402
+if not hasattr(bpy.types.Object, "fpmp_wind_gust"):
+    wind.register()
+breezy = armature("breezy")
+key_arm(breezy, [(0, 0.0), (30, 0.0)])
+store(breezy, tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=25.0, ang_damping=0.9,
+                       body={"ang_min": [-45.0] * 3, "ang_max": [45.0] * 3, "target": [1.0, 0.0, 0.0]}))
+bpy.ops.object.mode_set(mode='OBJECT')
+bpy.ops.object.effector_add(type='WIND', rotation=(0.0, math.radians(90.0), 0.0))      # +Z turned onto +X
+gale = bpy.context.active_object
+gale.field.strength, gale.fpmp_wind_gust, gale.fpmp_wind_turbulence = 3.0, 0.0, 0.0
+bpy.context.view_layer.objects.active = breezy
+db.bake(breezy)
+db.set_on(breezy, False)
+calm_tail = breezy.pose.bones["dyn_tag"].tail.copy() if scene.frame_set(30) is None else None
+db.set_on(breezy, True)
+scene.frame_set(30)
+blown_tail = breezy.pose.bones["dyn_tag"].tail.copy()
+check("a wind field leans the hanging tag downwind (+X)", blown_tail.x - calm_tail.x > 0.005, True)
+gale.hide_viewport = True
+bpy.context.view_layer.update()
+db.bake(breezy)
+scene.frame_set(30)
+check("a hidden field leaves it hanging as without wind", round((breezy.pose.bones["dyn_tag"].tail - calm_tail).length, 5), 0.0)
+bpy.data.objects.remove(gale)
 
 # --- wiring: import keeps the nodes, an emote import bakes, the panel's operators ---
 from types import SimpleNamespace  # noqa: E402
