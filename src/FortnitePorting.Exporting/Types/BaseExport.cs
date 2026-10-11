@@ -19,6 +19,7 @@ public class BaseExport
         Type = exportType;
 
         Context = new Context.ExportContext(metaData);
+        Context.TextureCap = metaData.Settings.TextureCapFor(exportType);     // MP
     }
     
     public async Task WaitForExports()

@@ -31,13 +31,15 @@ def is_toon(material_data):
 
 
 class ExactChoice:
-    """One slot's choice. A material built under different settings (prefer FP, Rim Light, subsurface, landscape layers) isn't reused."""
+    """One slot's choice. A material built under different settings (prefer FP, Rim Light, subsurface, landscape layers,
+    texture cap) isn't reused."""
 
     def __init__(self, ctx, material_data, material_slot, as_material_data):
-        from .hook import cosmetic_material, subsurface as subsurface_of
+        from .hook import cosmetic_material, subsurface as subsurface_of, texture_cap
         self.ctx = ctx
         self.prefer_fp = bool(ctx.options.get("PreferFPShaders") and ctx.type in FP_SHADER_TYPES and has_fp_shader(material_data))
         self.rim_light = bool(ctx.options.get("RimLight"))
+        self.texture_cap = texture_cap(ctx)
         self.subsurface = "%g %g %g %g %s" % (tuple(subsurface_of(ctx, material_data)) + (cosmetic_material(ctx, material_data),))
         # a landscape proxy gets one material per set of painted layers (see hook.build_exact)
         slot_object = None if as_material_data else material_slot.id_data
@@ -48,7 +50,8 @@ class ExactChoice:
         return (bool(existing.get("MPPreferFP")) == self.prefer_fp
                 and bool(existing.get("MPRimLight", self.rim_light)) == self.rim_light
                 and existing.get("MPSubsurface", self.subsurface) == self.subsurface
-                and existing.get("MPLandscapeLayers") == self.landscape)
+                and existing.get("MPLandscapeLayers") == self.landscape
+                and existing.get("MPTextureCap", 0) == self.texture_cap)
 
     def reused(self, material_slot, existing, material_data):
         """A reused material still needs this mesh's UV maps, outline and hidden elements."""
@@ -80,6 +83,7 @@ class ExactChoice:
         exact["Hash"] = hash_code(material_hash)
         exact["MPRimLight"] = self.rim_light
         exact["MPSubsurface"] = self.subsurface
+        exact["MPTextureCap"] = self.texture_cap
         exact["OriginalName"] = material_data.get("Name")
         if self.landscape is not None:
             exact["MPLandscapeLayers"] = self.landscape

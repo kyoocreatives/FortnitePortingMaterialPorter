@@ -63,6 +63,11 @@ plain = ExactChoice(context(EExportType.OUTFIT), {}, None, True)
 check("reused under the same values", plain.reusable({"MPSubsurface": ExactChoice(context(EExportType.OUTFIT), {}, None, True).subsurface}), True)
 check("not reused under another base", ExactChoice(context(EExportType.OUTFIT, BaseSubsurface=0.3), {}, None, True).reusable({"MPSubsurface": plain.subsurface}), False)
 check("not reused under another profile colour", ExactChoice(context(EExportType.OUTFIT, ProfileColour=1.0), {}, None, True).reusable({"MPSubsurface": plain.subsurface}), False)
+check("a prefab caps its textures at the Map Texture Size", (hook.texture_cap(context(EExportType.PREFAB, MaxTextureSize=0, MapTextureSize=1024)),
+                                                              hook.texture_cap(context(EExportType.OUTFIT, MaxTextureSize=0, MapTextureSize=1024))), (1024, 0))
+capped = ExactChoice(context(EExportType.WORLD, MapTextureSize=1024), {}, None, True)
+check("a material built on capped textures isn't reused at full size", ExactChoice(context(EExportType.WORLD), {}, None, True).reusable(
+    {"MPSubsurface": ExactChoice(context(EExportType.WORLD), {}, None, True).subsurface, "MPTextureCap": capped.texture_cap}), False)
 check("a world's material isn't reused by a cosmetic", plain.reusable({"MPSubsurface": ExactChoice(context(EExportType.WORLD), {}, None, True).subsurface}), False)
 
 # the built graph: a small material through the translator and build.assemble, as build_one does

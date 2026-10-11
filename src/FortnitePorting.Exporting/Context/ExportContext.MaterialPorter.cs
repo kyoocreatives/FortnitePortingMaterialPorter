@@ -36,6 +36,9 @@ public partial class ExportContext
     /// <summary>Tests: only actors whose name holds this (null: all).</summary>
     public static string? MaterialPorterActorFilter;
 
+    /// <summary>The largest textures are exported at for this export's type (0: full size).</summary>
+    public int TextureCap;
+
     private readonly Dictionary<string, ExportMesh?> _mpMeshes = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Lights read so far; a world export puts them in its Lights (MeshExport).</summary>

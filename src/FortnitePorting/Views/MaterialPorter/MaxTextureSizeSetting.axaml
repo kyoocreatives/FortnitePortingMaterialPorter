@@ -6,11 +6,20 @@
              xmlns:controls="clr-namespace:FortnitePorting.Controls.Settings"
              x:Class="FortnitePorting.Views.MaterialPorter.MaxTextureSizeSetting"
              x:DataType="settings:BlenderSettingsViewModel">
-    <controls:SettingsItem Title="Max Texture Size"
-                           Description="The largest textures are imported at, from their own smaller mips (no resampling). Lower for backgrounds: a map of a thousand textures fits in far less GPU memory.">
-        <controls:SettingsItem.Footer>
-            <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fpExport:ETextureSizeCap}}"
-                      SelectedItem="{Binding MaxTextureSize, Converter={StaticResource EnumToRecord}}"/>
-        </controls:SettingsItem.Footer>
-    </controls:SettingsItem>
+    <StackPanel Spacing="4">
+        <controls:SettingsItem Title="Max Texture Size"
+                               Description="The largest textures are imported at, from their own smaller mips (no resampling).">
+            <controls:SettingsItem.Footer>
+                <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fpExport:ETextureSizeCap}}"
+                          SelectedItem="{Binding MaxTextureSize, Converter={StaticResource EnumToRecord}}"/>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+        <controls:SettingsItem Title="Map Texture Size"
+                               Description="The same for maps and prefabs: hundreds of textures fit in far less memory at 1024.">
+            <controls:SettingsItem.Footer>
+                <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fpExport:ETextureSizeCap}}"
+                          SelectedItem="{Binding MapTextureSize, Converter={StaticResource EnumToRecord}}"/>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+    </StackPanel>
 </UserControl>

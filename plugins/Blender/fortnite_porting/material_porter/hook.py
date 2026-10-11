@@ -33,12 +33,19 @@ def _session(context):
     if _job["key"] is not context:
         build.begin_session()
         _job.update(key=context, app=AppClient(URL), down=False, built={}, shapes={}, notes=[])
-        # texture size cap (Max Texture Size setting), sent to the app with each texture request
+        # texture size cap (Max / Map Texture Size settings), sent to the app with each texture request
+        options = getattr(context, "options", None) or {}
+        setting = "MapTextureSize" if getattr(context, "type", None) in (EExportType.WORLD, EExportType.PREFAB) else "MaxTextureSize"
         try:
-            _job["app"].max_texture = int((getattr(context, "options", None) or {}).get("MaxTextureSize") or 0)
+            _job["app"].max_texture = int(options.get(setting) or 0)
         except (TypeError, ValueError):
             pass
     return _job
+
+
+def texture_cap(context):
+    """The texture size cap this import asks the app for (0: full size)."""
+    return _session(context)["app"].max_texture
 
 
 def _log(message):
@@ -258,6 +265,9 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         for kind, values in overlay.items():
             entry[kind] = dict(entry.get(kind) or {}, **values)
         entry["variant"] = _digest(json.dumps(overlay, sort_keys=True))
+    # textures capped smaller (Max / Map Texture Size): a material of its own, never shared with full-size ones
+    if cap := texture_cap(context):
+        entry["variant"] = _digest("%s cap%d" % (entry.get("variant", ""), cap))
     # flipbook sprite: UV0 is the sub-image the particle shows (env.uv)
     if sprite := material_data.get("MPSprite"):
         entry["sprite"] = [float(x) for x in sprite]

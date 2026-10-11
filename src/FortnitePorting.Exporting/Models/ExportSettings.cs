@@ -9,6 +9,10 @@ public class ExportSettings
     public EImageFormat ImageFormat { get; set; } = EImageFormat.PNG;
     /// <summary>MP: pixels, the largest a texture is exported at (0: full size).</summary>
     public int MaxTextureSize { get; set; }
+    /// <summary>MP: the same for a map or prefab (hundreds of textures).</summary>
+    public int MapTextureSize { get; set; } = 1024;
+    /// <summary>MP: the cap an export of this type uses.</summary>
+    public int TextureCapFor(EExportType type) => type is EExportType.World or EExportType.Prefab ? MapTextureSize : MaxTextureSize;
     public bool ExportMaterials { get; set; } = true;
     public EMeshFormat MeshFormat { get; set; } = EMeshFormat.UEFormat;
     public EMeshQuality MeshQuality { get; set; } = EMeshQuality.All;
