@@ -211,8 +211,12 @@ def _read(values, src):
     return not values.get(src[1:]) if src.startswith("!") else values.get(src)
 
 
-def _overrides(item, props, name, bound, values):
-    """What the game's bound variables set on a node, in the reader's terms."""
+ZEROS = {"Alpha": 0.0, "Rotation": {}, "Translation": {}}       # a bound variable the class stores no default for
+
+
+def _overrides(item, props, name, bound, values, defaults=None):
+    """What the game's bound variables set on a node, in the reader's terms; a variable the event graph leaves unset in
+    the state reads its default (defaults: the class default object's), zero when none is stored."""
     out, kind = {}, item["kind"]
     if kind == "control_rig":
         rig_vars = {var: _read(values, src) for (node, var), src in bound.items() if node == CONTROL_RIG and _read(values, src) is not None}
@@ -222,12 +226,18 @@ def _overrides(item, props, name, bound, values):
         if node != name:
             continue
         v = _read(values, src)
+        if v is None and "." not in src and not src.startswith("!"):
+            v = (defaults or {}).get(src, ZEROS.get(prop))
         if prop == "bAlphaBoolEnabled" and not float_alpha:
             out["alpha"] = 1.0 if v else 0.0        # unset: the native variable's default, false
         elif v is None:
             continue
         elif prop == "Alpha" and float_alpha and isinstance(v, (int, float)):
             out["alpha"] = float(v)
+        elif prop == "Rotation" and kind == "modify_bone" and isinstance(v, dict):
+            out["rotation"] = [float(v.get(k, 0.0)) for k in ("Pitch", "Yaw", "Roll")]
+        elif prop == "Translation" and kind == "modify_bone" and isinstance(v, dict):
+            out["translation"] = _vec(v)
         elif prop in ("ComponentLinearAccScale", "ComponentLinearVelScale") and kind == "rigid_body":
             scales = out.setdefault("component_acc", dict(item.get("component_acc") or {}))
             scales["acc_scale" if "Acc" in prop else "vel_scale"] = [float(x) for x in v] if isinstance(v, (list, tuple)) else _vec(v)
@@ -313,7 +323,7 @@ def _part(raw, physics=None, by_node=None, table=None, script=None, rig=None, cl
         if own:
             item["states"] = own
         if item and values:
-            per = {state: _overrides(item, props[n], n, bound, v) for state, v in values.items()}
+            per = {state: _overrides(item, props[n], n, bound, v, props) for state, v in values.items()}
             if live is not None and n in seen:      # off in the states whose switches skip it
                 per = {state: dict(o, alpha=0.0) if n not in live[state] else o for state, o in per.items()}
             if any(per.values()):

@@ -662,5 +662,18 @@ def swung(alpha):
 
 check("an alpha over 1 swings as far as 1", round(swung(10.0), 3), round(swung(1.0), 3))
 
+# a property the game binds to a blueprint variable that the event graph leaves unset in a state reads the variable's
+# default, zero when the class stores none (Silencer's emote-only belt and its floor_slope, standing)
+mb = dr.modify_bone({"BoneToModify": {"BoneName": "dyn_belt_MSTR"}, "Rotation": {"Pitch": 0.0, "Yaw": 0.0, "Roll": 60.0},
+                     "RotationMode": "BMM_Replace", "Alpha": 1.0})
+BOUND = {("AnimGraphNode_ModifyBone_7", "Alpha"): "emote_alpha", ("AnimGraphNode_ModifyBone_7", "Rotation"): "floor_slope"}
+standing = dr._overrides(mb, {}, "AnimGraphNode_ModifyBone_7", BOUND, {}, {"floor_slope": {"Pitch": 0.0, "Yaw": 0.0, "Roll": 0.0}})
+check("an alpha bound to a variable unset in the state: its zero default", standing.get("alpha"), 0.0)
+check("a rotation bound to one: its stored default", standing.get("rotation"), [0.0, 0.0, 0.0])
+check("a stored alpha default", dr._overrides(mb, {}, "AnimGraphNode_ModifyBone_7", BOUND, {}, {"emote_alpha": 0.5}).get("alpha"), 0.5)
+emoting = dr._overrides(mb, {}, "AnimGraphNode_ModifyBone_7", BOUND, {"emote_alpha": 1.0, "floor_slope": {"Pitch": 10.0, "Yaw": 0.0, "Roll": 0.0}}, {})
+check("set by the event graph: its value", (emoting.get("alpha"), emoting.get("rotation")), (1.0, [10.0, 0.0, 0.0]))
+check("a struct member path unset is left alone",
+      "alpha" in dr._overrides(mb, {}, "AnimGraphNode_ModifyBone_7", {("AnimGraphNode_ModifyBone_7", "Alpha"): "State.Alpha"}, {}, {}), False)
 print("[dynamics_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)
