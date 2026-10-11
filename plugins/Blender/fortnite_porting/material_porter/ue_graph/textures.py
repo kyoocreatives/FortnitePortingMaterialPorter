@@ -172,10 +172,11 @@ class TexturesMixin:
         self.link(self.addressed(vec, fixes), n.inputs[0])
         return n
 
-    def unpack_normal(self, rgb):
+    def unpack_normal(self, n):
         """UnpackNormalMap, what a Normal sampler returns (BC5 on PC): xy = rg * 2 - 1,
-        z = sqrt(saturate(1 - xy.xy)); alpha 1. (rgb, alpha)"""
-        r, gr = self.comps(rgb)[:2]
+        z = sqrt(saturate(1 - xy.xy)); alpha 1. The app hands Blender every normal map with X in alpha and Y in
+        green (DXT5, which stays compressed on the GPU), so x comes from the sample node's alpha. (rgb, alpha)"""
+        r, gr = Val(n.outputs["Alpha"], 1), self.comps(Val(n.outputs["Color"], 3))[1]
         x = self.binop('SUBTRACT', self.binop('MULTIPLY', r, self.const(2.0)), self.const(1.0))
         y = self.binop('SUBTRACT', self.binop('MULTIPLY', gr, self.const(2.0)), self.const(1.0))
         d = self.binop('ADD', self.binop('MULTIPLY', x, x), self.binop('MULTIPLY', y, y))
@@ -185,7 +186,7 @@ class TexturesMixin:
     def sample(self, tname, coords, out, sampler, own=True, address=None):
         n = self.sample_node(tname, coords, sampler, own=own, address=address)
         if "Normal" in (sampler or ""):
-            return self.rgba_out(*self.unpack_normal(Val(n.outputs["Color"], 3)), out)
+            return self.rgba_out(*self.unpack_normal(n), out)
         rgb = Val(n.outputs["Color"], 3)
         if out == 5:
             return self.with_alpha(rgb, Val(n.outputs["Alpha"], 1))

@@ -370,11 +370,18 @@ class TestEnv:
         return tuple("Clamp" if "C" + a in tags else "Mirror" if "M" + a in tags else "Wrap" for a in "XY")
 
     def texture(self, name, sampler):
-        """A 1x1 image of the colour the texture's name spells: "T_0.75_0.25_0.5"."""
-        img = bpy.data.images.get("_t " + name)
+        """A 1x1 image of the colour the texture's name spells: "T_0.75_0.25_0.5"; a normal map as the app sends
+        it, its red in alpha (red itself zeroed: only alpha may be read)."""
+        normal = "Normal" in (sampler or "")
+        key = ("_tn " if normal else "_t ") + name
+        img = bpy.data.images.get(key)
         if img is None:
-            c = [float(x) for x in name.split("_")[1:4]] + [1.0]
-            img = bpy.data.images.new("_t " + name, 1, 1, float_buffer=True)
+            c = [float(x) for x in name.split("_")[1:4]]
+            if normal:
+                c = [0.0, c[1], c[2], c[0]]
+            else:
+                c.append(1.0)
+            img = bpy.data.images.new(key, 1, 1, float_buffer=True)
             img.colorspace_settings.name = "Non-Color"
             img.pixels[:] = c
         return img

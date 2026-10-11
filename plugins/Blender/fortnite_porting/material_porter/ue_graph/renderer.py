@@ -164,7 +164,7 @@ class RendererMixin:
         for img in slices:
             n = self.sample_node(tname, uv, sampler, img=img)
             if "Normal" in (sampler or ""):
-                vals.append(self.with_alpha(*self.unpack_normal(Val(n.outputs["Color"], 3))))
+                vals.append(self.with_alpha(*self.unpack_normal(n)))
             else:
                 vals.append(self.with_alpha(Val(n.outputs["Color"], 3), Val(n.outputs["Alpha"], 1)))
         if len(vals) == 1:

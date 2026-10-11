@@ -439,7 +439,7 @@ public sealed class MaterialService
     /// <summary>A texture as a PNG (HDR for float formats): what the app shows and the Files page exports.</summary>
     public Task<TextureFile> TextureAsync(string path) => TextureAsync(path, false);
 
-    /// <summary>A texture for Blender: for the game's own compression (BC1/BC3/BC5/BC7, BGRA8) the mip data as a DDS, with no decode or encode (loads faster than PNG); else a PNG.</summary>
+    /// <summary>A texture for Blender: for the game's own compression (BC1/BC3/BC5/BC7, BGRA8) the mip data as a DDS, with no decode or encode (loads faster than PNG); else a PNG. A normal map has X in alpha and Y in green (<see cref="NormalPacking"/>).</summary>
     public Task<TextureFile> BlenderTextureAsync(string path, int? cap = null) => TextureAsync(path, true, cap);
 
     Task<TextureFile> TextureAsync(string path, bool raw, int? sizeCap = null)
@@ -497,7 +497,7 @@ public sealed class MaterialService
     }
 
     /// <summary>Bumped when what a cached texture file holds changes.</summary>
-    const int TextureCacheVersion = 3;     // 3: BC1-BC3 DDS with the legacy header and their mips
+    const int TextureCacheVersion = 5;     // 3: BC1-BC3 DDS with the legacy header and their mips; 5: normal maps X in alpha
 
     /// <summary>Textures made here, not in the game (LEGO colour grids, an effect's exposed curve), written to GeneratedDir.</summary>
     // /MaterialPorter/Generated/<name>.<name> is GeneratedDir/<name>.png (or .hdr, linear), named for its content;
@@ -574,14 +574,17 @@ public sealed class MaterialService
                 if (mip?.BulkData?.Data is { Length: > 0 } bytes)
                 {
                     var file = stem + ".dds";
+                    // a BC5 normal map as DXT5 (X in alpha): kept compressed on the GPU, with its mips
+                    var packNormal = tex.IsNormalMap && dxgi == 83;
+                    if (packNormal) dxgi = 77;
                     // the smaller mips after it, while each exists and is half the one before
-                    var chain = new List<byte[]> { bytes };
+                    var chain = new List<byte[]> { packNormal ? NormalPacking.Bc5ToDxt5(bytes) : bytes };
                     var (w, h) = (mip.SizeX, mip.SizeY);
                     foreach (var next in pd.Mips.SkipWhile(m => m != mip).Skip(1))
                     {
                         if (next.SizeX != Math.Max(1, w / 2) || next.SizeY != Math.Max(1, h / 2)
                             || !next.EnsureValidBulkData(null, 0) || next.BulkData?.Data is not { Length: > 0 } data) break;
-                        chain.Add(data);
+                        chain.Add(packNormal ? NormalPacking.Bc5ToDxt5(data) : data);
                         (w, h) = (next.SizeX, next.SizeY);
                     }
                     WriteDds(file, mip.SizeX, mip.SizeY, dxgi, chain);
@@ -601,6 +604,7 @@ public sealed class MaterialService
             var ct = (cap > 0 ? TextureDecoder.Decode(tex, cap, ETexturePlatform.DesktopMobile) : tex.Decode(ETexturePlatform.DesktopMobile))
                      ?? throw new InvalidDataException("Could not decode " + path);
             var tDecode = sw.Elapsed.TotalMilliseconds;
+            if (raw && tex.IsNormalMap) NormalPacking.RedToAlpha(ct);     // Blender reads every normal map's X from alpha
             var (data, ext) = EncodeTexture(ct);
             var tEncode = sw.Elapsed.TotalMilliseconds;
             var file = stem + "." + ext;

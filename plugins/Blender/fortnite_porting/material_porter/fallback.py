@@ -293,16 +293,35 @@ def build_fallback(entry, app, objects, env_cls, settings, keys):
 
     if "normal" in roles:
         img = image(roles["normal"][1], normal=True, label=roles["normal"][0])
-        # UE normal maps are DirectX (green down)
+        # the app sends X in alpha and Y in green; UE normal maps are DirectX (green down); z rebuilt as UE does
         sep = N.new("ShaderNodeSeparateColor")
         sep.location = (-400, img.location[1])
         L.new(img.outputs["Color"], sep.inputs[0])
         inv = one_minus(sep.outputs[1], (-250, img.location[1] - 40))
+        xy = N.new("ShaderNodeCombineXYZ")
+        xy.location = (-250, img.location[1] - 120)
+        L.new(img.outputs["Alpha"], xy.inputs[0])
+        L.new(inv, xy.inputs[1])
+        signed = N.new("ShaderNodeVectorMath")      # xy * 2 - 1
+        signed.operation, signed.location = 'MULTIPLY_ADD', (-150, img.location[1] - 120)
+        signed.inputs[1].default_value, signed.inputs[2].default_value = (2.0, 2.0, 0.0), (-1.0, -1.0, 0.0)
+        L.new(xy.outputs[0], signed.inputs[0])
+        dot = N.new("ShaderNodeVectorMath")
+        dot.operation, dot.location = 'DOT_PRODUCT', (-50, img.location[1] - 160)
+        L.new(signed.outputs[0], dot.inputs[0])
+        L.new(signed.outputs[0], dot.inputs[1])
+        z = N.new("ShaderNodeMath")     # sqrt(1 - x2 - y2) as a colour: (z + 1) / 2
+        z.operation, z.use_clamp, z.location = 'SQRT', True, (50, img.location[1] - 160)
+        L.new(one_minus(dot.outputs["Value"], (0, img.location[1] - 200)), z.inputs[0])
+        zc = N.new("ShaderNodeMath")
+        zc.operation, zc.location = 'MULTIPLY_ADD', (150, img.location[1] - 160)
+        zc.inputs[1].default_value, zc.inputs[2].default_value = 0.5, 0.5
+        L.new(z.outputs[0], zc.inputs[0])
         comb = N.new("ShaderNodeCombineColor")
         comb.location = (-100, img.location[1])
-        L.new(sep.outputs[0], comb.inputs[0])
+        L.new(img.outputs["Alpha"], comb.inputs[0])
         L.new(inv, comb.inputs[1])
-        L.new(sep.outputs[2], comb.inputs[2])
+        L.new(zc.outputs[0], comb.inputs[2])
         nm = N.new("ShaderNodeNormalMap")
         nm.location = (-50, img.location[1] - 200)
         L.new(comb.outputs[0], nm.inputs["Color"])

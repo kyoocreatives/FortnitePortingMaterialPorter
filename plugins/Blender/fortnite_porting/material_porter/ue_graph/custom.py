@@ -57,7 +57,7 @@ class CustomMixin:
         # UnpackNormalMap (BC5 on PC): xy = rg * 2 - 1, z = sqrt(saturate(1 - xy.xy)), w 1;
         # a skipped layer is (0, 0, 1, 0)
         n = self.sample_node(self._tex_name(ins), ins.get("UVs") or self.env.uv(0), "SAMPLERTYPE_Normal")
-        normal, a = self.unpack_normal(Val(n.outputs["Color"], 3))
+        normal, a = self.unpack_normal(n)
         w = self._work(ins)
         if w is not None:
             normal = self.lerp(self.const((0.0, 0.0, 1.0), 3), normal, w, label="layer normal")
