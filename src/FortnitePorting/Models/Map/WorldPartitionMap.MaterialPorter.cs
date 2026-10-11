@@ -21,6 +21,8 @@ namespace FortnitePorting.Models.Map;
 public partial class WorldPartitionMap
 {
     [ObservableProperty, NotifyPropertyChangedFor(nameof(NoPreview))] private string _previewStatus = string.Empty;
+    /// <summary>Only actors whose name holds this are exported (empty: all): a map's roads alone ("Spline"), its terrain and roads ("Landscape").</summary>
+    [ObservableProperty] private string _actorFilter = string.Empty;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(NoPreview))] private bool _isDrawingPreview;
 
     public bool NoPreview => MapBitmap is null && !IsDrawingPreview && !_drawnPreview;

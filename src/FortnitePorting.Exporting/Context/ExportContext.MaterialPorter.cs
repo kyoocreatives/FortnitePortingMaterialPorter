@@ -36,6 +36,9 @@ public partial class ExportContext
     /// <summary>Tests: only actors whose name holds this (null: all).</summary>
     public static string? MaterialPorterActorFilter;
 
+    /// <summary>Only actors whose name holds this (the Map page's filter, else the tests'; null: all).</summary>
+    string? ActorFilter => Meta.ActorFilter ?? MaterialPorterActorFilter;
+
     /// <summary>The largest textures are exported at for this export's type (0: full size).</summary>
     public int TextureCap;
 
@@ -104,7 +107,7 @@ public partial class ExportContext
                     tracks.Select(t => t.Actor).Distinct().Count());
 
             var placed = (actors ? reader.Placed.Concat(tracks) : [])
-                .Where(m => MaterialPorterActorFilter is null || m.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
+                .Where(m => ActorFilter is null || m.Actor.Contains(ActorFilter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(m => m.Actor, StringComparer.Ordinal).ThenBy(m => m.Mesh, StringComparer.Ordinal).ToList();
             var done = 0;
             foreach (var m in placed)
@@ -113,13 +116,13 @@ public partial class ExportContext
                 if (++done % 200 == 0) Meta.OnUpdateProgress(m.Actor, done, placed.Count);
                 meshes.AddIfNotNull(Placement(m));
             }
-            var lights = reader.Lights.Where(l => MaterialPorterActorFilter is null || l.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
+            var lights = reader.Lights.Where(l => ActorFilter is null || l.Actor.Contains(ActorFilter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(l => l.Actor, StringComparer.Ordinal).ThenBy(l => l.Name, StringComparer.Ordinal)
                 .ThenBy(l => l.World.M41).ThenBy(l => l.World.M42).ThenBy(l => l.World.M43);
             if (withLights)
                 foreach (var l in lights) MaterialPorterLights.Add(Light(l));
 
-            var decals = reader.Decals.Where(d => MaterialPorterActorFilter is null || d.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
+            var decals = reader.Decals.Where(d => ActorFilter is null || d.Actor.Contains(ActorFilter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(d => d.Actor, StringComparer.Ordinal).ThenBy(d => d.Name, StringComparer.Ordinal)
                 .ThenBy(d => d.World.M41).ThenBy(d => d.World.M42).ThenBy(d => d.World.M43);
             if (withDecals)
@@ -128,7 +131,7 @@ public partial class ExportContext
                     if (CancellationToken.IsCancellationRequested) break;
                     MaterialPorterDecals.AddIfNotNull(Decal(d));
                 }
-            var effects = reader.Effects.Where(e => MaterialPorterActorFilter is null || e.Actor.Contains(MaterialPorterActorFilter, StringComparison.OrdinalIgnoreCase))
+            var effects = reader.Effects.Where(e => ActorFilter is null || e.Actor.Contains(ActorFilter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(e => e.Actor, StringComparer.Ordinal).ThenBy(e => e.Name, StringComparer.Ordinal)
                 .ThenBy(e => e.World.M41).ThenBy(e => e.World.M42).ThenBy(e => e.World.M43);
             if (withEffects)
@@ -147,7 +150,7 @@ public partial class ExportContext
             var type = actorLazy.ResolvedObject?.Class?.Name.Text ?? string.Empty;
             if (!type.Contains("Landscape", StringComparison.Ordinal) && type != "FortMainHLOD") continue;
             if (actorLazy.Load() is not { } actor) continue;
-            if (MaterialPorterActorFilter is { } only && !actor.Name.Contains(only, StringComparison.OrdinalIgnoreCase)) continue;
+            if (ActorFilter is { } only && !actor.Name.Contains(only, StringComparison.OrdinalIgnoreCase)) continue;
             if (actor is ALandscapeProxy proxy)
             {
                 // FP names a weight layer after its LayerInfo asset; exact materials ask by LayerName

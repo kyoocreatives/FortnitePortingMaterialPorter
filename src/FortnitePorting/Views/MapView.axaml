@@ -166,7 +166,8 @@
                                    IsVisible="{Binding !SelectedMap.SelectedMaps.Count}">
                         </TextBlock>
                         
-                        <Grid Grid.Row="6" VerticalAlignment="Bottom">
+                        <StackPanel Grid.Row="6" VerticalAlignment="Bottom" Spacing="6"><mp:MapActorFilter/>     <!-- MP -->
+                        <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="{ext:Space 1}" />
@@ -253,6 +254,7 @@
                                     Command="{Binding OpenSettingsCommand}" />
 
                         </Grid>
+                        </StackPanel>     <!-- MP -->
 
                     </Grid>
                 </Grid>

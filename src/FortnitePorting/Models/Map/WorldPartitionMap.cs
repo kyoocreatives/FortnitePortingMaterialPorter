@@ -272,6 +272,7 @@ public partial class WorldPartitionMap : ObservableObject
             if (WorldFlagsLights) _exportMeta.WorldFlags |= EWorldFlags.Lights;
             if (WorldFlagsDecals) _exportMeta.WorldFlags |= EWorldFlags.Decals;
             if (WorldFlagsEffects) _exportMeta.WorldFlags |= EWorldFlags.Effects;
+            _exportMeta.ActorFilter = string.IsNullOrWhiteSpace(ActorFilter) ? null : ActorFilter.Trim();     // MP
 
             SelectedMaps.ForEach(map => map.Status = EWorldPartitionGridMapStatus.Waiting);
             

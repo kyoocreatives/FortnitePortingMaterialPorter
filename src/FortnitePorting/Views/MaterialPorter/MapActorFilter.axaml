@@ -1,0 +1,8 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:viewModels="clr-namespace:FortnitePorting.ViewModels"
+             x:Class="FortnitePorting.Views.MaterialPorter.MapActorFilter"
+             x:DataType="viewModels:MapViewModel">
+    <TextBox Text="{Binding SelectedMap.ActorFilter}" Watermark="Only actors named... (e.g. Spline: roads)"
+             ToolTip.Tip="Export only actors whose name contains this. Spline: a map's roads; Landscape: its terrain and roads. Empty: everything."/>
+</UserControl>

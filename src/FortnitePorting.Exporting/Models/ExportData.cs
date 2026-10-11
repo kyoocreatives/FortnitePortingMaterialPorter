@@ -21,6 +21,7 @@ public class ExportDataMeta : IDisposable
 
     [JsonIgnore] public EExportLocation ExportLocation;
     [JsonIgnore] public string? CustomPath;
+    [JsonIgnore] public string? ActorFilter;     // MP: Map page "Only actors named" (null: all)
     [JsonIgnore] public EWorldFlags WorldFlags = EWorldFlags.Actors | EWorldFlags.WorldPartitionGrids | EWorldFlags.Landscape | EWorldFlags.InstancedFoliage | EWorldFlags.HLODs | EWorldFlags.Lights | EWorldFlags.Decals | EWorldFlags.Effects;
     [JsonIgnore] public IExportAssetProvider Provider = null!;
 
