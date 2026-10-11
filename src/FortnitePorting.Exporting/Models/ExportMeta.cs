@@ -13,6 +13,7 @@ public class BaseMeta
     public Dictionary<string, string>? PhysicsAssets;     // MP: each RigidBody node's physics asset dump, by node
     public string? DynamicsParameters;     // MP: the per-state dynamics parameters its anim blueprint reads
     public string? AnimScript;     // MP: its anim blueprint with bytecode (the values bound to the dynamics nodes)
+    public string? Cloth;     // MP: its mesh's clothing assets and render mapping (cloth replay)
 }
 
 public class ExportMasterSkeletonMeta : BaseMeta

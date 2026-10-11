@@ -67,16 +67,17 @@ public partial class ExportContext
     }
 
     /// <summary>The part's anim blueprint with its functions' bytecode, dumped once next to it: the plugin runs its
-    /// update to learn the values the game binds to the dynamics nodes; null when it runs none.</summary>
-    public string? AnimScript(UObject additionalData)
+    /// update to learn the values the game binds to the dynamics nodes (and, with cloth, its cloth settings); null when
+    /// it runs neither.</summary>
+    public string? AnimScript(UObject additionalData, bool cloth = false)
     {
-        return ScriptPackage(additionalData)?.GetExports().OfType<UClass>().FirstOrDefault() is { } cls
+        return ScriptPackage(additionalData, cloth)?.GetExports().OfType<UClass>().FirstOrDefault() is { } cls
             ? DumpPackage(cls, "animscript.json") : null;
     }
 
-    private global::CUE4Parse.UE4.Assets.IPackage? ScriptPackage(UObject additionalData)
+    private global::CUE4Parse.UE4.Assets.IPackage? ScriptPackage(UObject additionalData, bool cloth = false)
     {
-        if (DynamicsDefaults(additionalData) is not { } found || found.Blueprint.Owner is not { Provider: { } provider } owner)
+        if (DynamicsDefaults(additionalData, cloth) is not { } found || found.Blueprint.Owner is not { Provider: { } provider } owner)
             return null;
         var readScript = provider.ReadScriptData;
         try
@@ -116,13 +117,13 @@ public partial class ExportContext
         }
     }
 
-    private (UClass Blueprint, UObject Defaults)? DynamicsDefaults(UObject additionalData)
+    private (UClass Blueprint, UObject Defaults)? DynamicsDefaults(UObject additionalData, bool cloth = false)
     {
         if (!additionalData.TryGetValue(out FSoftObjectPath animClass, "AnimClass")
             || !animClass.TryLoad(out UClass animBlueprint)
             || animBlueprint.ClassDefaultObject is not { } defaults
             || !defaults.TryLoad(out var animDefaults)
-            || !animDefaults.Properties.Any(p => p.Name.Text.StartsWith("AnimGraphNode_AnimDynamics")
+            || !cloth && !animDefaults.Properties.Any(p => p.Name.Text.StartsWith("AnimGraphNode_AnimDynamics")
                                                  || p.Name.Text.StartsWith("AnimGraphNode_RigidBody")))
             return null;
         return (animBlueprint, animDefaults);
