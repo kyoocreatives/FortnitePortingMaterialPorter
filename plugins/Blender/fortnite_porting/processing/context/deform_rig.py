@@ -145,10 +145,10 @@ def reference_weight(obj, spec):
         q = turn.to_quaternion()
         lo, hi = weight["from"]
         value = (_rotator((-q.x, q.y, -q.z, q.w), weight["channel"]) - lo) / (hi - lo)
-        return max(0.0, min(1.0, value)) if weight.get("clamp", True) else value
+        return post_value(max(0.0, min(1.0, value)) if weight.get("clamp", True) else value, weight)
     # the driver's axis turned from rest, in the sphere's frame: its rest under the offset
     n = _offset(weight["offset"]).transposed() @ FLIP @ turn @ FLIP @ Vector(weight["axis"])
-    return max(0.0, min(1.0, spr_value(n, weight) * weight.get("scale", 1.0)))
+    return post_value(max(0.0, min(1.0, spr_value(n, weight) * weight.get("scale", 1.0))), weight)
 
 
 # --- drivers
@@ -207,6 +207,23 @@ def _rotated(a, c):
     return out
 
 
+def post_value(v, weight):
+    """A weight's later steps (an AlphaInterp's map, scale, bias and clamp) on its value."""
+    for a, b, lo, hi in weight.get("post") or []:
+        v = v * a + b
+        if lo is not None:
+            v = min(max(v, lo), hi)
+    return v
+
+
+def _post_text(text, weight):
+    for a, b, lo, hi in weight.get("post") or []:
+        text = "(%s*(%s)+%s)" % (_num(a), text, _num(b))
+        if lo is not None:
+            text = "clamp(%s,%s,%s)" % (text, _num(lo), _num(hi))
+    return text
+
+
 def _weight(obj, pb, k, layer, reader):
     """pb["dr_w<k>"] driven to the layer's weight; returns its path."""
     weight, key = layer["weight"], "dr_w%d" % k
@@ -217,7 +234,7 @@ def _weight(obj, pb, k, layer, reader):
     if weight["type"] == "angle":
         lo, hi = weight["from"]
         text = "(%s*57.29578%s)/%s" % (CHANNELS[weight["channel"]], _signed(-lo), _num(hi - lo))
-        _prop(obj, pb, key, "clamp(%s,0,1)" % text if weight.get("clamp", True) else text, _quat_vars(reader))
+        _prop(obj, pb, key, _post_text("clamp(%s,0,1)" % text if weight.get("clamp", True) else text, weight), _quat_vars(reader))
         return _path(pb, key)
     # spr_value, staged: each step a property on the bone (an expression keeps 255 characters)
     def stage(name, expression, reads):
@@ -254,7 +271,7 @@ def _weight(obj, pb, k, layer, reader):
         stage(tag + "in", "1 if %scx*%scx+%scy*%scy>px*px+py*py else 0" % ((tag,) * 4), ("px", "py", tag + "cx", tag + "cy"))
     out = "0 if abs(z+1)<0.0001 else (1 if m<1e-8 else (1 if iin else (0 if oin<1 or id+od<0.0001 else 1-id/max(id+od,1e-9))))"
     scale = weight.get("scale", 1.0)
-    _prop(obj, pb, key, out if scale == 1.0 else "clamp(%s*(%s),0,1)" % (_num(scale), out),
+    _prop(obj, pb, key, _post_text(out if scale == 1.0 else "clamp(%s*(%s),0,1)" % (_num(scale), out), weight),
           [(r, _path(pb, "dr_s%d_%s" % (k, r))) for r in ("z", "m", "iin", "oin", "id", "od")])
     return _path(pb, key)
 

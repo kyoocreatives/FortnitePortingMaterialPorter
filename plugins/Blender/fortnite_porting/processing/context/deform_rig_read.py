@@ -62,14 +62,22 @@ class _Rig:
                      for f in vm["LocalizedRegistry"]["Functions"]}
         bc = vm["ByteCodeStorage"]
         self.code, self.callables = bc["Instructions"], bc["CallableInfos"]
+        self.branches = bc.get("BranchInfos") or []
         entries = [e for e in bc["Entries"] if "Forwards Solve" in str(e)]
         if not entries:
             raise DeformRigError("no forward solve")
         self.start = entry_index(entries[0])
         self.state = {}
+        # the rig's bool variables by memory index (its movement states: DBNO, Crouch, Skydive...): their defaults,
+        # false unless the class stores one, i.e. standing still
+        cls = next((e for e in dump if e.get("Type") == "ControlRigBlueprintGeneratedClass"), {})
+        cdo = next((e for e in dump if str(e.get("Name", "")).startswith("Default__")), {}).get("Properties") or {}
+        self.bools = {k: bool(cdo.get(p.get("Name"), False)) for k, p in enumerate(cls.get("ChildProperties") or [])
+                      if p.get("Type") == "BoolProperty"}
 
     def resolve(self, op):
-        """An operand's value: a literal, what the work register holds, or 1.0 for a rig variable (its default)."""
+        """An operand's value: a literal, what the work register holds, a bool rig variable's default, or 1.0 for
+        another rig variable."""
         if op is None:
             return None
         kind, index, offset = op["MemoryType"], op["RegisterIndex"], op["RegisterOffset"]
@@ -81,6 +89,8 @@ class _Rig:
         if kind == 0:
             seg = self.work_paths[offset] if offset != 65535 and offset < len(self.work_paths) else None
             return self.state.get((index, seg), self.state.get((index, None)))
+        if kind == 2 and index in self.bools:
+            return self.bools[index]
         return 1.0
 
     def target(self, op):
@@ -114,12 +124,53 @@ def _spr(rig, a):
             "flip_width": bool(get("FlipWidthScaling")), "flip_height": bool(get("FlipHeightScaling"))}
 
 
+def _untaken(rig, pc, condition):
+    """The instruction range of the side a ControlFlowBranch doesn't run: by its condition when known; else (a value
+    from the game's native units) its False side when that does nothing, else None."""
+    jump = rig.code[pc + 1] if pc + 1 < len(rig.code) else {}
+    sides = {b["Label"]: (b["FirstInstruction"], b["LastInstruction"]) for b in rig.branches
+             if b.get("InstructionIndex") == pc + 1}
+    if jump.get("OpCode") != 100 or "True" not in sides or "False" not in sides:
+        return None
+    if isinstance(condition, bool):
+        return sides["False"] if condition else sides["True"]
+    first, last = sides["False"]
+    return None if any(rig.code[k].get("OpCode") == 101 for k in range(first, last + 1)) else sides["False"]
+
+
+def _interp(rig, a):
+    """AlphaInterp settled (no time to interpolate over): the range mapped, scaled, biased and clamped, as UE's
+    FInputScaleBiasClamp; a reader's weight gets it as a step after it. TypeError when a setting comes from the pose."""
+    def get(name):
+        return rig.resolve(a.get(name))
+    slope, offset = 1.0, 0.0
+    if get("bMapRange"):
+        rin, rout = get("InRange") or {}, get("OutRange") or {}
+        lo_in, hi_in = float(rin.get("Min", 0.0)), float(rin.get("Max", 1.0))
+        lo_out, hi_out = float(rout.get("Min", 0.0)), float(rout.get("Max", 1.0))
+        slope = (hi_out - lo_out) / (hi_in - lo_in) if hi_in != lo_in else 0.0
+        offset = lo_out - lo_in * slope
+    scale, bias = float(get("Scale") or 0.0), float(get("Bias") or 0.0)
+    step = [slope * scale, offset * scale + bias] + ([float(get("ClampMin") or 0.0), float(get("ClampMax") or 0.0)]
+                                                     if get("bClampResult") else [None, None])
+    value = get("Value")
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        v = value * step[0] + step[1]
+        return v if step[2] is None else min(max(v, step[2]), step[3])
+    if isinstance(value, dict):
+        return dict(value, post=list(value.get("post") or []) + [step])
+    return None
+
+
 def read(path):
     """{"switches": {part: bool}, "values": {field: {"t", "s"}}, "extras": [op...]} from a deform rig dump."""
     with open(path, encoding="utf-8") as f:
         rig = _Rig(json.load(f))
-    switches, values, extras, called = {}, {}, [], False
-    for x in rig.code[rig.start:]:
+    switches, values, extras, called, skip = {}, {}, [], False, []
+    for pc in range(rig.start, len(rig.code)):
+        if any(first <= pc <= last for first, last in skip):
+            continue        # a branch's side not taken
+        x = rig.code[pc]
         op = x.get("OpCode")
         if op == 80:
             break
@@ -146,6 +197,9 @@ def read(path):
         if name == "FortDeformRig":
             switches, values = _tuning(rig.resolve(a.get("Bool")), rig.resolve(a.get("Value")))
             called = True
+            for flag in ("bInitialized", "bContinueExecution"):       # what it says once the game has run it a frame
+                if a.get(flag) is not None:
+                    rig.state[rig.target(a[flag])] = True
         elif not called or name in SKIP:
             continue
         elif name == "SphericalPoseReader":
@@ -181,6 +235,18 @@ def read(path):
             extras.append({"op": "rotation_constraint", "bone": _item(rig.resolve(a.get("Child"))),
                            "parents": [{"bone": _item(p.get("Item")), "weight": float(p.get("Weight", 1.0))} for p in parents
                                        if isinstance(p, dict)], "maintain_offset": bool(rig.resolve(a.get("bMaintainOffset")))})
+        elif name == "ControlFlowBranch":
+            other = _untaken(rig, pc, rig.resolve(a.get("Condition")))
+            if other is None:
+                print("[Deform rig] extras stop at a branch on a value not read, with work on both sides (not read)")
+                break
+            skip.append(other)
+        elif name == "AlphaInterp":
+            try:
+                rig.state[rig.target(a["Result"])] = _interp(rig, a)
+            except TypeError:
+                print("[Deform rig] extras stop at an alpha interp set by the pose (not read)")
+                break
         elif name == "ParentConstraint":
             # the parents' weighted mix with each one's offset kept, filtered to whole channels, blended in by Weight
             if not rig.resolve(a.get("bMaintainOffset")):
@@ -193,7 +259,11 @@ def read(path):
                 print("[Deform rig] extras stop at a parent constraint on some axes only (not read)")
                 break
             parents = rig.resolve(a.get("Parents")) or []
-            weight = float(rig.resolve(a.get("Weight")) or 0.0)     # a blank literal is zero: no effect
+            weight = rig.resolve(a.get("Weight"))
+            if isinstance(weight, dict):
+                print("[Deform rig] extras stop at a parent constraint blended by the pose (not read)")
+                break
+            weight = float(weight or 0.0)     # a blank literal is zero: no effect
             if weight <= 0.0:
                 continue
             extras.append({"op": "parent_constraint", "bone": _item(rig.resolve(a.get("Child"))),

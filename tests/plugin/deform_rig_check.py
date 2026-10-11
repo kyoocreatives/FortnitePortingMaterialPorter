@@ -380,7 +380,7 @@ def extra_dump(mode=None, mul=None):
     return d
 
 
-def parent_dump(maintain=True, translation=(False, False, False)):
+def parent_dump(maintain=True, translation=(False, False, False), weight=0.5):
     """dump() with a ParentConstraint (Joni the Red's coat: rotation and scale from the thigh, half weight) before its
     pose-reader extra."""
     d = dump()
@@ -390,7 +390,7 @@ def parent_dump(maintain=True, translation=(False, False, False)):
             "ScaleFilter": {"bX": True, "bY": True, "bZ": True}}
     new = [("pc_child", "Bone/dyn_coat_l"), ("pc_keep", maintain), ("pc_filter", filt),
            ("pc_parents", [{"Item": {"Type": "ERigElementType::First", "Name": "thigh_l"}, "Weight": 1.0}]),
-           ("pc_adv", {"InterpolationType": "EConstraintInterpType::Average"}), ("pc_weight", 0.5)]
+           ("pc_adv", {"InterpolationType": "EConstraintInterpType::Average"}), ("pc_weight", weight)]
     first = len(lits["PropertyDescs"])
     for name, value in new:
         lits["PropertyDescs"].append({"Name": name})
@@ -410,6 +410,8 @@ check("a parent constraint reads, and the extras after it", [e["op"] for e in pc
 check("its child, parents, weight and what it copies", (pc[0]["bone"], pc[0]["parents"], pc[0]["weight"], pc[0]["copy"]),
       ("dyn_coat_l", [{"bone": "thigh_l", "weight": 1.0}], 0.5, ["rotation", "scale"]))
 check("one without its offset stops the extras", dr.read(write("snap.json", parent_dump(maintain=False)))["extras"], [])
+check("one blended by a pose-dependent weight stops the extras, keeping the tuning",
+      dr.read(write("varying.json", parent_dump(weight={"type": "spr", "driver": "hand_l"})))["extras"], [])
 check("one copying only some axes stops the extras", dr.read(write("axes.json", parent_dump(translation=(True, False, False))))["extras"], [])
 coat = skeleton("coat")
 bpy.context.view_layer.objects.active = coat
@@ -423,6 +425,91 @@ turn(coat, "thigh_l", (0, 1, 0), 60)
 moved = world(coat, "dyn_coat_l")
 check("the coat turns half the thigh's turn", round(math.degrees(moved.to_quaternion().rotation_difference(coat_rest.to_quaternion()).angle), 2), 30.0)
 check("and keeps its place (translation not copied)", round((moved.to_translation() - coat_rest.to_translation()).length, 5), 0.0)
+def branch_dump(condition, false_side=True):
+    """dump() with its pose-reader extra inside a ControlFlowBranch's True side, and (false_side) a second modify on
+    another bone on its False side; condition: a literal, or None for a work register nothing wrote."""
+    d = dump()
+    vm = d[0]
+    lits = vm["LiteralMemoryStorage"]
+    for name, value in (("cond", condition), ("items_f", [{"Item": {"Type": "ERigElementType::First", "Name": "dyn_false_l"}, "Transform": tf()}]),
+                        ("w_f", 1.0)):
+        lits["PropertyDescs"].append({"Name": name})
+        lits["Values"][name] = value
+    n = len(lits["PropertyDescs"])
+    functions = vm["LocalizedRegistry"]["Functions"]
+    functions.append({"Name": "FRigVMFunction_ControlFlowBranch::Execute", "Arguments": [{"LocalNameString": "Condition"}, {"LocalNameString": "BlockToRun"}]})
+    vm["FunctionNamesStorage"].append(functions[-1]["Name"])
+    code = vm["ByteCodeStorage"]["Instructions"]
+    cond = {"MemoryType": 1, "RegisterIndex": n - 3, "RegisterOffset": 65535} if condition is not None else {"MemoryType": 0, "RegisterIndex": 99, "RegisterOffset": 65535}
+    true_block = code[2:-1]
+    false_block = [{"OpCode": 101, "FunctionIndex": 2, "Arguments": [{"MemoryType": 1, "RegisterIndex": n - 2, "RegisterOffset": 65535},
+                                                                     {"MemoryType": 1, "RegisterIndex": n - 1, "RegisterOffset": 65535}]}] if false_side else []
+    head = code[:2] + [{"OpCode": 101, "FunctionIndex": len(functions) - 1, "Arguments": [cond, cond]},
+                       {"OpCode": 100, "Arg": cond, "FirstBranchInfoIndex": 0}]
+    t0 = len(head)
+    f0 = t0 + len(true_block)
+    vm["ByteCodeStorage"]["Instructions"] = head + true_block + false_block + [{"OpCode": 80}]
+    vm["ByteCodeStorage"]["BranchInfos"] = [
+        {"Index": 0, "Label": "True", "InstructionIndex": 3, "FirstInstruction": t0, "LastInstruction": f0 - 1},
+        {"Index": 1, "Label": "False", "InstructionIndex": 3, "FirstInstruction": f0, "LastInstruction": f0 + len(false_block) - 1},
+        {"Index": 2, "Label": "Completed", "InstructionIndex": 3, "FirstInstruction": f0 + len(false_block), "LastInstruction": f0 + len(false_block) - 1}]
+    return d
+
+
+def bones_of(path):
+    return [e["bone"] for e in dr.read(write(path, branch_dump(*BRANCH[path])))["extras"]]
+
+
+BRANCH = {"b_true.json": (True,), "b_false.json": (False,), "b_unknown.json": (None, False), "b_both.json": (None, True)}
+crouch = branch_dump(None)
+crouch.insert(0, {"Type": "ControlRigBlueprintGeneratedClass", "ChildProperties": [{"Name": "DBNO", "Type": "BoolProperty"},
+                                                                                   {"Name": "Crouch", "Type": "BoolProperty"}]})
+for k, x in enumerate(crouch[1]["ByteCodeStorage"]["Instructions"]):
+    if x.get("OpCode") in (100, 101) and k in (2, 3):
+        for o in (x.get("Arguments") or []) + ([x["Arg"]] if "Arg" in x else []):
+            o.update(MemoryType=2, RegisterIndex=1)
+check("a branch on a rig's bool variable (Crouch: false when standing) runs its False side",
+      [e["bone"] for e in dr.read(write("crouch.json", crouch))["extras"]], ["dyn_false_l"])
+check("a branch on a true literal runs its True side only", bones_of("b_true.json"), ["dyn_bracelet_1_l"])
+check("on a false literal its False side only", bones_of("b_false.json"), ["dyn_false_l"])
+check("an unknown condition with nothing on the False side: the True side, as the game runs it", bones_of("b_unknown.json"), ["dyn_bracelet_1_l"])
+check("an unknown condition with work on both sides stops the extras", bones_of("b_both.json"), [])
+
+
+def interp_dump(scale, bias, clamp=None, map_range=None):
+    """dump() with an AlphaInterp between its pose reader and its modify's weight."""
+    d = dump()
+    vm = d[0]
+    lits = vm["LiteralMemoryStorage"]
+    new = [("ai_scale", scale), ("ai_bias", bias), ("ai_map", map_range is not None),
+           ("ai_in", {"Min": map_range[0], "Max": map_range[1]} if map_range else {"Min": 0.0, "Max": 1.0}),
+           ("ai_out", {"Min": map_range[2], "Max": map_range[3]} if map_range else {"Min": 0.0, "Max": 1.0}),
+           ("ai_clamp", clamp is not None), ("ai_lo", clamp[0] if clamp else None), ("ai_hi", clamp[1] if clamp else None)]
+    first = len(lits["PropertyDescs"])
+    for name, value in new:
+        lits["PropertyDescs"].append({"Name": name})
+        lits["Values"][name] = value
+    work = vm["DefaultWorkMemoryStorage"]["PropertyDescs"]
+    work.append({"Name": "ai_result"})
+    functions = vm["LocalizedRegistry"]["Functions"]
+    functions.append({"Name": "FRigVMFunction_AlphaInterp::Execute", "Arguments": [{"LocalNameString": x} for x in (
+        "Value", "Scale", "Bias", "bMapRange", "InRange", "OutRange", "bClampResult", "ClampMin", "ClampMax", "Result")]})
+    vm["FunctionNamesStorage"].append(functions[-1]["Name"])
+    code = vm["ByteCodeStorage"]["Instructions"]
+    modify = code[-2]
+    l = lambda i: {"MemoryType": 1, "RegisterIndex": first + i, "RegisterOffset": 65535}
+    result = {"MemoryType": 0, "RegisterIndex": len(work) - 1, "RegisterOffset": 65535}
+    code.insert(-2, {"OpCode": 101, "FunctionIndex": len(functions) - 1, "Arguments": [modify["Arguments"][1]] + [l(i) for i in range(8)] + [result]})
+    modify["Arguments"][1] = result
+    return d
+
+
+interp = dr.read(write("interp.json", interp_dump(2.0, 0.1, clamp=(0.0, 1.0))))["extras"][0]["weight"]
+check("an alpha interp scales, biases and clamps its weight", (interp["type"], interp.get("post")), ("spr", [[2.0, 0.1, 0.0, 1.0]]))
+mapped = dr.read(write("map.json", interp_dump(1.0, None, map_range=(0.2, 0.6, 0.0, 1.0))))["extras"][0]["weight"]
+check("a mapped range is the same straight line (blank bias: zero)", mapped.get("post"), [[2.5, -0.5, None, None]])
+check("the settled weight through it", deform_rig.post_value(0.5, interp), 1.0)
+check("and below the clamp", round(deform_rig.post_value(0.3, interp), 6), 0.7)
 check("an additive modify reads", len(dr.read(write("add.json", extra_dump(mode=2)))["extras"]), 1)
 check("an override modify stops the extras", dr.read(write("override.json", extra_dump(mode=0)))["extras"], [])
 check("a constant product weight is a constant", dr.read(write("mul.json", extra_dump(mul=(0.5, 2.0))))["extras"][0]["weight"],
