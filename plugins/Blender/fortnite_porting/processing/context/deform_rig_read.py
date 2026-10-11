@@ -13,6 +13,8 @@ LIBRARY = os.path.join(os.path.dirname(__file__), "deform_rig.json")
 SUFFIX = re.compile(r"^(.*)_\d+_[0-9A-F]{32}$")         # a Blueprint struct member's generated suffix
 SCALES = ("PositiveWidth", "NegativeWidth", "PositiveHeight", "NegativeHeight")
 SKIP = ("BeginExecution", "Sequence", "SetCurveValue")      # SetCurveValue: a curve for the anim graph, no bone moves
+MOVES = ("ModifyTransforms", "OffsetTransformForItem", "RotationConstraintLocalSpaceOffset", "RotationConstraint",
+         "ParentConstraint", "AimItem", "AimConstraintLocalSpaceOffset")     # units that move bones: after the library call only
 ATTRIBUTE = ("DISPATCH_RigDispatch_GetAnimAttribute", "DISPATCH_RigDispatch_SetAnimAttribute")
 OPERANDS = {"Add": ("A", "B"), "Sub": ("A", "B"), "Div": ("A", "B"), "Clamp": ("Value", "Minimum", "Maximum"),
             "Remap": ("Value", "SourceMinimum", "SourceMaximum", "TargetMinimum", "TargetMaximum", "bClamp"),
@@ -126,6 +128,8 @@ class _Rig:
 
     def copy(self, x):
         value = self.resolve(x["Source"])
+        if value is None and x["Source"]["MemoryType"] == 0:
+            return          # a register nothing wrote: its target keeps what it holds (a variable its default)
         index, seg = self.target(x["Target"])
         if seg and seg.endswith("Transform.Rotation") and isinstance(self.state.get((index, None)), list):
             entry = self.state[(index, None)][int(seg.split(".")[0])]
@@ -197,6 +201,8 @@ def _step(v, a, b, lo=None, hi=None, power=None):
 
 def _math(op, v):
     """A math unit (OPERANDS) on numbers, bools and at most one pose weight, as UE computes it; TypeError otherwise."""
+    if any(isinstance(x, dict) and x.get("type") == "position" for x in v):
+        raise TypeError("a bone's place, not a weight")
     if op.startswith("Bool"):
         return {"BoolNot": lambda: not _flag(v[0]), "BoolAnd": lambda: _flag(v[0]) and _flag(v[1]),
                 "BoolOr": lambda: _flag(v[0]) or _flag(v[1]), "BoolToFloat": lambda: float(_flag(v[0]))}[op]()
@@ -207,6 +213,9 @@ def _math(op, v):
         a = 0.0 if abs(s1 - s0) < 1e-8 else 1.0 / (s1 - s0)     # equal source ends: the ratio is 0
         ratio = _step(v[0], a, -s0 * a, *((0.0, 1.0) if v[5] else (None, None)))
         return _step(ratio, t1 - t0, t0)
+    if op == "Add" and all(isinstance(x, dict) for x in v):       # two pose weights added: driven as their sum
+        terms = [t for x in v for t in (x["terms"] if x.get("type") == "sum" and not x.get("post") else [x])]
+        return {"type": "sum", "terms": terms}
     if sum(isinstance(x, dict) for x in v) > 1 or (op == "Div" and isinstance(v[1], dict)):
         raise TypeError("a value from the pose")
     if op == "Div":
@@ -230,6 +239,37 @@ def _modify(item, transform, weight):
             "s": _vec(transform.get("Scale3D") or {"X": 1, "Y": 1, "Z": 1}),
             "euler": rotation.get("euler") if euler else None, "order": rotation.get("order") if euler else None,
             "weight": weight if isinstance(weight, dict) else {"type": "const", "value": 1.0 if weight is None else float(weight)}}
+
+
+def _point(v):
+    """An aim target given as a location in a bone's space ({Target, Kind, Space}): {bone, offset}, None otherwise."""
+    if not isinstance(v, dict) or str(v.get("Kind", "")).split("::")[-1] != "Location":
+        return None
+    return {"bone": _item(v.get("Space")), "offset": _vec(v.get("Target"))}
+
+
+def _aim(rig, name, a):
+    """An aim (AimItem, AimConstraintLocalSpaceOffset) as an extra; None when it isn't one this reads (a direction
+    target, a partial aim, several parents, some axes only)."""
+    weight = rig.resolve(a.get("Weight"))
+    if not isinstance(weight, dict):
+        weight = {"type": "const", "value": 1.0 if weight is None else float(weight)}
+    if name == "AimItem":
+        primary, secondary = rig.resolve(a.get("Primary")) or {}, rig.resolve(a.get("Secondary")) or {}
+        target, up = _point(primary), _point(secondary) if float(secondary.get("Weight", 0.0) or 0.0) > 0.0 else None
+        if target is None or abs(float(primary.get("Weight", 1.0) or 0.0) - 1.0) > 1e-6:
+            return None
+        return {"op": "aim", "bone": _item(rig.resolve(a.get("Item"))), "aim": _vec(primary.get("Axis")), "target": target,
+                "up_axis": _vec(secondary.get("Axis")) if up else None, "up": up, "keep_offset": False, "weight": weight}
+    parents = [p for p in rig.resolve(a.get("Parents")) or [] if isinstance(p, dict) and float(p.get("Weight", 1.0)) > 0.0]
+    filt = rig.resolve(a.get("Filter")) or {}
+    if len(parents) != 1 or not all(filt.get(b, True) for b in ("bX", "bY", "bZ")):
+        return None
+    up = _point(rig.resolve(a.get("WorldUp")))
+    return {"op": "aim", "bone": _item(rig.resolve(a.get("Child"))), "aim": _vec(rig.resolve(a.get("AimAxis"))),
+            "target": {"bone": _item(parents[0].get("Item")), "offset": [0.0, 0.0, 0.0]},
+            "up_axis": _vec(rig.resolve(a.get("UpAxis"))) if up else None, "up": up,
+            "keep_offset": bool(rig.resolve(a.get("bMaintainOffset"))), "weight": weight}
 
 
 def _untaken(rig, pc, condition):
@@ -297,95 +337,122 @@ def read(path):
             continue
         name, a = rig.call(x)
         unit = re.sub(r"^Math(Double|Float)?", "", name)
-        if name == "FortDeformRig":
-            switches, values = _tuning(rig.resolve(a.get("Bool")), rig.resolve(a.get("Value")))
-            called = True
-            for flag in ("bInitialized", "bContinueExecution"):       # what it says once the game has run it a frame
-                if a.get(flag) is not None:
-                    rig.state[rig.target(a[flag])] = True
-        elif not called or name in SKIP:
-            continue
-        elif name == "SphericalPoseReader":
-            rig.state[rig.target(a["OutputParam"])] = _spr(rig, a)
-        elif name == "MathQuaternionFromEuler":
-            rig.state[rig.target(a["Result"])] = {"euler": _vec(rig.resolve(a["Euler"])), "order": int(rig.resolve(a["RotationOrder"]) or 0)}
-        elif name in ("MathDoubleMul", "MathFloatMul"):
-            values_ab = [rig.resolve(a.get("A")), rig.resolve(a.get("B"))]
-            weight = next((v for v in values_ab if isinstance(v, dict)), None)
-            factor = 1.0
-            for v in values_ab:
-                factor *= v if isinstance(v, (int, float)) else 1.0
-            rig.state[rig.target(a["Result"])] = factor if weight is None else dict(weight, scale=factor * weight.get("scale", 1.0))
-        elif name == "ModifyTransforms":
-            mode = rig.resolve(a.get("Mode"))
-            if mode is not None and str(mode).split("::")[-1] not in ("2", "AdditiveLocal"):
-                print("[Deform rig] extras stop at a %s modify (not read)" % mode)
+        why = "[Deform rig] extras stop at %s (not read)" % name
+        for _once in (None,):       # a unit that stops the extras breaks out here
+            if name == "FortDeformRig":
+                switches, values = _tuning(rig.resolve(a.get("Bool")), rig.resolve(a.get("Value")))
+                called = True
+                for flag in ("bInitialized", "bContinueExecution"):       # what it says once the game has run it a frame
+                    if a.get(flag) is not None:
+                        rig.state[rig.target(a[flag])] = True
+            elif name in SKIP or (not called and name in MOVES):
+                continue
+            elif name == "SphericalPoseReader":
+                rig.state[rig.target(a["OutputParam"])] = _spr(rig, a)
+            elif name == "MathQuaternionFromEuler":
+                rig.state[rig.target(a["Result"])] = {"euler": _vec(rig.resolve(a["Euler"])), "order": int(rig.resolve(a["RotationOrder"]) or 0)}
+            elif name in ("MathDoubleMul", "MathFloatMul"):
+                values_ab = [rig.resolve(a.get("A")), rig.resolve(a.get("B"))]
+                weight = next((v for v in values_ab if isinstance(v, dict)), None)
+                factor = 1.0
+                for v in values_ab:
+                    factor *= v if isinstance(v, (int, float)) else 1.0
+                rig.state[rig.target(a["Result"])] = factor if weight is None else dict(weight, scale=factor * weight.get("scale", 1.0))
+            elif name == "ModifyTransforms":
+                mode = rig.resolve(a.get("Mode"))
+                if mode is not None and str(mode).split("::")[-1] not in ("2", "AdditiveLocal"):
+                    why = ("[Deform rig] extras stop at a %s modify (not read)" % mode)
+                    break
+                weight = rig.resolve(a.get("Weight"))
+                for entry in rig.resolve(a["ItemToModify"]) or []:
+                    extras.append(_modify(entry.get("Item"), entry.get("Transform") or {}, weight))
+            elif name in ("AimItem", "AimConstraintLocalSpaceOffset"):
+                aim = _aim(rig, name, a)
+                if aim is None:
+                    why = ("[Deform rig] extras stop at an aim this doesn't read (a direction, part way, several parents or some axes)")
+                    break
+                if aim["weight"]["type"] != "const" or aim["weight"]["value"] > 0.0:      # switched off: no effect
+                    extras.append(aim)
+            elif name == "OffsetTransformForItem":
+                # UE applies the offset in the item's own space, blended by Weight: an additive local modify
+                extras.append(_modify(rig.resolve(a.get("Item")), rig.resolve(a.get("OffsetTransform")) or {}, rig.resolve(a.get("Weight"))))
+            elif unit in OPERANDS and "Result" in a:
+                try:
+                    rig.state[rig.target(a["Result"])] = _math(unit, [rig.resolve(a.get(k)) for k in OPERANDS[unit]])
+                except TypeError:
+                    why = ("[Deform rig] extras stop at %s on values from the pose (not read)" % name)
+                    break
+            elif name == "GetTransform":
+                # a bone's place in the world, read for a distance; any other use of it is the pose's, not read
+                if int(_number(rig.resolve(a.get("Space")))) != 1 or rig.resolve(a.get("bInitial")):
+                    why = ("[Deform rig] extras stop at a bone's local or initial transform (not read)")
+                    break
+                rig.state[rig.target(a["Transform"])] = {"type": "position", "bone": _item(rig.resolve(a.get("Item")))}
+            elif name == "MathVectorDistance":
+                ends = [rig.resolve(a.get(k)) for k in ("A", "B")]
+                if not all(isinstance(e, dict) and e.get("type") == "position" for e in ends):
+                    why = ("[Deform rig] extras stop at a distance to a point that isn't a bone (not read)")
+                    break
+                rig.state[rig.target(a["Result"])] = {"type": "distance", "a": ends[0]["bone"], "b": ends[1]["bone"]}
+            elif name == "KalmanFloat":
+                rig.state[rig.target(a["Result"])] = rig.resolve(a.get("Value"))      # settled: the average of one value
+            elif name == ATTRIBUTE[0]:
+                published = rig.attributes.get(rig.resolve(a.get("Name")))
+                if published is None:
+                    why = ("[Deform rig] extras stop at an anim attribute the game's animation sets (not read)")
+                    break
+                rig.state[rig.target(a["Value"])] = published
+                rig.state[rig.target(a["Found"])] = True
+            elif name in ("RotationConstraintLocalSpaceOffset", "RotationConstraint"):
+                if a.get("bMaintainOffset") is not None and not rig.resolve(a.get("bMaintainOffset")):
+                    why = ("[Deform rig] extras stop at a rotation constraint without offset (not read)")
+                    break
+                parents = rig.resolve(a.get("Parents")) or []
+                extras.append({"op": "rotation_constraint", "bone": _item(rig.resolve(a.get("Child"))),
+                               "parents": [{"bone": _item(p.get("Item")), "weight": float(p.get("Weight", 1.0))} for p in parents
+                                           if isinstance(p, dict)], "maintain_offset": bool(rig.resolve(a.get("bMaintainOffset")))})
+            elif name == "ControlFlowBranch":
+                other = _untaken(rig, pc, rig.resolve(a.get("Condition")))
+                if other is None:
+                    why = ("[Deform rig] extras stop at a branch on a value not read, with work on both sides (not read)")
+                    break
+                skip.append(other)
+            elif name == "AlphaInterp":
+                try:
+                    rig.state[rig.target(a["Result"])] = _interp(rig, a)
+                except TypeError:
+                    why = ("[Deform rig] extras stop at an alpha interp set by the pose (not read)")
+                    break
+            elif name == "ParentConstraint":
+                # the parents' weighted mix with each one's offset kept, filtered to whole channels, blended in by Weight
+                if not rig.resolve(a.get("bMaintainOffset")):
+                    why = ("[Deform rig] extras stop at a parent constraint without offset (not read)")
+                    break
+                filt = rig.resolve(a.get("Filter")) or {}
+                axes = [[bool((filt.get(k) or {}).get(b, True)) for b in ("bX", "bY", "bZ")]
+                        for k in ("TranslationFilter", "RotationFilter", "ScaleFilter")]
+                if any(len(set(x)) > 1 for x in axes):
+                    why = ("[Deform rig] extras stop at a parent constraint on some axes only (not read)")
+                    break
+                parents = rig.resolve(a.get("Parents")) or []
+                weight = rig.resolve(a.get("Weight"))       # a constant, or a pose weight blending it in
+                if not isinstance(weight, dict):
+                    weight = float(weight or 0.0)     # a blank literal is zero: no effect
+                    if weight <= 0.0:
+                        continue
+                extras.append({"op": "parent_constraint", "bone": _item(rig.resolve(a.get("Child"))),
+                               "parents": [{"bone": _item(p.get("Item")), "weight": float(p.get("Weight", 1.0))} for p in parents
+                                           if isinstance(p, dict)],
+                               "weight": weight, "copy": [c for c, x in zip(("translation", "rotation", "scale"), axes) if x[0]]})
+            else:
+                why = ("[Deform rig] extras stop at %s (not read)" % name)
                 break
-            weight = rig.resolve(a.get("Weight"))
-            for entry in rig.resolve(a["ItemToModify"]) or []:
-                extras.append(_modify(entry.get("Item"), entry.get("Transform") or {}, weight))
-        elif name == "OffsetTransformForItem":
-            # UE applies the offset in the item's own space, blended by Weight: an additive local modify
-            extras.append(_modify(rig.resolve(a.get("Item")), rig.resolve(a.get("OffsetTransform")) or {}, rig.resolve(a.get("Weight"))))
-        elif unit in OPERANDS and "Result" in a:
-            try:
-                rig.state[rig.target(a["Result"])] = _math(unit, [rig.resolve(a.get(k)) for k in OPERANDS[unit]])
-            except TypeError:
-                print("[Deform rig] extras stop at %s on values from the pose (not read)" % name)
-                break
-        elif name == "KalmanFloat":
-            rig.state[rig.target(a["Result"])] = rig.resolve(a.get("Value"))      # settled: the average of one value
-        elif name == ATTRIBUTE[0]:
-            published = rig.attributes.get(rig.resolve(a.get("Name")))
-            if published is None:
-                print("[Deform rig] extras stop at an anim attribute the game's animation sets (not read)")
-                break
-            rig.state[rig.target(a["Value"])] = published
-            rig.state[rig.target(a["Found"])] = True
-        elif name in ("RotationConstraintLocalSpaceOffset", "RotationConstraint"):
-            if a.get("bMaintainOffset") is not None and not rig.resolve(a.get("bMaintainOffset")):
-                print("[Deform rig] extras stop at a rotation constraint without offset (not read)")
-                break
-            parents = rig.resolve(a.get("Parents")) or []
-            extras.append({"op": "rotation_constraint", "bone": _item(rig.resolve(a.get("Child"))),
-                           "parents": [{"bone": _item(p.get("Item")), "weight": float(p.get("Weight", 1.0))} for p in parents
-                                       if isinstance(p, dict)], "maintain_offset": bool(rig.resolve(a.get("bMaintainOffset")))})
-        elif name == "ControlFlowBranch":
-            other = _untaken(rig, pc, rig.resolve(a.get("Condition")))
-            if other is None:
-                print("[Deform rig] extras stop at a branch on a value not read, with work on both sides (not read)")
-                break
-            skip.append(other)
-        elif name == "AlphaInterp":
-            try:
-                rig.state[rig.target(a["Result"])] = _interp(rig, a)
-            except TypeError:
-                print("[Deform rig] extras stop at an alpha interp set by the pose (not read)")
-                break
-        elif name == "ParentConstraint":
-            # the parents' weighted mix with each one's offset kept, filtered to whole channels, blended in by Weight
-            if not rig.resolve(a.get("bMaintainOffset")):
-                print("[Deform rig] extras stop at a parent constraint without offset (not read)")
-                break
-            filt = rig.resolve(a.get("Filter")) or {}
-            axes = [[bool((filt.get(k) or {}).get(b, True)) for b in ("bX", "bY", "bZ")]
-                    for k in ("TranslationFilter", "RotationFilter", "ScaleFilter")]
-            if any(len(set(x)) > 1 for x in axes):
-                print("[Deform rig] extras stop at a parent constraint on some axes only (not read)")
-                break
-            parents = rig.resolve(a.get("Parents")) or []
-            weight = rig.resolve(a.get("Weight"))       # a constant, or a pose weight blending it in
-            if not isinstance(weight, dict):
-                weight = float(weight or 0.0)     # a blank literal is zero: no effect
-                if weight <= 0.0:
-                    continue
-            extras.append({"op": "parent_constraint", "bone": _item(rig.resolve(a.get("Child"))),
-                           "parents": [{"bone": _item(p.get("Item")), "weight": float(p.get("Weight", 1.0))} for p in parents
-                                       if isinstance(p, dict)],
-                           "weight": weight, "copy": [c for c, x in zip(("translation", "rotation", "scale"), axes) if x[0]]})
         else:
-            print("[Deform rig] extras stop at %s (not read)" % name)
+            continue
+        if called:
+            print(why)
             break
+        # before the library call only values are read (its pose readers feed the later units): nothing stops there
     if not called:
         raise DeformRigError("no FortDeformRig call")
     return {"switches": switches, "values": values, "extras": extras}

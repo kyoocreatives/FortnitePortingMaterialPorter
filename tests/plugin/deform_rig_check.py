@@ -618,8 +618,12 @@ check("a weight squared", squared.get("post"), [[1.0, 0.0, None, None, 2.0]])
 check("its settled value", deform_rig.post_value(0.5, squared), 0.25)
 check("math on constants is a constant", w_of(chained("consts.json", [(SUB, [("A", ("l", 1.0)), ("B", ("l", 0.25)), ("Result", ("w", "r"))])])),
       {"type": "const", "value": 0.75})
-check("two weights added stop the extras",
-      chained("twoweights.json", [(ADD, [("A", "spr"), ("B", "spr"), ("Result", ("w", "r"))])]), [])
+both = w_of(chained("twoweights.json", [(ADD, [("A", "spr"), ("B", "spr"), ("Result", ("w", "a"))]),
+                                        (DIV, [("A", ("w", "a")), ("B", ("l", 2.0)), ("Result", ("w", "r"))])]))
+check("two weights added, halved (LooseCreep's glute: both thighs' readers): their sum, then the steps",
+      (both.get("type"), [t.get("driver") for t in both.get("terms") or []], both.get("post")), ("sum", ["hand_l", "hand_l"], [[0.5, 0.0, None, None]]))
+check("two weights multiplied stop the extras",
+      chained("twoweights_mul.json", [("FRigVMFunction_MathDoublePow::Execute", [("A", "spr"), ("B", "spr"), ("Result", ("w", "r"))])]), [])
 check("a weight kept in a rig variable", (w_of(chained("var.json", [("Copy", "spr", ("x", 5))], weight=("x", 5))) or {}).get("driver"), "hand_l")
 def with_variables(d, props, defaults):
     """A dump with the rig class's variables (name, type) and the defaults its class default object stores."""
@@ -632,6 +636,15 @@ check("a number variable the game drives: its default, zero when none is stored 
       w_of(dr.read(write("blink.json", with_variables(chain_dump([], weight=("x", 1)), VARIABLES, {})))["extras"]), {"type": "const", "value": 0.0})
 check("one with a stored default", w_of(dr.read(write("lean.json", with_variables(chain_dump([], weight=("x", 2)), VARIABLES, {"lean": 0.4})))["extras"]),
       {"type": "const", "value": 0.4})
+early = chain_dump([("Copy", "spr", ("x", 5))], weight=("x", 5))
+code = early[0]["ByteCodeStorage"]["Instructions"]       # LooseCreep: the reader and its copy run before the library call
+reader_op, copy_op = code[2], code[6]
+early[0]["ByteCodeStorage"]["Instructions"] = [code[0], reader_op, copy_op, code[1]] + [x for x in code[2:] if x is not reader_op and x is not copy_op]
+check("a weight computed before the library call still weights the extras after it",
+      (w_of(dr.read(write("early.json", early))["extras"]) or {}).get("driver"), "hand_l")
+unwritten = with_variables(chain_dump([("Copy", ("w", "never_written"), ("x", 1))], weight=("x", 1)), VARIABLES, {})
+check("a copy from a register nothing wrote leaves the variable at its default (LooseCreep's 158 mm)",
+      w_of(dr.read(write("unwritten.json", unwritten))["extras"]), {"type": "const", "value": 0.0})
 check("a curve written on the way doesn't stop the extras",
       len(chained("curve.json", [("FRigUnit_SetCurveValue::Execute", [("Curve", ("l", "sleeve_R")), ("Value", "spr"), ("CachedCurveIndex", ("w", "c"))])],
                   weight="spr")), 1)
@@ -667,6 +680,157 @@ check("an offset transform: an additive local modify on its item",
       [(e["op"], e["bone"], e["t"], e["s"], e["weight"].get("driver")) for e in offset][:1],
       [("modify", "extra_glute_scale", [1.0, 2.0, 3.0], [1.5, 1.0, 1.0], "hand_l")])
 check("then the extras after it", len(offset), 2)
+
+# aims: LooseCreep's straps (AimItem: an axis at a point in a bone's space, a second axis toward another) and SaxoPop's
+# twists (AimConstraintLocalSpaceOffset: aimed at a parent bone, the rest offset kept)
+AIM_ITEM = ("FRigUnit_AimItem::Execute", ["Item", "Primary", "Secondary", "Weight", "DebugSettings", "CachedItem",
+                                          "PrimaryCachedSpace", "SecondaryCachedSpace", "bIsInitialized"])
+
+
+def target(axis, point, space, kind="Location", weight=1.0):
+    return {"Weight": weight, "Axis": dict(zip("XYZ", axis)), "Target": dict(zip("XYZ", point)),
+            "Kind": "EControlRigVectorKind::" + kind, "Space": {"Type": "ERigElementType::First", "Name": space}}
+
+
+def aim_item(name, primary_kind="Location", primary_weight=1.0, weight=1.0):
+    fn, args = AIM_ITEM
+    ops = {"Item": ("l", "Bone/dyn_strap_l"), "Primary": ("l", target((1.0, 0.0, 0.0), (-26.0, 8.0, 0.0), "thigh_l", primary_kind, primary_weight)),
+           "Secondary": ("l", target((0.0, 1.0, 0.0), (0.0, 10.0, 0.0), "spine_02")), "Weight": ("l", weight)}
+    return chained(name, [(fn, [(a, ops.get(a, ("w", name + a))) for a in args])], weight="spr")
+
+
+strap = aim_item("aimitem.json")
+check("an aim item: its axis at a point in a bone's space, its second axis toward another",
+      strap[0] if strap else None,
+      {"op": "aim", "bone": "dyn_strap_l", "aim": [1.0, 0.0, 0.0], "target": {"bone": "thigh_l", "offset": [-26.0, 8.0, 0.0]},
+       "up_axis": [0.0, 1.0, 0.0], "up": {"bone": "spine_02", "offset": [0.0, 10.0, 0.0]}, "keep_offset": False,
+       "weight": {"type": "const", "value": 1.0}})
+check("then the extras after it", len(strap), 2)
+check("one aimed along a direction stops the extras", aim_item("aimdir.json", primary_kind="Direction"), [])
+check("one aiming part way stops the extras", aim_item("aimhalf.json", primary_weight=0.5), [])
+check("one switched off (weight 0, LooseCreep's right strap at rest) has no effect: skipped, the extras go on",
+      [e["op"] for e in aim_item("aimoff.json", weight=0.0)], ["modify"])
+AIM_CONSTRAINT = ("FRigUnit_AimConstraintLocalSpaceOffset::Execute", ["Child", "bMaintainOffset", "Filter", "AimAxis", "UpAxis",
+                                                                      "WorldUp", "Parents", "AdvancedSettings", "Weight"])
+
+
+def aim_constraint(name, parents=(("calf_l", 1.0),), filt=(True, True, True), keep=True):
+    fn, args = AIM_CONSTRAINT
+    ops = {"Child": ("l", "Bone/thigh_l_twist"), "bMaintainOffset": ("l", keep), "Filter": ("l", dict(zip(("bX", "bY", "bZ"), filt))),
+           "AimAxis": ("l", {"X": -1.0, "Y": 0.0, "Z": 0.0}), "UpAxis": ("l", {"X": 0.0, "Y": 1.0, "Z": 0.0}),
+           "WorldUp": ("l", {"Target": {"X": 0.0, "Y": 1.0, "Z": 0.0}, "Kind": "EControlRigVectorKind::Location",
+                             "Space": {"Type": "ERigElementType::First", "Name": "thigh_l_aim_up_pnt"}}),
+           "Parents": ("l", [{"Item": {"Type": "ERigElementType::First", "Name": p}, "Weight": w} for p, w in parents]),
+           "AdvancedSettings": ("l", {"RotationOrderForFilter": "EEulerRotationOrder::XZY"}), "Weight": ("l", 1.0)}
+    return chained(name, [(fn, [(a, ops[a]) for a in args])], weight="spr")
+
+
+twist_aim = aim_constraint("aimc.json")
+check("an aim constraint: at its parent, up toward a point, its rest offset kept",
+      twist_aim[0] if twist_aim else None,
+      {"op": "aim", "bone": "thigh_l_twist", "aim": [-1.0, 0.0, 0.0], "target": {"bone": "calf_l", "offset": [0.0, 0.0, 0.0]},
+       "up_axis": [0.0, 1.0, 0.0], "up": {"bone": "thigh_l_aim_up_pnt", "offset": [0.0, 1.0, 0.0]}, "keep_offset": True,
+       "weight": {"type": "const", "value": 1.0}})
+check("one between two parents stops the extras", aim_constraint("aimc2.json", parents=(("calf_l", 1.0), ("thigh_l", 1.0))), [])
+check("one filtered to some axes stops the extras", aim_constraint("aimc3.json", filt=(True, False, True)), [])
+
+
+GET = ("FRigUnit_GetTransform::Execute", ["Item", "Space", "bInitial", "Transform", "CachedIndex"])
+DIST = ("FRigVMFunction_MathVectorDistance::Execute", ["A", "B", "Result"])
+
+
+def distance_steps(space_a=1):
+    return [(GET[0], [("Item", ("l", "Bone/hand_l")), ("Space", ("l", space_a)), ("bInitial", ("l", None)), ("Transform", ("w", "ta")), ("CachedIndex", ("w", "ca"))]),
+            (GET[0], [("Item", ("l", "Bone/pelvis")), ("Space", ("l", 1)), ("bInitial", ("l", None)), ("Transform", ("w", "tb")), ("CachedIndex", ("w", "cb"))]),
+            ("Copy", ("w", "ta"), ("w", "da")), ("Copy", ("w", "tb"), ("w", "db")),
+            (DIST[0], [("A", ("w", "da")), ("B", ("w", "db")), ("Result", ("w", "d"))]),
+            (REMAP, [("Value", ("w", "d")), ("SourceMinimum", ("l", 90.0)), ("SourceMaximum", ("l", 60.0)), ("TargetMinimum", ("l", None)),
+                     ("TargetMaximum", ("l", 1.0)), ("bClamp", ("l", True)), ("Result", ("w", "r"))])]
+
+
+apart = w_of(chained("dist.json", distance_steps()))
+check("a distance between two bones' world positions, remapped, is a weight",
+      (apart.get("type"), apart.get("a"), apart.get("b"), apart.get("post")), ("distance", "hand_l", "pelvis", [[-1.0 / 30.0, 3.0, 0.0, 1.0], [1.0, 0.0, None, None]]))
+check("one from a bone's local position stops the extras", chained("distlocal.json", distance_steps(space_a=0)), [])
+check("a position isn't a weight: math on it stops the extras",
+      chained("posmath.json", distance_steps()[:1] + [(ADD, [("A", ("w", "ta")), ("B", ("l", 1.0)), ("Result", ("w", "r"))])]), [])
+
+
+reach = skeleton("reach")
+deform_rig.build(reach, lib, dict(tun, extras=[{"op": "modify", "bone": "lowerarm_twist_01_l", "t": [0.0, 1.0, 0.0], "s": [1.0, 1.0, 1.0],
+                                               "weight": apart}]))
+for deg in (0, 70, 120, 130, 140):
+    turn(reach, "lowerarm_l", (0, 0, 1), deg)
+    heads = [reach.matrix_world @ reach.pose.bones[n].head for n in ("hand_l", "pelvis")]
+    cm = (heads[0] - heads[1]).length / 0.01
+    want = min(max((cm - 90.0) / (60.0 - 90.0), 0.0), 1.0)
+    twist = reach.pose.bones["lowerarm_twist_01_l"]
+    check("elbow %d: a distance weight is the remapped distance (%.1f cm)" % (deg, cm), round(twist.get("dr_w0", -1.0), 4), round(want, 4))
+    check("elbow %d: and the reference agrees" % deg, round(deform_rig.reference_weight(reach, twist.get("dr_spec0")), 4), round(want, 4))
+
+
+UPPER = next(p["weight"] for p in lib["parts"] if p["bone"] == "deform_upperarm_up_l")
+paired = skeleton("paired")
+summed = {"type": "sum", "terms": [ELBOW, UPPER], "post": [[0.5, 0.0, None, None]]}
+deform_rig.build(paired, lib, dict(tun, extras=[{"op": "modify", "bone": "lowerarm_twist_01_l", "t": [0.0, 1.0, 0.0], "s": [1.0, 1.0, 1.0],
+                                                 "weight": summed}]))
+seen_sum = []
+for deg_arm, deg_up in ((60, 0), (-60, 40), (60, 70)):
+    turn(paired, "lowerarm_l", (0, 0, 1), deg_arm)
+    turn(paired, "upperarm_l", (0, 1, 0), deg_up)
+    twist = paired.pose.bones["lowerarm_twist_01_l"]
+    spec = json.loads(twist["dr_spec0"])
+    parts = [deform_rig.reference_weight(paired, {"weight": t, "reader": r, "scale": 0.01}) for t, r in zip(summed["terms"], spec["readers"])]
+    seen_sum.append(twist.get("dr_w0", -1.0))
+    check("arm %d, %d: a summed weight's driver is half its terms' sum" % (deg_arm, deg_up), round(twist.get("dr_w0", -1.0), 4), round(0.5 * sum(parts), 4))
+    check("arm %d, %d: and the reference agrees" % (deg_arm, deg_up), round(deform_rig.reference_weight(paired, twist["dr_spec0"]), 4), round(0.5 * sum(parts), 4))
+check("the summed weight moves with the pose", max(seen_sum) - min(seen_sum) > 0.05, True)
+
+
+def aimed_rig(name, keep):
+    sk = skeleton(name)
+    bpy.context.view_layer.objects.active = sk
+    bpy.ops.object.mode_set(mode='EDIT')
+    b = sk.data.edit_bones.new("dyn_strap_l")
+    b.head, b.tail, b.parent = (0.12, -0.1, 0.9), (0.12, -0.1, 0.8), sk.data.edit_bones["pelvis"]
+    bpy.ops.object.mode_set(mode='OBJECT')
+    extra = {"op": "aim", "bone": "dyn_strap_l", "aim": [1.0, 0.0, 0.0], "target": {"bone": "thigh_l", "offset": [-20.0, 8.0, 0.0]},
+             "up_axis": [0.0, 1.0, 0.0], "up": {"bone": "spine_04", "offset": [0.0, 10.0, 0.0]}, "keep_offset": keep,
+             "weight": {"type": "const", "value": 1.0}}
+    deform_rig.build(sk, lib, dict(tun, extras=[extra]))
+    return sk, extra
+
+
+def ue_frame(obj, name):
+    bpy.context.view_layer.update()
+    return (obj.matrix_world @ obj.pose.bones[name].matrix).to_3x3().normalized() @ deform_rig._to_bone(obj, name)
+
+
+def point_of(obj, spec):
+    from fpmp_baseline.material_porter.effects import ue_offset
+    m = obj.matrix_world @ obj.pose.bones[spec["bone"]].matrix @ ue_offset(obj.data.bones[spec["bone"]])
+    return m @ (deform_rig.FLIP @ Vector(spec["offset"]) * 0.01)
+
+
+aimer, aim_spec = aimed_rig("aimer", False)
+turn(aimer, "thigh_l", (0, 1, 0), 50)
+head = aimer.matrix_world @ aimer.pose.bones["dyn_strap_l"].head
+frame = ue_frame(aimer, "dyn_strap_l")
+to_target = (point_of(aimer, aim_spec["target"]) - head).normalized()
+check("an aimed bone points its aim axis at the target", round(math.degrees((frame @ Vector((1, 0, 0))).angle(to_target)), 3), 0.0, 0.05)
+up_dir = point_of(aimer, aim_spec["up"]) - head
+up_dir = (up_dir - to_target * up_dir.dot(to_target)).normalized()
+check("and its up axis toward the up point", round(math.degrees((frame @ Vector((0, 1, 0))).angle(up_dir)), 3), 0.0, 0.05)
+keeper, keep_spec = aimed_rig("keeper", True)
+rest_frame = ue_frame(keeper, "dyn_strap_l")
+rest_dir = (point_of(keeper, keep_spec["target"]) - keeper.matrix_world @ keeper.pose.bones["dyn_strap_l"].head).normalized()
+rest_built = (keeper.matrix_world @ keeper.data.bones["dyn_strap_l"].matrix_local).to_3x3().normalized() @ deform_rig._to_bone(keeper, "dyn_strap_l")
+check("one keeping its offset leaves the rest pose", round(math.degrees((rest_built.inverted() @ rest_frame).to_quaternion().angle), 4), 0.0)
+check("rest stays rest", round(math.degrees((ue_frame(keeper, "dyn_strap_l").inverted() @ rest_frame).to_quaternion().angle), 4), 0.0)
+turn(keeper, "thigh_l", (0, 1, 0), 50)
+now_dir = (point_of(keeper, keep_spec["target"]) - keeper.matrix_world @ keeper.pose.bones["dyn_strap_l"].head).normalized()
+delta = ue_frame(keeper, "dyn_strap_l") @ rest_frame.inverted()
+check("then turns by the aim's turn", round(math.degrees((delta @ rest_dir).angle(now_dir)), 3), 0.0, 0.05)
 # several parts with rigs: the one that calls FortDeformRig tunes the body
 two = skeleton("two_rigs")
 mesh_hooks._correctives(SimpleNamespace(imported_meshes=[{"Skeleton": None, "Mesh": None, "Meta": {"DeformRig": write("face.json", dump(call=False))}},

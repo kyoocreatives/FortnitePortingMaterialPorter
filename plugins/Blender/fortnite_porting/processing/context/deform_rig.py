@@ -12,7 +12,7 @@ import math
 import bpy
 from mathutils import Matrix, Vector
 
-READ, FOLLOW, ADD, PREFIX = "DR_read_", "DR_follow_", "DR_add_", "DR "
+READ, FOLLOW, ADD, AIM, PREFIX = "DR_read_", "DR_follow_", "DR_add_", "DR_aim_", "DR "
 MARK, ON = "fpmp_deform_rig", "fpmp_deform_rig_on"
 GROUP = "Deform Mechanics"
 FLIP = Matrix(((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, 1.0)))     # Epic's axes vs the game frame in Blender
@@ -140,6 +140,12 @@ def reference_weight(obj, spec):
     weight = spec["weight"]
     if weight["type"] == "const":
         return weight["value"]
+    if weight["type"] == "sum":
+        return post_value(sum(reference_weight(obj, {"weight": t, "reader": r, "scale": spec.get("scale", 0.01)})
+                              for t, r in zip(weight["terms"], spec["readers"])), weight)
+    if weight["type"] == "distance":
+        heads = [obj.matrix_world @ obj.pose.bones[n].head for n in (weight["a"], weight["b"])]
+        return post_value((heads[0] - heads[1]).length / (obj.matrix_world.to_scale()[0] * spec.get("scale", 0.01)), weight)
     turn = _turn(obj, spec["reader"])
     if weight["type"] == "angle":
         q = turn.to_quaternion()
@@ -224,12 +230,33 @@ def _post_text(text, weight):
     return text
 
 
-def _weight(obj, pb, k, layer, reader):
-    """pb["dr_w<k>"] driven to the layer's weight; returns its path."""
-    weight, key = layer["weight"], "dr_w%d" % k
-    pb["dr_spec%d" % k] = json.dumps({"weight": weight, "reader": reader})
+def _weight(obj, pb, k, layer, reader, scale=0.01, readers=None):
+    """pb["dr_w<k>"] driven to the layer's weight; returns its path. readers: every reader bone by key (a sum's terms
+    read their own)."""
+    weight, key = layer["weight"], "dr_w%s" % k
+    pb["dr_spec%s" % k] = json.dumps({"weight": weight, "reader": reader, "scale": scale})
+    if weight["type"] == "sum":             # its terms' own weights added, then its steps
+        term_readers = [(readers or {}).get(_reader_key(obj, t)) for t in weight["terms"]]
+        paths = [_weight(obj, pb, "%s_%d" % (k, i), {"weight": t}, r, scale, readers) for i, (t, r) in enumerate(zip(weight["terms"], term_readers))]
+        pb["dr_spec%s" % k] = json.dumps({"weight": weight, "readers": term_readers, "scale": scale})
+        _prop(obj, pb, key, _post_text("(%s)" % "+".join("t%d" % i for i in range(len(paths))), weight),
+              [("t%d" % i, path) for i, path in enumerate(paths)])
+        return _path(pb, key)
     if weight["type"] == "const":
         pb[key] = float(weight["value"])
+        return _path(pb, key)
+    if weight["type"] == "distance":         # the bones' heads apart in the world, in the game's cm
+        pb[key] = 0.0
+        driver = pb.driver_add('["%s"]' % key).driver
+        driver.type = 'SCRIPTED'
+        d = driver.variables.new()
+        d.name, d.type = "d", 'LOC_DIFF'
+        for t, bone in zip(d.targets, (weight["a"], weight["b"])):
+            t.id, t.bone_target, t.transform_space = obj, bone, 'WORLD_SPACE'
+        s = driver.variables.new()
+        s.name, s.type = "s", 'TRANSFORMS'
+        s.targets[0].id, s.targets[0].transform_type, s.targets[0].transform_space = obj, 'SCALE_X', 'WORLD_SPACE'
+        driver.expression = _post_text("(d/max(s*%s,1e-9))" % _num(scale), weight)
         return _path(pb, key)
     if weight["type"] == "angle":
         lo, hi = weight["from"]
@@ -238,10 +265,10 @@ def _weight(obj, pb, k, layer, reader):
         return _path(pb, key)
     # spr_value, staged: each step a property on the bone (an expression keeps 255 characters)
     def stage(name, expression, reads):
-        _prop(obj, pb, "dr_s%d_%s" % (k, name), expression, [(r, _path(pb, "dr_s%d_%s" % (k, r))) for r in reads])
+        _prop(obj, pb, "dr_s%s_%s" % (k, name), expression, [(r, _path(pb, "dr_s%s_%s" % (k, r))) for r in reads])
     off = _offset(weight["offset"])
     for n, text in zip("xyz", _rotated(off.transposed() @ FLIP, FLIP @ Vector(weight["axis"]))):
-        _prop(obj, pb, "dr_s%d_%s" % (k, n), text, _quat_vars(reader))
+        _prop(obj, pb, "dr_s%s_%s" % (k, n), text, _quat_vars(reader))
     stage("m", "acos(clamp(z,-1,1))/pi", "z")
     stage("px", "x/max(sqrt(x*x+y*y),1e-12)*m", ("x", "y", "m"))
     stage("py", "y/max(sqrt(x*x+y*y),1e-12)*m", ("x", "y", "m"))
@@ -272,7 +299,7 @@ def _weight(obj, pb, k, layer, reader):
     out = "0 if abs(z+1)<0.0001 else (1 if m<1e-8 else (1 if iin else (0 if oin<1 or id+od<0.0001 else 1-id/max(id+od,1e-9))))"
     scale = weight.get("scale", 1.0)
     _prop(obj, pb, key, _post_text(out if scale == 1.0 else "clamp(%s*(%s),0,1)" % (_num(scale), out), weight),
-          [(r, _path(pb, "dr_s%d_%s" % (k, r))) for r in ("z", "m", "iin", "oin", "id", "od")])
+          [(r, _path(pb, "dr_s%s_%s" % (k, r))) for r in ("z", "m", "iin", "oin", "id", "od")])
     return _path(pb, key)
 
 
@@ -309,6 +336,22 @@ def _reader_key(obj, weight):
     return (driver, parent) if parent else None
 
 
+def _readable(obj, weight):
+    """Whether the skeleton has what a weight reads: a reader bone's driver and parent, or a distance's two bones."""
+    if weight["type"] == "const":
+        return True
+    if weight["type"] == "distance":
+        return {weight["a"], weight["b"]} <= set(obj.data.bones.keys())
+    if weight["type"] == "sum":
+        return all(_readable(obj, t) for t in weight["terms"])
+    return _reader_key(obj, weight) is not None
+
+
+def _leaves(weight):
+    """The weights a weight reads: a sum's terms, else itself."""
+    return [x for t in weight["terms"] for x in _leaves(t)] if weight.get("type") == "sum" else [weight]
+
+
 def _reader_name(obj, key):
     driver, parent = key
     own = obj.data.bones[driver].parent
@@ -332,7 +375,7 @@ def _layers(obj, lib, tun):
         if "aim" in p and {p["aim"]["bone"], p["aim"]["primary_target"]} <= bones:
             aims.append(p["aim"])
     for e in tun.get("extras", []):
-        if e["op"] == "modify" and e["bone"] in bones and (e["weight"]["type"] == "const" or _reader_key(obj, e["weight"])):
+        if e["op"] == "modify" and e["bone"] in bones and _readable(obj, e["weight"]):
             layers.setdefault(e["bone"], []).append({"weight": e["weight"], "t": e["t"], "s": e["s"], "euler": e.get("euler"),
                                                      "order": e.get("order") or 0})
     return layers, bases, aims
@@ -371,6 +414,53 @@ def _blend(pb, followers, kind, weight=1.0, path=None):
         driver.expression = "clamp(w*%s/max(%s*(1-w)+w*%s,1e-9),0,1)" % (_num(w), _num(s), _num(total))
 
 
+def _ue_point(obj, spec, scale):
+    """A point given in a bone's game frame (cm) at rest, in armature space."""
+    from ...material_porter.effects import ue_rest
+    return ue_rest(obj.data.bones[spec["bone"]]) @ (FLIP @ Vector(spec["offset"]) * scale)
+
+
+def _frame(x, y):
+    """An orthonormal frame (columns) from an axis and a second direction."""
+    x = x.normalized()
+    y = (y - x * y.dot(x)).normalized()
+    return Matrix((x, y, x.cross(y))).transposed()
+
+
+def _aim_bones(obj, edit, k, e, scale):
+    """An aim's helpers (edit mode): its target and up points on their bones, the aim bone beside the child (Y at the
+    target, Z toward the up point, at rest) and the follower the child copies its rotation from: the child's own rest
+    when it keeps its offset, else the frame that puts its game aim axis on the aim bone's Y and its up axis toward its
+    Z. Returns (aim bone, target, up point or None, follower)."""
+    child = edit[e["bone"]]
+    head, length = child.head.copy(), max(child.length, 0.01)
+
+    def point(spec, tag):
+        p = _ue_point(obj, spec, scale)
+        b = edit.new("%s%d_%s_%s" % (AIM, k, tag, e["bone"]))
+        b.head, b.tail, b.parent, b.use_deform = p, p + Vector((0.0, 0.0, length)), edit[spec["bone"]], False
+        return b
+    target = point(e["target"], "target")
+    up = point(e["up"], "up") if e.get("up") else None
+    a = edit.new("%s%d_%s" % (AIM, k, e["bone"]))
+    a.head, a.tail, a.parent, a.use_deform = head, head + (target.head - head).normalized() * length, child.parent, False
+    a.align_roll((up.head - head) if up else child.z_axis)
+    f = edit.new("%s%s__%s" % (FOLLOW, e["bone"], a.name))
+    f.head, f.parent, f.use_deform = head, a, False
+    if e["keep_offset"]:
+        f.tail, f.roll = child.tail.copy(), child.roll
+    else:
+        to_bone, rest = _to_bone(obj, e["bone"]), child.matrix.to_3x3().normalized()
+        aim_b = to_bone @ Vector(e["aim"])
+        if up:
+            d = _frame(a.y_axis, a.z_axis) @ _frame(aim_b, to_bone @ Vector(e["up_axis"])).transposed()
+        else:           # aimed alone: the least turn from the rest
+            d = (rest @ aim_b).rotation_difference(a.y_axis).to_matrix() @ rest
+        f.tail = head + d.col[1] * length
+        f.align_roll(d.col[2])
+    return a.name, target.name, up.name if up else None, f.name
+
+
 def _nearest(v):
     """The Blender axis name nearest a direction in a bone's basis."""
     i = max(range(3), key=lambda j: abs(v[j]))
@@ -388,9 +478,12 @@ def build(obj, lib, tun, scale=0.01):
     names = set(obj.data.bones.keys())
     turns = [dict(e, parents=[p for p in e["parents"] if p["bone"] in names]) for e in tun.get("extras", [])
              if e["op"] in ("rotation_constraint", "parent_constraint") and e["bone"] in names
-             and (not isinstance(e.get("weight"), dict) or _reader_key(obj, e["weight"]))]
-    keys = {_reader_key(obj, w) for w in [layer["weight"] for ls in layers.values() for layer in ls]
-            + [e["weight"] for e in turns if isinstance(e.get("weight"), dict)]} - {None}
+             and (not isinstance(e.get("weight"), dict) or _readable(obj, e["weight"]))]
+    aimed = [e for e in tun.get("extras", []) if e["op"] == "aim" and {e["bone"], e["target"]["bone"]} <= names
+             and (not e.get("up") or e["up"]["bone"] in names) and _readable(obj, e["weight"])]
+    keys = {_reader_key(obj, leaf) for w in [layer["weight"] for ls in layers.values() for layer in ls]
+            + [e["weight"] for e in turns + aimed if isinstance(e.get("weight"), dict) and e["weight"]["type"] != "const"]
+            for leaf in _leaves(w)} - {None}
     readers = {key: _reader_name(obj, key) for key in keys}
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='EDIT')
@@ -401,6 +494,12 @@ def build(obj, lib, tun, scale=0.01):
         copy = e.get("copy", ["rotation"])
         kinds = ['COPY_TRANSFORMS'] if len(copy) == 3 else [COPIES[c] for c in copy]
         follow += [(e["bone"], followers, kind, e.get("weight", 1.0)) for kind in kinds]
+    tracks = []
+    for k, e in enumerate(aimed):
+        a, target, up, f = _aim_bones(obj, edit, k, e, scale)
+        tracks.append((a, target, up))
+        weight = e["weight"]["value"] if e["weight"]["type"] == "const" else e["weight"]
+        follow.append((e["bone"], [(f, 1.0)], 'COPY_ROTATION', weight))
     read_from = {}
     for (driver, parent), name in readers.items():
         frame = _game(obj, driver)
@@ -425,7 +524,7 @@ def build(obj, lib, tun, scale=0.01):
     group = obj.data.collections.get(GROUP) or obj.data.collections.new(GROUP)
     group.is_visible = False
     for b in obj.data.bones:
-        if b.name.startswith((READ, FOLLOW, ADD)):
+        if b.name.startswith((READ, FOLLOW, ADD, AIM)):
             for c in list(b.collections):
                 c.unassign(b)
             group.assign(b)
@@ -434,8 +533,13 @@ def build(obj, lib, tun, scale=0.01):
         path = None
         if isinstance(weight, dict):        # its weight property after the layers' (dr_w50, dr_w51...)
             k = weighted[bone] = weighted.get(bone, 49) + 1
-            path = _weight(obj, pb[bone], k, {"weight": weight}, readers[_reader_key(obj, weight)])
+            path = _weight(obj, pb[bone], k, {"weight": weight}, readers.get(_reader_key(obj, weight)), scale, readers)
         _blend(pb[bone], followers, kind, 1.0 if path else weight, path)
+    for a, target, up in tracks:          # each aim bone tracks its target, its Z held toward the up point
+        _copy(pb[a], 'DAMPED_TRACK', target, 1.0, "aim").track_axis = 'TRACK_Y'
+        if up:
+            lock = _copy(pb[a], 'LOCKED_TRACK', up, 1.0, "aim")
+            lock.lock_axis, lock.track_axis = 'LOCK_Y', 'TRACK_Z'
     for name, src in read_from.items():
         pb[name].rotation_mode = 'QUATERNION'
         _copy(pb[name], 'COPY_ROTATION', src, 1.0, "read")
@@ -449,7 +553,7 @@ def build(obj, lib, tun, scale=0.01):
             lock.lock_axis, lock.track_axis = "LOCK_" + primary[-1], "TRACK_" + secondary
     for bone, ls in layers.items():
         to_bone = _to_bone(obj, bone)
-        paths = [_weight(obj, pb[bone], k, layer, readers.get(_reader_key(obj, layer["weight"]))) for k, layer in enumerate(ls)]
+        paths = [_weight(obj, pb[bone], k, layer, readers.get(_reader_key(obj, layer["weight"])), scale, readers) for k, layer in enumerate(ls)]
         target = pb[channels[bone]]
         if target != pb[bone]:
             add = _copy(pb[bone], 'COPY_TRANSFORMS', target.name, 1.0, "add")
