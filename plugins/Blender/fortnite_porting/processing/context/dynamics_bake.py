@@ -1,5 +1,7 @@
 """Bake the armature's replayed nodes (AnimDynamics, RigidBody and its controls) over its animation: sample it once per
-frame, tick the nodes between frames, key the simulated bones' twins into a Dynamics NLA track."""
+frame, tick the nodes between frames, key the simulated bones' twins into a Dynamics NLA track and fill the cloth
+meshes' caches."""
+import json
 import math
 import time
 
@@ -7,6 +9,7 @@ import bpy
 import numpy as np
 
 from ...logger import Log
+from . import cloth_render
 from .dynamics_runner import FLIP, KEY, Runner  # noqa: F401 (FLIP: the devtools checks read it here)
 
 TRACK = "Dynamics"
@@ -33,6 +36,9 @@ def set_on(obj, on):
     t = _track(obj)
     if t is not None:
         t.mute = not on
+    for c in json.loads(obj.data.get(KEY) or "{}").get("cloth") or []:
+        if c["mesh"] in bpy.data.objects:
+            cloth_render.set_on(bpy.data.objects[c["mesh"]], on)
     for pb in obj.pose.bones:
         c = pb.constraints.get(BAKED)
         if c is not None:
@@ -118,7 +124,7 @@ def bake(obj, rate=60):
         return 0, 0
     t0 = time.time()
     run = Runner(obj, rate)
-    if not run.sims:
+    if not run.sims and not run.clothes:
         return 0, 0
     with paused(obj):
         _drop(obj)      # never sample the last bake as input
@@ -132,11 +138,16 @@ def bake(obj, rate=60):
             poses.append(run.sample())
         scene.frame_set(keep)
     frames = [run.start(poses[0])]
+    cloth = [run.cloth()]
     for i in range(1, len(poses)):
         frames.append(run.advance(poses[i - 1], poses[i]))
+        cloth.append(run.cloth())
     _push_down(obj)
-    _twins(obj, run.simulated)
-    _write(obj, run, frames, start, poses)
+    if run.simulated:
+        _twins(obj, run.simulated)
+        _write(obj, run, frames, start, poses)
+    if run.clothes:
+        cloth_render.store(cloth, start, run.unit)
     set_on(obj, True)
     Log.info("[Material Porter] dynamics: %d bones over %d frames in %.1fs" % (len(run.simulated), len(frames), time.time() - t0))
     return len(run.simulated), len(frames)
@@ -190,7 +201,6 @@ def ui(layout, obj):
 
 def states(obj):
     """The movement states the armature's dynamics parameters define, in their order."""
-    import json
     raw = obj.data.get(KEY)
     if not raw:
         return []

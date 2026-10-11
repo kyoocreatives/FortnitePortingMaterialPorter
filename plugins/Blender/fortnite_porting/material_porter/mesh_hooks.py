@@ -39,6 +39,8 @@ def before_merge(ctx):
             and not ctx.options.get("MergeArmatures"):
         from .build import mark_shared_bounds
         mark_shared_bounds([imported_mesh.get("Mesh") for imported_mesh in ctx.imported_meshes])
+    # cloth maps onto each part's own vertices: after the join their order is gone
+    ctx.mp_cloth = _cloth_parts(ctx)
 
 
 def after_merge(master_mesh):
@@ -58,9 +60,9 @@ RIGGED_APART = (EExportType.WILDLIFE, EExportType.LEGO_WILDLIFE, EExportType.SID
                 EExportType.VEHICLE, EExportType.LEGO_OUTFIT)
 
 
-def _alive(o):
-    try:        # a part's armature merged into the body's is gone
-        return o is not None and o.name in bpy.data.objects and o.type == 'ARMATURE'
+def _alive(o, kind='ARMATURE'):
+    try:        # a part's armature (or mesh) merged into the body's is gone
+        return o is not None and o.name in bpy.data.objects and o.type == kind
     except ReferenceError:
         return False
 
@@ -125,29 +127,84 @@ def _correctives(ctx):
                 bpy.ops.object.mode_set(mode='OBJECT')
 
 
-def _dynamics(ctx):
-    """The parts' dynamic bone nodes (AnimDynamics, RigidBody and the controls after it), kept on each skeleton that has
-    their bones for the animation bakes."""
+def _cloth_parts(ctx):
+    """Each part's cloth mapped onto its mesh before the parts are joined: [{"part", "clothes", "anim"}]."""
+    from ..processing.context import cloth_read, cloth_render
+    out = []
+    for m in ctx.imported_meshes:
+        meta, obj, skeleton = m.get("Meta"), m.get("Mesh"), m.get("Skeleton")
+        if not isinstance(meta, dict) or not meta.get("Cloth") or not _alive(obj, 'MESH') or not _alive(skeleton):
+            continue
+        try:
+            parent_of = {b.name: b.parent.name if b.parent else None for b in skeleton.data.bones}
+            found = cloth_read.read(meta["Cloth"], len(obj.data.vertices), parent_of)
+            if found is None:
+                Log.info("%s: no cloth on this LOD" % obj.name)
+                continue
+            offsets, total = [], 0
+            for c in found["clothes"]:
+                offsets.append(total)
+                if c:
+                    total += len(c["positions"])
+                    c["by_state"] = cloth_read.states(meta.get("AnimScript"), c["name"])
+            bpy.context.view_layer.update()
+            unit = getattr(ctx, "scale", 0.01) / max(obj.matrix_world.to_scale().x, 1e-8)
+            part = len(out) + 1
+            mapped = cloth_render.attach(obj, found["sections"], offsets, unit, part)
+            out.append({"part": part, "clothes": [c for c in found["clothes"] if c], "anim": meta.get("AnimBlueprint")})
+            Log.info("%s: cloth on %d vertices" % (obj.name, mapped))
+        except Exception as e:      # an odd cloth file costs the cloth, never the import
+            Log.error("[Material Porter] %s: cloth (%s: %s)" % (obj.name, type(e).__name__, e))
+    return out
+
+
+def _cloth(ctx):
+    """The cloth on the final meshes (after any join): per skeleton its meshes' cloth, and the anim blueprints whose
+    part simulates it."""
+    from ..processing.context import cloth_render
+    by_part = {p["part"]: p for p in getattr(ctx, "mp_cloth", None) or []}
+    out, clothed = {}, set()
+    for m in ctx.imported_meshes:
+        obj, skeleton = m.get("Mesh"), m.get("Skeleton")
+        if not by_part or not _alive(obj, 'MESH') or not _alive(skeleton) or any(obj.name == c["mesh"] for e in out.values() for c in e):
+            continue
+        held = [by_part[p] for p in cloth_render.parts(obj) if p in by_part]
+        if not held:
+            continue
+        offsets, clothes = {}, []
+        for p in held:
+            offsets[p["part"]] = sum(len(c["positions"]) for c in clothes)
+            clothes += p["clothes"]
+            clothed.add(p["anim"])
+        cloth_render.relink(obj, offsets)
+        cloth_render.cache(obj, sum(len(c["positions"]) for c in clothes))
+        out.setdefault(skeleton, []).append({"mesh": obj.name, "clothes": clothes})
+    return out, clothed
+
+
+def _dynamics(ctx, cloth=None, clothed=()):
+    """The parts' dynamic bone nodes (AnimDynamics, RigidBody and the controls after it) and cloth, kept on each
+    skeleton that has their bones for the animation bakes."""
     from ..processing.context import dynamics_bake, dynamics_read
     metas = {}
     for m in ctx.imported_meshes:
         meta = m.get("Meta")
         if isinstance(meta, dict) and meta.get("AnimBlueprint"):
             metas.setdefault(meta["AnimBlueprint"], meta)
-    if not metas:
-        return
+    scale, cloth = getattr(ctx, "scale", 0.01), cloth or {}
     try:
         found = dynamics_read.nodes(list(metas), [m.get("PhysicsAsset") for m in metas.values()],
                                     [m.get("PhysicsAssets") for m in metas.values()], [m.get("DynamicsParameters") for m in metas.values()],
-                                    [m.get("AnimScript") for m in metas.values()], [m.get("DeformRig") for m in metas.values()])
+                                    [m.get("AnimScript") for m in metas.values()], [m.get("DeformRig") for m in metas.values()],
+                                    [path in clothed for path in metas]) if metas else []
         for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
             bones = skeleton.data.bones
             mine = [n for n in found if (any(b["bone"] in bones and b["type"] == "Simulated" for b in n["physics"]["bodies"])
                                          if n["kind"] == "rigid_body" else any(w in bones for w in n["program"]["writes"])
                                          if n["kind"] == "control_rig" else n["bone"] in bones)]
-            if mine:
-                skeleton.data[dynamics_bake.KEY] = json.dumps({"scale": getattr(ctx, "scale", 0.01), "nodes": mine})
-                Log.info("%s: %d dynamic bones" % (skeleton.name, len(mine)))
+            if mine or cloth.get(skeleton):
+                skeleton.data[dynamics_bake.KEY] = json.dumps({"scale": scale, "nodes": mine, "cloth": cloth.get(skeleton, [])})
+                Log.info("%s: %d dynamic bones, %d cloth meshes" % (skeleton.name, len(mine), len(cloth.get(skeleton, []))))
     except Exception as e:      # an odd dump costs the dynamic bones, never the import
         Log.error("[Material Porter] dynamic bones (%s: %s)" % (type(e).__name__, e))
 
@@ -158,7 +215,7 @@ def after_parts(ctx, rig_type, tasty):
     shells.apply(ctx, [m.get("Mesh") for m in ctx.imported_meshes])
     settle_effects(ctx)
     _correctives(ctx)
-    _dynamics(ctx)
+    _dynamics(ctx, *_cloth(ctx))
 
     if rig_type == tasty:
         for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:

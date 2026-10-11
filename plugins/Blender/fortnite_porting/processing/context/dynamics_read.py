@@ -239,12 +239,13 @@ def _overrides(item, props, name, bound, values):
     return out
 
 
-def _by_state(script, table):
-    """The event graph's variables in each movement state (states sharing inputs run once)."""
+def _by_state(script, table, cloth=False):
+    """The event graph's variables in each movement state (states sharing inputs run once); cloth: the part's mesh
+    simulates cloth (its blueprint then takes its cloth paths)."""
     from . import anim_script
     runs, out = {}, {}
     for state in list(dict.fromkeys(anim_script.states() + list(table or {}))):
-        given = anim_script.inputs(state)
+        given = dict(anim_script.inputs(state), **({"bClothEnabled": True} if cloth else {}))
         key = json.dumps(given, sort_keys=True)
         if key not in runs:
             runs[key] = dict(script.run(given))
@@ -258,7 +259,7 @@ def control_rig(p, program):
     return {"kind": "control_rig", "program": program, "alpha": float(p.get("Alpha", 1.0)), "variables": {}} if program else None
 
 
-def _part(raw, physics=None, by_node=None, table=None, script=None, rig=None):
+def _part(raw, physics=None, by_node=None, table=None, script=None, rig=None, cloth=False):
     cls = next((e for e in raw if e.get("Type") == "AnimBlueprintGeneratedClass"), None)
     cdo = next((e for e in raw if str(e.get("Name", "")).startswith("Default__")), None)
     if cls is None or cdo is None:
@@ -283,7 +284,7 @@ def _part(raw, physics=None, by_node=None, table=None, script=None, rig=None):
         return order, seen
 
     bound, sources = _bound(cdo), _switch_sources(cdo)
-    values = _by_state(script, table) if script is not None and (bound or sources) else {}
+    values = _by_state(script, table, cloth) if script is not None and (bound or sources) else {}
     live = None
     if sources and values:      # the switches read the game's variables: every side runs in some state
         order, seen = walk(ALL)
@@ -377,10 +378,10 @@ def _switched_off(props, names, seen):
         stack += [l["LinkID"] for l in _links(names[index], props)]
     return off
 
-def nodes(paths, physics=None, by_node=None, params=None, scripts=None, rigs=None):
+def nodes(paths, physics=None, by_node=None, params=None, scripts=None, rigs=None, clothed=None):
     """Every part's replayed nodes, parts in import order (the body's first: the others copy its pose); physics names
     each part's physics asset dump, by_node each RigidBody node's, params its dynamics parameters dump, scripts its anim
-    blueprint with bytecode, rigs its Control Rig dump."""
+    blueprint with bytecode, rigs its Control Rig dump, clothed whether its mesh simulates cloth."""
     from . import anim_script, rig_vm
     from .physics_read import asset
     out = []
@@ -396,5 +397,6 @@ def nodes(paths, physics=None, by_node=None, params=None, scripts=None, rigs=Non
         script = anim_script.load(scripts[i]) if scripts and i < len(scripts) and scripts[i] else None
         out += [dict(n, part=i) for n in _part(raw, asset(physics[i]) if physics and i < len(physics) else None, nodes_assets,
                                                 states(params[i]) if params and i < len(params) else None, script,
-                                                rig_vm.load(rigs[i]) if rigs and i < len(rigs) and rigs[i] else None)]
+                                                rig_vm.load(rigs[i]) if rigs and i < len(rigs) and rigs[i] else None,
+                                                bool(clothed and i < len(clothed) and clothed[i]))]
     return out

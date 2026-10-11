@@ -94,6 +94,9 @@ OUTS = {"BreakVector": lambda v: _vec(v), "BreakRotator": lambda r: _vec(r),
         "BreakTransform": lambda t: (None, None, None)}
 
 STATE_GRAVITY = "Gravity Override State Function"     # (self, time, table, rban table, ..) -> gravity, state, ..
+CLOTH_CONTROLLER = "Cloth Controller Function"      # (self, asset name, state table, core settings, ..) -> the cloth
+CLOTH = "__cloth__"         # what each asset's controller call handed over: {asset: {"table", "core"}}
+MESH_SETTINGS = ("SetTeleportRotationThreshold", "SetTeleportDistanceThreshold")      # kept as "__<name>"
 
 _VARS = ("EX_LocalVariable", "EX_LocalOutVariable", "EX_InstanceVariable", "EX_DefaultVariable", "EX_ClassSparseDataVariable")
 _LETS = ("EX_Let", "EX_LetBool", "EX_LetObj", "EX_LetWeakObjPtr", "EX_LetDelegate", "EX_LetMulticastDelegate")
@@ -231,7 +234,10 @@ class Script:
         if t in ("EX_Context", "EX_Context_FailSilent", "EX_ClassContext"):
             # calls on other objects (the mesh, the pawn, montages): the game isn't running, they answer unset;
             # a function library's default object holds pure helpers, run like our own
-            obj = e.get("ObjectExpression") or {}
+            obj, inner = e.get("ObjectExpression") or {}, e.get("ContextExpression") or {}
+            if inner.get("Token") in _CALLS and _function(inner) in MESH_SETTINGS:
+                self.vars["__" + _function(inner)] = self._eval((inner.get("Parameters") or [None])[0], frame)
+                return None
             library = obj.get("Token") == "EX_ObjectConst" and "FunctionLibrary" in str((obj.get("Value") or {}).get("ObjectName"))
             return self._eval(e.get("ContextExpression"), frame) if library or self._eval(obj, frame) == "self" else None
         if t in ("EX_True", "EX_False"):
@@ -269,6 +275,11 @@ class Script:
             # the parameters table it reads by movement state: the reader picks the row (and its joint) per state
             table = self._eval(params[2], frame)
             self._write(params[7], {"by_state": table} if isinstance(table, dict) else None, frame)
+            return None
+        if str(name).startswith(CLOTH_CONTROLLER) and len(params) > 3:
+            # the library pushes the row of the character's state to the cloth: the cloth reader does it per state
+            self.vars.setdefault(CLOTH, {})[str(self._eval(params[1], frame))] = {
+                "table": self._eval(params[2], frame), "core": self._eval(params[3], frame)}
             return None
         if name in OUTS:
             outs = OUTS[name](self._eval(params[0], frame) if params else None)

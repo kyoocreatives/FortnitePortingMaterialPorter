@@ -1,12 +1,14 @@
 """Live preview of the dynamic bones: while it is on, each frame played forward steps the replayed nodes one frame and
-poses the simulated bones' twins directly; any other frame change restarts the simulation there. During playback a
-frame's result is shown from the next frame on (so Blender evaluates the character once per frame); scrubbing,
-stepping and stopping show it on its own frame. The baked Dynamics layer stays muted meanwhile."""
+poses the simulated bones' twins directly (and writes the frame's cloth); any other frame change restarts the
+simulation there. During playback a frame's result is shown from the next frame on (so Blender evaluates the character
+once per frame); scrubbing, stepping and stopping show it on its own frame. The baked Dynamics layer stays muted
+meanwhile."""
 from contextlib import contextmanager
 
 import bpy
 from mathutils import Quaternion, Vector
 
+from . import cloth_render
 from .dynamics_bake import BAKED, GROUP, KEY, TWIN, _curves, _track, _twins
 from .dynamics_runner import Runner
 
@@ -131,7 +133,7 @@ def set_live(obj, on):
     track = _track(obj)
     if on:
         run = Runner(obj)
-        if not run.sims:
+        if not run.sims and not run.clothes:
             return False
         _twins(obj, run.simulated)
         for name in run.simulated:
@@ -187,6 +189,8 @@ def _step(obj, scene):
         pose = run.sample(_inputs(obj, state["modes"]))
         cs = run.advance(state["pose"], pose)
     state["frame"], state["pose"] = frame, pose
+    if run.clothes:
+        cloth_render.store_frame(run.cloth(), frame, run.unit)
     state["pending"] = [(slot,) + run.basis(cs, name) for name, slot in zip(run.simulated, state["slots"])]
     _states[obj.name_full] = state
 

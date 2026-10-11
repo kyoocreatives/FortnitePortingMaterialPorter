@@ -75,12 +75,19 @@ class Runner:
             rig.restrict({name for other in sims if not hasattr(other, "restrict") for name in other.outputs()})
         self.sims = [s for s in sims if (s.outputs() or hasattr(s, "restrict")) and all(name in bones for name in s.bones())]
         self.root = next(b.name for b in bones if b.parent is None)
+        self.clothes = []
+        if stored.get("cloth"):
+            from .cloth_solver import ClothSim
+            rest = {b.name: to_game(b.matrix_local, ue_offset(b), unit) for b in bones}
+            self.clothes = [{"mesh": c["mesh"], "sims": [ClothSim(x, rest, self.state, self.root) for x in c["clothes"]]}
+                            for c in stored["cloth"]]
         need = {self.root}
-        for s in self.sims:
-            for name in s.bones():
-                while name and name not in need:
-                    need.add(name)
-                    name = parent_of[name]
+        wanted = [name for s in self.sims for name in s.bones()]
+        wanted += [name for c in self.clothes for s in c["sims"] for name in s.bones_needed() if name in bones]
+        for name in wanted:
+            while name and name not in need:
+                need.add(name)
+                name = parent_of[name]
         depth = {}
         for b in bones:
             depth[b.name] = depth[b.parent.name] + 1 if b.parent else 0
@@ -95,6 +102,7 @@ class Runner:
         fps = scene.render.fps / scene.render.fps_base
         self.steps = max(1, round(rate / fps))
         self.dt = 1.0 / (fps * self.steps)
+        self.component = (Quaternion(), Vector())
 
     def sample(self, matrices=None):
         """The evaluated pose as locals in the game's numbers; matrices: armature matrices to read instead for some
@@ -128,7 +136,15 @@ class Runner:
                     c = stack.pop()
                     cs[c] = compose(loc[c], cs[parent_of[c]])
                     stack += self.children[c]
+        for c in self.clothes:      # the engine simulates cloth from the finished pose
+            c["out"] = [s.step(self.dt, cs, self.component) for s in c["sims"]]
         return cs
+
+    def cloth(self):
+        """The last tick's cloth by mesh name: world positions (cm, the game's axes) and normals of all its assets."""
+        import numpy as np
+        return {c["mesh"]: (np.concatenate([p for p, _ in c["out"]]), np.concatenate([n for _, n in c["out"]]))
+                for c in self.clothes if c.get("out")}
 
     def _component(self, motion):
         for s in self.sims:
@@ -139,6 +155,7 @@ class Runner:
         """The first frame: the bodies settle on it for the pre-roll."""
         self.component_velocity = Vector()
         self._component(None)
+        self.component = loc.get(COMPONENT, self.component)
         for _ in range(round(PREROLL / self.dt)):
             cs = self.tick(loc)
         return cs
@@ -152,6 +169,8 @@ class Runner:
             self.component_velocity = velocity
             self._component((velocity, accel, loc[COMPONENT][0]))
         for k in range(1, self.steps + 1):
+            if COMPONENT in prev and COMPONENT in loc:
+                self.component = blend(prev[COMPONENT], loc[COMPONENT], k / self.steps)
             cs = self.tick({n: blend(prev[n], loc[n], k / self.steps) for n in self.order})
         return cs
 
