@@ -94,8 +94,30 @@ check("off-bone control at its offset", tuple(man.data.bones["heel_l_ctrl"].head
 knee, hip, ankle = (man.data.bones[b].head_local for b in ("calf_l", "thigh_l", "foot_l"))
 plane = (knee - hip).cross(ankle - hip)
 check("leg pole in the leg's bend plane", abs((man.data.bones["leg_l_pv_ik_ctrl"].head_local - hip).dot(plane.normalized())) < 1e-4, True)
-check("root width", man.pose.bones["global_ctrl"].custom_shape_wire_width, 3.5)
-check("digit width", man.pose.bones["index_01_l_ctrl"].custom_shape_wire_width, 1.5)
+check("root width", man.pose.bones["global_ctrl"].custom_shape_wire_width, 7.0)
+check("digit width", man.pose.bones["index_01_l_ctrl"].custom_shape_wire_width, 3.0)
+
+
+def widget(obj, name):
+    """A control's drawn shape in the world: its points."""
+    p = obj.pose.bones[name]
+    m = obj.matrix_world @ p.matrix @ Matrix.LocRotScale(p.custom_shape_translation, p.custom_shape_rotation_euler.to_quaternion(),
+                                                        p.custom_shape_scale_xyz)
+    return [m @ v.co for v in p.custom_shape.data.vertices] if p.custom_shape else []
+
+
+bpy.context.view_layer.update()
+root_pts = widget(man, "root_ctrl")
+# the mannequin faces -Y: the arrow's front-most point is its tip (one point, on the middle line), not the shaft's end
+check("the root arrow points forward", abs(min(root_pts, key=lambda v: v.y).x) < 1e-4, True)
+unmirrored = []
+for name in man.pose.bones.keys():
+    twin = name.replace("_l_", "_r_") if "_l_" in name else name[:-2] + "_r" if name.endswith("_l") else None
+    if twin and twin in man.pose.bones and widget(man, name):
+        right = widget(man, twin)
+        if max(min((Vector((-v.x, v.y, v.z)) - w).length for w in right) for v in widget(man, name)) > 1e-3:
+            unmirrored.append(name)
+check("every widget mirrors its other side", unmirrored, [])
 check("controls collection", "foot_l_ik_ctrl" in man.data.collections["Controls"].bones, True)
 check("spaces in Mechanics", "chest_space" in man.data.collections["Mechanics"].bones, True)
 check("game bones hidden", man.data.collections["Game Bones"].is_visible, False)
