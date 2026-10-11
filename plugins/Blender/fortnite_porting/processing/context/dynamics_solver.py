@@ -4,6 +4,8 @@ import math
 
 from mathutils import Matrix, Quaternion, Vector
 
+from .perlin import perlin
+
 MAX = 3.4028234663852886e38
 BIAS = 0.3              # the engine's joint bias
 DAMPING = 0.7           # momentum fraction lost per second unless overridden
@@ -25,10 +27,19 @@ def state_entry(node, state):
     return table.get(state) or table.get("OnGround_Standing")
 
 
-def state_gravity(entry, cs):
-    """A state's gravity in component space: the parameters give it in its joint's frame."""
+WIND_SEEDS = (132.4, 9.2, 217.9)     # per-axis noise offsets (UE's harmonics'), so the axes don't sway together
+
+
+def state_gravity(entry, cs, time=0.0):
+    """A state's gravity in component space at the game's time: the parameters give it in its joint's frame, with
+    the wind's sway about its mean (an approximation of the game's native GetRandomWindVector: Perlin noise by axis,
+    scaled by the amplitude)."""
     joint = cs.get(entry["joint"])
-    return (joint[0] if joint else Quaternion()) @ Vector(entry["gravity"])
+    g = Vector(entry["gravity"])
+    wind = entry.get("wind")
+    if wind:
+        g += Vector([a * perlin(time * f + s) for a, f, s in zip(wind["amplitude"], wind["frequency"], WIND_SEEDS)])
+    return (joint[0] if joint else Quaternion()) @ g
 
 
 def compose(a, b):
@@ -442,6 +453,7 @@ class Sim:
         self.state = state_entry(node, state) if node.get("gravity_override") is not None else None
         self.parent_of = parent_of
         self.prev_space, self.prev_spin = Quaternion(), ZERO.copy()
+        self.clock = 0.0
 
     def bones(self):
         n = self.node
@@ -538,6 +550,7 @@ class Sim:
     def evaluate(self, dt, cs, root):
         """Step by the frame's dt (clamped as the engine does) and return {bone: component transform}."""
         n = self.node
+        self.clock += dt        # the game's time, which the wind sways on
         space = self._space(cs, root)
         if self.bodies is None:
             self._init(cs, space)
@@ -548,7 +561,7 @@ class Sim:
             force = Vector(n["external_force"])
             if not nearly_zero(force):
                 force = inv @ force
-            override = state_gravity(self.state, cs) if self.state else Vector(n["gravity_override"] or (0.0, 0.0, 0.0))
+            override = state_gravity(self.state, cs, self.clock) if self.state else Vector(n["gravity_override"] or (0.0, 0.0, 0.0))
             if n["gravity_override"] is not None and not n["gravity_in_sim"]:
                 override = inv @ override
             for b in self.bodies:

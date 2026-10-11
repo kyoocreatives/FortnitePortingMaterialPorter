@@ -91,8 +91,14 @@ def _sim_space(space):
 
 def _windy(gravity, offset):
     """A state's gravity with its wind's mean: the game adds a Perlin wind (native GetRandomWindVector) whose noise,
-    scaled by WindAmplitude, swings about WindOffset; the swing isn't replayed."""
+    scaled by WindAmplitude, swings about WindOffset (the swing: _wind)."""
     return [a + b for a, b in zip(gravity, _vec(offset))]
+
+
+def _wind(frequency, amplitude):
+    """A state's wind sway, None when it has no amplitude."""
+    amplitude = _vec(amplitude)
+    return {"frequency": _vec(frequency), "amplitude": amplitude} if any(amplitude) else None
 
 
 def states(path):
@@ -114,6 +120,9 @@ def states(path):
         r = rigid_[i] if i < len(rigid_) else {}
         out[name] = {"gravity": _windy(_vec(g.get("GravityOverride"), (0.0, 0.0, -980.0)), g.get("WindOffset")), "joint": g.get("JointName") or "root",
                      "sim_space": _sim_space(r.get("SimSpaceSettings"))}
+        wind = _wind(g.get("WindFrequency"), g.get("WindAmplitude"))
+        if wind:
+            out[name]["wind"] = wind
     return out
 
 
@@ -347,10 +356,15 @@ def _gravity_table(item, name, bound, values):
     if not isinstance(rows, dict):
         return None
     field = lambda row, prefix: next((v for k, v in row.items() if k.startswith(prefix)), None)  # noqa: E731
-    return {re.sub(r"_\d+_[0-9A-Fa-f]+$", "", key): {"gravity": _windy(_vec(field(row, "GravityOverride_"), (0.0, 0.0, -980.0)),
-                                                                           field(row, "WindOffset_")),
-                                                         "joint": field(row, "JointName_") or "root", "sim_space": item.get("sim_space")}
-            for key, row in rows.items() if isinstance(row, dict)}
+    out = {}
+    for key, row in rows.items():
+        if not isinstance(row, dict):
+            continue
+        entry = {"gravity": _windy(_vec(field(row, "GravityOverride_"), (0.0, 0.0, -980.0)), field(row, "WindOffset_")),
+                 "joint": field(row, "JointName_") or "root", "sim_space": item.get("sim_space")}
+        wind = _wind(field(row, "WindFrequency_"), field(row, "WindAmplitude_"))
+        out[re.sub(r"_\d+_[0-9A-Fa-f]+$", "", key)] = dict(entry, wind=wind) if wind else entry
+    return out
 
 
 def _bound(cdo):

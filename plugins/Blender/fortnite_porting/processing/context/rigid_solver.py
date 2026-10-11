@@ -95,6 +95,7 @@ class RigidSim:
                       and frozenset((i, k)) not in disabled and frozenset((i, k)) not in ignore
                       and self.actors[i].segments and self.actors[k].segments]
         self.started, self.step_time = False, None
+        self.clock = 0.0        # the game's time, which the wind sways on
         self.space_hist = None
         self.overlaps = {}      # each touching pair's allowed starting overlap
         self.component_motion = None        # the character's own (velocity, acceleration, rotation) this frame, world
@@ -132,7 +133,7 @@ class RigidSim:
         """World gravity in the simulation space: the state's (given in its joint's frame) when the game feeds one,
         else the node's own."""
         if self.state:
-            world = state_gravity(self.state, cs)
+            world = state_gravity(self.state, cs, self.clock)
         else:
             world = Vector(self.node["gravity"]) if self.node["gravity"] is not None else Vector((0.0, 0.0, -980.0))
         return space[0].conjugated() @ world
@@ -188,6 +189,7 @@ class RigidSim:
 
     # --- evaluation ---
     def evaluate(self, dt, cs, root):
+        self.clock += dt
         space = self._space(cs, root)
         sim = {a.bone: relative(cs[a.bone], space) for a in self.actors}
         if not self.started:

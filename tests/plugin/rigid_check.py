@@ -542,6 +542,16 @@ WINDY = dump(os.path.join(TMP, "w.dynparams.json"), [
                                                    "WindOffset": {"X": 0.0, "Y": -50.0, "Z": -50.0}}]}}])
 check("a state's wind adds its offset to the gravity (Chun-Li standing: the wind's mean)", dr.states(WINDY)["OnGround_Standing"]["gravity"],
       [0.0, -100.0, -65.0])
+check("and keeps the wind's sway settings", dr.states(WINDY)["OnGround_Standing"].get("wind"),
+      {"frequency": [0.1, 0.2, 0.15], "amplitude": [50.0, 25.0, 50.0]})
+check("a state without wind has none", dr.states(PARAMS)["OnGround_Standing"].get("wind"), None)
+from fpmp_baseline.processing.context.dynamics_solver import state_gravity  # noqa: E402
+gusty = {"gravity": [0.0, 0.0, -100.0], "joint": "root", "wind": {"frequency": [0.0, 0.0, 0.5], "amplitude": [0.0, 0.0, 50.0]}}
+zs = [state_gravity(gusty, {}, k * 0.05).z for k in range(800)]
+check("the wind sways the gravity about its mean, within its amplitude",
+      (abs(sum(zs) / len(zs) + 100.0) < 12.0, min(zs) >= -150.0, max(zs) <= -50.0, max(zs) - min(zs) > 20.0), (True, True, True, True))
+check("only along the axes it blows on", max(abs(state_gravity(gusty, {}, k * 0.37).x) for k in range(50)), 0.0)
+check("without wind the gravity holds", {round(state_gravity({"gravity": [0.0, 0.0, -980.0], "joint": "root"}, {}, t).z, 6) for t in (0.0, 3.3)}, {-980.0})
 check("per-state sim space with defaults", (st["EmoteOrMelee"]["sim_space"]["world_alpha"], st["EmoteOrMelee"]["sim_space"]["max_angular_velocity"],
                                             st["EmoteOrMelee"]["sim_space"]["damping_alpha"]), (0.8, 3.0, 1.0))
 
@@ -552,6 +562,16 @@ turned_head = (Quaternion(Vector((0, 1, 0)), math.radians(-90.0)), Vector((0.0, 
 hang = {"head": turned_head, "hair": (Quaternion(), Vector((0.0, 0.0, 100.0)))}
 s.evaluate(DT, hang, "head")
 check("a state's gravity turns with its joint", tuple(round(x, 3) for x in s._gravity(hang, (Quaternion(), Vector()))), (0.0, 0.0, -980.0))
+windy_node = rigid_node()
+windy_node["states"] = {"OnGround_Standing": {"gravity": [0.0, 0.0, -100.0], "joint": "root", "sim_space": windy_node["sim_space"],
+                                              "wind": {"frequency": [0.0, 0.0, 0.5], "amplitude": [0.0, 0.0, 50.0]}}}
+ws = rs.RigidSim(windy_node, bones, state="OnGround_Standing")
+seen = []
+for _ in range(40):
+    ws.evaluate(DT, hang, "head")
+    seen.append(ws._gravity(hang, (Quaternion(), Vector())).z)
+check("a rigid body's gravity gusts frame to frame on the game's clock", (round(ws.clock, 6), len({round(z, 3) for z in seen}) > 30),
+      (round(40 * DT, 6), True))
 CHAINED = dump(os.path.join(TMP, "ch.animbp.json"), [
     {"Type": "AnimBlueprintGeneratedClass", "Name": "C_C",
      "ChildProperties": [{"Name": n} for n in ("AnimGraphNode_CopyPoseFromMesh", "AnimGraphNode_RigidBody", "AnimGraphNode_ModifyBone",
