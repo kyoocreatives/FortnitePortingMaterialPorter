@@ -534,6 +534,14 @@ check("each rigid node gets its own asset", [b["bone"] for b in read[0]["physics
 st = read[0]["states"]
 check("per-state gravity and joint", (st["EmoteOrMelee"]["gravity"], st["EmoteOrMelee"]["joint"], st["OnGround_Standing"]["gravity"]),
       ([-980.0, 0.0, 0.0], "spine_05", [0.0, 0.0, -980.0]))
+WINDY = dump(os.path.join(TMP, "w.dynparams.json"), [
+    {"Type": "FortCharacterDynamicsParameters", "Name": "W_Parameter",
+     "Properties": {"StateNames": ["OnGround_Standing"],
+                    "GravityOverrideParameters": [{"GravityOverride": {"X": 0.0, "Y": -50.0, "Z": -15.0}, "JointName": "root",
+                                                   "WindFrequency": {"X": 0.1, "Y": 0.2, "Z": 0.15}, "WindAmplitude": {"X": 50.0, "Y": 25.0, "Z": 50.0},
+                                                   "WindOffset": {"X": 0.0, "Y": -50.0, "Z": -50.0}}]}}])
+check("a state's wind adds its offset to the gravity (Chun-Li standing: the wind's mean)", dr.states(WINDY)["OnGround_Standing"]["gravity"],
+      [0.0, -100.0, -65.0])
 check("per-state sim space with defaults", (st["EmoteOrMelee"]["sim_space"]["world_alpha"], st["EmoteOrMelee"]["sim_space"]["max_angular_velocity"],
                                             st["EmoteOrMelee"]["sim_space"]["damping_alpha"]), (0.8, 3.0, 1.0))
 

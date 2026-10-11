@@ -89,6 +89,12 @@ def _sim_space(space):
             "angular_velocity": _vec(space.get("ExternalAngularVelocity"))}
 
 
+def _windy(gravity, offset):
+    """A state's gravity with its wind's mean: the game adds a Perlin wind (native GetRandomWindVector) whose noise,
+    scaled by WindAmplitude, swings about WindOffset; the swing isn't replayed."""
+    return [a + b for a, b in zip(gravity, _vec(offset))]
+
+
 def states(path):
     """A character dynamics parameters dump as {state: gravity, its joint, the RigidBody node's sim space}; the game
     feeds the current state's values to the RigidBody nodes each frame."""
@@ -106,7 +112,7 @@ def states(path):
     for i, name in enumerate(p.get("StateNames") or []):
         g = gravity[i] if i < len(gravity) else {}
         r = rigid_[i] if i < len(rigid_) else {}
-        out[name] = {"gravity": _vec(g.get("GravityOverride"), (0.0, 0.0, -980.0)), "joint": g.get("JointName") or "root",
+        out[name] = {"gravity": _windy(_vec(g.get("GravityOverride"), (0.0, 0.0, -980.0)), g.get("WindOffset")), "joint": g.get("JointName") or "root",
                      "sim_space": _sim_space(r.get("SimSpaceSettings"))}
     return out
 
@@ -341,7 +347,8 @@ def _gravity_table(item, name, bound, values):
     if not isinstance(rows, dict):
         return None
     field = lambda row, prefix: next((v for k, v in row.items() if k.startswith(prefix)), None)  # noqa: E731
-    return {re.sub(r"_\d+_[0-9A-Fa-f]+$", "", key): {"gravity": _vec(field(row, "GravityOverride_"), (0.0, 0.0, -980.0)),
+    return {re.sub(r"_\d+_[0-9A-Fa-f]+$", "", key): {"gravity": _windy(_vec(field(row, "GravityOverride_"), (0.0, 0.0, -980.0)),
+                                                                           field(row, "WindOffset_")),
                                                          "joint": field(row, "JointName_") or "root", "sim_space": item.get("sim_space")}
             for key, row in rows.items() if isinstance(row, dict)}
 
