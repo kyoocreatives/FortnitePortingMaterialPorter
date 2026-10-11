@@ -299,6 +299,30 @@ check("without world alpha the base's motion doesn't reach the chain", still < 0
 check("with world alpha 1 it swings the chain", pushed > 5.0, True)
 print("[rigid_check] swing %.2f vs %.2f deg" % (still, pushed))
 
+
+
+def shoved(acc_scale, vel_scale=0.0, motion=(Vector((0.0, 0.0, 0.0)), Vector((600.0, 0.0, 0.0)), Quaternion())):
+    """The hair tip's X after the character's component accelerates along +X for half a second (no gravity)."""
+    n = rigid_node()
+    n["gravity"] = [0.0, 0.0, 0.0]
+    n["component_acc"] = {"acc_scale": [acc_scale] * 3, "vel_scale": [vel_scale] * 3, "clamp": [10000.0] * 3}
+    s = rs.RigidSim(n, bones)
+    hang = {"head": (Quaternion(), Vector((0.0, 0.0, 100.0))), "hair": (Quaternion(Vector((0, 1, 0)), math.radians(90.0)), Vector((0.0, 0.0, 100.0)))}
+    s.evaluate(DT, hang, "head")
+    s.component_motion = motion
+    for _ in range(30):
+        out = s.evaluate(DT, hang, "head")
+    return (out["hair"][0] @ Vector((1, 0, 0))).x
+
+
+bound_node = rigid_node()
+over = dr._overrides(bound_node, {}, "AnimGraphNode_RigidBody", {("AnimGraphNode_RigidBody", "ComponentLinearAccScale"): "ACC"}, {"ACC": (0.2, 0.2, 0.5)})
+check("a bound acceleration scale overrides the node's", ((over.get("component_acc") or {}).get("acc_scale"), (over.get("component_acc") or {}).get("vel_scale")),
+      ([0.2, 0.2, 0.5], bound_node["component_acc"]["vel_scale"]))
+check("a component speeding up swings the chain back", shoved(1.0) < -0.2, True)
+check("with no acceleration scale it doesn't", round(shoved(0.0), 4), round(shoved(0.0, motion=None), 4))
+
+
 k = rs.RigidSim(rigid_node(), bones)
 k.evaluate(DT, pose, "head")
 head = k.actors[0]
@@ -388,6 +412,25 @@ tip = arm.pose.bones["hair"].tail
 check("the hair falls and hangs below its joint", (tip.z < 0.95, abs(tip.x - 0.05) < 0.02), (True, True))
 joint = arm.pose.bones["hair"].head
 check("its joint stays on the head", (joint - Vector((0.05, 0.0, 1.0))).length < 0.002, True)
+
+
+def lag(acc_scale):
+    """The hair tip's X (armature space) mid-way through the armature object speeding up along +X."""
+    arm.data[db.KEY] = json.dumps({"scale": 0.01, "nodes": [dict(rnode, component_acc={"acc_scale": [acc_scale] * 3, "vel_scale": [0.0] * 3,
+                                                                                        "clamp": [10000.0] * 3})]})
+    db.bake(arm)
+    scene.frame_set(15)
+    return (arm.matrix_world.inverted() @ arm.pose.bones["hair"].tail).x
+
+
+for f, x in ((0, 0.0), (20, 1.5)):
+    arm.location.x = x
+    arm.keyframe_insert("location", index=0, frame=f)
+for fc in db._curves(arm.animation_data.action):
+    if fc.data_path == "location":
+        for kp in fc.keyframe_points:
+            kp.interpolation = 'QUAD'
+check("the character's own acceleration swings the hair back", lag(1.0) < lag(0.0) - 0.02, True)
 
 # --- review fixes ---
 loose = dr.constraint({"BoneToModify": {"BoneName": "tail"}, "ConstraintWeights": [1.0],

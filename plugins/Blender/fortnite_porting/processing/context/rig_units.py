@@ -299,7 +299,6 @@ def parent_constraint(m, a, ops, pc):
     shortest = str(settings.get("InterpolationType", 0)).split("::")[-1] in ("1", "Shortest")
     q_mix, t_mix, acc = Quaternion((0.0, 0.0, 0.0, 0.0)), Vector(), 0.0
     for name, w in parents:
-        n = w / total
         g = m.h.get_global(name)
         if keep:
             g = compose(relative(m.h.get_global(child, True), m.h.get_global(name, True)), g)

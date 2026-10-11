@@ -3,7 +3,7 @@ node between two frames, turn the result into the twins' pose. The bake and the 
 import json
 
 import bpy
-from mathutils import Matrix, Quaternion
+from mathutils import Matrix, Quaternion, Vector
 
 from .dynamics_solver import Sim, compose, relative
 
@@ -11,6 +11,7 @@ KEY = "fpmp_dynamics"
 STATE = "fpmp_dynamics_state"       # the movement state whose dynamics parameters apply (emote, standing, skydiving...)
 PREROLL = 1.0       # seconds held on the first pose: in game the character was already idling when the emote began
 FLIP = Matrix(((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, 1.0)))     # the game's axes vs Blender's
+COMPONENT = "__component__"     # a sampled pose's entry for the armature object (the game's mesh component) in the world
 
 
 def to_game(m, offset, unit):
@@ -102,7 +103,9 @@ class Runner:
         cs = {n: to_game(pose[n].matrix, self.offsets[n], self.unit) for n in self.order}
         # locals against the evaluated parents: the given matrices are built on them too
         own = {n: to_game(m, self.offsets[n], self.unit) for n, m in matrices.items() if n in cs}
-        return {n: relative(own.get(n, cs[n]), cs[parent_of[n]]) if parent_of[n] in cs else own.get(n, cs[n]) for n in self.order}
+        loc = {n: relative(own.get(n, cs[n]), cs[parent_of[n]]) if parent_of[n] in cs else own.get(n, cs[n]) for n in self.order}
+        loc[COMPONENT] = to_game(self.obj.matrix_world, Matrix.Identity(4), self.unit)
+        return loc
 
     def tick(self, loc):
         parent_of = self.parent_of
@@ -127,14 +130,27 @@ class Runner:
                     stack += self.children[c]
         return cs
 
+    def _component(self, motion):
+        for s in self.sims:
+            if hasattr(s, "component_motion"):
+                s.component_motion = motion
+
     def start(self, loc):
         """The first frame: the bodies settle on it for the pre-roll."""
+        self.component_velocity = Vector()
+        self._component(None)
         for _ in range(round(PREROLL / self.dt)):
             cs = self.tick(loc)
         return cs
 
     def advance(self, prev, loc):
         """One frame on, ticking through poses interpolated from the last frame's."""
+        if COMPONENT in prev and COMPONENT in loc:      # the character's own movement this frame, as RBAN measures it
+            frame = self.dt * self.steps
+            velocity = (loc[COMPONENT][1] - prev[COMPONENT][1]) / frame
+            accel = (velocity - getattr(self, "component_velocity", Vector())) / frame
+            self.component_velocity = velocity
+            self._component((velocity, accel, loc[COMPONENT][0]))
         for k in range(1, self.steps + 1):
             cs = self.tick({n: blend(prev[n], loc[n], k / self.steps) for n in self.order})
         return cs

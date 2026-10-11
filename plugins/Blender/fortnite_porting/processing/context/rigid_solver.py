@@ -97,6 +97,8 @@ class RigidSim:
         self.started, self.step_time = False, None
         self.space_hist = None
         self.overlaps = {}      # each touching pair's allowed starting overlap
+        self.component_motion = None        # the character's own (velocity, acceleration, rotation) this frame, world
+        self.push = None
 
     def _sort(self):
         """Joints by level (distance from a kinematic body), then insertion order: chains solve root to tip."""
@@ -169,6 +171,21 @@ class RigidSim:
         k = st["world_alpha"]
         return (inv @ vs) * k, (inv @ ws) * k, (inv @ acc) * k, (inv @ alpha) * k
 
+    def _component_push(self, space):
+        """The acceleration the character's own movement puts on the bodies (simulation space): its velocity and
+        acceleration opposed, scaled per axis, clamped to a box; none simulating in world space."""
+        acc = self.node.get("component_acc") or {}
+        vel_scale, acc_scale = Vector(acc.get("vel_scale") or ZERO), Vector(acc.get("acc_scale") or ZERO)
+        if self.component_motion is None or self.node["space"] == "WorldSpace" or (vel_scale.length < 1e-4 and acc_scale.length < 1e-4):
+            return None
+        vel, accel, rot = self.component_motion
+        to_sim = space[0].conjugated() @ rot.conjugated()
+        push = Vector([x * k for x, k in zip(to_sim @ -vel, vel_scale)]) + Vector([x * k for x, k in zip(to_sim @ -accel, acc_scale)])
+        box = acc.get("clamp") or ZERO
+        if Vector(box).length > 1e-4:
+            push = Vector([min(max(x, -b), b) for x, b in zip(push, box)])
+        return push
+
     # --- evaluation ---
     def evaluate(self, dt, cs, root):
         space = self._space(cs, root)
@@ -186,6 +203,7 @@ class RigidSim:
                 a.target = a.place(sim[a.bone])
         gravity = self._gravity(cs, space)
         motion = self._motion(space, dt)
+        self.push = self._component_push(space)
         delta = min(dt, MAX_STEP * MAX_STEPS)
         if self.step_time is None:
             self.step_time = min(delta, MAX_STEP)
@@ -207,6 +225,8 @@ class RigidSim:
             if not a.simulated:
                 continue
             dv = gravity * h if a.gravity else ZERO.copy()
+            if self.push is not None:
+                dv = dv + self.push * h
             dw = ZERO.copy()
             target_v, target_w = ZERO.copy(), ZERO.copy()
             if motion:

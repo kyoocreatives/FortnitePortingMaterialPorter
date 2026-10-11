@@ -228,6 +228,9 @@ def _overrides(item, props, name, bound, values):
             continue
         elif prop == "Alpha" and float_alpha and isinstance(v, (int, float)):
             out["alpha"] = float(v)
+        elif prop in ("ComponentLinearAccScale", "ComponentLinearVelScale") and kind == "rigid_body":
+            scales = out.setdefault("component_acc", dict(item.get("component_acc") or {}))
+            scales["acc_scale" if "Acc" in prop else "vel_scale"] = [float(x) for x in v] if isinstance(v, (list, tuple)) else _vec(v)
         elif prop == "SimulationSpace" and kind in SPACES:
             if isinstance(v, str):
                 out["space"] = _enum(v, None)
