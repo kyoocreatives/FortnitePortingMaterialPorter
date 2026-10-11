@@ -9,7 +9,7 @@ import bpy
 from mathutils import Vector
 
 from . import official_grip, rig_shapes, rig_style
-from .official_rig import HAND, MCH, PREFIX, WIDTHS, _shape, load
+from .official_rig import HAND, MCH, PREFIX, WIDTHS
 
 LONG = ("index", "middle", "ring", "pinky")
 FINGERS = ("thumb",) + LONG
@@ -21,18 +21,17 @@ BACK = 15.0                 # how far a joint may bend back from rest
 CURL_SHARE = {"thumb": (0.3, 0.5, 0.6), "finger": (1.0, 1.0, 1.0)}      # of each joint's room at a full hand curl
 SPREAD = {"thumb": 0.9, "index": 1.0, "middle": 0.0, "ring": 0.8, "pinky": 1.6}
 CUP = {"index": 0.0, "middle": 0.3, "ring": 0.65, "pinky": 1.0}
+EXTRA_COLOR = {"l": (0.1, 0.8, 0.9), "r": (1.0, 0.55, 0.1)}     # apart from Epic's blue and red: not Epic's controls
 
 
-def build(obj, data=None):
+def build(obj):
     """Adds the hand controls to a built official rig; returns how many controls it added."""
-    data = data or load()
-    color = {c["name"]: c["color"] for c in data["controls"]}
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='EDIT')
     hands = [h for h in (_hand_edit(obj.data.edit_bones, side) for side in ("l", "r")) if h]
     bpy.ops.object.mode_set(mode='POSE')
     for h in hands:
-        _hand_pose(obj, h, data, color.get("hand_%s_ik_ctrl" % h["side"]) or color.get("hand_%s_fk_ctrl" % h["side"]))
+        _hand_pose(obj, h, EXTRA_COLOR[h["side"]])
         official_grip.pose(obj, h["side"], h["chains"])
     bpy.ops.object.mode_set(mode='OBJECT')
     return sum(len(h["controls"]) for h in hands)
@@ -108,22 +107,61 @@ def _hand_edit(edit, side):
         w = SPREAD.get(f, 0.0)
         out["spread"][f] = w if edit[first].z_axis.cross(edit[first].y_axis).dot(away) > 0 else -w
         curl = "%s%s_curl_ctrl" % (f, s)
-        _bone(edit, curl, chain["pts"][0] - palm * size * 0.25, chain["pts"][-1] - palm * size * 0.25, n,
-              edit["fingers%s_space" % s])
-        out["controls"].append((curl, "Circle_Thick", size * 0.08))
+        tip, last = chain["pts"][-1], chain["pts"][-1] - chain["pts"][-2]
+        _bone(edit, curl, tip, tip + last * 0.6, _ortho(n, last) or n, edit["fingers%s_space" % s])
+        out["controls"].append((curl, "curl", size * 0.11))      # a curling arrow round the fingertip
         chain["curl"] = curl
     hand = edit["hand" + s]
     fingers = "fingers%s_ctrl" % s
-    back = knuckles - palm * size * 0.6
-    _bone(edit, fingers, back, back + y * size * 0.6, x, hand)
-    out["controls"].append((fingers, "RoundedSquare_Thick", size * 0.45))
+    back = knuckles - palm * size * 0.35
+    _bone(edit, fingers, back, back + y * size * 0.3, x, hand)
+    out["controls"].append((fingers, "fingers", size * 0.18))     # curling arrows over the knuckles, spread chevrons
     if "pinky" in out["cups"]:
-        edge = edit["pinky_metacarpal" + s].head
-        side_out = _ortho(edge - knuckles, y) or x
-        at = (edge + chains["pinky"]["pts"][0]) * 0.5 + side_out * size * 0.4
-        _bone(edit, "palm%s_ctrl" % s, at, at + y * size * 0.45, x, hand)
-        out["controls"].append(("palm%s_ctrl" % s, "Arrow_Thick", size * 0.3))
+        front = (wrist + knuckles) * 0.5 + palm * size * 0.45
+        _bone(edit, "palm%s_ctrl" % s, front, front + y * size * 0.3, x, hand)
+        out["controls"].append(("palm%s_ctrl" % s, "cup", size * 0.25))      # a cup in front of the palm
     return out
+
+
+def _arc(x, a0, a1, steps=12):
+    """Points on a unit arc in the bone's Y-Z plane (Y along the bone, Z toward the palm), at X = x."""
+    return [Vector((x, math.cos(a), math.sin(a))) for a in (math.radians(a0 + (a1 - a0) * i / steps) for i in range(steps + 1))]
+
+
+def _with_head(points):
+    """The line plus an arrowhead at its last point."""
+    end, d = points[-1], (points[-1] - points[-2]).normalized()
+    side = d.cross(Vector((1.0, 0.0, 0.0))) if abs(d.x) < 0.9 else d.cross(Vector((0.0, 0.0, 1.0)))
+    return points, [end - d * 0.35 + side * 0.22, end, end - d * 0.35 - side * 0.22]
+
+
+def _shapes():
+    """The hand controls' drawings (unit size, bone frame: X the curl axis, Y along the bone, Z toward the palm): lists
+    of polylines."""
+    curl = _with_head(_arc(0.0, -40.0, 140.0))
+    fingers = [*_with_head(_arc(-1.2, -20.0, 120.0)), *_with_head(_arc(1.2, -20.0, 120.0)),
+               [Vector((-1.2, math.cos(math.radians(-20)), math.sin(math.radians(-20)))),
+                Vector((1.2, math.cos(math.radians(-20)), math.sin(math.radians(-20))))]]
+    for sign in (-1.0, 1.0):        # spread: a chevron out of each side
+        fingers.append([Vector((sign * 1.5, 0.75, -0.6)), Vector((sign * 1.8, 0.95, -0.6)), Vector((sign * 1.5, 1.15, -0.6))])
+    bowl = [Vector((math.cos(a) * 1.2, 0.0, 0.7 - 0.7 * math.sin(a))) for a in (math.pi * i / 16 for i in range(17))]
+    cup = [*_with_head(bowl), *_with_head(list(reversed(bowl)))]
+    return {"curl": list(curl), "fingers": fingers, "cup": cup}
+
+
+def _shape_object(kind):
+    name = "OR_hand_" + kind
+    obj = bpy.data.objects.get(name)
+    if obj is None:
+        verts, edges = [], []
+        for line in _shapes()[kind]:
+            start = len(verts)
+            verts += [tuple(v) for v in line]
+            edges += [(start + i, start + i + 1) for i in range(len(line) - 1)]
+        mesh = bpy.data.meshes.new(name)
+        mesh.from_pydata(verts, edges, [])
+        obj = bpy.data.objects.new(name, mesh)
+    return obj
 
 
 def _pivot(edit, control, head, tail, x):
@@ -157,19 +195,17 @@ def _drive(obj, pivot, control, name, axis, lo, hi, to_lo, to_hi):
     _map(c, axis, lo, hi, to_lo, to_hi)
 
 
-def _hand_pose(obj, h, data, color):
+def _hand_pose(obj, h, color):
     pb, s = obj.pose.bones, "_" + h["side"]
     full, back = math.radians(90.0), math.radians(30.0)
     for name, shape, size in h["controls"]:
         bone = pb[name]
         obj.data.bones[name][HAND] = True
         rig_style.assign(obj.data, name, "Controls")
-        bone.custom_shape = _shape(shape, data)
-        verts = data["shapes"][shape]["verts"]
-        extent = max(max(abs(c) for c in v) for v in verts) or 1.0
+        bone.custom_shape = _shape_object(shape)
         bone.use_custom_shape_bone_size = False
-        bone.custom_shape_scale_xyz = (size / extent,) * 3
-        rig_shapes.color(bone, tuple(color))
+        bone.custom_shape_scale_xyz = (size,) * 3
+        rig_shapes.color(bone, color)
         bone.custom_shape_wire_width = WIDTHS["limb"]
         bone.rotation_mode = 'XYZ'
         bone.lock_location = bone.lock_scale = (True, True, True)
