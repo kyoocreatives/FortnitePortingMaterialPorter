@@ -790,6 +790,19 @@ before = world(hands, "index_02_l").copy()
 turn_ctrl(hands, "index_02_l_ctrl", (0.0, 0.0, math.radians(30)))
 check("Epic's finger control still turns its bone", not same_rot(world(hands, "index_02_l"), before, 0.1), True)
 turn_ctrl(hands, "index_02_l_ctrl", (0.0, 0.0, 0.0))
+def turned(obj, name):
+    """A control's rotation after its constraints, in degrees (local)."""
+    p = obj.pose.bones[name]
+    rest = p.parent.matrix @ p.parent.bone.matrix_local.inverted() @ p.bone.matrix_local
+    return [round(math.degrees(a), 1) for a in (rest.inverted() @ p.matrix).to_euler()]
+
+
+for name, euler, want in (("fingers_l_ctrl", (150, 20, 80), [90.0, 0.0, 45.0]), ("ring_l_curl_ctrl", (-60, 30, 30), [-30.0, 0.0, 0.0]),
+                          ("palm_l_ctrl", (100, 10, 10), [60.0, 0.0, 0.0])):
+    turn_ctrl(hands, name, tuple(math.radians(a) for a in euler))
+    check("%s only turns where it does something" % name, all(abs(a - b) < 0.2 for a, b in zip(turned(hands, name), want)), True)
+    turn_ctrl(hands, name, (0.0, 0.0, 0.0))
+
 check("hand controls sit with the rig's controls", all(n in hands.data.collections["Controls"].bones
       for n in ("fingers_l_ctrl", "palm_l_ctrl", "index_l_curl_ctrl")), True)
 # held prop: a handle through the fist; the finger joints stop on its surface instead of going through it

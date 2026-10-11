@@ -210,6 +210,13 @@ def _hand_pose(obj, h, color):
         bone.rotation_mode = 'XYZ'
         bone.lock_location = bone.lock_scale = (True, True, True)
         bone.lock_rotation = (False, True, not name.startswith("fingers"))     # Fingers also spreads (Z)
+        # past these the mechanisms stop: the control stops there too, and its idle axes stay at 0
+        x, z = ((-30.0, 90.0), (-45.0, 45.0)) if name.startswith("fingers") else             ((-60.0, 60.0), (0.0, 0.0)) if name.startswith("palm") else ((-30.0, 90.0), (0.0, 0.0))
+        c = bone.constraints.new('LIMIT_ROTATION')
+        c.name, c.owner_space, c.use_transform_limit = PREFIX + "limits", 'LOCAL', True
+        c.use_limit_x, c.min_x, c.max_x = True, math.radians(x[0]), math.radians(x[1])
+        c.use_limit_y = True
+        c.use_limit_z, c.min_z, c.max_z = True, math.radians(z[0]), math.radians(z[1])
     for pivots in list(h["pivots"].values()) + [[p] for p in h["cups"].values()]:
         for p in pivots:
             rig_style.assign(obj.data, p, "Mechanics")
