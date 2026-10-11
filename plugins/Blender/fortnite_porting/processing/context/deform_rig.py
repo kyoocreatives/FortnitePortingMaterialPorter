@@ -17,6 +17,7 @@ MARK, ON = "fpmp_deform_rig", "fpmp_deform_rig_on"
 GROUP = "Deform Mechanics"
 FLIP = Matrix(((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, 1.0)))     # Epic's axes vs the game frame in Blender
 ORDERS = ("XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX")                      # Epic's EEulerRotationOrder
+COPIES = {"translation": 'COPY_LOCATION', "rotation": 'COPY_ROTATION', "scale": 'COPY_SCALE'}     # a parent constraint's channels
 CHANNELS = {"Yaw": "atan2(-2*(w*z+x*y),1-2*(y*y+z*z))", "Pitch": "asin(clamp(2*(x*z-w*y),-1,1))",
             "Roll": "atan2(2*(w*x+y*z),1-2*(x*x+y*y))"}
 
@@ -335,9 +336,10 @@ def _copy(pb, kind, subtarget, influence, tag):
     return c
 
 
-def _blend(pb, followers, kind):
-    """Epic's weighted average of sources: the first fully, each next by its share of all so far."""
-    total = 0.0
+def _blend(pb, followers, kind, weight=1.0):
+    """Epic's weighted average of sources, blended in by weight: the bone's own pose counts as one more source of
+    weight (1 - weight) / weight of theirs, then each source goes in by its share of all so far."""
+    total = (1.0 - weight) / weight * sum(w for _, w in followers)
     for name, w in followers:
         total += w
         _copy(pb, kind, name, w / total, "blend")
@@ -361,14 +363,16 @@ def build(obj, lib, tun, scale=0.01):
     readers = {key: _reader_name(obj, key) for key in keys}
     names = set(obj.data.bones.keys())
     turns = [dict(e, parents=[p for p in e["parents"] if p["bone"] in names]) for e in tun.get("extras", [])
-             if e["op"] == "rotation_constraint" and e["bone"] in names]
+             if e["op"] in ("rotation_constraint", "parent_constraint") and e["bone"] in names]
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='EDIT')
     edit = obj.data.edit_bones
-    follow = [(base, [(_follower(edit, base, s), w) for s, w in sources], 'COPY_TRANSFORMS') for base, sources in bases.items()]
+    follow = [(base, [(_follower(edit, base, s), w) for s, w in sources], 'COPY_TRANSFORMS', 1.0) for base, sources in bases.items()]
     for e in turns:
-        follow.append((e["bone"], [(_follower(edit, e["bone"], p["bone"]), p["weight"]) for p in e["parents"]],
-                       'COPY_ROTATION'))
+        followers = [(_follower(edit, e["bone"], p["bone"]), p["weight"]) for p in e["parents"]]
+        copy = e.get("copy", ["rotation"])
+        kinds = ['COPY_TRANSFORMS'] if len(copy) == 3 else [COPIES[c] for c in copy]
+        follow += [(e["bone"], followers, kind, e.get("weight", 1.0)) for kind in kinds]
     read_from = {}
     for (driver, parent), name in readers.items():
         frame = _game(obj, driver)
@@ -379,7 +383,7 @@ def build(obj, lib, tun, scale=0.01):
         r.parent, r.use_deform = edit[parent], False
         read_from[name] = _follower(edit, name, driver)
     # a constrained bone takes its layers from a twin added after its constraints, as Epic adds them after the blend
-    constrained = {bone for bone, followers, _ in follow if followers} | {aim["bone"] for aim in aims}
+    constrained = {bone for bone, followers, _, _ in follow if followers} | {aim["bone"] for aim in aims}
     channels = {}
     for bone in layers:
         channels[bone] = bone
@@ -397,8 +401,8 @@ def build(obj, lib, tun, scale=0.01):
             for c in list(b.collections):
                 c.unassign(b)
             group.assign(b)
-    for bone, followers, kind in follow:
-        _blend(pb[bone], followers, kind)
+    for bone, followers, kind, weight in follow:
+        _blend(pb[bone], followers, kind, weight)
     for name, src in read_from.items():
         pb[name].rotation_mode = 'QUATERNION'
         _copy(pb[name], 'COPY_ROTATION', src, 1.0, "read")

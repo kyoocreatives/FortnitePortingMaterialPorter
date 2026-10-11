@@ -380,6 +380,49 @@ def extra_dump(mode=None, mul=None):
     return d
 
 
+def parent_dump(maintain=True, translation=(False, False, False)):
+    """dump() with a ParentConstraint (Joni the Red's coat: rotation and scale from the thigh, half weight) before its
+    pose-reader extra."""
+    d = dump()
+    vm = d[0]
+    lits = vm["LiteralMemoryStorage"]
+    filt = {"TranslationFilter": dict(zip(("bX", "bY", "bZ"), translation)), "RotationFilter": {"bX": True, "bY": True, "bZ": True},
+            "ScaleFilter": {"bX": True, "bY": True, "bZ": True}}
+    new = [("pc_child", "Bone/dyn_coat_l"), ("pc_keep", maintain), ("pc_filter", filt),
+           ("pc_parents", [{"Item": {"Type": "ERigElementType::First", "Name": "thigh_l"}, "Weight": 1.0}]),
+           ("pc_adv", {"InterpolationType": "EConstraintInterpType::Average"}), ("pc_weight", 0.5)]
+    first = len(lits["PropertyDescs"])
+    for name, value in new:
+        lits["PropertyDescs"].append({"Name": name})
+        lits["Values"][name] = value
+    functions = vm["LocalizedRegistry"]["Functions"]
+    functions.append({"Name": "FRigUnit_ParentConstraint::Execute", "Arguments": [{"LocalNameString": x} for x in (
+        "Child", "bMaintainOffset", "Filter", "Parents", "AdvancedSettings", "Weight")]})
+    vm["FunctionNamesStorage"].append(functions[-1]["Name"])
+    code = vm["ByteCodeStorage"]["Instructions"]
+    code.insert(2, {"OpCode": 101, "FunctionIndex": len(functions) - 1, "Arguments": [
+        {"MemoryType": 1, "RegisterIndex": first + i, "RegisterOffset": 65535} for i in range(len(new))]})
+    return d
+
+
+pc = dr.read(write("parent.json", parent_dump()))["extras"]
+check("a parent constraint reads, and the extras after it", [e["op"] for e in pc], ["parent_constraint", "modify"])
+check("its child, parents, weight and what it copies", (pc[0]["bone"], pc[0]["parents"], pc[0]["weight"], pc[0]["copy"]),
+      ("dyn_coat_l", [{"bone": "thigh_l", "weight": 1.0}], 0.5, ["rotation", "scale"]))
+check("one without its offset stops the extras", dr.read(write("snap.json", parent_dump(maintain=False)))["extras"], [])
+check("one copying only some axes stops the extras", dr.read(write("axes.json", parent_dump(translation=(True, False, False))))["extras"], [])
+coat = skeleton("coat")
+bpy.context.view_layer.objects.active = coat
+bpy.ops.object.mode_set(mode='EDIT')
+cb_ = coat.data.edit_bones.new("dyn_coat_l")
+cb_.head, cb_.tail, cb_.parent = (0.12, -0.08, 0.9), (0.12, -0.08, 0.7), coat.data.edit_bones["pelvis"]
+bpy.ops.object.mode_set(mode='OBJECT')
+coat_rest = world(coat, "dyn_coat_l")
+deform_rig.build(coat, lib, dict(tun, extras=pc[:1]))
+turn(coat, "thigh_l", (0, 1, 0), 60)
+moved = world(coat, "dyn_coat_l")
+check("the coat turns half the thigh's turn", round(math.degrees(moved.to_quaternion().rotation_difference(coat_rest.to_quaternion()).angle), 2), 30.0)
+check("and keeps its place (translation not copied)", round((moved.to_translation() - coat_rest.to_translation()).length, 5), 0.0)
 check("an additive modify reads", len(dr.read(write("add.json", extra_dump(mode=2)))["extras"]), 1)
 check("an override modify stops the extras", dr.read(write("override.json", extra_dump(mode=0)))["extras"], [])
 check("a constant product weight is a constant", dr.read(write("mul.json", extra_dump(mul=(0.5, 2.0))))["extras"][0]["weight"],

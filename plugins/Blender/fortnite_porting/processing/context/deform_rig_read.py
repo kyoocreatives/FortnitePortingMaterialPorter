@@ -181,6 +181,25 @@ def read(path):
             extras.append({"op": "rotation_constraint", "bone": _item(rig.resolve(a.get("Child"))),
                            "parents": [{"bone": _item(p.get("Item")), "weight": float(p.get("Weight", 1.0))} for p in parents
                                        if isinstance(p, dict)], "maintain_offset": bool(rig.resolve(a.get("bMaintainOffset")))})
+        elif name == "ParentConstraint":
+            # the parents' weighted mix with each one's offset kept, filtered to whole channels, blended in by Weight
+            if not rig.resolve(a.get("bMaintainOffset")):
+                print("[Deform rig] extras stop at a parent constraint without offset (not read)")
+                break
+            filt = rig.resolve(a.get("Filter")) or {}
+            axes = [[bool((filt.get(k) or {}).get(b, True)) for b in ("bX", "bY", "bZ")]
+                    for k in ("TranslationFilter", "RotationFilter", "ScaleFilter")]
+            if any(len(set(x)) > 1 for x in axes):
+                print("[Deform rig] extras stop at a parent constraint on some axes only (not read)")
+                break
+            parents = rig.resolve(a.get("Parents")) or []
+            weight = float(rig.resolve(a.get("Weight")) or 0.0)     # a blank literal is zero: no effect
+            if weight <= 0.0:
+                continue
+            extras.append({"op": "parent_constraint", "bone": _item(rig.resolve(a.get("Child"))),
+                           "parents": [{"bone": _item(p.get("Item")), "weight": float(p.get("Weight", 1.0))} for p in parents
+                                       if isinstance(p, dict)],
+                           "weight": weight, "copy": [c for c, x in zip(("translation", "rotation", "scale"), axes) if x[0]]})
         else:
             print("[Deform rig] extras stop at %s (not read)" % name)
             break
