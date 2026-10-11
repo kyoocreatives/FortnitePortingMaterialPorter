@@ -8,7 +8,7 @@ import math
 import bpy
 from mathutils import Vector
 
-from . import rig_shapes, rig_style
+from . import official_grip, rig_shapes, rig_style
 from .official_rig import HAND, MCH, PREFIX, WIDTHS, _shape, load
 
 LONG = ("index", "middle", "ring", "pinky")
@@ -33,6 +33,7 @@ def build(obj, data=None):
     bpy.ops.object.mode_set(mode='POSE')
     for h in hands:
         _hand_pose(obj, h, data, color.get("hand_%s_ik_ctrl" % h["side"]) or color.get("hand_%s_fk_ctrl" % h["side"]))
+        official_grip.pose(obj, h["side"], h["chains"])
     bpy.ops.object.mode_set(mode='OBJECT')
     return sum(len(h["controls"]) for h in hands)
 
@@ -83,6 +84,7 @@ def _hand_edit(edit, side):
         if n.length < 1e-9 or (f != "thumb" and n.normalized().dot(x) < 0.2):
             n = x.copy()
         n.normalize()
+        chain["axis"] = n
         meta = f + "_metacarpal" + s
         prev = (edit[meta].tail - edit[meta].head) if meta in edit else chain["pts"][0] - wrist
         limits = JOINT_MAX["thumb" if f == "thumb" else "finger"]
@@ -96,6 +98,7 @@ def _hand_edit(edit, side):
             prev = d
             pivots.append(_pivot(edit, seg + "_ctrl", head, tail, _ortho(n, d) or n))
         out["pivots"][f] = pivots
+        official_grip.edit(edit, chain, pivots)
         if f in CUP and meta + "_ctrl" in edit:
             out["cups"][f] = _pivot(edit, meta + "_ctrl", edit[meta].head.copy(), chain["pts"][0],
                                     _ortho(n, chain["pts"][0] - edit[meta].head) or n)

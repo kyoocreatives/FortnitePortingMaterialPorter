@@ -39,8 +39,18 @@ are a convenience layer and are not part of Epic's rig.
 The hand controls are keyed at rest on every baked frame. Epic's finger controls keep carrying the animation, so the
 bake lands as before.
 
+## Held prop (added after the first version, as FortRig's)
+- `fpmp_held_prop` (a mesh) on each Fingers control, with amounts Grip (1), Thumb Wrap (1) and Finger Wrap (0); the rig
+  panel shows the slot per hand and the amounts once a prop is picked.
+- Per finger segment, under Epic's control: a grip bone (the game bone follows its pose child) and a target at the next
+  joint. The target keeps the segment's length and is pushed out of the prop by Shrinkwraps (twice), after an
+  optional wrap onto the surface; the grip bone tracks it, as a hinge (Locked Track about the curl axis) except the
+  thumb's base (Damped Track). The next segment's pivot rides the grip bone.
+- No prop: Shrinkwraps muted and targetless, the grip changes nothing. Joints stop at the surface plus a finger's
+  half-thickness (0.3 of its segment); fingertips are pushed out along the segment, as in FortRig.
+
 ## Out of scope
-FortRig's held-prop grip (Shrinkwrap), per-phalanx limits on Epic's controls, a rig-panel toggle.
+Per-phalanx limits on Epic's controls, a rig-panel toggle for the layer.
 
 ## Tests (tests/plugin/official_rig_check.py)
 - With the layer, a mannequin at rest poses exactly as without it.
@@ -50,3 +60,5 @@ FortRig's held-prop grip (Shrinkwrap), per-phalanx limits on Epic's controls, a 
 - Epic's finger control still turns its bone with the layer on.
 - Bake to Controls with the layer: baked bones land as before and the hand controls are keyed at rest.
 - The option off: no hand controls are built.
+- Held prop: a handle through the fist keeps every finger joint outside it; Finger Wrap closes the joints onto it;
+  clearing the prop gives the plain fist back; the panel offers Held L/R.

@@ -694,6 +694,14 @@ def ui(layout, obj):
     if show in pb:
         shown = setting(obj, show) >= 0.5
         col.operator("fpmp.official_rig_body_controls", text="Body Controls", depress=shown).show = not shown
+    for side in ("l", "r"):         # the extra hand controls' held prop (official_grip)
+        holder = pb.get("fingers_%s_ctrl" % side)
+        if holder is not None and hasattr(holder, "fpmp_held_prop"):
+            row = col.row(align=True)
+            row.prop(holder, "fpmp_held_prop", text="Held " + side.upper())
+            if holder.fpmp_held_prop is not None:
+                for name, label in (("grip", "Grip"), ("thumb_wrap", "Thumb"), ("finger_wrap", "Fingers")):
+                    row.prop(holder, '["%s"]' % name, text=label)
     col.operator("fpmp.official_rig_bake", text="Bake to Controls", icon='ACTION')
 
 

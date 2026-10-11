@@ -301,14 +301,16 @@ def register():
     for c in classes:
         bpy.utils.register_class(c)
     face_board.register()
-    from ..processing.context import dynamics_live, wind
+    from ..processing.context import dynamics_live, official_grip, wind
     wind.register()
+    official_grip.register()
     dynamics_live.install()
 
 
 def unregister():
-    from ..processing.context import dynamics_live, wind
+    from ..processing.context import dynamics_live, official_grip, wind
     dynamics_live.uninstall()
+    official_grip.unregister()
     wind.unregister()
     face_board.unregister()
     for c in reversed(classes):

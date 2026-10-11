@@ -770,6 +770,40 @@ check("Epic's finger control still turns its bone", not same_rot(world(hands, "i
 turn_ctrl(hands, "index_02_l_ctrl", (0.0, 0.0, 0.0))
 check("hand controls sit with the rig's controls", all(n in hands.data.collections["Controls"].bones
       for n in ("fingers_l_ctrl", "palm_l_ctrl", "index_l_curl_ctrl")), True)
+# held prop: a handle through the fist; the finger joints stop on its surface instead of going through it
+from fpmp_baseline.processing.context import official_grip  # noqa: E402
+official_grip.register()
+turn_ctrl(hands, "fingers_l_ctrl", (math.radians(90), 0.0, 0.0))
+joints = lambda: [head(hands, "%s_0%d_l" % (f, k)) for f in LONG for k in (2, 3)] + [tip(hands, f) for f in LONG]
+fist = joints()
+centre = sum((head(hands, "%s_03_l" % f) for f in LONG), Vector()) / 4
+radius = 0.012
+bpy.ops.mesh.primitive_cylinder_add(radius=radius, depth=0.2, location=centre, rotation=(math.pi / 2, 0.0, 0.0), vertices=64)
+handle = bpy.context.active_object
+handle.name = "handle"
+bpy.context.view_layer.objects.active = hands
+off_axis = lambda p: math.hypot(p.x - centre.x, p.z - centre.z)
+check("without a held prop the fist goes through the handle", min(off_axis(p) for p in fist) < radius - 0.002, True)
+hands.pose.bones["fingers_l_ctrl"].fpmp_held_prop = handle
+bpy.context.view_layer.update()
+held = joints()
+check("with it, every finger joint stays outside the handle", min(off_axis(p) for p in held) > radius - 1e-3, True)
+hands.pose.bones["fingers_l_ctrl"]["finger_wrap"] = 1.0
+hands.update_tag()
+bpy.context.view_layer.update()
+check("Finger Wrap closes the finger joints onto it", max(off_axis(p) for p in joints()[:8]) < radius + 0.015, True)
+hands.pose.bones["fingers_l_ctrl"]["finger_wrap"] = 0.0
+hands.update_tag()
+hands.pose.bones["fingers_l_ctrl"].fpmp_held_prop = None
+bpy.context.view_layer.update()
+check("taking the prop away gives the plain fist back", max((a - b).length for a, b in zip(joints(), fist)) < 1e-4, True)
+turn_ctrl(hands, "fingers_l_ctrl", (0.0, 0.0, 0.0))
+held_ui = []
+official_rig.ui(Layout(held_ui), hands)
+check("the rig panel offers the held prop per hand", [d[-1] for d in held_ui if d[0] == "prop" and d[-1].startswith("Held")],
+      ["Held L", "Held R"])
+check("the grip changes nothing at rest", all((world(hands, n).to_translation() - world(plain, n).to_translation()).length < 1e-5
+      for n in fingers), True)
 # Bake to Controls with the layer: the bones land, the hand controls are keyed at rest
 official_rig.on_animation_import(hands)
 hands.animation_data_create()
