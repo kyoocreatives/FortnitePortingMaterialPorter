@@ -410,8 +410,9 @@ check("a parent constraint reads, and the extras after it", [e["op"] for e in pc
 check("its child, parents, weight and what it copies", (pc[0]["bone"], pc[0]["parents"], pc[0]["weight"], pc[0]["copy"]),
       ("dyn_coat_l", [{"bone": "thigh_l", "weight": 1.0}], 0.5, ["rotation", "scale"]))
 check("one without its offset stops the extras", dr.read(write("snap.json", parent_dump(maintain=False)))["extras"], [])
-check("one blended by a pose-dependent weight stops the extras, keeping the tuning",
-      dr.read(write("varying.json", parent_dump(weight={"type": "spr", "driver": "hand_l"})))["extras"], [])
+ELBOW = next(p["weight"] for p in dr.library()["parts"] if p["bone"] == "deform_elbow_in_l")
+varying = dr.read(write("varying.json", parent_dump(weight=ELBOW)))["extras"]
+check("one blended by a pose weight reads with it", [(e["op"], e.get("weight")) for e in varying][:1], [("parent_constraint", ELBOW)])
 check("one copying only some axes stops the extras", dr.read(write("axes.json", parent_dump(translation=(True, False, False))))["extras"], [])
 coat = skeleton("coat")
 bpy.context.view_layer.objects.active = coat
@@ -425,6 +426,37 @@ turn(coat, "thigh_l", (0, 1, 0), 60)
 moved = world(coat, "dyn_coat_l")
 check("the coat turns half the thigh's turn", round(math.degrees(moved.to_quaternion().rotation_difference(coat_rest.to_quaternion()).angle), 2), 30.0)
 check("and keeps its place (translation not copied)", round((moved.to_translation() - coat_rest.to_translation()).length, 5), 0.0)
+# the same coat blended in by the elbow's weight (LoanFloat's coat follows the shoulders by an upper arm reader)
+cloak = skeleton("cloak")
+bpy.context.view_layer.objects.active = cloak
+bpy.ops.object.mode_set(mode='EDIT')
+cb_ = cloak.data.edit_bones.new("dyn_coat_l")
+cb_.head, cb_.tail, cb_.parent = (0.12, -0.08, 0.9), (0.12, -0.08, 0.7), cloak.data.edit_bones["pelvis"]
+bpy.ops.object.mode_set(mode='OBJECT')
+cloak_rest = world(cloak, "dyn_coat_l")
+deform_rig.build(cloak, lib, dict(tun, extras=varying[:1]))
+turn(cloak, "thigh_l", (0, 1, 0), 60)
+check("a pose-weighted coat at rest weight stays put", round(math.degrees(world(cloak, "dyn_coat_l").to_quaternion().rotation_difference(
+    cloak_rest.to_quaternion()).angle), 2), 0.0)
+followed = []
+for deg in (60, -60):
+    turn(cloak, "lowerarm_l", (0, 0, 1), deg)
+    coat_pb = cloak.pose.bones["dyn_coat_l"]
+    w_ref = deform_rig.reference_weight(cloak, coat_pb.get("dr_spec50"))
+    followed.append(w_ref)
+    check("elbow %d: the coat's weight is Epic's" % deg, round(coat_pb.get("dr_w50", -1.0), 4), round(w_ref, 4))
+    check("elbow %d: the coat turns that share of the thigh's turn" % deg, round(math.degrees(world(cloak, "dyn_coat_l").to_quaternion()
+          .rotation_difference(cloak_rest.to_quaternion()).angle), 2), round(60.0 * w_ref, 2), tol=0.05)
+check("a bent elbow weights the coat in", max(followed) > 0.5, True)
+# a weight's later steps in its driver: squared, then mapped and clamped
+stepped = skeleton("stepped")
+deform_rig.build(stepped, lib, dict(tun, extras=[{"op": "modify", "bone": "lowerarm_twist_01_l", "t": [0.0, 1.0, 0.0], "s": [1.0, 1.0, 1.0],
+                                                  "weight": dict(ELBOW, post=[[1.0, 0.0, None, None, 2.0], [2.0, -0.1, 0.0, 0.5]])}]))
+for deg in (60, -60):
+    turn(stepped, "lowerarm_l", (0, 0, 1), deg)
+    twist = stepped.pose.bones["lowerarm_twist_01_l"]
+    check("elbow %d: a squared, clamped weight's driver is the reference" % deg, round(twist.get("dr_w0", -1.0), 5),
+          round(deform_rig.reference_weight(stepped, twist.get("dr_spec0")), 5))
 def branch_dump(condition, false_side=True):
     """dump() with its pose-reader extra inside a ControlFlowBranch's True side, and (false_side) a second modify on
     another bone on its False side; condition: a literal, or None for a work register nothing wrote."""
@@ -514,6 +546,127 @@ check("an additive modify reads", len(dr.read(write("add.json", extra_dump(mode=
 check("an override modify stops the extras", dr.read(write("override.json", extra_dump(mode=0)))["extras"], [])
 check("a constant product weight is a constant", dr.read(write("mul.json", extra_dump(mul=(0.5, 2.0))))["extras"][0]["weight"],
       {"type": "const", "value": 1.0})
+
+
+def chain_dump(steps, weight=("w", "r"), library=()):
+    """dump() with steps between its pose reader and its modify, the modify weighted by `weight`. A step is
+    ("Copy", source, target) or (function, [(argument, operand)...]); an operand is ("l", literal), ("w", work
+    register), ("x", rig variable index) or "spr" (the pose reader's output). library: steps run before the forward
+    solve, as Epic's library functions sit before it in the byte code."""
+    d = dump()
+    vm = d[0]
+    lits, names = vm["LiteralMemoryStorage"], vm["FunctionNamesStorage"]
+    work = vm["DefaultWorkMemoryStorage"]["PropertyDescs"]
+
+    def operand(o):
+        if o == "spr":
+            return {"MemoryType": 0, "RegisterIndex": 0, "RegisterOffset": 65535}
+        kind, v = o
+        if kind == "x":
+            return {"MemoryType": 2, "RegisterIndex": v, "RegisterOffset": 65535}
+        if kind == "w":
+            if v not in [p["Name"] for p in work]:
+                work.append({"Name": v})
+            return {"MemoryType": 0, "RegisterIndex": [p["Name"] for p in work].index(v), "RegisterOffset": 65535}
+        lits["PropertyDescs"].append({"Name": "lit%d" % len(lits["PropertyDescs"])})
+        lits["Values"][lits["PropertyDescs"][-1]["Name"]] = v
+        return {"MemoryType": 1, "RegisterIndex": len(lits["PropertyDescs"]) - 1, "RegisterOffset": 65535}
+
+    def code_of(step):
+        if step[0] == "Copy":
+            return {"OpCode": 68, "Source": operand(step[1]), "Target": operand(step[2])}
+        function, args = step
+        if function not in names:
+            names.append(function)
+            if not function.startswith("DISPATCH_"):     # dispatches name their arguments in their signature only
+                vm["LocalizedRegistry"]["Functions"].append({"Name": function, "Arguments": [{"LocalNameString": a} for a, _ in args]})
+        return {"OpCode": 101, "FunctionIndex": names.index(function), "Arguments": [operand(o) for _, o in args]}
+    code = vm["ByteCodeStorage"]["Instructions"]
+    middle = [code_of(s) for s in steps]
+    code[-2]["Arguments"][1] = operand(weight)
+    head = [code_of(s) for s in library]
+    vm["ByteCodeStorage"]["Instructions"] = head + code[:-2] + middle + code[-2:]
+    vm["ByteCodeStorage"]["Entries"] = ['(Name="Forwards Solve",InstructionIndex=%d)' % len(head)] if head else vm["ByteCodeStorage"]["Entries"]
+    return d
+
+
+def chained(name, steps, weight=("w", "r"), library=()):
+    return dr.read(write(name, chain_dump(steps, weight, library)))["extras"]
+
+
+SUB, ADD, DIV = ("FRigVMFunction_MathDouble%s::Execute" % n for n in ("Sub", "Add", "Div"))
+REMAP, CLAMP = "FRigVMFunction_MathDoubleRemap::Execute", "FRigVMFunction_MathDoubleClamp::Execute"
+TO_FLOAT = "FRigVMFunction_MathBoolToFloat::Execute"
+w_of = lambda extras: extras[0]["weight"] if extras else {}
+check("one minus a weight", w_of(chained("sub.json", [(SUB, [("A", ("l", 1.0)), ("B", "spr"), ("Result", ("w", "r"))])])).get("post"),
+      [[-1.0, 1.0, None, None]])
+check("a weight plus a constant, halved",
+      w_of(chained("adddiv.json", [(ADD, [("A", "spr"), ("B", ("l", 0.5)), ("Result", ("w", "a"))]),
+                                   (DIV, [("A", ("w", "a")), ("B", ("l", 2.0)), ("Result", ("w", "r"))])])).get("post"),
+      [[1.0, 0.5, None, None], [0.5, 0.0, None, None]])
+check("a blank literal operand is zero", w_of(chained("blank.json", [(ADD, [("A", "spr"), ("B", ("l", None)), ("Result", ("w", "r"))])])).get("post"),
+      [[1.0, 0.0, None, None]])
+remapped = w_of(chained("remap.json", [(REMAP, [("Value", "spr"), ("SourceMinimum", ("l", 0.2)), ("SourceMaximum", ("l", 0.6)),
+                                                ("TargetMinimum", ("l", 1.0)), ("TargetMaximum", ("l", None)), ("bClamp", ("l", True)),
+                                                ("Result", ("w", "r"))])]))
+check("a remap: the ratio clamped, then the target range", remapped.get("post"), [[2.5, -0.5, 0.0, 1.0], [-1.0, 1.0, None, None]])
+check("the remap's settled values", [round(deform_rig.post_value(v, remapped), 6) for v in (0.4, 0.9, 0.0)], [0.5, 0.0, 1.0])
+check("a clamp", w_of(chained("clamp.json", [(CLAMP, [("Value", "spr"), ("Minimum", ("l", 0.1)), ("Maximum", ("l", 0.9)),
+                                                       ("Result", ("w", "r"))])])).get("post"), [[1.0, 0.0, 0.1, 0.9]])
+squared = w_of(chained("pow.json", [("FRigVMFunction_MathDoublePow::Execute", [("A", "spr"), ("B", ("l", 2.0)), ("Result", ("w", "r"))])]))
+check("a weight squared", squared.get("post"), [[1.0, 0.0, None, None, 2.0]])
+check("its settled value", deform_rig.post_value(0.5, squared), 0.25)
+check("math on constants is a constant", w_of(chained("consts.json", [(SUB, [("A", ("l", 1.0)), ("B", ("l", 0.25)), ("Result", ("w", "r"))])])),
+      {"type": "const", "value": 0.75})
+check("two weights added stop the extras",
+      chained("twoweights.json", [(ADD, [("A", "spr"), ("B", "spr"), ("Result", ("w", "r"))])]), [])
+check("a weight kept in a rig variable", (w_of(chained("var.json", [("Copy", "spr", ("x", 5))], weight=("x", 5))) or {}).get("driver"), "hand_l")
+def with_variables(d, props, defaults):
+    """A dump with the rig class's variables (name, type) and the defaults its class default object stores."""
+    return [{"Type": "ControlRigBlueprintGeneratedClass", "ChildProperties": [{"Name": n, "Type": t} for n, t in props]},
+            {"Name": "Default__Rig_C", "Properties": defaults}] + d
+
+
+VARIABLES = [("RBAN Enabled", "BoolProperty"), ("blink", "DoubleProperty"), ("lean", "FloatProperty")]
+check("a number variable the game drives: its default, zero when none is stored (CyberTentacle's blink)",
+      w_of(dr.read(write("blink.json", with_variables(chain_dump([], weight=("x", 1)), VARIABLES, {})))["extras"]), {"type": "const", "value": 0.0})
+check("one with a stored default", w_of(dr.read(write("lean.json", with_variables(chain_dump([], weight=("x", 2)), VARIABLES, {"lean": 0.4})))["extras"]),
+      {"type": "const", "value": 0.4})
+check("a curve written on the way doesn't stop the extras",
+      len(chained("curve.json", [("FRigUnit_SetCurveValue::Execute", [("Curve", ("l", "sleeve_R")), ("Value", "spr"), ("CachedCurveIndex", ("w", "c"))])],
+                  weight="spr")), 1)
+check("a Kalman filter, settled, passes its value", (w_of(chained("kalman.json", [("FRigVMFunction_KalmanFloat::Execute", [
+    ("Value", "spr"), ("BufferSize", ("l", 16)), ("Result", ("w", "r")), ("Buffer", ("w", "b")), ("LastInsertIndex", ("w", "i"))])])) or {}).get("driver"), "hand_l")
+check("not false, as a float", w_of(chained("not.json", [("FRigVMFunction_MathBoolNot::Execute", [("Value", ("l", False)), ("Result", ("w", "b"))]),
+                                                       (TO_FLOAT, [("Value", ("w", "b")), ("Result", ("w", "r"))])])), {"type": "const", "value": 1.0})
+check("true and false, as a float", w_of(chained("and.json", [("FRigVMFunction_MathBoolAnd::Execute", [("A", ("l", True)), ("B", ("l", None)), ("Result", ("w", "b"))]),
+                                                            (TO_FLOAT, [("Value", ("w", "b")), ("Result", ("w", "r"))])])), {"type": "const", "value": 0.0})
+SET_ATTR = ("DISPATCH_RigDispatch_SetAnimAttribute::Name:FName,BoneName:FName,CachedBoneName:FName,CachedBoneIndex:int32,"
+            "Value:float,Success:bool")
+GET_ATTR = ("DISPATCH_RigDispatch_GetAnimAttribute::Name:FName,BoneName:FName,CachedBoneName:FName,CachedBoneIndex:int32,"
+            "Default:float,Value:float,Found:bool")
+LIB_SPR = ("FRigUnit_SphericalPoseReader::Execute", [("OutputParam", ("w", "lib_spr")), ("DriverItem", ("l", "Bone/thigh_l"))])
+
+
+def attribute(published):
+    return chained("attr_%s.json" % published, [(GET_ATTR, [("Name", ("l", published)), ("BoneName", ("l", "root")), ("CachedBoneName", ("w", "cb")),
+                                                             ("CachedBoneIndex", ("w", "ci")), ("Default", ("l", None)), ("Value", ("w", "r")),
+                                                             ("Found", ("w", "f"))])],
+                   library=[LIB_SPR, ("Copy", ("w", "lib_spr"), ("w", "thigh_up_alpha")),
+                            (SET_ATTR, [("Name", ("l", "deformRig_l_thigh_up_alpha")), ("BoneName", ("l", "root")), ("CachedBoneName", ("w", "cb2")),
+                                        ("CachedBoneIndex", ("w", "ci2")), ("Value", ("w", "thigh_up_alpha")), ("Success", ("w", "s"))])])
+
+
+check("an anim attribute Epic's library publishes: the pose reader behind it",
+      (w_of(attribute("deformRig_l_thigh_up_alpha")) or {}).get("driver"), "thigh_l")
+check("one it doesn't (the game's animation sets it) stops the extras", attribute("deformRig_l_unknown_alpha"), [])
+offset = chained("offset.json", [("FRigUnit_OffsetTransformForItem::Execute", [
+    ("Item", ("l", "Bone/extra_glute_scale")), ("OffsetTransform", ("l", tf((1.0, 2.0, 3.0), (1.5, 1.0, 1.0)))), ("Weight", "spr"),
+    ("bPropagateToChildren", ("l", True)), ("CachedIndex", ("w", "ci"))])], weight="spr")
+check("an offset transform: an additive local modify on its item",
+      [(e["op"], e["bone"], e["t"], e["s"], e["weight"].get("driver")) for e in offset][:1],
+      [("modify", "extra_glute_scale", [1.0, 2.0, 3.0], [1.5, 1.0, 1.0], "hand_l")])
+check("then the extras after it", len(offset), 2)
 # several parts with rigs: the one that calls FortDeformRig tunes the body
 two = skeleton("two_rigs")
 mesh_hooks._correctives(SimpleNamespace(imported_meshes=[{"Skeleton": None, "Mesh": None, "Meta": {"DeformRig": write("face.json", dump(call=False))}},

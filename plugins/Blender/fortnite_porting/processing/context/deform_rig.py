@@ -208,17 +208,17 @@ def _rotated(a, c):
 
 
 def post_value(v, weight):
-    """A weight's later steps (an AlphaInterp's map, scale, bias and clamp) on its value."""
-    for a, b, lo, hi in weight.get("post") or []:
-        v = v * a + b
+    """A weight's later steps (an AlphaInterp's map, scale, bias and clamp; a power first when given) on its value."""
+    for a, b, lo, hi, *power in weight.get("post") or []:
+        v = (v ** power[0] if power else v) * a + b
         if lo is not None:
             v = min(max(v, lo), hi)
     return v
 
 
 def _post_text(text, weight):
-    for a, b, lo, hi in weight.get("post") or []:
-        text = "(%s*(%s)+%s)" % (_num(a), text, _num(b))
+    for a, b, lo, hi, *power in weight.get("post") or []:
+        text = "(%s*(%s)+%s)" % (_num(a), "pow(%s,%s)" % (text, _num(power[0])) if power else text, _num(b))
         if lo is not None:
             text = "clamp(%s,%s,%s)" % (text, _num(lo), _num(hi))
     return text
@@ -353,13 +353,22 @@ def _copy(pb, kind, subtarget, influence, tag):
     return c
 
 
-def _blend(pb, followers, kind, weight=1.0):
+def _blend(pb, followers, kind, weight=1.0, path=None):
     """Epic's weighted average of sources, blended in by weight: the bone's own pose counts as one more source of
-    weight (1 - weight) / weight of theirs, then each source goes in by its share of all so far."""
-    total = (1.0 - weight) / weight * sum(w for _, w in followers)
+    weight (1 - weight) / weight of theirs, then each source goes in by its share of all so far. path: the property a
+    pose weight drives, in place of the constant."""
+    total, s = 0.0, sum(w for _, w in followers)
     for name, w in followers:
         total += w
-        _copy(pb, kind, name, w / total, "blend")
+        if path is None:
+            _copy(pb, kind, name, w / ((1.0 - weight) / weight * s + total), "blend")
+            continue
+        driver = _copy(pb, kind, name, 0.0, "blend").driver_add("influence").driver
+        driver.type = 'SCRIPTED'
+        var = driver.variables.new()
+        var.name, var.type = "w", 'SINGLE_PROP'
+        var.targets[0].id, var.targets[0].data_path = pb.id_data, path
+        driver.expression = "clamp(w*%s/max(%s*(1-w)+w*%s,1e-9),0,1)" % (_num(w), _num(s), _num(total))
 
 
 def _nearest(v):
@@ -376,11 +385,13 @@ def build(obj, lib, tun, scale=0.01):
     layers, bases, aims = _layers(obj, lib, tun)
     if not layers:
         return 0
-    keys = {_reader_key(obj, layer["weight"]) for ls in layers.values() for layer in ls} - {None}
-    readers = {key: _reader_name(obj, key) for key in keys}
     names = set(obj.data.bones.keys())
     turns = [dict(e, parents=[p for p in e["parents"] if p["bone"] in names]) for e in tun.get("extras", [])
-             if e["op"] in ("rotation_constraint", "parent_constraint") and e["bone"] in names]
+             if e["op"] in ("rotation_constraint", "parent_constraint") and e["bone"] in names
+             and (not isinstance(e.get("weight"), dict) or _reader_key(obj, e["weight"]))]
+    keys = {_reader_key(obj, w) for w in [layer["weight"] for ls in layers.values() for layer in ls]
+            + [e["weight"] for e in turns if isinstance(e.get("weight"), dict)]} - {None}
+    readers = {key: _reader_name(obj, key) for key in keys}
     bpy.context.view_layer.objects.active = obj
     bpy.ops.object.mode_set(mode='EDIT')
     edit = obj.data.edit_bones
@@ -418,8 +429,13 @@ def build(obj, lib, tun, scale=0.01):
             for c in list(b.collections):
                 c.unassign(b)
             group.assign(b)
+    weighted = {}
     for bone, followers, kind, weight in follow:
-        _blend(pb[bone], followers, kind, weight)
+        path = None
+        if isinstance(weight, dict):        # its weight property after the layers' (dr_w50, dr_w51...)
+            k = weighted[bone] = weighted.get(bone, 49) + 1
+            path = _weight(obj, pb[bone], k, {"weight": weight}, readers[_reader_key(obj, weight)])
+        _blend(pb[bone], followers, kind, 1.0 if path else weight, path)
     for name, src in read_from.items():
         pb[name].rotation_mode = 'QUATERNION'
         _copy(pb[name], 'COPY_ROTATION', src, 1.0, "read")

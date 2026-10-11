@@ -12,7 +12,11 @@ from .rig_vm import entry_index
 LIBRARY = os.path.join(os.path.dirname(__file__), "deform_rig.json")
 SUFFIX = re.compile(r"^(.*)_\d+_[0-9A-F]{32}$")         # a Blueprint struct member's generated suffix
 SCALES = ("PositiveWidth", "NegativeWidth", "PositiveHeight", "NegativeHeight")
-SKIP = ("BeginExecution", "Sequence")
+SKIP = ("BeginExecution", "Sequence", "SetCurveValue")      # SetCurveValue: a curve for the anim graph, no bone moves
+ATTRIBUTE = ("DISPATCH_RigDispatch_GetAnimAttribute", "DISPATCH_RigDispatch_SetAnimAttribute")
+OPERANDS = {"Add": ("A", "B"), "Sub": ("A", "B"), "Div": ("A", "B"), "Clamp": ("Value", "Minimum", "Maximum"),
+            "Remap": ("Value", "SourceMinimum", "SourceMaximum", "TargetMinimum", "TargetMaximum", "bClamp"),
+            "Pow": ("A", "B"), "BoolNot": ("Value",), "BoolAnd": ("A", "B"), "BoolOr": ("A", "B"), "BoolToFloat": ("Value",)}
 _cache = {}
 
 
@@ -67,17 +71,20 @@ class _Rig:
         if not entries:
             raise DeformRigError("no forward solve")
         self.start = entry_index(entries[0])
-        self.state = {}
+        self.state, self.attributes = {}, {}
         # the rig's bool variables by memory index (its movement states: DBNO, Crouch, Skydive...): their defaults,
         # false unless the class stores one, i.e. standing still
         cls = next((e for e in dump if e.get("Type") == "ControlRigBlueprintGeneratedClass"), {})
         cdo = next((e for e in dump if str(e.get("Name", "")).startswith("Default__")), {}).get("Properties") or {}
         self.bools = {k: bool(cdo.get(p.get("Name"), False)) for k, p in enumerate(cls.get("ChildProperties") or [])
                       if p.get("Type") == "BoolProperty"}
+        # number variables the game drives (blink, jumping...): their defaults, zero unless stored, i.e. at rest
+        self.numbers = {k: float(cdo.get(p.get("Name")) or 0.0) for k, p in enumerate(cls.get("ChildProperties") or [])
+                        if p.get("Type") in ("DoubleProperty", "FloatProperty")}
 
     def resolve(self, op):
-        """An operand's value: a literal, what the work register holds, a bool rig variable's default, or 1.0 for
-        another rig variable."""
+        """An operand's value: a literal, what the work register holds, a rig variable the solve wrote or its default
+        (bools and numbers), or 1.0 for another rig variable."""
         if op is None:
             return None
         kind, index, offset = op["MemoryType"], op["RegisterIndex"], op["RegisterOffset"]
@@ -89,17 +96,42 @@ class _Rig:
         if kind == 0:
             seg = self.work_paths[offset] if offset != 65535 and offset < len(self.work_paths) else None
             return self.state.get((index, seg), self.state.get((index, None)))
+        if kind == 2 and (("X", index), None) in self.state:
+            return self.state[(("X", index), None)]
         if kind == 2 and index in self.bools:
             return self.bools[index]
+        if kind == 2 and index in self.numbers:
+            return self.numbers[index]
         return 1.0
 
     def target(self, op):
+        if op["MemoryType"] == 2:           # a rig variable the solve writes
+            return ("X", op["RegisterIndex"]), None
         offset = op["RegisterOffset"]
         seg = self.work_paths[offset] if offset != 65535 and offset < len(self.work_paths) else None
         return op["RegisterIndex"], seg
 
     def named(self, x, names):
         return {n: x["Arguments"][k] for k, n in enumerate(names) if k < len(x["Arguments"])}
+
+    def call(self, x):
+        """An Execute's unit name and its operands by argument name (a dispatch names them in its signature only)."""
+        function = self.functions[x["FunctionIndex"]]
+        names = self.args.get(function)
+        if names is None:
+            signature = function.split("::", 1)[1] if "::" in function else ""
+            names = [p.split(":")[0] for p in signature.split(",")] if ":" in signature else []
+        name = function.split("::")[0].replace("FRigUnit_", "").replace("FRigVMFunction_", "")
+        return name, self.named(x, names)
+
+    def copy(self, x):
+        value = self.resolve(x["Source"])
+        index, seg = self.target(x["Target"])
+        if seg and seg.endswith("Transform.Rotation") and isinstance(self.state.get((index, None)), list):
+            entry = self.state[(index, None)][int(seg.split(".")[0])]
+            entry["Transform"] = dict(entry.get("Transform") or {}, Rotation=value)
+        else:
+            self.state[(index, seg)] = json.loads(json.dumps(value)) if isinstance(value, (list, dict)) else value
 
 
 def _tuning(bools, values):
@@ -122,6 +154,82 @@ def _spr(rig, a):
             "region": float(get("ActiveRegionSize") or 0.1), "region_scale": factors(get("ActiveRegionScaleFactors")),
             "falloff": float(get("FalloffSize") or 0.2), "falloff_scale": factors(get("FalloffRegionScaleFactors")),
             "flip_width": bool(get("FlipWidthScaling")), "flip_height": bool(get("FlipHeightScaling"))}
+
+
+def _library(rig):
+    """The pose weights Epic's library publishes as anim attributes (deformRig_l_thigh_up_alpha...), for a character's
+    own graph reading them back: its pose readers and copies, run over the byte code before the forward solve."""
+    for x in rig.code[:rig.start]:
+        if x.get("OpCode") == 68:
+            rig.copy(x)
+        elif x.get("OpCode") == 101:
+            name, a = rig.call(x)
+            if name == "SphericalPoseReader" and a.get("OutputParam") is not None:
+                rig.state[rig.target(a["OutputParam"])] = _spr(rig, a)
+            elif name == ATTRIBUTE[1]:
+                value = rig.resolve(a.get("Value"))
+                if isinstance(value, dict) and value.get("driver"):
+                    rig.attributes[rig.resolve(a.get("Name"))] = value
+    rig.state = {}
+
+
+def _number(v):
+    if v is None:           # a blank literal: zero
+        return 0.0
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return float(v)
+    raise TypeError("a value from the pose")
+
+
+def _flag(v):
+    if v is None or isinstance(v, bool):
+        return bool(v)
+    raise TypeError("a value from the pose")
+
+
+def _step(v, a, b, lo=None, hi=None, power=None):
+    """(v ** power) * a + b, clamped to [lo, hi]: on a number its value, on a pose weight one more step after it."""
+    if isinstance(v, dict):
+        return dict(v, post=list(v.get("post") or []) + [[a, b, lo, hi] + ([power] if power is not None else [])])
+    v = (_number(v) ** power if power is not None else _number(v)) * a + b
+    return v if lo is None else min(max(v, lo), hi)
+
+
+def _math(op, v):
+    """A math unit (OPERANDS) on numbers, bools and at most one pose weight, as UE computes it; TypeError otherwise."""
+    if op.startswith("Bool"):
+        return {"BoolNot": lambda: not _flag(v[0]), "BoolAnd": lambda: _flag(v[0]) and _flag(v[1]),
+                "BoolOr": lambda: _flag(v[0]) or _flag(v[1]), "BoolToFloat": lambda: float(_flag(v[0]))}[op]()
+    if op == "Clamp":
+        return _step(v[0], 1.0, 0.0, _number(v[1]), _number(v[2]))
+    if op == "Remap":
+        s0, s1, t0, t1 = (_number(x) for x in v[1:5])
+        a = 0.0 if abs(s1 - s0) < 1e-8 else 1.0 / (s1 - s0)     # equal source ends: the ratio is 0
+        ratio = _step(v[0], a, -s0 * a, *((0.0, 1.0) if v[5] else (None, None)))
+        return _step(ratio, t1 - t0, t0)
+    if sum(isinstance(x, dict) for x in v) > 1 or (op == "Div" and isinstance(v[1], dict)):
+        raise TypeError("a value from the pose")
+    if op == "Div":
+        b = _number(v[1])
+        return 0.0 if abs(b) < 1e-8 else _step(v[0], 1.0 / b, 0.0)
+    if op == "Pow":
+        if isinstance(v[1], dict):
+            raise TypeError("a value from the pose")
+        return _step(v[0], 1.0, 0.0, power=_number(v[1]))
+    if op == "Add":
+        w, c = (v[1], v[0]) if isinstance(v[1], dict) else (v[0], v[1])
+        return _step(w, 1.0, _number(c))
+    return _step(v[1], -1.0, _number(v[0])) if isinstance(v[1], dict) else _step(v[0], 1.0, -_number(v[1]))
+
+
+def _modify(item, transform, weight):
+    """An additive local change to a bone, weighted by a constant or a pose weight."""
+    rotation = transform.get("Rotation")
+    euler = isinstance(rotation, dict) and "euler" in rotation
+    return {"op": "modify", "bone": _item(item), "t": _vec(transform.get("Translation") or {}),
+            "s": _vec(transform.get("Scale3D") or {"X": 1, "Y": 1, "Z": 1}),
+            "euler": rotation.get("euler") if euler else None, "order": rotation.get("order") if euler else None,
+            "weight": weight if isinstance(weight, dict) else {"type": "const", "value": 1.0 if weight is None else float(weight)}}
 
 
 def _untaken(rig, pc, condition):
@@ -166,6 +274,7 @@ def read(path):
     """{"switches": {part: bool}, "values": {field: {"t", "s"}}, "extras": [op...]} from a deform rig dump."""
     with open(path, encoding="utf-8") as f:
         rig = _Rig(json.load(f))
+    _library(rig)
     switches, values, extras, called, skip = {}, {}, [], False, []
     for pc in range(rig.start, len(rig.code)):
         if any(first <= pc <= last for first, last in skip):
@@ -182,18 +291,12 @@ def read(path):
                 called = True
             continue
         if op == 68:
-            value = rig.resolve(x["Source"])
-            index, seg = rig.target(x["Target"])
-            if seg and seg.endswith("Transform.Rotation") and isinstance(rig.state.get((index, None)), list):
-                entry = rig.state[(index, None)][int(seg.split(".")[0])]
-                entry["Transform"] = dict(entry.get("Transform") or {}, Rotation=value)
-            else:
-                rig.state[(index, seg)] = json.loads(json.dumps(value)) if isinstance(value, (list, dict)) else value
+            rig.copy(x)
             continue
         if op != 101:
             continue
-        name = rig.functions[x["FunctionIndex"]].split("::")[0].replace("FRigUnit_", "").replace("FRigVMFunction_", "")
-        a = rig.named(x, rig.args.get(rig.functions[x["FunctionIndex"]], []))
+        name, a = rig.call(x)
+        unit = re.sub(r"^Math(Double|Float)?", "", name)
         if name == "FortDeformRig":
             switches, values = _tuning(rig.resolve(a.get("Bool")), rig.resolve(a.get("Value")))
             called = True
@@ -220,13 +323,25 @@ def read(path):
                 break
             weight = rig.resolve(a.get("Weight"))
             for entry in rig.resolve(a["ItemToModify"]) or []:
-                t = entry.get("Transform") or {}
-                rotation = t.get("Rotation")
-                extras.append({"op": "modify", "bone": _item(entry.get("Item")), "t": _vec(t.get("Translation") or {}),
-                               "s": _vec(t.get("Scale3D") or {"X": 1, "Y": 1, "Z": 1}),
-                               "euler": rotation.get("euler") if isinstance(rotation, dict) and "euler" in rotation else None,
-                               "order": rotation.get("order") if isinstance(rotation, dict) and "euler" in rotation else None,
-                               "weight": weight if isinstance(weight, dict) else {"type": "const", "value": float(weight or 1.0)}})
+                extras.append(_modify(entry.get("Item"), entry.get("Transform") or {}, weight))
+        elif name == "OffsetTransformForItem":
+            # UE applies the offset in the item's own space, blended by Weight: an additive local modify
+            extras.append(_modify(rig.resolve(a.get("Item")), rig.resolve(a.get("OffsetTransform")) or {}, rig.resolve(a.get("Weight"))))
+        elif unit in OPERANDS and "Result" in a:
+            try:
+                rig.state[rig.target(a["Result"])] = _math(unit, [rig.resolve(a.get(k)) for k in OPERANDS[unit]])
+            except TypeError:
+                print("[Deform rig] extras stop at %s on values from the pose (not read)" % name)
+                break
+        elif name == "KalmanFloat":
+            rig.state[rig.target(a["Result"])] = rig.resolve(a.get("Value"))      # settled: the average of one value
+        elif name == ATTRIBUTE[0]:
+            published = rig.attributes.get(rig.resolve(a.get("Name")))
+            if published is None:
+                print("[Deform rig] extras stop at an anim attribute the game's animation sets (not read)")
+                break
+            rig.state[rig.target(a["Value"])] = published
+            rig.state[rig.target(a["Found"])] = True
         elif name in ("RotationConstraintLocalSpaceOffset", "RotationConstraint"):
             if a.get("bMaintainOffset") is not None and not rig.resolve(a.get("bMaintainOffset")):
                 print("[Deform rig] extras stop at a rotation constraint without offset (not read)")
@@ -259,13 +374,11 @@ def read(path):
                 print("[Deform rig] extras stop at a parent constraint on some axes only (not read)")
                 break
             parents = rig.resolve(a.get("Parents")) or []
-            weight = rig.resolve(a.get("Weight"))
-            if isinstance(weight, dict):
-                print("[Deform rig] extras stop at a parent constraint blended by the pose (not read)")
-                break
-            weight = float(weight or 0.0)     # a blank literal is zero: no effect
-            if weight <= 0.0:
-                continue
+            weight = rig.resolve(a.get("Weight"))       # a constant, or a pose weight blending it in
+            if not isinstance(weight, dict):
+                weight = float(weight or 0.0)     # a blank literal is zero: no effect
+                if weight <= 0.0:
+                    continue
             extras.append({"op": "parent_constraint", "bone": _item(rig.resolve(a.get("Child"))),
                            "parents": [{"bone": _item(p.get("Item")), "weight": float(p.get("Weight", 1.0))} for p in parents
                                        if isinstance(p, dict)],
