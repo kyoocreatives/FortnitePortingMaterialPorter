@@ -625,5 +625,64 @@ texts = [d[-1] for d in drawn]
 check("the panel draws every part's switches and settings", all(t in texts for t in ("Stretch", "Soft", "Local", "Roll L",
       "Body Controls", "Bake to Controls")), True)
 
+# --- Bake to Controls then IK (user report: IK after a bake twisted the limbs, broke the spine and neck)
+# off-hinge elbows and knees (twisting forearms, as mocap has), a moving pelvis, every spine and neck bone turned
+PARTS = {"arm_l_fk_ik_switch": ("upperarm_l", "lowerarm_l", "hand_l"), "arm_r_fk_ik_switch": ("upperarm_r", "lowerarm_r", "hand_r"),
+         "leg_l_fk_ik_switch": ("thigh_l", "calf_l", "foot_l", "ball_l"), "leg_r_fk_ik_switch": ("thigh_r", "calf_r", "foot_r", "ball_r"),
+         "spine_fk_ik_switch": ("spine_01", "spine_02", "spine_03", "spine_04", "spine_05"),
+         "neck_fk_ik_switch": ("neck_01", "neck_02", "head")}
+TURNS = {"pelvis": (0.3, 0.2, 0.4), "spine_01": (0.2, 0.1, -0.1), "spine_02": (0.15, -0.2, 0.1), "spine_03": (0.1, 0.1, 0.2),
+         "spine_04": (-0.1, 0.05, 0.1), "spine_05": (0.05, 0.2, -0.1), "neck_01": (0.2, 0.1, 0.3), "neck_02": (-0.1, 0.2, 0.1),
+         "head": (0.3, -0.2, 0.2), "upperarm_l": (0.5, 0.3, 0.6), "lowerarm_l": (0.2, 0.4, 0.8), "hand_l": (0.3, 0.2, -0.4),
+         "upperarm_r": (-0.4, 0.5, 0.2), "lowerarm_r": (0.1, -0.6, 0.5), "hand_r": (-0.2, 0.3, 0.3),
+         "thigh_l": (0.6, 0.2, 0.3), "calf_l": (0.7, 0.3, 0.1), "foot_l": (0.2, 0.3, 0.1), "ball_l": (0.3, 0.0, 0.0),
+         "thigh_r": (-0.3, 0.4, 0.2), "calf_r": (0.9, -0.2, 0.3), "foot_r": (-0.2, 0.1, 0.3)}
+bi = mannequin("bake_ik")
+official_rig.create(bi)
+official_rig.on_animation_import(bi)
+bi.animation_data_create()
+for f in (1, 2, 3, 4):
+    k = (f - 1) / 1.5
+    for n, (x, y, z) in TURNS.items():
+        bi.pose.bones[n].rotation_mode = 'XYZ'
+        bi.pose.bones[n].rotation_euler = (x * k, y * k, z * k)
+        bi.pose.bones[n].keyframe_insert("rotation_euler", frame=f)
+    bi.pose.bones["pelvis"].location = (0.1 * k, -0.2 * k, 0.15 * k)
+    bi.pose.bones["pelvis"].keyframe_insert("location", frame=f)
+baked = {}
+for f in (1, 2, 3, 4):
+    bpy.context.scene.frame_set(f)
+    baked[f] = {n: world(bi, n).copy() for bones in PARTS.values() for n in bones}
+official_rig.bake_to_controls(bi, 1, 4)
+
+
+def ik_off_by(obj, switch):
+    """Worst (distance, angle) of a part's bones in IK, unmatched, against the baked animation over its frames."""
+    official_rig.set_switch(obj, switch, ik=True, match=False)
+    worst = [0.0, 0.0]
+    for f in (1, 2, 3, 4):
+        bpy.context.scene.frame_set(f)
+        for n in PARTS[switch]:
+            have, want = world(obj, n), baked[f][n]
+            turn = have.to_quaternion().rotation_difference(want.to_quaternion()).angle
+            worst = [max(worst[0], (have.to_translation() - want.to_translation()).length), max(worst[1], min(turn, 2 * math.pi - turn))]
+    official_rig.set_switch(obj, switch, ik=False, match=False)
+    return worst
+
+
+for switch in PARTS:
+    off = ik_off_by(bi, switch)
+    check("after a bake, %s in IK plays the animation" % switch, off[0] < 1e-4 and off[1] < 1e-3, True)
+    if off[0] >= 1e-4 or off[1] >= 1e-3:
+        print("   %s off by %.2e m, %.3f deg" % (switch, off[0], math.degrees(off[1])))
+for name in ("arm_l_stretch_switch", "leg_r_stretch_switch", "spine_stretch_switch", "head_stretch"):
+    official_rig.set_setting(bi, name, 1.0)
+for switch in ("arm_l_fk_ik_switch", "leg_r_fk_ik_switch", "spine_fk_ik_switch", "neck_fk_ik_switch"):
+    off = ik_off_by(bi, switch)
+    check("after a bake, %s in IK with stretch on plays the animation" % switch, off[0] < 1e-4 and off[1] < 1e-3, True)
+bpy.context.scene.frame_set(4)
+check("the bake still ends in FK, on the animation", all((world(bi, n).to_translation() - m.to_translation()).length < 1e-4
+      and same_rot(world(bi, n), m, 1e-3) for n, m in baked[4].items()), True)
+
 print("[official_rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

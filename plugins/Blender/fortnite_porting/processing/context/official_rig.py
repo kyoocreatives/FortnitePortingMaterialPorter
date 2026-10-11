@@ -697,14 +697,23 @@ def ui(layout, obj):
 
 
 def _bake_targets(data, built):
-    """Control: the bone whose pose it takes (FK, copy) for a bake; IK effectors take their limb's end bone."""
+    """Control: the bone whose pose it takes for a bake. FK and copied controls first (they drive the bones during the
+    bake), then the IK side: effectors, the balls and the chest."""
     s = data["solve"]
     pairs = s["copy"] + s["spine"]["fk"] + s["neck"]["fk"] + [p for chain in s["ik"] for p in chain["fk"]]
-    targets = {control: bone for control, bone in pairs if control in built and bone in built}
-    for chain in s["ik"]:
-        if chain["effector"] in built:
-            targets[chain["effector"]] = chain["bones"][2]
+    pairs += [(chain["effector"], chain["bones"][2]) for chain in s["ik"]] + [tuple(c["ball"]) for c in s["ik"] if c.get("ball")]
+    pairs += [(s["spine"]["ik"][-1], s["spine"]["bones"][-1]), (s["neck"]["effector"], s["neck"]["bones"][-1])]
+    targets = {}
+    for control, bone in pairs:
+        if control in built and bone in built:
+            targets.setdefault(control, bone)
     return targets
+
+
+def _bake_rest(data, built, targets):
+    """The IK side's other controls (tangents, foot pivots and roll): keyed at rest for a bake; poles are placed apart."""
+    poles = {chain["pole"] for chain in data["solve"]["ik"]}
+    return [c for chain in _chains(data, built) for c in chain["ik"] if c not in targets and c not in poles]
 
 
 def _settle_order(data, controls, targets):
@@ -712,7 +721,9 @@ def _settle_order(data, controls, targets):
     that follows a bone, the control driving that bone."""
     parent = {i["name"]: i["parent"] for i in data["controls"] + data["spaces"]}
     follow = {s["name"]: s.get("follow") for s in data["spaces"]}
-    driver = {bone: control for control, bone in targets.items()}
+    driver = {}
+    for control, bone in targets.items():       # the FK or copied control: the one driving the bone during a bake
+        driver.setdefault(bone, control)
     wanted, out, seen = set(controls), [], set()
 
     def visit(name, depth=0):
@@ -757,12 +768,14 @@ def _bake(obj, start, end):
     order = [item["name"] for kind, item in _buildable(data, built) if kind == "control"]
     targets = _bake_targets(data, built)
     limbs = [chain for chain in data["solve"]["ik"] if chain["pole"] in built and all(b in built for b in chain["bones"])]
+    chained = _ik_bones(data, built)
     set_on(obj, False)
-    poses = {}
+    poses, bones = {}, {}
     for f in range(start, end + 1):
         scene.frame_set(f)
         poses[f] = {control: _from_bone(obj, control, bone) for control, bone in targets.items()}
         poses[f].update({chain["pole"]: _pole_place(obj, chain) for chain in limbs})
+        bones[f] = {bone: pb[bone].matrix.copy() for bone in chained}
     ad = obj.animation_data or obj.animation_data_create()
     if ad.action is not None:
         track = ad.nla_tracks.new()
@@ -777,9 +790,12 @@ def _bake(obj, start, end):
     # without a depsgraph update (an update re-runs every driver of the armature: the face's thousands)
     rest = {c: (pb[c].parent.bone.matrix_local.inverted() @ pb[c].bone.matrix_local) if pb[c].parent else
             pb[c].bone.matrix_local.copy() for c in keyed}
+    still = _bake_rest(data, built, targets)
     for f in range(start, end + 1):
         scene.frame_set(f)
         want = poses[f]
+        for control in still:
+            pb[control].matrix_basis = Matrix()
         # spaces follow bones other controls drive (the arm's space rides the clavicle): settle in passes, one update each
         for _ in range(6):
             for control in keyed:
@@ -790,11 +806,47 @@ def _bake(obj, start, end):
             bpy.context.view_layer.update()
             if all(_lands(pb[c].matrix, want[c]) for c in keyed):
                 break
-        for control in keyed:
+        for control in keyed + still:
             pose_bone = pb[control]
             pose_bone.keyframe_insert("location", frame=f)
             pose_bone.keyframe_insert("rotation_quaternion" if pose_bone.rotation_mode == 'QUATERNION' else "rotation_euler", frame=f)
             pose_bone.keyframe_insert("scale", frame=f)      # emotes scale bones slightly; Copy Transforms carries it
+    _bake_ik_offsets(obj, data, built, bones)
     for chain in _chains(data, built):
         set_switch(obj, chain["switch"], ik=False, match=False)
     return end - start + 1
+
+
+def _ik_bones(data, built):
+    """The game bones IK poses through a chain bone (MCH pose_), per switched part."""
+    s = data["solve"]
+    parts = {chain["switch"]: chain["bones"] for chain in s["ik"]}
+    parts.update({s[p]["switch"]: s[p]["bones"] for p in ("spine", "neck")})
+    return [b for chain in _chains(data, built) for b in parts[chain["switch"]] if MCH + "pose_" + b in built]
+
+
+def _bake_ik_offsets(obj, data, built, bones):
+    """Key on each chain bone what Epic's IK can't reach from the baked controls (an elbow off its hinge, a forearm's
+    twist, a spine off the curve), so a part switched to IK plays the bake; FK never reads those bones."""
+    pb, scene = obj.pose.bones, bpy.context.scene
+    switches = [chain["switch"] for chain in _chains(data, built)]
+    for switch in switches:
+        pb[switch][switch] = 1.0
+    obj.update_tag()
+    for f, want in bones.items():
+        scene.frame_set(f)
+        # a part rides others (the head's space follows the chest): settle in passes, one update each
+        for _ in range(6):
+            for bone, m in want.items():
+                chain = pb[MCH + "pose_" + bone]
+                aim = Matrix.LocRotScale(m.to_translation(), m.to_quaternion(), chain.matrix.to_scale())
+                chain.matrix_basis = chain.matrix_basis @ chain.matrix.inverted() @ aim
+            bpy.context.view_layer.update()
+            if all(_lands(pb[b].matrix.normalized(), m.normalized()) for b, m in want.items()):
+                break
+        for bone in want:
+            chain = pb[MCH + "pose_" + bone]
+            for path in ("location", "rotation_quaternion", "scale"):
+                chain.keyframe_insert(path, frame=f)
+    for switch in switches:
+        pb[switch][switch] = 0.0
