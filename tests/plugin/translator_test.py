@@ -1277,6 +1277,8 @@ check("merge: three image nodes before", count(tr.tree, "ShaderNodeTexImage"), 3
 merge_duplicates(tr.tree)
 check("merge: one image node after", count(tr.tree, "ShaderNodeTexImage"), 1)
 check("merge keeps the texture's value", value(v), 2.2)
+check("textures sample Smart, as FP's own materials",
+      float(all(n.interpolation == "Smart" for n in tr.tree.nodes if n.bl_idname == "ShaderNodeTexImage")), 1.0)
 
 # a function input narrows its argument to its type, as UE does: a float2 frame into a scalar input is its X
 # (Peely's mouth: CustomNumbers_SubUV took the column for the row too), where Blender would average it

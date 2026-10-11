@@ -196,6 +196,7 @@ def build_fallback(entry, app, objects, env_cls, settings, keys):
 
     def image(path, normal=False, label=None):
         n = N.new("ShaderNodeTexImage")
+        n.interpolation = 'Smart'       # as FP's own materials
         n.image = env.texture(path, "SAMPLERTYPE_Normal" if normal else "")
         n.label = label or path.rsplit("/", 1)[-1].split(".")[0]
         n.location = (-700, y[0])
