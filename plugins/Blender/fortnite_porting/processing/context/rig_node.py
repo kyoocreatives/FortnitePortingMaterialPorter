@@ -7,9 +7,10 @@ from .dynamics_solver import compose, relative
 from .rig_vm import Machine
 from .rig_constraints import UNITS as CONSTRAINTS
 from .rig_splines import UNITS as SPLINES
+from .rig_setup import UNITS as SETUP
 from .rig_units import UNITS, transform
 
-UNITS = {**UNITS, **CONSTRAINTS, **SPLINES}
+UNITS = {**UNITS, **CONSTRAINTS, **SPLINES, **SETUP}
 
 IDENTITY = (Quaternion(), Vector((0.0, 0.0, 0.0)))
 
@@ -26,6 +27,8 @@ class Hierarchy:
     def __init__(self, parent_of, rest, nulls, spaces=None):
         self.parent = dict(parent_of)
         self.rest_global = dict(rest)
+        self.kind = {n: "Bone" for n in rest}
+        self.tags = {}          # metadata tags units set on items
         self._place(spaces or {})
         for null in nulls:      # "<bone>_null": a rest-pose reference for that bone, beside it under its parent
             if null in self.rest_global:
@@ -34,6 +37,7 @@ class Hierarchy:
             if bone in rest:
                 self.parent[null] = parent_of.get(bone)
                 self.rest_global[null] = rest[bone]
+                self.kind[null] = "Null"
         self.rest_local = {n: relative(t, self.rest_global[self.parent[n]]) if self.parent.get(n) in self.rest_global else t
                            for n, t in self.rest_global.items()}
         self.local, self.cache, self.changed = {}, {}, set()
@@ -53,6 +57,30 @@ class Hierarchy:
                     local = compose(local, transform(s["offset"]))
                 self.parent[n] = s.get("parent")
                 self.rest_global[n] = compose(local, self.rest_global[s["parent"]]) if s.get("parent") else local
+                self.kind[n] = s.get("type") or "Null"
+
+    def add(self, kind, name, parent, local):
+        """A null or control the rig's construction adds at its initial local under parent (None: at the root); a taken
+        name gets _2, _3... Returns the name used."""
+        used, k = name, 2
+        while self.has(used):
+            used, k = "%s_%d" % (name, k), k + 1
+        parent = parent if parent in self.rest_global else None
+        self.parent[used], self.kind[used] = parent, kind
+        self.rest_local[used] = (local[0].normalized(), local[1].copy())
+        self.rest_global[used] = compose(self.rest_local[used], self.rest_global[parent]) if parent else self.rest_local[used]
+        return used
+
+    def reparent(self, child, parent):
+        """A new only parent, the child's initial and current globals kept."""
+        if not self.has(child) or not self.has(parent) or self.parent.get(child) == parent:
+            return
+        rest_g, now_g = self.get_global(child, True), self.get_global(child)
+        self.parent[child] = parent
+        self.rest_local[child] = relative(rest_g, self.get_global(parent, True))
+        if child in self.local:
+            self.local[child] = relative(now_g, self.get_global(parent))
+        self._dirty(child)
 
     def load(self, cs):
         """Locals from the component pose reaching the node; nulls stay at rest."""
@@ -103,6 +131,7 @@ class RigNode:
         program = node["program"]
         self.h = Hierarchy(parent_of, rest, program.get("nulls") or [], program.get("spaces"))
         self.machine = Machine(program, UNITS, node.get("variables") or {})
+        self.machine.construct(self.h, node.get("variables"))      # once, on the reference pose, as the game initialises it
         self.reads = [b for b in program.get("bones") or [] if b in parent_of]
         self.writes = [b for b in program.get("writes") or [] if b in parent_of]
         self.keep = list(self.writes)

@@ -281,6 +281,26 @@ def swing_twist(m, a, ops, pc):
     _set(m, a, "Twist", quat_out(twist))
 
 
+def mix_parents(gs, settings):
+    """Weighted parent transforms [(transform, normalised weight)] mixed as ParentConstraint does: an average, or
+    Shortest (each slerped in by its weight, the engine's quirk kept)."""
+    shortest = str((settings or {}).get("InterpolationType", 0)).split("::")[-1] in ("1", "Shortest")
+    q_mix, t_mix, acc = Quaternion((0.0, 0.0, 0.0, 0.0)), Vector(), 0.0
+    for g, n in gs:
+        if shortest:
+            acc += n
+            if q_mix.magnitude == 0.0:
+                q_mix, t_mix = g[0].copy(), g[1].copy()
+            else:
+                t_mix = t_mix.lerp(g[1], n / acc)
+                q_mix = _lerp((q_mix, Vector()), (g[0], Vector()), n)[0]
+        else:
+            q = Quaternion([c * n for c in g[0]])
+            q_mix = Quaternion([x - y for x, y in zip(q_mix, q)]) if q.dot(q_mix) < 0.0 else Quaternion([x + y for x, y in zip(q_mix, q)])
+            t_mix = t_mix + g[1] * n
+    return q_mix.normalized() if q_mix.magnitude > 1e-4 else Quaternion(), t_mix
+
+
 def parent_constraint(m, a, ops, pc):
     """Weighted parents (offset from both rest poses when kept), mixed, filtered per axis in the child's parent
     space, eased in by the weight; scale is not carried."""
@@ -296,25 +316,14 @@ def parent_constraint(m, a, ops, pc):
     if total <= 1e-4:
         return
     settings = _get(m, a, "AdvancedSettings") or {}
-    shortest = str(settings.get("InterpolationType", 0)).split("::")[-1] in ("1", "Shortest")
-    q_mix, t_mix, acc = Quaternion((0.0, 0.0, 0.0, 0.0)), Vector(), 0.0
+    gs = []
     for name, w in parents:
         g = m.h.get_global(name)
         if keep:
             g = compose(relative(m.h.get_global(child, True), m.h.get_global(name, True)), g)
             g = (g[0].normalized(), g[1])
-        if shortest:
-            acc += n
-            if q_mix.magnitude == 0.0:
-                q_mix, t_mix = g[0].copy(), g[1].copy()
-            else:
-                t_mix = t_mix.lerp(g[1], n / acc)
-                q_mix = _lerp((q_mix, Vector()), (g[0], Vector()), n)[0]
-        else:
-            q = Quaternion([c * n for c in g[0]])
-            q_mix = Quaternion([x - y for x, y in zip(q_mix, q)]) if q.dot(q_mix) < 0.0 else Quaternion([x + y for x, y in zip(q_mix, q)])
-            t_mix = t_mix + g[1] * n
-    mixed = (q_mix.normalized() if q_mix.magnitude > 1e-4 else Quaternion(), t_mix)
+        gs.append((g, w / total))
+    mixed = mix_parents(gs, settings)
     parent = m.h.parent.get(child)
     local = relative(mixed, m.h.get_global(parent)) if parent else mixed
     current = m.h.get_local(child)

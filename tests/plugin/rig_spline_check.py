@@ -69,6 +69,10 @@ call("TransformFromControlRigSpline2", m, Spline=spline, U=0.5, PrimaryAxis=p(1.
 q = Quaternion([m.out["t"]["Rotation"][k] for k in "WXYZ"])
 check("transform: the primary axis along the curve", tuple(q @ Vector((1, 0, 0))), (1.0, 0.0, 0.0))
 check("the secondary onto the sample's Z", tuple(q @ Vector((0, 1, 0))), (0.0, 0.0, 1.0))
+call("GetLengthAtParamControlRigSpline", m, Spline=spline, U=0.5, Length="lenhalf")
+check("the length up to a parameter", m.out["lenhalf"], 15.0)
+call("ParameterAtPercentage", m, Spline=spline, Percentage=0.25, U="uq")
+check("the parameter a quarter of the length along", m.out["uq"], 0.25)
 check("a spline is a handle: copies share it", copy.deepcopy(spline) is spline, True)
 
 call("ControlRigSplineFromPoints", m, Points=line[:3], SplineMode=1, SamplesPerSegment=16, Spline="few")

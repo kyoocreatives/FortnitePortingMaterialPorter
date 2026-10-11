@@ -57,6 +57,10 @@ def _variables(dump, cls):
     return [d["Name"] for d in bag.get("PropertyDescs") or []]
 
 
+def _entry_index(entry):
+    return int(str(entry).split("InstructionIndex=")[1].split(")")[0]) if isinstance(entry, str) else entry["InstructionIndex"]
+
+
 def compile_rig(dump):
     """The program from a rig dump: instructions from its forward solve (skipping SKIP's callables), the literals and
     work defaults they use, its variables in memory order, and the elements it names."""
@@ -68,7 +72,8 @@ def compile_rig(dump):
     entry = next((e for e in bc["Entries"] if "Forwards Solve" in str(e)), None)
     if entry is None:
         raise RigVMError("no forward solve")
-    start = int(str(entry).split("InstructionIndex=")[1].split(")")[0]) if isinstance(entry, str) else entry["InstructionIndex"]
+    start = _entry_index(entry)
+    setup = next((e for e in bc["Entries"] if "Construction" in str(e)), None)
     lit, work = vm["LiteralMemoryStorage"], vm["DefaultWorkMemoryStorage"]
     lit_names = [d["Name"] for d in lit["PropertyDescs"]]
     work_names = [d["Name"] for d in work["PropertyDescs"]]
@@ -165,9 +170,10 @@ def compile_rig(dump):
             continue
         parent = next(((c.get("ParentKey") or {}).get("Name") for c in e.get("ParentConstraints") or []), None)
         initial = lambda storage: ((((storage or {}).get("Initial") or {}).get("Local")) or {}).get("Transform")  # noqa: E731
-        spaces[key["Name"]] = {"parent": None if parent in (None, "None") else parent, "local": initial(e.get("PoseStorage")),
+        spaces[key["Name"]] = {"type": "Control" if key.get("Type") == 4 else "Null",
+                               "parent": None if parent in (None, "None") else parent, "local": initial(e.get("PoseStorage")),
                                "offset": initial(e.get("Offset"))}
-    return finish({"start": start, "code": code, "callables": callables, "units": units, "literals": literals, "defaults": defaults,
+    return finish({"start": start, "construction": _entry_index(setup) if setup is not None else None, "code": code, "callables": callables, "units": units, "literals": literals, "defaults": defaults,
                    "lit_paths": [p["SegmentPath"] for p in lit.get("PropertyPathDescriptions") or []],
                    "work_paths": [p["SegmentPath"] for p in work.get("PropertyPathDescriptions") or []],
                    "ext_paths": [p["SegmentPath"] for p in vm.get("ExternalPropertyPathDescriptions") or []],
@@ -273,6 +279,17 @@ class Machine:
             pass
 
     # execution
+    def construct(self, hierarchy, variables=None):
+        """The rig's construction event, run once on the reference pose before the first solve (it may add elements
+        and keep poses in variables)."""
+        if self.p.get("construction") is None:
+            return
+        for k, n in enumerate(self.p["variables"]):
+            if variables and n in variables:
+                self.ext[k] = variables[n]
+        self.h, self.dt, self.lazy = hierarchy, 0.0, set()
+        self._range(self.p["construction"], len(self.p["code"]) - 1)
+
     def run(self, hierarchy, dt, variables=None):
         for k, n in enumerate(self.p["variables"]):         # what the anim blueprint pushes before each run
             if variables and n in variables:

@@ -74,6 +74,22 @@ class Spline:
     def length(self):
         return self.lengths[-1] if self.lengths else 0.0
 
+    def length_at(self, u):
+        i, j, t = self._at(u)
+        return self.lengths[i] + (self.lengths[j] - self.lengths[i]) * t
+
+    def parameter_at(self, percentage):
+        """The sample parameter a fraction of the length along (the samples' lengths inverted)."""
+        target, last = min(max(num(percentage), 0.0), 1.0) * self.length(), len(self.lengths) - 1
+        k = next((i for i, l in enumerate(self.lengths) if l >= target), len(self.lengths))
+        if k >= len(self.lengths):
+            return 1.0
+        if k <= 0:
+            return 0.0
+        span = self.lengths[k] - self.lengths[k - 1]
+        t = (target - self.lengths[k - 1]) / span if span > 1e-12 else 0.0
+        return ((k - 1) + t) / last
+
     def closest(self, pos):
         best, param, last = None, 0.0, len(self.samples) - 1
         for i in range(last):
@@ -199,6 +215,18 @@ def get_length(m, a, ops, pc):
     _set(m, a, "Length", s.length() if s else 0.0)
 
 
+def length_at(m, a, ops, pc):
+    s = _spline(m, a)
+    if s is not None:
+        _set(m, a, "Length", s.length_at(_get(m, a, "U")))
+
+
+def parameter_at(m, a, ops, pc):
+    s = _spline(m, a)
+    if s is not None:
+        _set(m, a, "U", s.parameter_at(_get(m, a, "Percentage")))
+
+
 def _rotation_map(rotations, count):
     """Each chain item's pair of twist entries and blend (linear easing only)."""
     entries = sorted(((min(max(num(r.get("Ratio")), 0.0), 1.0), transform({"Rotation": r.get("Rotation")})[0]) for r in rotations),
@@ -301,4 +329,5 @@ def _twist(m, items, rotations, work, weight, propagate):
 UNITS = {"ControlRigSplineFromPoints": from_points, "ControlRigSplineFromTransforms": from_transforms,
          "PositionFromControlRigSpline": position, "TransformFromControlRigSpline2": transform_at,
          "ClosestParameterFromControlRigSpline": closest, "GetLengthControlRigSpline": get_length,
-         "FitChainToSplineCurveItemArray": fit_chain}
+         "FitChainToSplineCurveItemArray": fit_chain, "GetLengthAtParamControlRigSpline": length_at,
+         "ParameterAtPercentage": parameter_at}

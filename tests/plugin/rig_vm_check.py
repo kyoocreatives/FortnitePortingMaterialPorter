@@ -91,6 +91,31 @@ tiny = [{"Type": "ControlRigBlueprintGeneratedClass", "ChildProperties": []},
          "LocalizedRegistry": {"Functions": [{"Name": "FRigUnit_GetRelativeTransformForItem::Execute", "Arguments": [{"LocalNameString": "Parent"}]}]}}]
 check("a null named only by the program is placed", rig_vm.compile_rig(tiny)["nulls"], ["thigh_l_null"])
 
+# the construction event: its own entry in the same code, kept by the compile and run once before the first solve
+built = [dict(tiny[0]), dict(tiny[1], ByteCodeStorage=dict(tiny[1]["ByteCodeStorage"], Entries=[
+    '(Name="Forwards Solve",InstructionIndex=0)', '(Name="Construction",InstructionIndex=2)'],
+    Instructions=[{"OpCode": 101, "FunctionIndex": 0, "Arguments": [{"MemoryType": 1, "RegisterIndex": 0, "RegisterOffset": 65535}]},
+                  {"OpCode": 80},
+                  {"OpCode": 101, "FunctionIndex": 0, "Arguments": [{"MemoryType": 1, "RegisterIndex": 0, "RegisterOffset": 65535}]},
+                  {"OpCode": 80}]))]
+compiled = rig_vm.compile_rig(built)
+check("the construction entry is kept", (compiled.get("construction"), compiled["code"][2].get("f")), (2, "GetRelativeTransformForItem"))
+ran = []
+setup = rig_vm.Machine(compiled, {"GetRelativeTransformForItem": lambda m, a, ops, pc: ran.append(pc)})
+setup.construct(None)
+setup.run(None, 1 / 30, {})
+check("construction runs once, then the solve", ran, [2, 0])
+from fpmp_baseline.processing.context import rig_node as rn  # noqa: E402
+seen_setup = []
+saved_units = dict(rn.UNITS)
+rn.UNITS["GetRelativeTransformForItem"] = lambda m, a, ops, pc: seen_setup.append((pc, sorted(m.h.rest_global)))
+try:
+    rn.RigNode({"program": compiled}, {"root": None}, {"root": (Quaternion(), Vector())})
+finally:
+    rn.UNITS.clear()
+    rn.UNITS.update(saved_units)
+check("a rig node runs its construction when built, on the rig's hierarchy", seen_setup, [(2, ["root"])])
+
 
 def stored(rot, pos):
     return {"Transform": {"Rotation": dict(zip("XYZW", rot)), "Translation": dict(zip("XYZ", pos))}, "bDirty": False}
@@ -351,6 +376,55 @@ h8.set_local("root", (Quaternion(), Vector()))
 h8.set_local("thigh_l", (turned, Vector((0, 20, 0))))
 call("ParentConstraint", Mini(h8), Child="Bone/skirt", bMaintainOffset=True, Parents=[{"Item": "Bone/thigh_l", "Weight": 1.0}], Weight=None)
 check("a blank constraint weight leaves the child", tuple(round(c, 4) for c in h8.get_global("skirt")[1]), (0.0, 0.0, 5.0))
+
+# --- construction units: elements added on the reference pose, poses kept, arrays and names built
+def call3(unit, mini, outs=(), **named):
+    rn.UNITS[unit](mini, {k: (v if k in outs else ("v", v)) for k, v in named.items()}, [], 0)
+
+
+def positional(unit, mini, *ops):
+    rn.UNITS[unit](mini, {}, list(ops), 0)
+
+
+def at(t):
+    return tuple(round(c, 4) for c in t[1])
+
+
+ident_t = {"Rotation": {"W": 1.0}, "Translation": {"X": 0.0, "Y": 0.0, "Z": 0.0}}
+shift = lambda x, y=0.0, z=0.0: {"Rotation": {"W": 1.0}, "Translation": {"X": x, "Y": y, "Z": z}}  # noqa: E731
+h9 = Hierarchy({"root": None, "thigh_l": "root"}, {"root": (Quaternion(), Vector((0, 0, 100))), "thigh_l": (Quaternion(), Vector((10, 0, 90)))}, [])
+m13 = Mini(h9)
+call3("HierarchyAddNull", m13, outs=("Item",), Transform=shift(1.0), Space=None, Parent="Bone/thigh_l", Name="pad", Item="i")
+check("an added null sits at its local under its parent", (ru.element(m13.out["i"]), at(h9.get_global("pad"))), ("pad", (11.0, 0.0, 90.0)))
+call3("HierarchyAddNull", m13, outs=("Item",), Transform=shift(0.0, 0.0, 50.0), Space=1, Parent="Bone/thigh_l", Name="pad", Item="i")
+check("a taken name gets a suffix; a global transform is kept", (ru.element(m13.out["i"]), at(h9.get_global("pad_2"))), ("pad_2", (0.0, 0.0, 50.0)))
+call3("HierarchyAddControlTransform", m13, outs=("Item",), InitialValue=shift(0.0, 2.0), OffsetTransform=shift(3.0), OffsetSpace=None,
+      Settings={}, Parent="Bone/thigh_l", Name="ctl", Item="i")
+check("a control sits at value, then offset, then parent", at(h9.get_global("ctl")), (13.0, 2.0, 90.0))
+call3("SetDefaultParent", m13, Child="Null/pad", Parent="Bone/root")
+check("a new default parent keeps the global", (h9.parent["pad"], at(h9.get_global("pad"))), ("root", (11.0, 0.0, 90.0)))
+h9.load({"root": (Quaternion(), Vector((0, 0, 110))), "thigh_l": (Quaternion(), Vector((10, 0, 100)))})
+check("and it follows the new parent", at(h9.get_global("pad")), (11.0, 0.0, 100.0))
+call3("HierarchyGetPoseItemArray", m13, outs=("Pose",), Initial=None, ElementType=239, ItemsToGet=["Null/pad", "Control/ctl"], Pose="p")
+check("a pose holds the items asked for, in hierarchy order", [(e["Index"]["Key"]["Name"], ru.vec(e["GlobalTransform"]["Translation"]).z)
+                                                                for e in m13.out["p"]["Elements"]], [("pad", 100.0), ("ctl", 100.0)])
+m13.out["arr"] = ["a"]
+positional("DISPATCH_RigVMDispatch_ArrayMake", m13, ("v", "x"), ("v", "y"), "made")
+positional("DISPATCH_RigVMDispatch_ArrayAppend", m13, "arr", ("v", ["b", "a"]))
+check("make and append", (m13.out["made"], m13.out["arr"]), (["x", "y"], ["a", "b", "a"]))
+positional("DISPATCH_RigVMDispatch_ArrayUnion", m13, "arr", ("v", ["c", "b"]))
+check("a union keeps first occurrences, then the other's new ones", m13.out["arr"], ["a", "b", "c"])
+positional("DISPATCH_RigDispatch_ToString", m13, ("v", 1.0), "s")
+call3("MathIntToName", m13, outs=("Result",), Number=7, PaddedSize=3, Result="n")
+check("to string and a padded number", (m13.out["s"], m13.out["n"]), ("1.000000", "007"))
+call3("MathTransformMakeAbsolute", m13, outs=("Global",), Local=shift(1.0), Parent=shift(0.0, 0.0, 5.0), Global="g")
+check("make absolute", ru.vec(m13.out["g"]["Translation"]).to_tuple(), (1.0, 0.0, 5.0))
+call3("ParentConstraintMath", m13, outs=("Output",), Input=shift(10.0, 0.0, 95.0), Parents=[{"Item": "Bone/thigh_l", "Weight": 1.0}],
+      AdvancedSettings={}, Output="o")
+check("parent constraint math follows the parent from rest", ru.vec(m13.out["o"]["Translation"]).to_tuple(), (10.0, 0.0, 105.0))
+call3("SetMetadataTag", m13, Item="Control/ctl", Tag="BodyCtrl", NameSpace=1)
+call3("FindItemsWithMetadataTag", m13, outs=("Items",), Tag="BodyCtrl", NameSpace=1, Items="found")
+check("a tag set on an item is found", [ru.element(i) for i in m13.out["found"]], ["ctl"])
 
 print("[rig_vm_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)
