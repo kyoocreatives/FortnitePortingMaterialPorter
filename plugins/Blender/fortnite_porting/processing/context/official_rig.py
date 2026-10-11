@@ -11,7 +11,7 @@ import re
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
-from . import rig_shapes, rig_style
+from . import official_proxies, rig_shapes, rig_style
 
 DATA = os.path.join(os.path.dirname(__file__), "official_rig.json")
 MARK, ON = "fpmp_official_rig", "fpmp_official_rig_on"
@@ -244,6 +244,9 @@ def create(obj, data=None):
         rig_style.assign(obj.data, name, "Mechanics")
     _solve(obj, data, names)
     bpy.ops.object.mode_set(mode='OBJECT')
+    driven = {p.name for p in obj.pose.bones if any(c.name.startswith(PREFIX) for c in p.constraints)}
+    rig = names | {b.name for b in obj.data.bones if b.name.startswith((MCH, FOLLOW))}
+    stand_ins = official_proxies.follow(obj, driven, rig)
     for chain in _chains(data, names):      # Epic's defaults: legs in IK, the rest FK (FK where IK couldn't be built)
         ready = _ik_ready(obj, chain["limb"]) if chain.get("limb") else True
         set_switch(obj, chain["switch"], ik=ready and defaults.get(chain["switch"], 0.0) >= 0.5, match=False)
@@ -253,7 +256,8 @@ def create(obj, data=None):
     ad = obj.animation_data
     if ad is not None and (ad.action is not None or len(ad.nla_tracks)):
         set_on(obj, False)      # the bones are already animated (a lobby pose): they keep playing
-    return "official rig: %d controls" % sum(1 for kind, _ in items if kind == "control")
+    return "official rig: %d controls%s" % (sum(1 for kind, _ in items if kind == "control"),
+                                           "; limbs on %s" % ", ".join(sorted(stand_ins)) if stand_ins else "")
 
 
 def _poles_in_plane(edit, chains):

@@ -711,6 +711,52 @@ bpy.context.scene.frame_set(4)
 check("the bake still ends in FK, on the animation", all((world(bi, n).to_translation() - m.to_translation()).length < 1e-4
       and same_rot(world(bi, n), m, 1e-3) for n, m in baked[4].items()), True)
 
+# --- stand-in limbs (user report: TerryBroke's legs and SushiAware's arms didn't move): some characters skin a limb to
+# their own copy of it (terry_thigh_l, upperarm_retarget_lf) that the game's own rig drives from the real one; the
+# official rig parents those copies to the bones its controls drive, keeping their offset
+px = mannequin("proxies")
+bpy.context.view_layer.objects.active = px
+bpy.ops.object.mode_set(mode='EDIT')
+eb = px.data.edit_bones
+
+
+def copy_of(name, source, parent, shift=Vector((0.0, -0.02, 0.0))):
+    b = eb.new(name)
+    b.head, b.tail = eb[source].head + shift, eb[source].tail + shift
+    b.parent = eb[parent] if parent else None
+    return b
+
+
+copy_of("toon_thigh_l", "thigh_l", "pelvis")
+copy_of("toon_calf_l", "calf_l", "toon_thigh_l")
+copy_of("toon_foot_l", "foot_l", "toon_calf_l")
+copy_of("toon_thigh_twist_01_l", "thigh_l", "toon_thigh_l")        # a helper on the copy: stays on it
+copy_of("upperarm_retarget_lf", "upperarm_l", "clavicle_l")
+copy_of("lowerarm_retarget_lf", "lowerarm_l", "upperarm_retarget_lf")
+copy_of("hand_retarget_lf", "hand_l", "lowerarm_retarget_lf")
+copy_of("upperarm_retarget_lf_null", "upperarm_l", "clavicle_l")    # not a stand-in: left alone
+bpy.ops.object.mode_set(mode='OBJECT')
+official_rig.create(px)
+parents = {n: px.data.bones[n].parent.name for n in ("toon_thigh_l", "toon_calf_l", "toon_foot_l", "toon_thigh_twist_01_l",
+                                                     "upperarm_retarget_lf", "lowerarm_retarget_lf", "hand_retarget_lf",
+                                                     "upperarm_retarget_lf_null")}
+check("stand-in limbs ride the bones the rig drives", parents, {
+    "toon_thigh_l": "thigh_l", "toon_calf_l": "calf_l", "toon_foot_l": "foot_l", "toon_thigh_twist_01_l": "toon_thigh_l",
+    "upperarm_retarget_lf": "upperarm_l", "lowerarm_retarget_lf": "lowerarm_l", "hand_retarget_lf": "hand_l",
+    "upperarm_retarget_lf_null": "clavicle_l"})
+check("keeping their place at rest", (px.data.bones["toon_foot_l"].head_local - px.data.bones["foot_l"].head_local
+                                      - Vector((0.0, -0.02, 0.0))).length < 1e-5, True)
+foot_before, hand_before = head(px, "toon_foot_l").copy(), head(px, "hand_retarget_lf").copy()
+foot = px.pose.bones["foot_l_ik_ctrl"]
+foot.location = (0.0, 0.0, 0.0)
+m = foot.matrix.copy()
+m.translation += Vector((0.0, -0.1, 0.15))
+foot.matrix = m
+px.pose.bones["upperarm_l_fk_ctrl"].rotation_mode = 'XYZ'
+px.pose.bones["upperarm_l_fk_ctrl"].rotation_euler = (0.4, 0.2, 0.3)
+check("an IK foot moves the stand-in leg", (head(px, "toon_foot_l") - foot_before).length > 0.1, True)
+check("an FK arm moves the stand-in arm", (head(px, "hand_retarget_lf") - hand_before).length > 0.05, True)
+
 # --- extra hand controls (an app option; not Epic's): curl, spread, palm cup, per-finger curl
 from fpmp_baseline.processing.context import official_hands  # noqa: E402
 LONG = ("index", "middle", "ring", "pinky")
