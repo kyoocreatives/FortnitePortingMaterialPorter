@@ -111,6 +111,7 @@
                                     </StackPanel>
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
+                            <mp:OfficialRigSettings/>     <!-- MP -->
                         </StackPanel>
                     </sidebar:SidebarItemButton.Tag>
                 </sidebar:SidebarItemButton>

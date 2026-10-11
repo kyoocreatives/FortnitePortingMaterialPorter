@@ -114,13 +114,18 @@ check("a non-humanoid doesn't fit", official_rig.fits(blob), False)
 from fpmp_baseline.material_porter import mesh_hooks  # noqa: E402
 from fpmp_baseline.processing.enums import EExportType, ERigType  # noqa: E402
 hooked = mannequin("hooked")
-mesh_hooks._official(SimpleNamespace(imported_meshes=[{"Skeleton": hooked, "Mesh": None}], type=EExportType.OUTFIT))
+mesh_hooks._official(SimpleNamespace(imported_meshes=[{"Skeleton": hooked, "Mesh": None}], type=EExportType.OUTFIT, options={}))
 check("the hook builds the rig", bool(hooked.data.get("fpmp_official_rig")), True)
+check("no hand controls unless asked", "fingers_l_ctrl" in hooked.pose.bones, False)
+hooked_hands = mannequin("hooked_hands")
+mesh_hooks._official(SimpleNamespace(imported_meshes=[{"Skeleton": hooked_hands, "Mesh": None}], type=EExportType.OUTFIT,
+                                     options={"OfficialRigHandControls": True}))
+check("the app option adds the hand controls", "fingers_l_ctrl" in hooked_hands.pose.bones, True)
 broken = mannequin("broken")
 real = official_rig.create
 official_rig.create = lambda obj, data=None: 1 / 0
 try:
-    mesh_hooks._official(SimpleNamespace(imported_meshes=[{"Skeleton": broken, "Mesh": None}], type=EExportType.OUTFIT))
+    mesh_hooks._official(SimpleNamespace(imported_meshes=[{"Skeleton": broken, "Mesh": None}], type=EExportType.OUTFIT, options={}))
     survived = True
 except Exception:
     survived = False
@@ -683,6 +688,106 @@ for switch in ("arm_l_fk_ik_switch", "leg_r_fk_ik_switch", "spine_fk_ik_switch",
 bpy.context.scene.frame_set(4)
 check("the bake still ends in FK, on the animation", all((world(bi, n).to_translation() - m.to_translation()).length < 1e-4
       and same_rot(world(bi, n), m, 1e-3) for n, m in baked[4].items()), True)
+
+# --- extra hand controls (an app option; not Epic's): curl, spread, palm cup, per-finger curl
+from fpmp_baseline.processing.context import official_hands  # noqa: E402
+LONG = ("index", "middle", "ring", "pinky")
+
+
+def handy(name, layer):
+    """A mannequin with a real left hand (palm down along +X, fingers slightly bent at rest), its rig built."""
+    obj = mannequin(name)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    eb = obj.data.edit_bones
+    wrist = Vector((0.72, 0.0, 1.42))
+    for i, f in enumerate(LONG):
+        y = -0.025 + i * 0.016
+        eb["%s_metacarpal_l" % f].head = wrist + Vector((0.01, y * 0.5, 0.0))
+        joints = [Vector((0.80, y, 1.42)), Vector((0.84, y, 1.417)), Vector((0.87, y, 1.412)), Vector((0.895, y, 1.405))]
+        eb["%s_metacarpal_l" % f].tail = joints[0]
+        for k in range(3):
+            eb["%s_0%d_l" % (f, k + 1)].head, eb["%s_0%d_l" % (f, k + 1)].tail = joints[k], joints[k + 1]
+    thumb = [Vector((0.74, -0.03, 1.41)), Vector((0.765, -0.05, 1.40)), Vector((0.785, -0.06, 1.395)), Vector((0.80, -0.065, 1.39))]
+    for k in range(3):
+        eb["thumb_0%d_l" % (k + 1)].head, eb["thumb_0%d_l" % (k + 1)].tail = thumb[k], thumb[k + 1]
+    eb["hand_l"].tail = Vector((0.80, 0.0, 1.42))
+    bpy.ops.object.mode_set(mode='OBJECT')
+    official_rig.create(obj)
+    if layer:
+        check("hand controls built", official_hands.build(obj) > 0, True)
+    return obj
+
+
+def tip(obj, finger):
+    return head(obj, "%s_03_l" % finger) + (world(obj, "%s_03_l" % finger).to_3x3() @ Vector((0, obj.data.bones["%s_03_l" % finger].length, 0)))
+
+
+def turn_ctrl(obj, name, euler):
+    pose_bone = obj.pose.bones[name]
+    pose_bone.rotation_mode = 'XYZ'
+    pose_bone.rotation_euler = euler
+    bpy.context.view_layer.update()
+
+
+plain, hands = handy("hands_plain", False), handy("hands_on", True)
+check("without the option there are no hand controls", "fingers_l_ctrl" in plain.pose.bones, False)
+fingers = [b.name for b in hands.data.bones if b.name.endswith("_l") and b.name.split("_")[0] in LONG + ("thumb",)]
+check("at rest the layer changes nothing", all((world(hands, n).to_translation() - world(plain, n).to_translation()).length < 1e-5
+      and same_rot(world(hands, n), world(plain, n), 1e-4) for n in fingers), True)
+rest_tips = {f: tip(hands, f) for f in LONG}
+turn_ctrl(hands, "fingers_l_ctrl", (math.radians(90), 0.0, 0.0))
+wrist = head(hands, "hand_l")
+check("Fingers X closes every finger into a fist", all((tip(hands, f) - wrist).length < (rest_tips[f] - wrist).length - 0.04
+      for f in LONG), True)
+
+
+def bend(obj, a, b):
+    return math.degrees((world(obj, a).to_3x3().col[1]).angle(world(obj, b).to_3x3().col[1]))
+
+
+check("a full curl stays within each knuckle's reach", all(bend(hands, "%s_metacarpal_l" % f, "%s_01_l" % f) <= 91
+      and bend(hands, "%s_01_l" % f, "%s_02_l" % f) <= 106 and bend(hands, "%s_02_l" % f, "%s_03_l" % f) <= 81 for f in LONG), True)
+turn_ctrl(hands, "fingers_l_ctrl", (0.0, 0.0, 0.0))
+gap = (rest_tips["index"] - rest_tips["pinky"]).length
+turn_ctrl(hands, "fingers_l_ctrl", (0.0, 0.0, math.radians(30)))
+check("Fingers Z spreads the fingers", (tip(hands, "index") - tip(hands, "pinky")).length > gap + 0.01, True)
+check("and the middle finger stays", (tip(hands, "middle") - rest_tips["middle"]).length < 1e-3, True)
+turn_ctrl(hands, "fingers_l_ctrl", (0.0, 0.0, 0.0))
+meta_rest = {f: world(hands, "%s_metacarpal_l" % f).copy() for f in ("index", "pinky")}
+turn_ctrl(hands, "palm_l_ctrl", (math.radians(40), 0.0, 0.0))
+cup = {f: math.degrees(world(hands, "%s_metacarpal_l" % f).to_quaternion().rotation_difference(meta_rest[f].to_quaternion()).angle)
+       for f in meta_rest}
+check("Palm X cups the hand, the little finger's side most", cup["pinky"] > 10 and cup["index"] < 1, True)
+turn_ctrl(hands, "palm_l_ctrl", (0.0, 0.0, 0.0))
+turn_ctrl(hands, "ring_l_curl_ctrl", (math.radians(60), 0.0, 0.0))
+check("a finger's curl control curls that finger only", tip(hands, "ring").z < rest_tips["ring"].z - 0.01
+      and (tip(hands, "middle") - rest_tips["middle"]).length < 1e-4, True)
+turn_ctrl(hands, "ring_l_curl_ctrl", (0.0, 0.0, 0.0))
+before = world(hands, "index_02_l").copy()
+turn_ctrl(hands, "index_02_l_ctrl", (0.0, 0.0, math.radians(30)))
+check("Epic's finger control still turns its bone", not same_rot(world(hands, "index_02_l"), before, 0.1), True)
+turn_ctrl(hands, "index_02_l_ctrl", (0.0, 0.0, 0.0))
+check("hand controls sit with the rig's controls", all(n in hands.data.collections["Controls"].bones
+      for n in ("fingers_l_ctrl", "palm_l_ctrl", "index_l_curl_ctrl")), True)
+# Bake to Controls with the layer: the bones land, the hand controls are keyed at rest
+official_rig.on_animation_import(hands)
+hands.animation_data_create()
+for f, angle in ((1, 0.0), (3, 0.6)):
+    for n in ("index_02_l", "pinky_01_l", "thumb_02_l"):
+        hands.pose.bones[n].rotation_mode = 'XYZ'
+        hands.pose.bones[n].rotation_euler = (angle, 0.0, angle * 0.3)
+        hands.pose.bones[n].keyframe_insert("rotation_euler", frame=f)
+bpy.context.scene.frame_set(3)
+want_hand = {n: world(hands, n).copy() for n in ("index_02_l", "pinky_01_l", "thumb_02_l", "index_03_l")}
+official_rig.bake_to_controls(hands, 1, 3)
+bpy.context.scene.frame_set(3)
+check("with hand controls, the bake lands", all((world(hands, n).to_translation() - m.to_translation()).length < 1e-4
+      and same_rot(world(hands, n), m, 1e-3) for n, m in want_hand.items()), True)
+paths = {fc.data_path for layer in hands.animation_data.action.layers for strip in layer.strips for bag in strip.channelbags
+         for fc in bag.fcurves}
+check("and the hand controls are keyed at rest", 'pose.bones["fingers_l_ctrl"].rotation_quaternion' in paths
+      or 'pose.bones["fingers_l_ctrl"].rotation_euler' in paths, True)
 
 print("[official_rig_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

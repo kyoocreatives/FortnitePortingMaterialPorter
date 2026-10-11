@@ -81,12 +81,14 @@ def _tasty(skeleton):
 
 def _official(ctx):
     """UEFN's own mannequin rig on the humanoid master skeleton, and the face board when the face is a flipbook."""
-    from ..processing.context import face_board, official_rig
+    from ..processing.context import face_board, official_hands, official_rig
     for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
         if not official_rig.fits(skeleton):
             continue
         try:
             Log.info(official_rig.create(skeleton))
+            if ctx.options.get("OfficialRigHandControls"):
+                Log.info("%s: %d hand controls" % (skeleton.name, official_hands.build(skeleton)))
             face_board.add(skeleton, head="head")
         except Exception as e:
             Log.error("%s: official rig (%s: %s)" % (skeleton.name, type(e).__name__, e))

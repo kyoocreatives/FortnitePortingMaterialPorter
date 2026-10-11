@@ -16,6 +16,7 @@ from . import rig_shapes, rig_style
 DATA = os.path.join(os.path.dirname(__file__), "official_rig.json")
 MARK, ON = "fpmp_official_rig", "fpmp_official_rig_on"
 PREFIX = "OR "          # every constraint the rig adds
+HAND = "fpmp_hand_control"     # a control of the extra hand layer (official_hands), not Epic's
 WIDTHS = {"root": 3.5, "limb": 2.5, "digit": 1.5}
 CORE = ("pelvis", "spine_01", "thigh_l", "upperarm_l", "head")
 MCH = "OR_MCH_"         # mechanism bones: the limbs' IK chains, the spine's IK points
@@ -790,7 +791,7 @@ def _bake(obj, start, end):
     # without a depsgraph update (an update re-runs every driver of the armature: the face's thousands)
     rest = {c: (pb[c].parent.bone.matrix_local.inverted() @ pb[c].bone.matrix_local) if pb[c].parent else
             pb[c].bone.matrix_local.copy() for c in keyed}
-    still = _bake_rest(data, built, targets)
+    still = _bake_rest(data, built, targets) + [b.name for b in obj.data.bones if b.get(HAND)]
     for f in range(start, end + 1):
         scene.frame_set(f)
         want = poses[f]

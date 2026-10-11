@@ -229,10 +229,15 @@ public partial class MaterialPorterService
         }
         if (route == "fork-settings-shot")
         {
-            // The Blender export settings page showing a section (section= its sidebar button's text), rendered to a PNG (path=).
+            // The Blender export settings page showing a section (section= its sidebar button's text), rendered to a PNG (path=);
+            // rig=<ERigType> shows that rig's settings (put back after).
             var window = AppServices.App.Lifetime.MainWindow!;
+            var blenderSettings = AppSettings.ExportSettings.Blender;
+            var rigWas = blenderSettings.RigType;
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
+                if (query["rig"] is { } rig)
+                    blenderSettings.RigType = Enum.Parse<ViewModels.Settings.ERigType>(rig, true);
                 window.WindowState = Avalonia.Controls.WindowState.Normal;
                 window.Width = 1600;
                 window.Height = 1100;
@@ -253,7 +258,9 @@ public partial class MaterialPorterService
                 var file = query["path"] ?? throw new ArgumentException("path missing");
                 var size = SaveShot(window, file);
                 var blender = AppSettings.ExportSettings.Blender;
-                return new { file, blender.SubsurfaceIntensity, blender.BaseSubsurface, blender.SubsurfaceScale, blender.ProfileColour, blender.FurSubsurfaceIntensity, blender.FurSubsurfaceScale };
+                var shownRig = blender.RigType;
+                blender.RigType = rigWas;
+                return new { file, shownRig, blender.OfficialRigHandControls, blender.SubsurfaceIntensity, blender.BaseSubsurface, blender.SubsurfaceScale, blender.ProfileColour, blender.FurSubsurfaceIntensity, blender.FurSubsurfaceScale };
             });
         }
         if (route == "fork-map-shot")

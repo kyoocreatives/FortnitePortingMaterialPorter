@@ -24,7 +24,8 @@ Maps
 
 Assets
 - **Weapons as the game draws them**, with wraps and weapon mods on the asset's page.
-- **Rigs**: creature, LEGO figure, sidekick and vehicle rigs (with the Tasty rig setting).
+- **Rigs**: creature, LEGO figure, sidekick and vehicle rigs (with the Tasty rig setting). Fortnite's official rig,
+  with optional extra hand controls (Blender > Armature > Extra Hand Controls; not part of Epic's rig).
 - **Animations tab** (Assets > Gameplay > Animations).
 - **Particle effects, played** (Assets > Gameplay > Effects): Niagara CPU emitters are replayed
   over the scene's frames; GPU and stateless emitters are approximated.

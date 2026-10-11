@@ -1,0 +1,14 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:settings="clr-namespace:FortnitePorting.ViewModels.Settings"
+             xmlns:controls="clr-namespace:FortnitePorting.Controls.Settings"
+             x:Class="FortnitePorting.Views.MaterialPorter.OfficialRigSettings"
+             x:DataType="settings:BlenderSettingsViewModel"
+             IsVisible="{Binding IsOfficialRig}">
+    <controls:SettingsItem Title="Extra Hand Controls"
+                           Description="Adds hand controls on top of Epic's finger controls: curl and spread every finger, cup the palm, curl one finger. Not part of Epic's rig.">
+        <controls:SettingsItem.Footer>
+            <ToggleSwitch IsChecked="{Binding OfficialRigHandControls}"/>
+        </controls:SettingsItem.Footer>
+    </controls:SettingsItem>
+</UserControl>

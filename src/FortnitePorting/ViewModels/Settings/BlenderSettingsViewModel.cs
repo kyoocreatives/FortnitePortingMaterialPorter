@@ -8,6 +8,7 @@ namespace FortnitePorting.ViewModels.Settings;
 public partial class BlenderSettingsViewModel : BaseExportSettings
 {
     public bool IsTastyRig => RigType == ERigType.Tasty;
+    public bool IsOfficialRig => RigType == ERigType.Official;     // MP
     
     // General
     [ObservableProperty] private bool _scaleDown = true;
@@ -15,13 +16,15 @@ public partial class BlenderSettingsViewModel : BaseExportSettings
     [ObservableProperty] private bool _importAt3DCursor = false;
     
     // Armature
-    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsTastyRig))] private ERigType _rigType = ERigType.Default;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(IsTastyRig)), NotifyPropertyChangedFor(nameof(IsOfficialRig))] private ERigType _rigType = ERigType.Default;     // MP: IsOfficialRig
     [ObservableProperty] private bool _mergeArmatures = true;
     [ObservableProperty] private bool _reorientBones = false;
     [ObservableProperty] private bool _importSockets = true;
     [ObservableProperty] private bool _importVirtualBones = false;
     [ObservableProperty] private bool _useDynamicBoneShape = true;
     [ObservableProperty] private float _boneLength = 4.0f;
+    // MP: the official rig's extra hand controls (curl, spread, palm cup), not part of Epic's rig
+    [ObservableProperty] private bool _officialRigHandControls = false;
     
     // Mesh
     [ObservableProperty] private int _targetLOD = 0;
