@@ -10,7 +10,7 @@ from .rig_units import _get, _lerp, element, epic_euler, num, transform, transfo
 
 
 def _parents(m, a):
-    weight = num(_get(m, a, "Weight"), 1.0)
+    weight = num(_get(m, a, "Weight"))
     child = element(_get(m, a, "Child"))
     if weight < 1e-4 or child is None or not m.h.has(child):
         return None
@@ -60,7 +60,7 @@ def position_constraint(m, a, ops, pc):
     child, weight, parents = got
     current = m.h.get_local(child)
     offset = Vector()
-    if _get(m, a, "bMaintainOffset", True):
+    if _get(m, a, "bMaintainOffset"):
         start = sum((m.h.get_global(n, True)[1] * w for n, w in parents), Vector())
         offset = m.h.get_local(child, True)[1] - _in_parent(m, child, start, True)
     p = _in_parent(m, child, sum((m.h.get_global(n)[1] * w for n, w in parents), Vector())) + offset
@@ -94,7 +94,7 @@ def rotation_constraint(m, a, ops, pc):
     shortest = str(settings.get("InterpolationType", 0)).split("::")[-1] in ("1", "Shortest")
     current = m.h.get_local(child)
     r = _local_rotation(m, child, _mix([(m.h.get_global(n)[0], w) for n, w in parents], shortest))
-    if _get(m, a, "bMaintainOffset", True):
+    if _get(m, a, "bMaintainOffset"):
         start = _local_rotation(m, child, _mix([(m.h.get_global(n, True)[0], w) for n, w in parents], shortest), True)
         r = r @ (start.conjugated() @ m.h.get_local(child, True)[0])     # applied first, in local space
     _finish(m, child, current, (_filtered(r, current[0], _get(m, a, "Filter") or {}, _filter_order(settings)), current[1]), weight)
@@ -159,7 +159,7 @@ def _target(m, value, default_axis):
 def aim_bone_math(m, a, ops, pc):
     t = transform(_get(m, a, "InputTransform"))
     rot = aim(t[0], t[1], _target(m, _get(m, a, "Primary"), (1.0, 0.0, 0.0)), _target(m, _get(m, a, "Secondary"), (0.0, 0.0, 1.0)),
-              num(_get(m, a, "Weight"), 1.0))
+              num(_get(m, a, "Weight")))
     m.set(a.get("Result"), transform_out((rot, t[1])))
 
 
@@ -195,7 +195,7 @@ def aim_constraint(m, a, ops, pc):
         rot = aim(g[0], g[1], (aim_axis, point, "Location", 1.0), (up_axis, target, up_kind, 1.0), weight)
         return _local_rotation(m, child, rot, initial)
     r = aimed(False)
-    if _get(m, a, "bMaintainOffset", True):
+    if _get(m, a, "bMaintainOffset"):
         r = r @ (aimed(True).conjugated() @ m.h.get_local(child, True)[0])
     rot = _filtered(r, current[0], _get(m, a, "Filter") or {}, _filter_order(_get(m, a, "AdvancedSettings")), closest=True)
     _finish(m, child, current, (rot, current[1]), weight)
@@ -203,7 +203,7 @@ def aim_constraint(m, a, ops, pc):
 
 def offset_transform(m, a, ops, pc):
     """The offset applied in the item's own space, eased in by the weight."""
-    name, weight = element(_get(m, a, "Item")), num(_get(m, a, "Weight"), 1.0)
+    name, weight = element(_get(m, a, "Item")), num(_get(m, a, "Weight"))
     if weight < 1e-8 or name is None or not m.h.has(name):
         return
     now = m.h.get_global(name)

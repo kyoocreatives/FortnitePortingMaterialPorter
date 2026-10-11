@@ -336,5 +336,21 @@ call2("AimItem", Mini(h7), Item="Bone/skirt", Weight=1.0, Secondary={"Weight": 0
       Primary={"Weight": 1.0, "Axis": {"X": 1.0, "Y": 0.0, "Z": 0.0}, "Target": {"X": 0.0, "Y": 6.0, "Z": 10.0}, "Kind": "EControlRigVectorKind::Location"})
 check("aim item turns its axis onto the target", tuple(round(c, 4) for c in h7.get_global("skirt")[0] @ Vector((1, 0, 0))), (0.0, 0.0, 1.0))
 
+# a blank top-level input is the property bag's zero, not the unit's editor default
+h8 = Hierarchy(parents, rest, [])
+h8.load(dict(rest))
+h8.set_local("root", (Quaternion(), Vector((1, 0, 0))))
+m12 = Mini(h8)
+call("GetTransform", m12, Item="Bone/thigh_l", Space=None, bInitial=None, Transform="t")
+check("a blank space is local", tuple(round(c, 4) for c in ru.vec(m12.out["t"]["Translation"])), (0.0, 10.0, 0.0))
+call2("MathQuaternionFromEuler", m12, Euler={"X": 90.0, "Y": 0.0, "Z": 90.0}, RotationOrder=None, Result="r")
+from fpmp_baseline.processing.context.deform_rig import _epic_quat  # noqa: E402
+xyz = _epic_quat([90.0, 0.0, 90.0], 0).to_quaternion()
+check("a blank rotation order is XYZ", round(ru.quat(m12.out["r"]).rotation_difference(xyz).angle, 5), 0.0)
+h8.set_local("root", (Quaternion(), Vector()))
+h8.set_local("thigh_l", (turned, Vector((0, 20, 0))))
+call("ParentConstraint", Mini(h8), Child="Bone/skirt", bMaintainOffset=True, Parents=[{"Item": "Bone/thigh_l", "Weight": 1.0}], Weight=None)
+check("a blank constraint weight leaves the child", tuple(round(c, 4) for c in h8.get_global("skirt")[1]), (0.0, 0.0, 5.0))
+
 print("[rig_vm_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

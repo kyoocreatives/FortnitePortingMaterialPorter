@@ -1,7 +1,8 @@
 """The RigVM units a character's own rig functions use, written from their documented behaviour. Each takes the
 machine, its named operands, the operand list and its instruction index (for state kept between runs). Memory holds
 values as the dump writes them: vectors and quaternions as {"X", "Y", "Z"(, "W")}, transforms as {"Rotation",
-"Translation", "Scale3D"}, element keys as "Bone/name" or {"Type", "Name"}."""
+"Translation", "Scale3D"}, element keys as "Bone/name" or {"Type", "Name"}. A blank input is zero (the dump leaves
+zero values out), not the unit's editor default; a struct's blank fields are the struct's defaults."""
 import copy
 import math
 import struct
@@ -218,7 +219,7 @@ def alpha_interp(m, a, ops, pc):
         i0, i1 = num(r_in.get("Min")), num(r_in.get("Max"))
         u = 0.0 if abs(i1 - i0) < 1e-8 else min(max((v - i0) / (i1 - i0), 0.0), 1.0)
         v = num(r_out.get("Min")) + (num(r_out.get("Max")) - num(r_out.get("Min"))) * u
-    v = v * num(_get(m, a, "Scale"), 1.0) + num(_get(m, a, "Bias"))
+    v = v * num(_get(m, a, "Scale")) + num(_get(m, a, "Bias"))
     if _get(m, a, "bClampResult"):
         v = min(max(v, num(_get(m, a, "ClampMin"))), num(_get(m, a, "ClampMax")))
     if _get(m, a, "bInterpResult"):
@@ -257,8 +258,8 @@ def _curve(curve, t):
 
 def anim_eval_rich_curve(m, a, ops, pc):
     v = num(_get(m, a, "Value"))
-    s0, s1 = num(_get(m, a, "SourceMinimum")), num(_get(m, a, "SourceMaximum"), 1.0)
-    t0, t1 = num(_get(m, a, "TargetMinimum")), num(_get(m, a, "TargetMaximum"), 1.0)
+    s0, s1 = num(_get(m, a, "SourceMinimum")), num(_get(m, a, "SourceMaximum"))
+    t0, t1 = num(_get(m, a, "TargetMinimum")), num(_get(m, a, "TargetMaximum"))
     u = (1.0 if v >= s1 else 0.0) if abs(s1 - s0) < 1e-8 else min(max((v - s0) / (s1 - s0), 0.0), 1.0)
     _set(m, a, "Result", t0 + (t1 - t0) * _curve(_get(m, a, "Curve"), u))
 
@@ -284,11 +285,11 @@ def parent_constraint(m, a, ops, pc):
     """Weighted parents (offset from both rest poses when kept), mixed, filtered per axis in the child's parent
     space, eased in by the weight; scale is not carried."""
     from .deform_rig import ORDERS
-    weight = num(_get(m, a, "Weight"), 1.0)
+    weight = num(_get(m, a, "Weight"))
     child = element(_get(m, a, "Child"))
     if weight < 1e-4 or child is None or not m.h.has(child):
         return
-    keep = _get(m, a, "bMaintainOffset", True)
+    keep = _get(m, a, "bMaintainOffset")
     parents = [(element(p.get("Item")), max(num(p.get("Weight"), 1.0), 0.0)) for p in _get(m, a, "Parents") or [] if isinstance(p, dict)]
     parents = [(n, w) for n, w in parents if n and m.h.has(n) and w >= 1e-4]
     total = sum(w for _, w in parents)
@@ -339,7 +340,7 @@ def get_transform(m, a, ops, pc):
     name = element(_get(m, a, "Item"))
     if name is None or not m.h.has(name):
         return
-    initial, local = bool(_get(m, a, "bInitial")), int(num(_get(m, a, "Space", 1))) == 0
+    initial, local = bool(_get(m, a, "bInitial")), int(num(_get(m, a, "Space"))) == 0
     _set(m, a, "Transform", transform_out(m.h.get_local(name, initial) if local else m.h.get_global(name, initial)))
 
 
@@ -353,8 +354,8 @@ def _write(m, name, value, local, weight):
 
 def set_transform(m, a, ops, pc):
     if not _get(m, a, "bInitial"):
-        _write(m, element(_get(m, a, "Item")), transform(_get(m, a, "Value")), int(num(_get(m, a, "Space", 1))) == 0,
-               num(_get(m, a, "Weight"), 1.0))
+        _write(m, element(_get(m, a, "Item")), transform(_get(m, a, "Value")), int(num(_get(m, a, "Space"))) == 0,
+               num(_get(m, a, "Weight")))
 
 
 def quaternion_to_euler(m, a, ops, pc):
@@ -427,8 +428,8 @@ def to_euler_transform(m, a, ops, pc):
 
 def quat_from_euler(m, a, ops, pc):
     from .deform_rig import ORDERS, _epic_quat
-    order = _get(m, a, "RotationOrder", 5)
-    order = int(num(order)) if not isinstance(order, str) else ORDERS.index(order.split("::")[-1]) if order.split("::")[-1] in ORDERS else 5
+    order = _get(m, a, "RotationOrder")
+    order = int(num(order)) if not isinstance(order, str) else ORDERS.index(order.split("::")[-1]) if order.split("::")[-1] in ORDERS else 0
     _set(m, a, "Result", quat_out(_epic_quat(list(vec(_get(m, a, "Euler"))), order).to_quaternion()))
 
 
@@ -444,7 +445,7 @@ def quat_scale(m, a, ops, pc):
     axis = Vector((q.x, q.y, q.z))
     axis = axis.normalized() if axis.length_squared >= 1e-8 else Vector((1.0, 0.0, 0.0))
     angle = 2.0 * math.acos(max(-1.0, min(1.0, q.w)))      # w's sign kept: a negative one turns the long way
-    _set(m, a, "Result", quat_out(Quaternion(axis, angle * num(_get(m, a, "Factor"), 1.0))))
+    _set(m, a, "Result", quat_out(Quaternion(axis, angle * num(_get(m, a, "Factor")))))
 
 
 def _pow(x, y):
@@ -518,7 +519,7 @@ def array_init(m, a, ops, pc):
 # --- items and names
 
 def get_transform_array(m, a, ops, pc):
-    initial, local = bool(_get(m, a, "bInitial")), int(num(_get(m, a, "Space", 1))) == 0
+    initial, local = bool(_get(m, a, "bInitial")), int(num(_get(m, a, "Space"))) == 0
     out = []
     for item in _get(m, a, "Items") or []:
         name = element(item)
@@ -687,7 +688,7 @@ UNITS = {
     "MathTransformTransformVector": _vector_unit(lambda t, v: vec_out(compose((Quaternion(), vec(v)), transform(t))[1]), ("Transform", "Location")),
     "DISPATCH_RigVMDispatch_CoreEquals": lambda m, a, ops, pc: m.set(ops[-1], m.get(ops[0]) == m.get(ops[1])),
     "MathDoubleArraySum": lambda m, a, ops, pc: _set(m, a, "Sum", sum(num(x) for x in (_get(m, a, "Array") or []))),
-    "ItemArray": nothing, "FindItemsWithMetadataTag": lambda m, a, ops, pc: _set(m, a, "Items", []),
+    "ItemArray": nothing,
     "SequenceExecution": nothing, "MathDoubleMod": _binary(_mod), "MathDoubleLessEqual": _binary(lambda x, y: num(x) <= num(y)),
     "MathFloatMax": _binary(lambda x, y: f32(max(num(x), num(y)))),
     "MathVectorDistance": _binary(lambda x, y: f32((vec(x) - vec(y)).length)), "MathVectorDot": _binary(lambda x, y: f32(vec(x).dot(vec(y)))),
