@@ -11,6 +11,8 @@ public class ExportSettings
     public int MaxTextureSize { get; set; }
     /// <summary>MP: the same for a map or prefab (hundreds of textures).</summary>
     public int MapTextureSize { get; set; } = 1024;
+    /// <summary>MP: every Nth line of a landscape's grid imported (1: all).</summary>
+    public int LandscapeDetail { get; set; } = 1;
     /// <summary>MP: the cap an export of this type uses.</summary>
     public int TextureCapFor(EExportType type) => type is EExportType.World or EExportType.Prefab ? MapTextureSize : MaxTextureSize;
     public bool ExportMaterials { get; set; } = true;

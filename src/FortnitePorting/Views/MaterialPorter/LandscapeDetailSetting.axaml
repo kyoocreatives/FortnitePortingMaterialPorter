@@ -1,0 +1,16 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ext="clr-namespace:FortnitePorting.Extensions;assembly=FortnitePorting"
+             xmlns:settings="clr-namespace:FortnitePorting.ViewModels.Settings"
+             xmlns:fpExport="clr-namespace:FortnitePorting;assembly=FortnitePorting.Exporting"
+             xmlns:controls="clr-namespace:FortnitePorting.Controls.Settings"
+             x:Class="FortnitePorting.Views.MaterialPorter.LandscapeDetailSetting"
+             x:DataType="settings:BlenderSettingsViewModel">
+    <controls:SettingsItem Title="Landscape Detail"
+                           Description="How much of a landscape's grid is imported. Half and Quarter keep every 2nd or 4th line (4x or 16x fewer polygons) with exact UVs and paint layers.">
+        <controls:SettingsItem.Footer>
+            <ComboBox ItemsSource="{ext:EnumToItemsSource {x:Type fpExport:ELandscapeDetail}}"
+                      SelectedItem="{Binding LandscapeDetail, Converter={StaticResource EnumToRecord}}"/>
+        </controls:SettingsItem.Footer>
+    </controls:SettingsItem>
+</UserControl>

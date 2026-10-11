@@ -6,10 +6,10 @@ from mathutils import Matrix
 from .meshes import spline_bend, white_colors
 
 
-def after_import(mesh, obj, mesh_obj, scale):
+def after_import(mesh, obj, mesh_obj, scale, landscape_detail=1):
     """Apply a spline mesh's bend (UE's slice transform, on a copy of the mesh), white vertex
-    colours where the mesh has none (what UE reads there), and the component's custom primitive
-    data / an instance's custom data as the object properties the exact materials read
+    colours where the mesh has none (what UE reads there), a landscape's detail (every Nth grid line), and the
+    component's custom primitive data / an instance's custom data as the object properties the exact materials read
     (mp_cpd<i>, mp_pic<i>)."""
     if obj is not None and (bone := mesh.get("MPParentBone")):
         follow_bone(obj, bone)
@@ -31,6 +31,12 @@ def after_import(mesh, obj, mesh_obj, scale):
             if attribute.name in names:
                 attribute.name = names[attribute.name]
         target["mp_landscape"] = 1.0
+        if landscape_detail > 1:
+            from .landscape_detail import reduce
+            old = target.data
+            target.data = reduce(old, landscape_detail)
+            if target.data is not old and not old.users:
+                bpy.data.meshes.remove(old)
     # the actor this mesh came from (a lamp's housing and its light share one; see shadow_linking)
     if actor := mesh.get("MPActor"):
         target["mp_actor"] = str(actor)

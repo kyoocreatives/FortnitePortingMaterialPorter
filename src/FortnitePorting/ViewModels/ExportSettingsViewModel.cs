@@ -52,6 +52,7 @@ public partial class BaseExportSettings : ViewModelBase
     // MP: smaller textures for a background (a map's distant set), from their own mips
     [ObservableProperty] private ETextureSizeCap _maxTextureSize = ETextureSizeCap.Full;
     [ObservableProperty] private ETextureSizeCap _mapTextureSize = ETextureSizeCap.Size1024;     // MP
+    [ObservableProperty] private ELandscapeDetail _landscapeDetail = ELandscapeDetail.Full;     // MP
     [ObservableProperty] private bool _exportMaterials = true;
     
     [ObservableProperty] private EMeshFormat _meshFormat = EMeshFormat.UEFormat;
@@ -70,6 +71,7 @@ public partial class BaseExportSettings : ViewModelBase
         ImageFormat = ImageFormat,
         MaxTextureSize = (int) MaxTextureSize,
         MapTextureSize = (int) MapTextureSize,     // MP
+        LandscapeDetail = (int) LandscapeDetail,     // MP
         ExportMaterials = ExportMaterials,
         MeshFormat = MeshFormat,
         MeshQuality = EMeshQuality.All,

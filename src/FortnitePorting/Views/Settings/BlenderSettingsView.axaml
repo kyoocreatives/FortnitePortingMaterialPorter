@@ -304,6 +304,7 @@
                                     <ToggleSwitch IsChecked="{Binding ImportInstancedFoliage}"/>
                                 </controls:SettingsItem.Footer>
                             </controls:SettingsItem>
+                            <mp:LandscapeDetailSetting/>     <!-- MP -->
                         </StackPanel>
                     </sidebar:SidebarItemButton.Tag>
                 </sidebar:SidebarItemButton>

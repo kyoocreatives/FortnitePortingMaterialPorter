@@ -23,3 +23,16 @@ public enum ETextureSizeCap
     [Description("256")]
     Size256 = 256
 }
+
+// How much of a landscape's grid is imported: every line, every 2nd or every 4th (components' edges always kept)
+public enum ELandscapeDetail
+{
+    [Description("Full")]
+    Full = 1,
+
+    [Description("Half")]
+    Half = 2,
+
+    [Description("Quarter")]
+    Quarter = 4
+}

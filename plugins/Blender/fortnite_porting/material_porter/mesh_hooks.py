@@ -287,7 +287,7 @@ def tris_to_quads(imported_mesh):
 def after_model(ctx, mesh, imported_object, imported_mesh):
     # a spline mesh's bend, custom data, white vertex colours
     from .placement import after_import
-    after_import(mesh, imported_object, imported_mesh, ctx.scale)
+    after_import(mesh, imported_object, imported_mesh, ctx.scale, int(ctx.options.get("LandscapeDetail") or 1))
 
 
 def final_materials(mesh, override_materials):
