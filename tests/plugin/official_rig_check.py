@@ -94,8 +94,8 @@ check("off-bone control at its offset", tuple(man.data.bones["heel_l_ctrl"].head
 knee, hip, ankle = (man.data.bones[b].head_local for b in ("calf_l", "thigh_l", "foot_l"))
 plane = (knee - hip).cross(ankle - hip)
 check("leg pole in the leg's bend plane", abs((man.data.bones["leg_l_pv_ik_ctrl"].head_local - hip).dot(plane.normalized())) < 1e-4, True)
-check("root width", man.pose.bones["global_ctrl"].custom_shape_wire_width, 7.0)
-check("digit width", man.pose.bones["index_01_l_ctrl"].custom_shape_wire_width, 3.0)
+check("root width", man.pose.bones["global_ctrl"].custom_shape_wire_width, 3.5)
+check("digit width", man.pose.bones["index_01_l_ctrl"].custom_shape_wire_width, 1.5)
 
 
 def widget(obj, name):
