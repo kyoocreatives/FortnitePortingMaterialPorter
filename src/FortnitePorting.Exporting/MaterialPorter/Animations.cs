@@ -139,8 +139,6 @@ public static partial class Animations
         return shorter;
     }
 
-    public static string? IconPath(UObject animation) => (Unloaded.Detail(animation) as Outline)?.Owner?.Icon;
-
     public static bool Owned(UObject animation) => (Unloaded.Detail(animation) as Outline)?.Owner is not null;
 
     /// <summary>The packages that may be animations, by path: (package path as mounted, object name).</summary>
