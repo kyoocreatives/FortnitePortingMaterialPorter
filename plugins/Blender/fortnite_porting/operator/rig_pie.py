@@ -203,7 +203,9 @@ def register():
     if kc is None:                                 # background mode has no keymaps
         return
     km = kc.keymaps.new(name="Pose", space_type='EMPTY')
-    _keymaps.append((km, km.keymap_items.new(FPMP_OT_rig_pie.bl_idname, 'Q', 'PRESS', shift=True)))
+    # first in the Pose keymap: FortRig's Shift+Q pie opens on any armature (offering to build its rig); this one
+    # only on the official rig, so elsewhere Blender goes on to FortRig's
+    _keymaps.append((km, km.keymap_items.new(FPMP_OT_rig_pie.bl_idname, 'Q', 'PRESS', shift=True, head=True)))
 
 
 def unregister():
