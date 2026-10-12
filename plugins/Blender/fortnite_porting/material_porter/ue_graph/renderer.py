@@ -2,7 +2,7 @@
 
 import math
 
-from .core import TexRef, Val, WATER_DEPTH_DEFAULT, SHELL_ATTRIBUTES, SHELL_VECTORS, render_tan_half_fov
+from .core import TABLE, TexRef, Val, WATER_DEPTH_DEFAULT, SHELL_ATTRIBUTES, SHELL_VECTORS, render_tan_half_fov
 
 
 class RendererMixin:
@@ -262,6 +262,8 @@ class RendererMixin:
             atlas = self.tex_key(p.get("Atlas"))
             row = env.scalar(p.get("ParameterName"), float(p.get("DefaultValue", 0.0)))
             img = env.texture(atlas, "SAMPLERTYPE_LinearColor")
+            if img is not None:
+                img[TABLE] = True
             h = float(img.size[1]) if img is not None and img.size[1] > 1 else 256.0
             time = self.mask(self.input(g, p.get("InputTime"), scope, self.const(0.0)), [0])
             v = self.binop('DIVIDE', self.binop('ADD', row, self.const(0.5)), self.const(h))

@@ -77,6 +77,9 @@ COMPILE_SWITCHES = {
     "RuntimeVirtualTextureReplace": ("Default",),
 }
 
+# on an image read as a table (a curve atlas): sampled Linear, as UE does; Smart's cubic blends rows
+TABLE = "mp_table"
+
 BOUNDS_CENTRE = "mp_bounds_centre"     # object bounds centre (local, Blender metres): UE's Object Position
 BOUNDS_MIN = "mp_bounds_min"       # object bounding box (local, Blender metres): UE's local bounds,
 BOUNDS_MAX = "mp_bounds_max"       # read per object (a shared function's group holds no object's numbers)

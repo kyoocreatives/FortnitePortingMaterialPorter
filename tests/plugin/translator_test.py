@@ -907,6 +907,14 @@ g = G()
 ca = g.add("CurveAtlasRowParameter", ParameterName="Curve", DefaultValue=3.0, InputTime=R(scalar(g, 0.5)),
            Atlas={"ObjectName": "CurveLinearColorAtlas'T_0.9_0.5_0.1'"})
 check("CurveAtlasRowParameter alpha", run(g, R(ca, 4))[0], 1.0)
+# a curve atlas is a table: Smart (cubic when magnified) blends a sixth of each neighbouring row in
+# (GrizzlyDemise's flames drew orange squares from the row above theirs)
+g = G()
+ca = g.add("CurveAtlasRowParameter", ParameterName="Curve", DefaultValue=3.0, InputTime=R(scalar(g, 0.5)),
+           Atlas={"ObjectName": "CurveLinearColorAtlas'T_0.9_0.5_0.1'"})
+_v, tr = run_val(g, R(ca, 0))
+check("CurveAtlasRowParameter samples its row Linear",
+      float([n.interpolation for n in tr.tree.nodes if n.bl_idname == "ShaderNodeTexImage"] == ["Linear"]), 1.0)
 g = G()
 ts = g.add("TextureSample", Texture={"ObjectName": "Texture2D'T_0.2_0.4_0.6'"})
 check("TextureSample RGBA keeps its alpha", run(g, R(ts, 5))[0], (0.2, 0.4, 0.6, 1.0))

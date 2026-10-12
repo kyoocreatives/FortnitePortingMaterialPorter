@@ -2,7 +2,14 @@
 
 import math
 
-from .core import T, Val, short_name
+from .core import TABLE, T, Val, short_name
+
+
+def _filter(img, nearest):
+    """Smart for textures (as FP's own materials), Linear for tables, Closest for unfiltered samplers."""
+    if nearest:
+        return 'Closest'
+    return 'Linear' if img is not None and img.get(TABLE) else 'Smart'
 
 
 class TexturesMixin:
@@ -131,7 +138,7 @@ class TexturesMixin:
                 # the zone's ends collapsed (as FortnitePorting draws its texture closures)
                 z.hide = True
                 z.width = 100
-            n = self.node("ShaderNodeTexImage", short_name(str(tname)), interpolation='Closest' if nearest else 'Smart',
+            n = self.node("ShaderNodeTexImage", short_name(str(tname)), interpolation=_filter(img, nearest),
                           extension=ext)
             n.image = img
             # collapsed and narrow: a column of textures, one row each (its label names the image)
@@ -165,7 +172,7 @@ class TexturesMixin:
             return n
         nearest = own and self._hook("texture_nearest", lambda: False, tname)
         ext, fixes = self.address_mode(tname, own, address, img)
-        n = self.node("ShaderNodeTexImage", short_name(tname), interpolation='Closest' if nearest else 'Smart', extension=ext)
+        n = self.node("ShaderNodeTexImage", short_name(tname), interpolation=_filter(img, nearest), extension=ext)
         n.image = img
         if getattr(tname, "param", None):
             n["mp_tex_param"] = tname.param     # which parameter's texture this is (another instance swaps it)
