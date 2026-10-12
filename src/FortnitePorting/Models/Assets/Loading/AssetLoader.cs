@@ -478,7 +478,7 @@ public partial class AssetLoader : ObservableObject
                 }
 
                 return assetItem.Match(searchFilter, useRegex)
-                       && filters.All(x => x.Predicate.Invoke(assetItem))
+                       && FilterItem.MPMatches(filters, assetItem) // MP
                        && assetItem.CreationData.IsHidden == filters.Any(f => f.Title.Equals("Hidden Items"));
             }
 

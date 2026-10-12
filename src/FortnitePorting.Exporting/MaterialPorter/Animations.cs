@@ -44,6 +44,9 @@ public static partial class Animations
 
         public string Folder => Package[..Math.Max(0, Package.LastIndexOf('/'))];
 
+        /// <summary>Its item in each of <see cref="Animations.Groups"/> (gender, body type, use), or null.</summary>
+        public string?[] Groups { get; } = Enumerable.Range(0, Animations.Groups.Length).Select(g => GroupOf(Package, g)).ToArray();
+
         public string Describe(string folder) =>
             $"{(Owner is null ? "" : $"{Owner.Name}'s · ")}{(Class == "AnimMontage" ? "Montage" : "Sequence")}{(Skeleton is null ? "" : $" · {Skeleton}")} · {folder}";
     }
@@ -155,60 +158,20 @@ public static partial class Animations
         return found.Values.ToList();
     }
 
-    // outlines from an earlier listing of the same files (reading 130,000 package maps takes over a minute)
-    private static ConcurrentDictionary<string, Outline> _known = new(StringComparer.OrdinalIgnoreCase);
-    private static string? _knownFile, _knownKey;
+    // outlines from an earlier listing of the same build (reading 130,000 package maps takes over a minute)
+    private static readonly OutlineCache<Outline> _cache = new("animation",
+        f => f.Length == 4 ? new Outline(f[0], f[1].Length > 0 ? f[1] : null, f[2].Length > 0 ? f[2] : null, KindOf(f[0], f[2])) : null,
+        o => $"{o.Class}	{o.Skeleton}	{o.Kind}");
 
-    /// <summary>Outlines saved from a listing of the same files (key: what says they are the same).</summary>
-    public static void Recall(string file, string key)
-    {
-        _knownFile = file;
-        _knownKey = key;
-        _known = new ConcurrentDictionary<string, Outline>(StringComparer.OrdinalIgnoreCase);
-        try
-        {
-            if (!File.Exists(file)) return;
-            using var reader = new StreamReader(file);
-            if (reader.ReadLine() != key) return;
-            while (reader.ReadLine() is { } line)
-            {
-                var f = line.Split('\t');
-                if (f.Length == 4) _known[f[0]] = new Outline(f[0], f[1].Length > 0 ? f[1] : null, f[2].Length > 0 ? f[2] : null, KindOf(f[0], f[2]));
-            }
-        }
-        catch (Exception e)
-        {
-            Serilog.Log.Warning("[Material Porter] animation listing cache unreadable, read again: {Error}", e.Message);
-            _known.Clear();
-        }
-    }
+    /// <summary>Outlines saved from a listing of the same build (<see cref="OutlineCache{T}.KeyOf"/>).</summary>
+    public static void Recall(string file, string key) => _cache.Recall(file, key);
 
     /// <summary>Keeps this listing's outlines for the next one.</summary>
-    public static void Remember()
-    {
-        if (_knownFile is null || _knownKey is null) return;
-        try
-        {
-            using var writer = new StreamWriter(_knownFile);
-            writer.WriteLine(_knownKey);
-            foreach (var (package, o) in _known)
-                writer.WriteLine($"{package}\t{o.Class}\t{o.Skeleton}\t{o.Kind}");
-        }
-        catch (Exception e)
-        {
-            Serilog.Log.Warning("[Material Porter] animation listing cache not saved: {Error}", e.Message);
-            // only the next listing is slower
-        }
-    }
+    public static void Remember() => _cache.Remember();
 
     /// <summary>An animation's outline from its package's maps: class, skeleton (the import of that class), what it is for.</summary>
-    public static async Task<Outline?> ReadOutline(IFileProvider provider, string package, string name)
-    {
-        if (_known.TryGetValue(package, out var known)) return known;
-        var outline = await ReadMaps(provider, package, name);
-        if (outline is not null) _known[package] = outline;
-        return outline;
-    }
+    public static Task<Outline?> ReadOutline(IFileProvider provider, string package, string name) =>
+        _cache.Get(package, () => ReadMaps(provider, package, name));
 
     private static async Task<Outline?> ReadMaps(IFileProvider provider, string package, string name)
     {

@@ -33,10 +33,14 @@ public partial class AssetLoaderService
             DescriptionHandler = Effects.Describe,
             MPIconPath = EffectOwners.IconPath,
             MPUnregistered = registry => UEParse.Provider is { } provider ? Effects.ListedSystems(provider, registry) : registry,
-            // the items' index is kept per build: later listings read only the items added since
-            MPBeforeListing = async () => await EffectOwners.Build(
-                Path.Combine(FortnitePorting.Application.AppServices.App.DataFolder.FullName, "mp_effect_owners.tsv"),
-                MaterialPorterService.Instance.Game.BuildVersion),
+            // the items' index and the systems' outlines are kept per build: later listings read only what was added since
+            MPBeforeListing = async () =>
+            {
+                var data = FortnitePorting.Application.AppServices.App.DataFolder.FullName;
+                await EffectOwners.Build(Path.Combine(data, "mp_effect_owners.tsv"), MaterialPorterService.Instance.Game.BuildVersion);
+                Effects.Recall(Path.Combine(data, "mp_effects.tsv"), ListingKey());
+            },
+            MPAfterListing = Effects.Remember,
             // GPU emitters aren't replayed (an island's effects are mostly GPU); "Plays in Blender" keeps the ones that play
             FilterCategories =
             {
@@ -51,7 +55,7 @@ public partial class AssetLoaderService
 
         // animations (sequences and montages) by what they are for (characters', gliders', back blings', creatures'...), found
         // by path and listed unread (the registry keeps few); exported onto the armature selected in Blender
-        Categories.First(category => category.Category == EAssetCategory.Gameplay).Loaders.Add(new AssetLoader(EExportType.Animation)
+        var animations = new AssetLoader(EExportType.Animation)
         {
             ClassNames = Animations.Classes,
             HideRarity = true,
@@ -63,10 +67,10 @@ public partial class AssetLoaderService
             MPIconPath = Animations.IconPath,
             MPUnregistered = registry => UEParse.Provider is { } provider ? Animations.Candidates(provider, registry) : registry,
             MPOutline = async (package, name) => await Animations.ReadOutline(UEParse.Provider, package, name),
-            // outlines and the items' index are kept from the last listing of the same files: seconds instead of over a minute
+            // outlines and the items' index are kept from the last listing of the same build: seconds instead of over a minute
             MPBeforeListing = async () =>
             {
-                var key = $"3 {UEParse.Provider.Files.Count} {UEParse.Provider.MountedVfs.Count}";
+                var key = ListingKey();
                 var data = FortnitePorting.Application.AppServices.App.DataFolder.FullName;
                 await AnimationOwners.Build(Path.Combine(data, "mp_animation_owners.tsv"), key);
                 Animations.Recall(Path.Combine(data, "mp_animations.tsv"), key);
@@ -79,10 +83,16 @@ public partial class AssetLoaderService
                 {
                     Filters = [new FilterItem("Of an Item", asset => Animations.Owned(asset.CreationData.Object)),
                         ..Animations.Kinds.Select(k => k.Kind).Append("Other")
-                        .Select(kind => new FilterItem(kind, asset => Animations.Is(asset.CreationData.Object, kind)))]
+                        .Select(kind => new FilterItem(kind, asset => Animations.Is(asset.CreationData.Object, kind)) { MPAnyOf = "ANIMATION" })]
                 }
             },
-        });
+        };
+        // the character's gender and body type, what it's for: groups narrow (Female + Medium + Locomotion), a group's items add up
+        animations.FilterCategories.AddRange(Animations.Groups.Select((group, g) => new FilterCategory(group.Group, [EExportType.Animation])
+        {
+            Filters = [..group.Items.Select(i => new FilterItem(i.Name, asset => Animations.InGroup(asset.CreationData.Object, g, i.Name)) { MPAnyOf = group.Group })]
+        }));
+        Categories.First(category => category.Category == EAssetCategory.Gameplay).Loaders.Add(animations);
 
         // the owner's tabs, from the private overlay beside the repo (none without it)
         AddOwnerLoaders();
@@ -175,6 +185,10 @@ public partial class AssetLoaderService
             ]
         });
     }
+
+    /// <summary>What says a cached listing is of the same game files: the build (file counts change with on-demand content).</summary>
+    private static string ListingKey() => "4 " + OutlineCache<object>.KeyOf(MaterialPorterService.Instance.Game.BuildVersion,
+        UEParse.Provider.Files.Count, UEParse.Provider.MountedVfs.Count);
 
     // A LEGO build's name from its asset's (JBID_BS_Wall_Door_02x16x12_01_A -> BS Wall Door 02x16x12 01 A).
     private static string BuildName(string asset)

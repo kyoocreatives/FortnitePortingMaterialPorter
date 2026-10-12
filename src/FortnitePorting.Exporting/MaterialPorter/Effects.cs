@@ -113,7 +113,22 @@ public static class Effects
         }
     }
 
-    public static async System.Threading.Tasks.Task<Outline?> ReadOutline(global::CUE4Parse.FileProvider.IFileProvider provider, string package, string name)
+    // outlines from an earlier listing of the same build: reading every system's export map takes minutes
+    private static readonly OutlineCache<Outline> _cache = new("effect",
+        f => f.Length == 5 && int.TryParse(f[2], out var emitters) && int.TryParse(f[3], out var gpu)
+            ? new Outline(f[1].Length > 0 ? f[1] : null, emitters, gpu, f[4].Split('|', StringSplitOptions.RemoveEmptyEntries)) : null,
+        o => $"{o.Class}	{o.Emitters}	{o.Gpu}	{string.Join('|', o.Draws)}");
+
+    /// <summary>Outlines saved from a listing of the same build (<see cref="OutlineCache{T}.KeyOf"/>).</summary>
+    public static void Recall(string file, string key) => _cache.Recall(file, key);
+
+    /// <summary>Keeps this listing's outlines for the next one.</summary>
+    public static void Remember() => _cache.Remember();
+
+    public static System.Threading.Tasks.Task<Outline?> ReadOutline(global::CUE4Parse.FileProvider.IFileProvider provider, string package, string name) =>
+        _cache.Get(package, () => ReadMaps(provider, package, name));
+
+    private static async System.Threading.Tasks.Task<Outline?> ReadMaps(global::CUE4Parse.FileProvider.IFileProvider provider, string package, string name)
     {
         try
         {

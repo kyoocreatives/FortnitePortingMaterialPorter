@@ -27,7 +27,8 @@ Assets
 - **Rigs**: creature, LEGO figure, sidekick and vehicle rigs (with the Tasty rig setting). Fortnite's official rig,
   with optional extra hand controls and a held prop the fingers grip (Blender > Armature > Extra Hand Controls;
   not part of Epic's rig).
-- **Animations tab** (Assets > Gameplay > Animations).
+- **Animations tab** (Assets > Gameplay > Animations), filtered by what they're for, gender, body type and use
+  (Locomotion, Combat, Skydiving...).
 - **Particle effects, played** (Assets > Gameplay > Effects): Niagara CPU emitters are replayed
   over the scene's frames; GPU and stateless emitters are approximated.
 - **Rocket Racing** cars and tracks; **LEGO** outfits, emotes, props and wildlife.
