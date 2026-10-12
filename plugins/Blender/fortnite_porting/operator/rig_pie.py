@@ -196,25 +196,39 @@ classes = (FPMP_MT_rig_pie, FPMP_PT_rig_picker_popup, FPMP_OT_rig_pie)
 _keymaps = []
 
 
-def register():
-    for c in classes:
-        bpy.utils.register_class(c)
+def _add_key():
+    """The Shift+Q item, last in the add-on Pose keymap. Blender tries add-on items last-added first, and FortRig's
+    Shift+Q pie opens on any armature (offering to build its rig): this one only on the official rig, so it must be
+    tried first. FortRig registers after this plugin (extensions load after startup scripts): moved once loading ends."""
+    _remove_keys()
     kc = bpy.context.window_manager.keyconfigs.addon
     if kc is None:                                 # background mode has no keymaps
-        return
+        return None
     km = kc.keymaps.new(name="Pose", space_type='EMPTY')
-    # first in the Pose keymap: FortRig's Shift+Q pie opens on any armature (offering to build its rig); this one
-    # only on the official rig, so elsewhere Blender goes on to FortRig's
-    _keymaps.append((km, km.keymap_items.new(FPMP_OT_rig_pie.bl_idname, 'Q', 'PRESS', shift=True, head=True)))
+    _keymaps.append((km, km.keymap_items.new(FPMP_OT_rig_pie.bl_idname, 'Q', 'PRESS', shift=True)))
+    return None
 
 
-def unregister():
+def _remove_keys():
     for km, kmi in _keymaps:
         try:
             km.keymap_items.remove(kmi)
         except (ReferenceError, RuntimeError):
             pass
     _keymaps.clear()
+
+
+def register():
+    for c in classes:
+        bpy.utils.register_class(c)
+    _add_key()
+    bpy.app.timers.register(_add_key, first_interval=0.5)
+
+
+def unregister():
+    if bpy.app.timers.is_registered(_add_key):
+        bpy.app.timers.unregister(_add_key)
+    _remove_keys()
     FPMP_OT_rig_pie._active = None
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
