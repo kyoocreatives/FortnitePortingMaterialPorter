@@ -590,5 +590,26 @@ CHAINED = dump(os.path.join(TMP, "ch.animbp.json"), [
                     "AnimGraphNode_Root": {"Result": {"LinkID": 3}}}}])
 check("a whole chain behind the inactive side stays off", [n.get("bone") or n["kind"] for n in dr.nodes([CHAINED], [PHYS])], ["on_false_side"])
 
+# boxes collide as boxes (user report: Roxas's coat flared out): a wide floor slab under a hanging capsule must not
+# push it sideways. The coat's def_slope_warp is a 286 x 279 x 33 cm box; as its bounding capsule it swallowed the coat.
+slab_shape = rbd.Shape({"kind": "box", "center": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0], "size": [286.0, 279.0, 33.0]})
+slab = [(slab_shape.center, Quaternion(), slab_shape.half, (slab_shape.a, slab_shape.b, slab_shape.radius))]
+hang = [(Vector((-17.5, 0.0, 0.0)), Vector((17.5, 0.0, 0.0)), 8.0)]
+floor = rj.SolverBody(Vector(), Quaternion(), Vector(), Quaternion(), Vector(), Vector(), 0.0, Vector(), False)
+for height, want in ((40.0, None), (20.0, -4.5)):
+    cap = rj.SolverBody(Vector((60.0, 30.0, height)), Quaternion(), Vector((60.0, 30.0, height)), Quaternion(), Vector(), Vector(), 1.0,
+                        Vector((1.0, 1.0, 1.0)), True)
+    found = rc.detect([cap, floor], [(0, 1)], [hang, slab], 3.0)
+    if want is None:
+        check("a capsule above a floor box doesn't touch it", len(found), 0)
+    else:
+        check("one sinking into it touches it at both ends", len(found) >= 2, True)
+        check("as deep as it sinks", min(round(c.phi, 3) for c in found), want)
+        check("and is pushed straight up", all(abs(c.n.z - 1.0) < 1e-6 for c in found), True)
+box_in = rj.SolverBody(Vector((0.0, 0.0, 5.0)), Quaternion(), Vector((0.0, 0.0, 5.0)), Quaternion(), Vector(), Vector(), 1.0,
+                       Vector((1.0, 1.0, 1.0)), True)
+found = rc.detect([floor, box_in], [(0, 1)], [slab, hang], 3.0)
+check("a capsule inside the box leaves through the nearest face", found and all(abs(c.n.z + 1.0) < 1e-6 for c in found), True)
+
 print("[rigid_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

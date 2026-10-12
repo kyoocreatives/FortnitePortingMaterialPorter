@@ -62,7 +62,7 @@ class Runner:
 
     def __init__(self, obj, rate=60):
         from ...material_porter.effects import ue_offset
-        self.obj, self.sims = obj, []
+        self.obj, self.sims, self.parts = obj, [], []
         raw = obj.data.get(KEY)
         if not raw:
             return
@@ -99,6 +99,13 @@ class Runner:
         self.twinned = set(self.simulated)
         self.alpha = {b: s.node.get("alpha", 1.0) for s in self.sims for b in s.outputs()}     # the last writer's, for reports
         self.children = {n: [c for c in self.order if parent_of[c] == n] for n in self.order}
+        self.parts = []         # the nodes by part (the body's first), in order
+        for s in self.sims:
+            part = s.node.get("part", 0)
+            if not self.parts or self.parts[-1][0] != part:
+                self.parts.append((part, []))
+            self.parts[-1][1].append(s)
+        self.parts = [sims for _, sims in self.parts]
         scene = obj.users_scene[0] if obj.users_scene else bpy.context.scene
         fps = scene.render.fps / scene.render.fps_base
         self.steps = max(1, round(rate / fps))
@@ -123,24 +130,41 @@ class Runner:
         for n in self.order:
             cs[n] = compose(loc[n], cs[parent_of[n]]) if parent_of[n] in cs else loc[n]
         self._wind()
-        for s in self.sims:
-            for name, t in s.evaluate(self.dt, cs, self.root).items():
-                a, par = s.node.get("alpha", 1.0), cs.get(parent_of[name])        # each node blends its own result
-                if a < 1e-5:
-                    continue
-                local = relative(t, par) if par else t
-                if a < 1.0 - 1e-5:      # the engine blends a partial node in the bone's local space
-                    local = blend(loc[name], local, a)
-                loc[name] = local
-                cs[name] = compose(local, par) if par else local
-                stack = list(self.children[name])
-                while stack:            # its children follow from their own locals
-                    c = stack.pop()
-                    cs[c] = compose(loc[c], cs[parent_of[c]])
-                    stack += self.children[c]
+        for sims in self.parts:
+            # each part's anim blueprint runs on its own copy of the pose: the next parts see the bones it hands on,
+            # not what its rigs change for its own nodes (Riku's body rig turns the head for the collars, not the hair)
+            part_loc, part_cs = (dict(loc), dict(cs)) if len(self.parts) > 1 else (loc, cs)
+            for s in sims:
+                self._apply(s, part_loc, part_cs)
+            if part_loc is not loc:
+                for name in sorted({n for s in sims for n in s.outputs()}, key=self.order.index):
+                    loc[name] = part_loc[name]
+                    self._settle(name, loc, cs)
         for c in self.clothes:      # the engine simulates cloth from the finished pose
             c["out"] = [s.step(self.dt, cs, self.component) for s in c["sims"]]
         return cs
+
+    def _apply(self, s, loc, cs):
+        parent_of = self.parent_of
+        for name, t in s.evaluate(self.dt, cs, self.root).items():
+            a, par = s.node.get("alpha", 1.0), cs.get(parent_of[name])        # each node blends its own result
+            if a < 1e-5:
+                continue
+            local = relative(t, par) if par else t
+            if a < 1.0 - 1e-5:      # the engine blends a partial node in the bone's local space
+                local = blend(loc[name], local, a)
+            loc[name] = local
+            self._settle(name, loc, cs)
+
+    def _settle(self, name, loc, cs):
+        """A bone's global and its children's from their locals."""
+        par = cs.get(self.parent_of[name])
+        cs[name] = compose(loc[name], par) if par else loc[name]
+        stack = list(self.children[name])
+        while stack:
+            c = stack.pop()
+            cs[c] = compose(loc[c], cs[self.parent_of[c]])
+            stack += self.children[c]
 
     def cloth(self):
         """The last tick's cloth by mesh id: its render slots in component space (cm, the game's axes)."""

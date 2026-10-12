@@ -32,7 +32,13 @@ class Actor:
         self.x, self.r, self.v, self.w = ZERO.copy(), Quaternion(), ZERO.copy(), ZERO.copy()
         self.target = None
         inv_rom = self.mass.rom.conjugated()
-        self.segments = [(inv_rom @ (s.a - self.mass.com), inv_rom @ (s.b - self.mass.com), s.radius) for s in self.mass.shapes]
+        self.segments = [self._segment(s, inv_rom) for s in self.mass.shapes]
+
+    def _segment(self, s, inv_rom):
+        """A shape in the CoM frame for the contacts: a capsule (a, b, radius) or a box (centre, rotation, half sizes, its
+        bounding capsule)."""
+        capsule = (inv_rom @ (s.a - self.mass.com), inv_rom @ (s.b - self.mass.com), s.radius)
+        return (inv_rom @ (s.center - self.mass.com), inv_rom @ s.rot, s.half, capsule) if s.kind == "box" else capsule
 
     def place(self, t):
         """The CoM frame of the body for a bone transform (simulation space)."""

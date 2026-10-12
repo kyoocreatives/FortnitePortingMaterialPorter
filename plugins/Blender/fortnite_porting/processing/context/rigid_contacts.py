@@ -1,6 +1,6 @@
-"""Contacts between physics asset bodies (capsules and spheres, boxes as their bounding capsules): one point per body
-pair at the closest points of their segments, pushed apart in the position phase, restitution and friction in the
-velocity phase. The engine builds up to two points for near-parallel capsules; one is kept here."""
+"""Contacts between physics asset bodies (capsules, spheres and boxes): points where their shapes are closest, pushed
+apart in the position phase, restitution and friction in the velocity phase. Box against box falls back to their
+bounding capsules."""
 from mathutils import Vector
 
 from .rigid_joints import world_inverse
@@ -100,10 +100,70 @@ def _manifold(wa0, we0, r0, dyn0, wa1, we1, r1, dyn1, cull):
     return out + _end_points((c1, ax1, hl1, r1), (c0, ax0, hl0, r0), t1, dot, n, cull, True)
 
 
+def _clamped(v, half):
+    return Vector([max(-h, min(h, x)) for x, h in zip(v, half)])
+
+
+def _box_points(c, q, half, wa, we, r, cull):
+    """A capsule (segment wa-we, radius r) against an oriented box (centre c, rotation q, half sizes): points at the
+    segment's ends and at its point nearest the box, as (slot, phi, normal from the box to the capsule, point on the box,
+    point on the capsule); a point inside the box leaves through its nearest face."""
+    inv = q.conjugated()
+    l0, l1 = inv @ (wa - c), inv @ (we - c)
+    d = l1 - l0
+    ts = [0.0, 1.0]
+    if d.length_squared > 1e-12:
+        t = max(0.0, min(1.0, -l0.dot(d) / d.length_squared))
+        for _ in range(6):     # alternate projections between the segment and the box: they converge (both convex)
+            t = max(0.0, min(1.0, (_clamped(l0 + d * t, half) - l0).dot(d) / d.length_squared))
+        ts.append(t)
+    out, seen = [], []
+    for slot, t in enumerate(ts):
+        if any(abs(t - u) < 0.05 for u in seen):
+            continue
+        seen.append(t)
+        s = l0 + d * t
+        on_box = _clamped(s, half)
+        gap = s - on_box
+        if gap.length > 1e-9:
+            dist, normal = gap.length, gap / gap.length
+        else:
+            k = min(range(3), key=lambda i: half[i] - abs(s[i]))
+            sign = 1.0 if s[k] >= 0.0 else -1.0
+            dist = -(half[k] - abs(s[k]))
+            normal = Vector([sign if i == k else 0.0 for i in range(3)])
+            on_box = s.copy()
+            on_box[k] = sign * half[k]
+        if dist - r < cull:
+            n = q @ normal
+            out.append((slot, dist - r, n, c + q @ on_box, c + q @ s - n * r))
+    return out
+
+
+def _points(seg0, p0_, q0_, dyn0, seg1, p1_, q1_, dyn1, cull, manifold):
+    """Contact points of two shapes in the world as (slot, phi, n from body 1 to body 0, point on 0, point on 1).
+    A shape is a capsule (a, b, radius) or a box (centre, rotation, half sizes, its bounding capsule)."""
+    box0, box1 = len(seg0) == 4, len(seg1) == 4
+    if box0 != box1:
+        if box0:
+            pts = _box_points(p0_ + q0_ @ seg0[0], q0_ @ seg0[1], seg0[2], p1_ + q1_ @ seg1[0], p1_ + q1_ @ seg1[1], seg1[2], cull)
+            return [(slot, phi, -n, on_box, on_cap) for slot, phi, n, on_box, on_cap in pts]
+        pts = _box_points(p1_ + q1_ @ seg1[0], q1_ @ seg1[1], seg1[2], p0_ + q0_ @ seg0[0], p0_ + q0_ @ seg0[1], seg0[2], cull)
+        return [(slot, phi, n, on_cap, on_box) for slot, phi, n, on_box, on_cap in pts]
+    (a0, e0, r0), (a1, e1, r1) = (seg0[3] if box0 else seg0), (seg1[3] if box1 else seg1)
+    wa0, we0, wa1, we1 = p0_ + q0_ @ a0, p0_ + q0_ @ e0, p1_ + q1_ @ a1, p1_ + q1_ @ e1
+    # no closer than their centres minus half lengths and radii: past the cull distance, skip the maths
+    reach = ((wa0 - we0).length + (wa1 - we1).length) * 0.5 + r0 + r1 + cull
+    if ((wa0 + we0) - (wa1 + we1)).length * 0.5 > reach:
+        return []
+    points = _manifold(wa0, we0, r0, dyn0, wa1, we1, r1, dyn1, cull) if manifold else [_closest_points(wa0, we0, r0, wa1, we1, r1)[:4]]
+    return [(slot, phi, n, s0, s1) for slot, (phi, n, s0, s1) in enumerate(points)]
+
+
 def detect(bodies, pairs, segments, cull, initial=None, h=0.0, push_out=0.0, manifold=True, corrected=False):
     """Contacts for the body pairs, one set per pair of their shapes, from the predicted poses (corrected: the poses with
-    this step's corrections so far, as the engine re-detects each iteration without manifolds); segments[i]: (a, b,
-    radius) per shape, CoM frame. manifold: capsules along each other also touch at their ends.
+    this step's corrections so far, as the engine re-detects each iteration without manifolds); segments[i]: per shape,
+    a capsule (a, b, radius) or a box (centre, rotation, half sizes, bounding capsule), CoM frame. manifold: capsules along each other also touch at their ends.
     initial: each contact point's overlap allowance, kept between steps (updated here): one that begins overlapping may
     stay that deep but no deeper (the engine's initial overlap, which RBAN never sets a speed to resolve). push_out: the
     asset's max depenetration velocity, capping each step's correction (0: none)."""
@@ -111,16 +171,9 @@ def detect(bodies, pairs, segments, cull, initial=None, h=0.0, push_out=0.0, man
     for i, j in pairs:
         b0, b1 = bodies[i], bodies[j]
         (p0_, q0_), (p1_, q1_) = (b0.corrected(), b1.corrected()) if corrected else ((b0.p, b0.q), (b1.p, b1.q))
-        for sa, (a0, e0, r0) in enumerate(segments[i]):
-            wa0, we0 = p0_ + q0_ @ a0, p0_ + q0_ @ e0
-            for sb, (a1, e1, r1) in enumerate(segments[j]):
-                wa1, we1 = p1_ + q1_ @ a1, p1_ + q1_ @ e1
-                # no closer than their centres minus half lengths and radii: past the cull distance, skip the maths
-                reach = ((wa0 - we0).length + (wa1 - we1).length) * 0.5 + r0 + r1 + cull
-                if ((wa0 + we0) - (wa1 + we1)).length * 0.5 > reach:
-                    continue
-                points = _manifold(wa0, we0, r0, b0.dynamic, wa1, we1, r1, b1.dynamic, cull) if manifold else                     [_closest_points(wa0, we0, r0, wa1, we1, r1)[:4]]
-                for slot, (phi, n, s0, s1) in enumerate(points):
+        for sa, seg0 in enumerate(segments[i]):
+            for sb, seg1 in enumerate(segments[j]):
+                for slot, phi, n, s0, s1 in _points(seg0, p0_, q0_, b0.dynamic, seg1, p1_, q1_, b1.dynamic, cull, manifold):
                     if phi >= cull:
                         continue
                     c = Contact()

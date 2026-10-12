@@ -167,7 +167,7 @@ class Mini:
 
 def call(unit, mini, pc=0, **named):
     ru.UNITS[unit](mini, {k: (v if isinstance(v, str) and k in ("Result", "Swing", "Twist", "RelativeTransform", "OutputParam", "Transform",
-                                                                  "Remainder", "Chopped", "Exists", "Local")
+                                                                  "Remainder", "Chopped", "Exists", "Local", "Items")
                               else ("v", v)) for k, v in named.items()}, [], pc)
 
 
@@ -219,6 +219,35 @@ call("ItemExists", m5, Item={"Name": "skirt"}, Exists="r")
 check("an item the rig has exists", m5.out["r"], True)
 call("ItemExists", m5, Item={"Name": "thigh_l_ctrl"}, Exists="r")
 check("one it lacks doesn't", m5.out["r"], False)
+# a chain's bones, found from its first one (Riku's hair rig builds its spline controls from them)
+chain = Hierarchy({"root": None, "hair": "root", "hair_01": "hair", "hair_02": "hair_01", "hair_03": "hair_02", "ear": "root"},
+                  {n: (Quaternion(), Vector((0, 0, i))) for i, n in enumerate(("root", "hair", "hair_01", "hair_02", "hair_03", "ear"))}, [])
+m6 = Mini(chain)
+call("CollectionChildrenArray", m6, Parent={"Type": "Bone", "Name": "hair"}, bIncludeParent=False, bRecursive=True, bDefaultChildren=True,
+     TypeToSearch=1, Items="r")
+check("an item's children, all the way down", [i["Name"] for i in m6.out["r"]], ["hair_01", "hair_02", "hair_03"])
+call("CollectionChildrenArray", m6, Parent={"Type": "Bone", "Name": "hair"}, bIncludeParent=True, bRecursive=False, bDefaultChildren=True,
+     TypeToSearch=1, Items="r")
+check("or the item and its own children", [i["Name"] for i in m6.out["r"]], ["hair", "hair_01"])
+call("CollectionChildrenArray", m6, Parent={"Type": "Bone", "Name": "hair"}, bIncludeParent=False, bRecursive=True, bDefaultChildren=True,
+     TypeToSearch=2, Items="r")
+check("of the asked type only", m6.out["r"], [])
+# the vector and string units Riku's hair rig runs (how far the head turned, the spline controls' names)
+v3 = lambda x, y, z: {"X": x, "Y": y, "Z": z}  # noqa: E731
+call("MathVectorLengthSquared", m6, Value=v3(1.0, 2.0, 2.0), Result="r")
+check("vector length squared", m6.out["r"], 9.0)
+call("MathVectorFromFloat", m6, Value=2.5, Result="r")
+check("a vector from a float", m6.out["r"], v3(2.5, 2.5, 2.5))
+call("MathVectorMul", m6, A=v3(1.0, 2.0, 3.0), B=v3(2.0, 0.5, -1.0), Result="r")
+check("vector times vector", m6.out["r"], v3(2.0, 1.0, -3.0))
+call("MathVectorDiv", m6, A=v3(2.0, 1.0, 9.0), B=v3(2.0, 4.0, 3.0), Result="r")
+check("vector over vector", m6.out["r"], v3(1.0, 0.25, 3.0))
+call("MathVectorDiv", m6, A=v3(2.0, 1.0, 9.0), B=v3(2.0, 0.0, 3.0), Result="r")
+check("over a zero part: zero, as UE", m6.out["r"], v3(0.0, 0.0, 0.0))
+call("StringJoin", m6, Values=["hair_01", "ctrl"], Separator="_", Result="r")
+check("strings joined", m6.out["r"], "hair_01_ctrl")
+ru.UNITS["DISPATCH_RigDispatch_FromString"](m6, {}, [("v", "hair_01_ctrl"), "r"], 0)
+check("a string as a name", m6.out["r"], "hair_01_ctrl")
 g = {"Rotation": {"X": 0.0, "Y": 0.0, "Z": 0.0, "W": 1.0}, "Translation": {"X": 5.0, "Y": 0.0, "Z": 0.0}}
 pt = {"Rotation": {"X": 0.0, "Y": 0.0, "Z": 0.0, "W": 1.0}, "Translation": {"X": 2.0, "Y": 0.0, "Z": 0.0}}
 call("MathTransformMakeRelative", m5, Global=g, Parent=pt, Local="r")

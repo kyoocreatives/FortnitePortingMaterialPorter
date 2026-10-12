@@ -589,6 +589,31 @@ def get_parent(m, a, ops, pc):
     _set(m, a, "Parent", {"Type": "Bone", "Name": (m.h.parent.get(name) if name else None) or "None"})
 
 
+def collection_children(m, a, ops, pc):
+    """An item's children of the asked types (the item first when included), level by level as the hierarchy lists
+    them when recursive (UE's GetChildren)."""
+    parent = element(_get(m, a, "Parent"))
+    mask = int(num(_get(m, a, "TypeToSearch")))
+    found, level = [], [parent] if parent and m.h.has(parent) else []
+    if level and _get(m, a, "bIncludeParent"):
+        found.append(parent)
+    while level:
+        level = [c for p in level for c, cp in m.h.parent.items() if cp == p]
+        found += level
+        if not _get(m, a, "bRecursive"):
+            break
+    _set(m, a, "Items", [{"Type": m.h.kind.get(n, "Bone"), "Name": n} for n in found
+                         if ELEMENT_BITS.get(m.h.kind.get(n, "Bone"), 0) & mask])
+
+
+def _vector_div(x, y):
+    """A over B by parts; any zero part of B gives a zero vector, as UE's MathVectorDiv."""
+    a, b = vec(x), vec(y)
+    if any(abs(c) < 1e-8 for c in b):
+        return vec_out(Vector())
+    return vec_out(Vector((a.x / b.x, a.y / b.y, a.z / b.z)))
+
+
 def name_replace(m, a, ops, pc):
     import re
     name, old, new = _name(_get(m, a, "Name")), _name(_get(m, a, "Old")), _name(_get(m, a, "New"))
@@ -721,7 +746,11 @@ UNITS = {
     "MathQuaternionInverse": _unary(lambda q: quat_out(quat(q).conjugated())), "MathQuaternionSlerp": quat_slerp,
     "MathTransformMul": _binary(lambda x, y: transform_out(compose(transform(x), transform(y)))),
     "MathTransformMakeRelative": make_relative,
-    "ItemExists": item_exists, "NameTruncate": name_truncate,
+    "ItemExists": item_exists, "NameTruncate": name_truncate, "CollectionChildrenArray": collection_children,
+    "MathVectorLengthSquared": _unary(lambda x: vec(x).length_squared), "MathVectorFromFloat": _unary(lambda x: vec_out(Vector((num(x),) * 3))),
+    "MathVectorMul": _binary(lambda x, y: vec_out(Vector([p * q for p, q in zip(vec(x), vec(y))]))), "MathVectorDiv": _binary(_vector_div),
+    "StringJoin": lambda m, a, ops, pc: _set(m, a, "Result", (_get(m, a, "Separator") or "").join(str(v) for v in _get(m, a, "Values") or [])),
+    "DISPATCH_RigDispatch_FromString": lambda m, a, ops, pc: m.set(ops[-1], str(m.get(ops[0]) or "")),
     "NameConcat": _binary(lambda x, y: _name(x) + _name(y)),
     "NameReplace": name_replace, "MathTransformToEulerTransform": to_euler_transform, "MathQuaternionFromEuler": quat_from_euler,
     "MathQuaternionFromRotatorV2": quat_from_rotator, "MathQuaternionScaleV2": quat_scale,

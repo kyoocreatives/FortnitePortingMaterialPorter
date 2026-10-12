@@ -609,6 +609,17 @@ want_world = run_world = None
 from fpmp_baseline.processing.context.dynamics_runner import from_game  # noqa: E402
 want_world = from_game(cs_out["dyn_tag"], run.inv["dyn_tag"], run.unit)
 check("a twin under a rig-turned parent keeps the turn", round((twin_world.to_quaternion().rotation_difference(want_world.to_quaternion())).angle, 4), 0.0)
+# ...but only in its own part (user report: Riku's hair bent sideways): each part's anim blueprint runs on its own copy of
+# the pose, so a rig in the body turning a bone it doesn't hand on (Riku's body rig turns the head 40 degrees) never
+# reaches another part's simulation
+apart = armature("apart")
+store(apart, {"kind": "control_rig", "program": rig_program, "alpha": 1.0, "variables": {}, "part": 0},
+      dict(tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=5000.0), part=1))
+alone = armature("alone")
+store(alone, dict(tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=5000.0), part=1))
+run_apart, run_alone = Runner(apart), Runner(alone)
+got, want = run_apart.tick(run_apart.sample())["dyn_tag"], run_alone.tick(run_alone.sample())["dyn_tag"]
+check("another part's rig doesn't turn this part's simulation", round(got[0].rotation_difference(want[0]).angle, 4), 0.0)
 
 # a switch fed by a variable picks its side per movement state; nodes off in a state get alpha 0 there
 switch_dump = [dict(dump[0], ChildProperties=[{"Name": n} for n in ("AnimGraphNode_CopyPoseFromMesh", "AnimGraphNode_AnimDynamics",
