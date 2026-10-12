@@ -1,5 +1,6 @@
 """The Rig panel (sidebar, Fortnite Porting tab) for the fork's rigs: show or hide each control group, select or
-reset the controls, the rig's settings."""
+reset the controls, the rig's settings; the official rig's picker, IK / FK, held props, simulation and face in
+sub-panels (and a Shift+Q pie: rig_pie)."""
 import bpy
 
 from ..processing.context import deform_rig, dynamics_bake, face_board, rig_style
@@ -57,6 +58,41 @@ class FPMP_OT_RigResetPose(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FPMP_OT_RigPick(bpy.types.Operator):
+    bl_idname = "fpmp.rig_pick"
+    bl_label = "Pick"
+    bl_options = {'REGISTER', 'UNDO'}
+    names: bpy.props.StringProperty(description="The controls, comma separated")
+    extend: bpy.props.BoolProperty(description="Add to the selection")
+
+    @classmethod
+    def description(cls, context, properties):
+        return "Select %s (Shift: add to the selection)" % ", ".join(_names(properties.names))
+
+    @classmethod
+    def poll(cls, context):
+        return _rig(context) is not None
+
+    def invoke(self, context, event):
+        self.extend = event.shift
+        return self.execute(context)
+
+    def execute(self, context):
+        obj = _rig(context)
+        names = [n for n in _names(self.names) if n in obj.pose.bones]
+        if not names:
+            return {'CANCELLED'}
+        if obj.mode != 'POSE':
+            bpy.ops.object.mode_set(mode='POSE')
+        for bone in obj.pose.bones:
+            if bone.name in names:
+                bone.select = True
+            elif not self.extend:
+                bone.select = False
+        obj.data.bones.active = obj.data.bones[names[0]]
+        return {'FINISHED'}
+
+
 class FPMP_OT_OfficialRigOn(bpy.types.Operator):
     bl_idname = "fpmp.official_rig_on"
     bl_label = "Rig On/Off"
@@ -70,31 +106,51 @@ class FPMP_OT_OfficialRigOn(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _names(text):
+    return [n for n in text.split(",") if n]
+
+
+def _parts_text(names, cut):
+    return ", ".join(n.replace(cut, "").replace("_", " ").title() for n in names)
+
+
 class FPMP_OT_OfficialRigSwitch(bpy.types.Operator):
     bl_idname = "fpmp.official_rig_switch"
     bl_label = "FK/IK"
-    bl_description = "Switch this part between FK and IK, keeping its pose"
     bl_options = {'REGISTER', 'UNDO'}
-    switch: bpy.props.StringProperty()
+    switch: bpy.props.StringProperty(description="The parts' switches, comma separated")
     ik: bpy.props.BoolProperty()
+
+    @classmethod
+    def description(cls, context, properties):
+        return "Switch %s to %s, keeping the pose" % (_parts_text(_names(properties.switch), "_fk_ik_switch"),
+                                                       "IK" if properties.ik else "FK")
 
     def execute(self, context):
         from ..processing.context import official_rig
-        official_rig.set_switch(_rig(context), self.switch, self.ik)
+        for switch in _names(self.switch):
+            official_rig.set_switch(_rig(context), switch, self.ik)
         return {'FINISHED'}
 
 
 class FPMP_OT_OfficialRigSetting(bpy.types.Operator):
     bl_idname = "fpmp.official_rig_setting"
     bl_label = "Rig Setting"
-    bl_description = "Set one of Epic's rig settings (stretch, local)"
     bl_options = {'REGISTER', 'UNDO'}
-    name: bpy.props.StringProperty()
+    name: bpy.props.StringProperty(description="Epic's settings, comma separated")
     value: bpy.props.FloatProperty()
+
+    @classmethod
+    def description(cls, context, properties):
+        names = _names(properties.name)
+        what = "Local (the arm or head follows the body, not the shoulder or neck)" if any("local" in n for n in names) \
+            else "Stretch (the part lengthens to reach its control)"
+        return "%s %s: %s" % ("Turn on" if properties.value >= 0.5 else "Turn off", what, _parts_text(names, ""))
 
     def execute(self, context):
         from ..processing.context import official_rig
-        official_rig.set_setting(_rig(context), self.name, self.value)
+        for name in _names(self.name):
+            official_rig.set_setting(_rig(context), name, self.value)
         return {'FINISHED'}
 
 
@@ -230,30 +286,16 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
         obj = _rig(context)
         data = obj.data
         col = self.layout.column(align=True)
-        deform_rig.ui(col, obj)
-        dynamics_bake.ui(col, obj)
+        if data.get(OFFICIAL):          # first: it can be built on a Tasty-rigged armature
+            from ..processing.context import official_panel
+            official_panel.ui_top(col, obj)
+            col.separator()
+            _controls(col, data, rig_style.COLLECTIONS + (face_board.GROUP,))
+            official_panel.ui_body(col, obj)
+            return
         if data.get("is_tasty"):
             from ..processing.context import tasty_style
-            grid = col.grid_flow(columns=2, align=True)
-            for group in [c for c in data.collections if c.name in tasty_style.SHOWN + tasty_style.HIDDEN + (face_board.GROUP,)]:
-                grid.prop(group, "is_visible", text=group.name, toggle=True, icon='HIDE_OFF' if group.is_visible else 'HIDE_ON')
-            col.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select Controls")
-            row = col.row(align=True)
-            row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset Selected").scope = 'SELECTED'
-            row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset All").scope = 'ALL'
-            face_board.ui(col, obj)
-            return
-        if data.get("fpmp_official_rig"):
-            from ..processing.context import official_rig
-            grid = col.grid_flow(columns=2, align=True)
-            for group in [c for c in data.collections if c.name in rig_style.COLLECTIONS + (face_board.GROUP,)]:
-                grid.prop(group, "is_visible", text=group.name, toggle=True, icon='HIDE_OFF' if group.is_visible else 'HIDE_ON')
-            col.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select Controls")
-            row = col.row(align=True)
-            row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset Selected").scope = 'SELECTED'
-            row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset All").scope = 'ALL'
-            official_rig.ui(col, obj)
-            face_board.ui(col, obj)
+            _controls(col, data, tasty_style.SHOWN + tasty_style.HIDDEN + (face_board.GROUP,))
             return
         if not any(data.get(k) for k in ("is_vehicle_rig", "is_creature_rig", "is_lego_rig")):
             col.operator("fpmp.creature_rig")
@@ -261,18 +303,9 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
             col.operator("fpmp.lego_rig")
             if data.get("fpmp_metahuman_board"):        # a plain skeleton with a face board
                 col.separator()
-                col.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select Controls")
-                face_board.ui(col, obj)
+                col.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select Controls", icon='RESTRICT_SELECT_OFF')
             return
-        groups = [c for c in data.collections if c.name in rig_style.COLLECTIONS + (rig_style.FK,) + rig_style.LEGACY]
-        grid = col.grid_flow(columns=2, align=True)
-        for group in groups:
-            grid.prop(group, "is_visible", text=group.name, toggle=True, icon='HIDE_OFF' if group.is_visible else 'HIDE_ON')
-        row = col.row(align=True)
-        row.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select Controls")
-        row = col.row(align=True)
-        row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset Selected").scope = 'SELECTED'
-        row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset All").scope = 'ALL'
+        _controls(col, data, rig_style.COLLECTIONS + (rig_style.FK,) + rig_style.LEGACY)
         owner, path = rig_style.settings_owner(obj)
         col.separator()
         if data.get("is_vehicle_rig"):
@@ -282,25 +315,117 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
                     col.prop(owner, '["%s"]' % key, text=text, slider=True)
             return
         if data.get("is_lego_rig"):
-            face_board.ui(col, obj)
             return
         for key in sorted(k for k in owner.keys() if k.startswith("ik_")):
             col.prop(owner, '["%s"]' % key, text=key[3:], slider=True)
         if "eyes_aim" in owner:
             col.prop(owner, '["eyes_aim"]', text="Eyes Aim", slider=True)
-        face_board.ui(col, obj)
 
 
-classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn, FPMP_OT_DynamicsBake,
-           FPMP_OT_DynamicsOn, FPMP_OT_DynamicsLive, FPMP_OT_DynamicsState, FPMP_OT_OfficialRigSwitch,
-           FPMP_OT_OfficialRigSetting, FPMP_OT_OfficialRigBodyControls,
-           FPMP_OT_OfficialRigBake, FPMP_PT_CreatureRig)
+OFFICIAL = "fpmp_official_rig"
+
+
+def _controls(col, data, names):
+    """The rig's control groups (show/hide), then select and reset."""
+    grid = col.grid_flow(columns=2, align=True)
+    for group in [c for c in data.collections if c.name in names]:
+        grid.prop(group, "is_visible", text=group.name, toggle=True, icon='HIDE_OFF' if group.is_visible else 'HIDE_ON')
+    row = col.row(align=True)
+    row.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select All", icon='RESTRICT_SELECT_OFF')
+    row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset", icon='LOOP_BACK').scope = 'SELECTED'
+    row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset All").scope = 'ALL'
+
+
+class _RigSub:
+    bl_space_type = 'VIEW_3D'
+    bl_region_type = 'UI'
+    bl_category = "Fortnite Porting"
+    bl_parent_id = FPMP_PT_CreatureRig.bl_idname
+
+
+class FPMP_PT_RigPicker(_RigSub, bpy.types.Panel):
+    bl_label = "Picker"
+    bl_idname = "FPMP_PT_rig_picker"
+
+    @classmethod
+    def poll(cls, context):
+        obj = _rig(context)
+        return obj is not None and bool(obj.data.get(OFFICIAL))
+
+    def draw(self, context):
+        from ..processing.context import official_picker
+        official_picker.ui_picker(self.layout, _rig(context))
+
+
+class FPMP_PT_RigIK(_RigSub, bpy.types.Panel):
+    bl_label = "IK / FK"
+    bl_idname = "FPMP_PT_rig_ik"
+
+    @classmethod
+    def poll(cls, context):
+        obj = _rig(context)
+        return obj is not None and bool(obj.data.get(OFFICIAL))
+
+    def draw(self, context):
+        from ..processing.context import official_panel
+        official_panel.ui_ik(self.layout, _rig(context))
+
+
+class FPMP_PT_RigHands(_RigSub, bpy.types.Panel):
+    bl_label = "Held Props"
+    bl_idname = "FPMP_PT_rig_hands"
+
+    @classmethod
+    def poll(cls, context):
+        from ..processing.context import official_panel
+        obj = _rig(context)
+        return obj is not None and bool(obj.data.get(OFFICIAL)) and official_panel.has_hands(obj)
+
+    def draw(self, context):
+        from ..processing.context import official_panel
+        official_panel.ui_hands(self.layout, _rig(context))
+
+
+class FPMP_PT_RigSimulation(_RigSub, bpy.types.Panel):
+    bl_label = "Simulation"
+    bl_idname = "FPMP_PT_rig_simulation"
+
+    @classmethod
+    def poll(cls, context):
+        obj = _rig(context)
+        return obj is not None and bool(obj.data.get(deform_rig.MARK) or obj.data.get(dynamics_bake.KEY))
+
+    def draw(self, context):
+        col = self.layout.column(align=True)
+        deform_rig.ui(col, _rig(context))
+        dynamics_bake.ui(col, _rig(context))
+
+
+class FPMP_PT_RigFace(_RigSub, bpy.types.Panel):
+    bl_label = "Face"
+    bl_idname = "FPMP_PT_rig_face"
+
+    @classmethod
+    def poll(cls, context):
+        obj = _rig(context)
+        return obj is not None and (face_board.BOARD in obj.pose.bones or bool(obj.data.get("fpmp_metahuman_board")))
+
+    def draw(self, context):
+        face_board.ui(self.layout.column(align=True), _rig(context))
+
+
+classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_RigPick, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn,
+           FPMP_OT_DynamicsBake, FPMP_OT_DynamicsOn, FPMP_OT_DynamicsLive, FPMP_OT_DynamicsState, FPMP_OT_OfficialRigSwitch,
+           FPMP_OT_OfficialRigSetting, FPMP_OT_OfficialRigBodyControls, FPMP_OT_OfficialRigBake, FPMP_PT_CreatureRig,
+           FPMP_PT_RigPicker, FPMP_PT_RigIK, FPMP_PT_RigHands, FPMP_PT_RigSimulation, FPMP_PT_RigFace)
 
 
 def register():
     for c in classes:
         bpy.utils.register_class(c)
     face_board.register()
+    from . import rig_pie
+    rig_pie.register()
     from ..processing.context import dynamics_live, official_grip, wind
     wind.register()
     official_grip.register()
@@ -313,5 +438,7 @@ def unregister():
     official_grip.unregister()
     wind.unregister()
     face_board.unregister()
+    from . import rig_pie
+    rig_pie.unregister()
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

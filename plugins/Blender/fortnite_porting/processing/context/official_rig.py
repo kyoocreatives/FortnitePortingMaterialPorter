@@ -657,58 +657,6 @@ def set_body_controls(obj, show):
             pb[name].hide = not show or name in hidden
 
 
-def _toggle(row, obj, name, text):
-    if name in obj.pose.bones:
-        on = setting(obj, name) >= 0.5
-        op = row.operator("fpmp.official_rig_setting", text=text, depress=on)
-        op.name, op.value = name, 0.0 if on else 1.0
-
-
-def ui(layout, obj):
-    """The official rig's panel lines: Rig on/off; per part FK/IK and Epic's settings (stretch, softness, local);
-    foot roll blend; body controls; Bake to Controls."""
-    data = load()
-    pb = obj.pose.bones
-    col = layout.column(align=True)
-    on = bool(obj.data.get(ON, True))
-    col.operator("fpmp.official_rig_on", text="Rig On" if not on else "Rig Off", icon='CONSTRAINT_BONE').on = not on
-    local = {x["space"].split("_")[1] if x["space"].startswith("upperarm") else "neck": x["setting"] for x in data["solve"]["local"]}
-    limbs = {c["switch"]: c for c in data["solve"]["ik"]}
-    for chain in _chains(data, set(pb.keys())):
-        switch = chain["switch"]
-        row = col.row(align=True)
-        row.label(text=switch.replace("_fk_ik_switch", "").replace("_", " ").title())
-        ik = setting(obj, switch) >= 0.5
-        fk_op = row.operator("fpmp.official_rig_switch", text="FK", depress=not ik)
-        fk_op.switch, fk_op.ik = switch, False
-        ik_op = row.operator("fpmp.official_rig_switch", text="IK", depress=ik)
-        ik_op.switch, ik_op.ik = switch, True
-        part = data["solve"]["spine"] if chain.get("part") == "spine" else data["solve"]["neck"] if chain.get("part") else limbs[switch]
-        _toggle(row, obj, part["stretch"], "Stretch")
-        if part.get("softness") and part["softness"] in pb:
-            row.prop(pb[part["softness"]], '["%s"]' % part["softness"], text="Soft")
-        side = switch.split("_")[1] if switch.startswith("arm_") else ("neck" if chain.get("part") == "neck" else None)
-        if side in local:
-            _toggle(row, obj, local[side], "Local")
-    row = col.row(align=True)
-    for roll in data["solve"].get("foot_roll", []):
-        if roll["blend"] in pb:
-            row.prop(pb[roll["blend"]], '["%s"]' % roll["blend"], text="Roll %s" % roll["side"].upper())
-    show = data["solve"]["visibility"]
-    if show in pb:
-        shown = setting(obj, show) >= 0.5
-        col.operator("fpmp.official_rig_body_controls", text="Body Controls", depress=shown).show = not shown
-    for side in ("l", "r"):         # the extra hand controls' held prop (official_grip)
-        holder = pb.get("fingers_%s_ctrl" % side)
-        if holder is not None and hasattr(holder, "fpmp_held_prop"):
-            row = col.row(align=True)
-            row.prop(holder, "fpmp_held_prop", text="Held " + side.upper())
-            if holder.fpmp_held_prop is not None:
-                for name, label in (("grip", "Grip"), ("thumb_wrap", "Thumb"), ("finger_wrap", "Fingers")):
-                    row.prop(holder, '["%s"]' % name, text=label)
-    col.operator("fpmp.official_rig_bake", text="Bake to Controls", icon='ACTION')
-
-
 def _bake_targets(data, built):
     """Control: the bone whose pose it takes for a bake. FK and copied controls first (they drive the bones during the
     bake), then the IK side: effectors, the balls and the chest."""

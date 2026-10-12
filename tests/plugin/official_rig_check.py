@@ -633,24 +633,79 @@ class Layout:
     def column(self, **_):
         return self
 
-    row = column
+    row = split = box = grid_flow = menu_pie = column
 
-    def label(self, text=""):
+    def separator(self, **_):
+        self.log.append(("sep", ""))
+
+    def panel(self, idname, default_closed=False):
+        return self, self           # drawn open
+
+    def label(self, text="", **_):
         self.log.append(("label", text))
 
-    def operator(self, idname, text="", **_):
-        self.log.append(("op", idname, text))
+    def operator(self, idname, text="", depress=False, **_):
+        self.log.append(("op", idname, text, depress))
         return SimpleNamespace()
 
-    def prop(self, owner, path, text=""):
+    def prop(self, owner, path, text="", **_):
         self.log.append(("prop", path, text))
 
 
+from fpmp_baseline.processing.context import official_panel, official_picker  # noqa: E402
 drawn = []
-official_rig.ui(Layout(drawn), pn)
-texts = [d[-1] for d in drawn]
-check("the panel draws every part's switches and settings", all(t in texts for t in ("Stretch", "Soft", "Local", "Roll L",
-      "Body Controls", "Bake to Controls")), True)
+official_panel.ui_top(Layout(drawn), pn)
+official_panel.ui_body(Layout(drawn), pn)
+official_panel.ui_ik(Layout(drawn), pn)
+texts = [d[2] if d[0] == "op" else d[-1] for d in drawn]
+check("the panel draws every part's switches and settings", all(t in texts for t in ("Rig", "Bake to Controls", "Body Controls",
+      "FK", "IK", "Stretch", "Soft", "Local", "Roll L")), True)
+check("the IK / FK rows: all, both arms, both legs, then spine and neck",
+      [label for label, _ in official_panel.groups(pn)], ["All", "Arms", "Legs", "Spine", "Neck"])
+
+# one click switches a group: all IK, then arms back to FK; a group's IK shows pressed only when all its parts are
+ARMS = "arm_l_fk_ik_switch,arm_r_fk_ik_switch"
+EVERY = ",".join(p["switch"] for p in official_panel.parts(pn))
+bpy.ops.fpmp.official_rig_switch(switch=EVERY, ik=True)
+check("All IK switches every part", [official_rig.setting(pn, s) for s in EVERY.split(",")], [1.0] * 6)
+bpy.ops.fpmp.official_rig_switch(switch=ARMS, ik=False)
+check("Arms FK switches both arms only", [official_rig.setting(pn, s) for s in EVERY.split(",")],
+      [0.0 if s.startswith("arm_") else 1.0 for s in EVERY.split(",")])
+drawn = []
+official_panel.ui_ik(Layout(drawn), pn)
+ik_buttons = [d[3] for d in drawn if d[0] == "op" and d[2] == "IK"]
+check("IK pressed: not All (arms are FK), not Arms, Legs, Spine, Neck", ik_buttons[:5], [False, False, True, True, True])
+bpy.ops.fpmp.official_rig_setting(name="arm_l_stretch_switch,leg_l_stretch_switch", value=0.0)
+check("one click sets a setting on several parts", (official_rig.setting(pn, "arm_l_stretch_switch"),
+      official_rig.setting(pn, "leg_l_stretch_switch")), (0.0, 0.0))
+
+# the picker: a limb in IK shows its IK controls, in FK its FK ones; click selects, Shift adds
+check("picker: the left hand in FK is its FK control", list(official_picker.pick(pn, official_picker.L["hand"])), ["Hand", "hand_l_fk_ctrl"])
+check("picker: the left foot in IK is its IK control", list(official_picker.pick(pn, official_picker.L["foot"])), ["Foot", "foot_l_ik_ctrl"])
+check("picker: the left calf cell in IK is the knee", list(official_picker.pick(pn, official_picker.L["calf"])), ["Knee", "leg_l_pv_ik_ctrl"])
+bpy.ops.fpmp.rig_pick(names="head_ik_ctrl")
+check("pick selects only that control, in pose mode", [[b.name for b in pn.pose.bones if b.select], pn.mode], [["head_ik_ctrl"], 'POSE'])
+bpy.ops.fpmp.rig_pick(names="foot_l_ik_ctrl", extend=True)
+check("Shift-pick adds", sorted(b.name for b in pn.pose.bones if b.select), ["foot_l_ik_ctrl", "head_ik_ctrl"])
+check("a finger button holds the finger root to tip", official_picker.finger(pn, "l", "index"),
+      [n for n in ("index_metacarpal_l_ctrl", "index_01_l_ctrl", "index_02_l_ctrl", "index_03_l_ctrl") if n in pn.pose.bones])
+drawn = []
+official_picker.ui_picker(Layout(drawn), pn)
+picked = [d[2] for d in drawn if d[0] == "op"]
+check("the picker draws the body and the fingers", all(t in picked for t in ("Head", "Chest", "Hand", "Knee", "Root", "Fingers L", "T")), True)
+check("selected controls show pressed", [d[2] for d in drawn if d[0] == "op" and d[3]], ["Head", "Foot"])
+from fpmp_baseline.operator import rig_pie  # noqa: E402
+drawn = []
+rig_pie.FPMP_MT_rig_pie.draw(SimpleNamespace(layout=Layout(drawn)), bpy.context)
+pie = [d[2] if d[0] == "op" else d[-1] for d in drawn]
+check("the Shift+Q pie: reset, the rig's switches, IK / FK, picker, body controls",
+      all(t in pie for t in ("Reset Selected", "Rig", "Bake to Controls", "IK / FK", "IK", "Stretch", "Picker…",
+                             "Select All Controls", "Body Controls")), True)
+check("the pie opens on the official rig", rig_pie.FPMP_MT_rig_pie.poll(bpy.context), True)
+bpy.ops.object.mode_set(mode='OBJECT')
+official_rig.set_switch(pn, "neck_fk_ik_switch", ik=False)
+for s in EVERY.split(","):
+    official_rig.set_switch(pn, s, ik=False)
 
 # --- Bake to Controls then IK (user report: IK after a bake twisted the limbs, broke the spine and neck)
 # off-hinge elbows and knees (twisting forearms, as mocap has), a moving pelvis, every spine and neck bone turned
@@ -880,8 +935,8 @@ bpy.context.view_layer.update()
 check("taking the prop away gives the plain fist back", max((a - b).length for a, b in zip(joints(), fist)) < 1e-4, True)
 turn_ctrl(hands, "fingers_l_ctrl", (0.0, 0.0, 0.0))
 held_ui = []
-official_rig.ui(Layout(held_ui), hands)
-check("the rig panel offers the held prop per hand", [d[-1] for d in held_ui if d[0] == "prop" and d[-1].startswith("Held")],
+official_panel.ui_hands(Layout(held_ui), hands)
+check("the Held Props panel offers one per hand", official_panel.has_hands(hands) and [d[-1] for d in held_ui if d[0] == "prop" and d[-1].startswith("Held")],
       ["Held L", "Held R"])
 check("the grip changes nothing at rest", all((world(hands, n).to_translation() - world(plain, n).to_translation()).length < 1e-5
       for n in fingers), True)
