@@ -99,8 +99,10 @@ def create(obj):
                  W["limb"], "Controls", at=neck)
     rig_kit.align(obj, pose[controls["head"]], y=forward, z=up)
     if "head_accessory" in controls:
-        # around the hair or hat above the neck (long hair hangs down the back: the box would hold the figure)
-        top = [p for p in fit.points.get("head_accessory", ()) if p.z >= bones["head"].head_local.z]
+        # around the hair or hat above the middle of the face (long hair hangs down the back: the box would hold the figure)
+        face = fit.bounds(["head"])
+        cut = (face[0].z + face[1].z) / 2.0 if face else bones["head"].head_local.z
+        top = [p for p in fit.points.get("head_accessory", ()) if p.z >= cut]
         box = (Vector([min(p[i] for p in top) for i in range(3)]), Vector([max(p[i] for p in top) for i in range(3)])) if len(top) > 8 else None
         if box is not None:
             centre, half = (box[0] + box[1]) / 2.0, (box[1] - box[0]) / 2.0

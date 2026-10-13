@@ -60,7 +60,8 @@ class Fit:
         self.all = [p for ps in self.points.values() for p in ps]
 
     def radius(self, bones, head, tail, fallback):
-        """How far the mesh of `bones` reaches around the line head-tail (80th percentile), else `fallback`."""
+        """How far the mesh of `bones` reaches around the line head-tail (65th percentile: fur and spikes don't inflate
+        it), else `fallback`."""
         pts = [p for b in bones for p in self.points.get(b, ())]
         if len(pts) < 8:
             return fallback
@@ -70,7 +71,7 @@ class Fit:
         else:
             u = axis.normalized()
             d = sorted(((p - head) - u * (p - head).dot(u)).length for p in pts)
-        return max(d[int(len(d) * 0.8)], fallback * 0.25)
+        return max(d[int(len(d) * 0.65)], fallback * 0.25)
 
     def bounds(self, bones=None):
         """(low, high) of the mesh of `bones` (all when None), or None."""
