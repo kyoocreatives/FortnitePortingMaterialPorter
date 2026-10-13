@@ -3,8 +3,9 @@ the dynamic bones follow it."""
 
 
 def begin(armature):
-    from ..processing.context import metahuman_board, official_rig
+    from ..processing.context import metahuman_board, official_rig, rig_kit
     official_rig.on_animation_import(armature)
+    rig_kit.on_animation_import(armature)
     metahuman_board.on_animation_import(armature)
 
 

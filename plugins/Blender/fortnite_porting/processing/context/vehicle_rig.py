@@ -40,6 +40,7 @@ PART = re.compile(r"door|hatch|turret|gun|cannon|trunk|tailgate|hood|bonnet|boot
                   r"wing|mirror|canopy|bucket|crane|(^|_)arm", re.IGNORECASE)
 HELPER = re.compile(r"fx_|socket|physlight|passenger|driver|exit|choice|pushforce|^center$|watertest|lookahead|"
                     r"muzzle|attach|_hand_|^frontwheels$|^rearwheels$|thrust|lensflare|taillight", re.IGNORECASE)
+DRIVE, STEER_COLOR, DRIFT = (1.0, 0.5, 0.09), (0.25, 0.85, 0.2), (0.65, 0.25, 0.95)     # each driving control its colour
 STEER_LIMIT = pi / 3        # full lock of the steer control, in radians (60 degrees)
 COCKPIT_RATIO = 3.0         # the steering wheel turns this many times as much as the road wheels
 LEAN = 0.15                 # body roll per radian of steer when "Lean in Turns" is 1
@@ -251,7 +252,7 @@ def create(obj):
     """Rig the armature object. Returns what it found, in a line."""
     from ...utils import ensure_blend_data
     from . import rig_shapes
-    from .creature_rig import align_shape
+    from .rig_kit import align as align_shape
     armature = obj.data
     if armature.get(KEY):
         return "%s: already has a vehicle rig" % obj.name
@@ -493,55 +494,64 @@ def create(obj):
     rig_style.collections(armature)
     centre = survey.centre
 
-    def place(name, group, role, shape=None, scale=None, secondary=False, width=None):
+    from . import rig_kit
+    W = rig_kit.WIDTHS
+
+    def place(name, group, color, shape=None, scale=None, width=W["limb"]):
+        """A control's look: a kit shape (CR_) or one of Epic's gizmos (any other name, scaled in metres), colour, width."""
         bone = pose[name]
         if shape is not None:
-            bone.custom_shape = rig_shapes.ensure(shape)
+            epic = not shape.startswith(PREFIX)
+            bone.custom_shape = rig_kit.gizmo(shape) if epic else rig_shapes.ensure(shape)
             bone.use_custom_shape_bone_size = False
-        if scale is not None:
-            bone.custom_shape_scale_xyz = scale
-        rig_style.style(bone, role, secondary=secondary, width=width)
+            if scale is not None:
+                bone.custom_shape_scale_xyz = tuple(s / rig_kit.UNIT for s in scale) if epic else scale
+        rig_shapes.color(bone, color)
+        bone.custom_shape_wire_width = width
         rig_style.assign(armature, name, group)
 
+    side_color = lambda at: rig_kit.tone(rig_style.side_of(at, centre, left, width))
     main = pose[PREFIX + "Main"]
-    main.custom_shape = rig_shapes.footprint(PREFIX + "Footprint_" + obj.name, length * 1.03, width * 1.03)
+    main.custom_shape = rig_shapes.footprint(PREFIX + "Footprint_" + obj.name, length * 1.08, width * 1.12)
     main.use_custom_shape_bone_size = False
     main.custom_shape_scale_xyz = (1.0, 1.0, 1.0)
     align_shape(obj, main, x=-left, y=forward, z=up)
     rig_shapes.place(obj, main, centre)
-    place(PREFIX + "Main", "Controls", "main")
-    place(names["drive"], "Controls", "C", "CR_Arrow", (width * 0.9, length * 0.3, 1.0))
-    align_shape(obj, pose[names["drive"]], x=-left, y=forward, z=up)       # arrow on the ground in front of the nose
-    rig_shapes.place(obj, pose[names["drive"]], centre + forward * (survey.nose - centre.dot(forward) + length * 0.06))
+    place(PREFIX + "Main", "Controls", rig_kit.COLORS["root"], width=W["root"])
+    # drive: Epic's arrow on the ground off the nose, orange
+    place(names["drive"], "Controls", DRIVE, "Arrow_Thick", (width * 0.3, length * 0.2, 1.0))
+    align_shape(obj, pose[names["drive"]], x=-left, y=forward, z=up)
+    rig_shapes.place(obj, pose[names["drive"]], centre + forward * (survey.nose - centre.dot(forward) + length * 0.16))
     radius = reach + length * 0.08
-    place(names["drift"], "Controls", "C", "CR_Swing", (radius,) * 3)
+    place(names["drift"], "Controls", DRIFT, "CR_Swing", (radius,) * 3)
     align_shape(obj, pose[names["drift"]], x=left, y=-forward, z=up)       # arc behind the vehicle, about the front axle
     rig_shapes.place(obj, pose[names["drift"]], pivot + up * height * 0.2)
     if names["steer"]:
         # arc around the front axle past the nose at bonnet height, arrows at its ends
         radius = max(survey.nose - pivot.dot(forward) + length * 0.04, width * 0.62)
-        place(names["steer"], "Controls", "C", "CR_Turn", (radius,) * 3)
+        place(names["steer"], "Controls", STEER_COLOR, "CR_Turn", (radius,) * 3)
         align_shape(obj, pose[names["steer"]], x=-left, y=forward, z=up)
         rig_shapes.place(obj, pose[names["steer"]], pivot + up * height * 0.45)
     if names["body"]:
-        place(names["body"], "Controls", "C", "CR_Square", (length * 0.45, width * 0.55, 1.0), secondary=True,
-              width=rig_style.WIDTHS["primary"])
+        # a box around the body at cabin height (it moves and tilts the body on its suspension)
+        place(names["body"], "Controls", rig_kit.COLORS["body"], "Box_Thick", (length * 0.42, width * 0.42, height * 0.22))
         align_shape(obj, pose[names["body"]], x=forward, y=left, z=up)
-        rig_shapes.place(obj, pose[names["body"]], centre + up * height * 1.15)
+        rig_shapes.place(obj, pose[names["body"]], centre + up * height * 0.62)
     settings = pose[rig_style.SETTINGS]
-    place(rig_style.SETTINGS, "Controls", "settings", "CR_Gear", (width * 0.12,) * 3)
-    align_shape(obj, settings, x=-left, y=forward, z=up)
+    rig_style.assign(armature, rig_style.SETTINGS, "Mechanics")       # the panel shows the settings
     settings.lock_location = settings.lock_rotation = settings.lock_scale = (True, True, True)
     for name, (control, sensor, lift, out, arch) in controls.items():
-        role = rig_style.side_of(armature.bones[control].head_local, centre, left, width)
+        at = armature.bones[control].head_local
+        color = side_color(at)
         if arch:
-            place(arch, "Secondary", role, "CR_UpDown", (radii[name] * 0.68,) * 3, secondary=True)
+            # lift arrows above the wheel, outside it
+            place(arch, "Secondary", color, "CR_UpDown", (radii[name] * 0.32,) * 3, width=W["digit"])
             align_shape(obj, pose[arch], x=forward, y=up)
+            rig_shapes.place(obj, pose[arch], at + up * radii[name] * 1.55 + left * out * radii[name] * 0.2)
         # ring with a spin tick on the wheel's outer side
         ring_radius = radii[name] * 1.15
-        place(control, "Controls", role, "CR_CircleTick", (ring_radius,) * 3)
+        place(control, "Controls", color, "CR_CircleTick", (ring_radius,) * 3)
         align_shape(obj, pose[control], x=forward, y=up, z=left * out)
-        at = armature.bones[control].head_local
         side = abs((at - centre).dot(left))
         outside = width * 0.5 - side if side > width * 0.1 else 0.0
         rig_shapes.place(obj, pose[control], at + left * out * max(outside, 0.0))
@@ -558,9 +568,9 @@ def create(obj):
             high = [p.z for p in points]
             middle = (forward * (max(along) + min(along)) + left * (max(across) + min(across))) / 2.0
             middle.z = (max(high) + min(high)) / 2.0
-            place(name, "Secondary", rig_style.side_of(middle, centre, left, width), "CR_Box",
+            place(name, "Secondary", side_color(middle), "Box_Thick",
                   tuple(max(hi - lo, 0.04) * 0.55 for lo, hi in (
-                      (min(along), max(along)), (min(across), max(across)), (min(high), max(high)))), secondary=True)
+                      (min(along), max(along)), (min(across), max(across)), (min(high), max(high)))), width=W["digit"])
             align_shape(obj, pose[name], x=forward, y=left, z=up)
             rig_shapes.place(obj, pose[name], middle)
         else:

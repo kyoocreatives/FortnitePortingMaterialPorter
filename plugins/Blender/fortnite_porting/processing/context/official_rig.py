@@ -46,6 +46,11 @@ def _shape(name, data):
     return obj
 
 
+def gizmo(name):
+    """One of Epic's gizmo shapes (the official rig's and the kit rigs')."""
+    return _shape(name, load())
+
+
 def _buildable(data, bones):
     """Spaces and controls whose bone the skeleton has and whose parent is built, parents first."""
     items = [("space", s) for s in data["spaces"]] + [("control", c) for c in data["controls"]]

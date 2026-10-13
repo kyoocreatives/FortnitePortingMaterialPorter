@@ -93,6 +93,52 @@ class FPMP_OT_RigPick(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FPMP_OT_KitRigOn(bpy.types.Operator):
+    bl_idname = "fpmp.kit_rig_on"
+    bl_label = "Rig On/Off"
+    bl_description = "The rig drives the bones, or the bones play their own animation"
+    bl_options = {'REGISTER', 'UNDO'}
+    on: bpy.props.BoolProperty(default=True)
+
+    def execute(self, context):
+        from ..processing.context import rig_kit
+        rig_kit.set_on(_rig(context), self.on)
+        return {'FINISHED'}
+
+
+class FPMP_OT_KitBake(bpy.types.Operator):
+    bl_idname = "fpmp.kit_bake"
+    bl_label = "Bake to Controls"
+    bl_description = "Key the controls from the animated bones over the scene range, then turn the rig on"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    def execute(self, context):
+        from ..processing.context import rig_kit
+        scene = context.scene
+        frames = rig_kit.bake_to_controls(_rig(context), scene.frame_start, scene.frame_end)
+        self.report({'INFO'}, "%d frames baked to the controls" % frames)
+        return {'FINISHED'}
+
+
+class FPMP_OT_KitSwitch(bpy.types.Operator):
+    bl_idname = "fpmp.kit_switch"
+    bl_label = "FK/IK"
+    bl_options = {'REGISTER', 'UNDO'}
+    limbs: bpy.props.StringProperty(description="The limbs, comma separated")
+    ik: bpy.props.BoolProperty()
+
+    @classmethod
+    def description(cls, context, properties):
+        return "Switch %s to %s, keeping the pose" % (", ".join(n.replace("_", " ").title() for n in _names(properties.limbs)),
+                                                       "IK" if properties.ik else "FK")
+
+    def execute(self, context):
+        from ..processing.context import rig_kit
+        for name in _names(self.limbs):
+            rig_kit.switch(_rig(context), name, self.ik)
+        return {'FINISHED'}
+
+
 class FPMP_OT_OfficialRigOn(bpy.types.Operator):
     bl_idname = "fpmp.official_rig_on"
     bl_label = "Rig On/Off"
@@ -305,6 +351,10 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
                 col.separator()
                 col.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select Controls", icon='RESTRICT_SELECT_OFF')
             return
+        from ..processing.context import kit_panel, rig_kit
+        if rig_kit.is_kit(obj):
+            kit_panel.ui_top(col, obj)
+            col.separator()
         _controls(col, data, rig_style.COLLECTIONS + (rig_style.FK,) + rig_style.LEGACY)
         owner, path = rig_style.settings_owner(obj)
         col.separator()
@@ -316,8 +366,11 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
             return
         if data.get("is_lego_rig"):
             return
-        for key in sorted(k for k in owner.keys() if k.startswith("ik_")):
-            col.prop(owner, '["%s"]' % key, text=key[3:], slider=True)
+        if rig_kit.is_kit(obj):
+            kit_panel.ui_limbs(col, obj)
+        else:
+            for key in sorted(k for k in owner.keys() if k.startswith("ik_")):
+                col.prop(owner, '["%s"]' % key, text=key[3:], slider=True)
         if "eyes_aim" in owner:
             col.prop(owner, '["eyes_aim"]', text="Eyes Aim", slider=True)
 
@@ -414,7 +467,8 @@ class FPMP_PT_RigFace(_RigSub, bpy.types.Panel):
         face_board.ui(self.layout.column(align=True), _rig(context))
 
 
-classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_RigPick, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn,
+classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_RigPick, FPMP_OT_KitRigOn, FPMP_OT_KitBake,
+           FPMP_OT_KitSwitch, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn,
            FPMP_OT_DynamicsBake, FPMP_OT_DynamicsOn, FPMP_OT_DynamicsLive, FPMP_OT_DynamicsState, FPMP_OT_OfficialRigSwitch,
            FPMP_OT_OfficialRigSetting, FPMP_OT_OfficialRigBodyControls, FPMP_OT_OfficialRigBake, FPMP_PT_CreatureRig,
            FPMP_PT_RigPicker, FPMP_PT_RigIK, FPMP_PT_RigHands, FPMP_PT_RigSimulation, FPMP_PT_RigFace)

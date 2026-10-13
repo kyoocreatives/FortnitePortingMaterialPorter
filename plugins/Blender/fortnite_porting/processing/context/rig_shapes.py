@@ -128,7 +128,12 @@ def _circle_arrow():
     return verts, edges
 
 
-SHAPES = {"CR_Arrow": _arrow, "CR_Turn": _turn, "CR_Swing": lambda: _turn(18.0), "CR_Foot": _foot, "CR_Glasses": _glasses,
+def _line():
+    """A line from the origin to +Y 1 (drawn at its bone's length: a pole line)."""
+    return [(0.0, 0.0, 0.0), (0.0, 1.0, 0.0)], [(0, 1)]
+
+
+SHAPES = {"CR_Line": _line, "CR_Arrow": _arrow, "CR_Turn": _turn, "CR_Swing": lambda: _turn(18.0), "CR_Foot": _foot, "CR_Glasses": _glasses,
           "CR_UpDown": _updown, "CR_Circle": _circle, "CR_CircleTick": _circle_tick, "CR_Square": _square, "CR_Box": _box,
           "CR_Diamond": _diamond, "CR_Gear": _gear, "CR_CircleArrow": _circle_arrow}
 
