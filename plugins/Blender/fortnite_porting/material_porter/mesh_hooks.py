@@ -138,6 +138,10 @@ def _apply_face_board(dna):
         Server.instance.send_message("This armature already has a face board.")
     elif metahuman_board.fits(skeleton):
         Log.info("%s: MetaHuman board, %d drivers" % (skeleton.name, metahuman_board.add(skeleton, dna=dna or skeleton.data.get(metahuman_board.DNA))))
+        if not skeleton.fpmp_face_board:
+            # built off over a face that already plays keys (a lobby pose): asked for, it drives the face now
+            skeleton.fpmp_face_board = True
+            Server.instance.send_message("Face board on: the face's own animation is paused (Rig panel > Face Board turns it back).")
     elif face_board.add(skeleton, head="head" if "head" in skeleton.data.bones else None):
         Log.info("%s: face board" % skeleton.name)
     else:
