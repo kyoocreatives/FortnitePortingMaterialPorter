@@ -96,9 +96,13 @@ def _official(ctx):
                 bpy.ops.object.mode_set(mode='OBJECT')
 
 
-def apply_rig(ctx):
-    """The app's rig button with the official rig chosen in its settings: the official rig on the selected armature, in
-    place of Tasty's. False when Tasty's is the one to apply."""
+def apply_rig(ctx, data):
+    """The app's rig and face board buttons. The face board button (Apply "FaceBoard") puts a board on the selected
+    armature; the rig button with the official rig chosen in the settings puts the official rig on it, in place of
+    Tasty's. False when Tasty's is the one to apply."""
+    if (data or {}).get("Apply") == "FaceBoard":
+        _apply_face_board((data or {}).get("FaceDNA"))
+        return True
     if ctx.options.get("RigType") != ERigType.OFFICIAL:
         return False
     from ..processing.context import face_board, official_hands, official_rig
@@ -119,6 +123,25 @@ def apply_rig(ctx):
             Log.info("%s: %d hand controls" % (skeleton.name, official_hands.build(skeleton)))
         face_board.add(skeleton, head="head")
     return True
+
+
+def _apply_face_board(dna):
+    """A face board on the selected armature: Epic's MetaHuman board on a head with facial bones (driving them through
+    the outfit's RigLogic data `dna` when the app sent it), else the flipbook face's board."""
+    from ..processing.context import face_board, metahuman_board
+    from ..processing.utils import get_selected_armature
+    from ..server import Server
+    skeleton = get_selected_armature()
+    if skeleton is None:
+        Server.instance.send_message("Select an armature to put the face board on, then try again.")
+    elif metahuman_board.BOARD in skeleton.data.bones or face_board.BOARD in skeleton.data.bones:
+        Server.instance.send_message("This armature already has a face board.")
+    elif metahuman_board.fits(skeleton):
+        Log.info("%s: MetaHuman board, %d drivers" % (skeleton.name, metahuman_board.add(skeleton, dna=dna or skeleton.data.get(metahuman_board.DNA))))
+    elif face_board.add(skeleton, head="head" if "head" in skeleton.data.bones else None):
+        Log.info("%s: face board" % skeleton.name)
+    else:
+        Server.instance.send_message("This armature's face has nothing a board drives (no facial bones, no flipbook face).")
 
 
 def _metahuman(ctx):

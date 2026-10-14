@@ -48,7 +48,7 @@ public class ExportService(
     private ExportSession CreateSession(ExportDataMeta metaData)
         => new(metaData, OpenCustomAssetAvares);
 
-    public async Task ExportTastyRig(ExportDataMeta metaData)
+    public async Task ExportTastyRig(ExportDataMeta metaData, Func<ExportDataMeta, BaseExport>? export = null) // MP: export (the face board button)
     {
         await TaskService.RunAsync(async () =>
         {
@@ -63,7 +63,7 @@ public class ExportService(
             }
 
             var session = CreateSession(metaData);
-            var exportData = await session.RunAsync([session.CreateTastyExport()]);
+            var exportData = await session.RunAsync([export?.Invoke(metaData) ?? session.CreateTastyExport()]); // MP
             await SendToPluginAsync(serverType, exportData, PluginSettingsFor(metaData.ExportLocation));
         });
     }

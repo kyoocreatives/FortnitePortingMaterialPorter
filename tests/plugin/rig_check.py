@@ -4,6 +4,7 @@
 
 <plugin parent> holds the plugin as package fpmp_baseline (see translator_test.py). Exit code 0 when every check passes."""
 import sys
+from types import SimpleNamespace
 
 import bpy
 from mathutils import Vector
@@ -808,6 +809,16 @@ qc = quadruped_bones("quad_face_first")
 attach_face(qc, "quad_face_first", FLIP)
 creature_rig.create(qc)
 check("creature rig adds the board", "CR_FaceBoard" in qc.data.bones, True)
+# the app's face board button on an armature without a board
+from fpmp_baseline.material_porter import mesh_hooks  # noqa: E402
+qbtn = quadruped_bones("quad_face_button")
+attach_face(qbtn, "quad_face_button", FLIP)
+for o in bpy.context.view_layer.objects:
+    o.select_set(False)
+bpy.context.view_layer.objects.active = qbtn
+qbtn.select_set(True)
+check("face board button: handled", mesh_hooks.apply_rig(SimpleNamespace(options={"RigType": 1}), {"Apply": "FaceBoard"}), True)
+check("face board button: the board built", "CR_FaceBoard" in qbtn.data.bones, True)
 # Tasty: the hook's restyle + board, via tasty_style
 tf = ta.copy(); tf.data = ta.data.copy(); bpy.context.scene.collection.objects.link(tf)
 tf.data[tasty_style.MARK] = False

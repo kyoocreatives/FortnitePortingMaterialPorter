@@ -609,8 +609,8 @@
                         <ContentControl Content="{Binding ExportLocation, Converter={StaticResource EnumToRecord}}">
                             <ContentControl.ContentTemplate>
                                 <DataTemplate x:DataType="ext:EnumRecord">
-                                    <controls:IconText Text="{Binding Description, StringFormat='Export to {0}'}"
-                                                       Icon="{Binding Icon}" />
+                                    <controls:IconText Text="{Binding Description}"
+                                                       Icon="{Binding Icon}" /> <!-- MP: the location only ("Blender"): room for the rig and face board buttons -->
                                 </DataTemplate>
                             </ContentControl.ContentTemplate>
                         </ContentControl>
@@ -625,7 +625,8 @@
                         </StackPanel>
                     </Button>
 
-                    <Button Grid.Column="1" ToolTip.Tip="{Binding BlenderRig.RigApplyTip}"
+                    <StackPanel Grid.Column="1" Orientation="Horizontal"> <!-- MP: the rig and face board buttons -->
+                    <Button ToolTip.Tip="{Binding BlenderRig.RigApplyTip}"
                             Command="{Binding ExportTastyRigCommand}"
                             Margin="{ext:Space 1, 0, 0, 0}"
                             IsVisible="{Binding IsTastyRigApplyVisible}"
@@ -635,6 +636,11 @@
                             <material:MaterialIcon Kind="HumanHandsup" Width="16" Height="16" IsVisible="{Binding BlenderRig.IsOfficialRig}" /> <!-- MP -->
                         </Panel>
                     </Button>
+
+                    <Button ToolTip.Tip="Apply Face Board (to the armature selected in Blender, with the selected outfit's face data)"
+                            Command="{Binding ExportFaceBoardCommand}" Margin="{ext:Space 1, 0, 0, 0}"
+                            IsVisible="{Binding IsTastyRigApplyVisible}" Content="{material:MaterialIconExt FaceMan}" /> <!-- MP -->
+                    </StackPanel> <!-- MP -->
 
                     <Button Grid.Column="3" ToolTip.Tip="Export Settings" Content="{material:MaterialIconExt Settings}"
                             Command="{Binding OpenSettingsCommand}" />

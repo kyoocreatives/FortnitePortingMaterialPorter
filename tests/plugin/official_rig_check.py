@@ -617,8 +617,8 @@ for o in bpy.context.view_layer.objects:
     o.select_set(False)
 bpy.context.view_layer.objects.active = ab
 ab.select_set(True)
-check("rig button: Tasty chosen, Tasty's applies", mesh_hooks.apply_rig(SimpleNamespace(options={"RigType": 1})), False)
-check("rig button: official chosen, handled", mesh_hooks.apply_rig(SimpleNamespace(options={"RigType": 2})), True)
+check("rig button: Tasty chosen, Tasty's applies", mesh_hooks.apply_rig(SimpleNamespace(options={"RigType": 1}), {}), False)
+check("rig button: official chosen, handled", mesh_hooks.apply_rig(SimpleNamespace(options={"RigType": 2}), {}), True)
 check("rig button: the official rig built", bool(ab.data.get(official_rig.MARK)), True)
 pn = mannequin("panel")
 official_rig.create(pn)

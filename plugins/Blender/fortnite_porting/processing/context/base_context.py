@@ -49,8 +49,8 @@ class BaseImportContext:
         elif import_type == EPrimitiveExportType.MATERIAL:
             self.import_material_standalone(data)
         elif import_type == EPrimitiveExportType.TASTY_RIG:
-            from ...material_porter import mesh_hooks     # MP: the official rig when it's the chosen one
-            if not mesh_hooks.apply_rig(self):     # MP
+            from ...material_porter import mesh_hooks     # MP: the official rig when it's the chosen one, or a face board
+            if not mesh_hooks.apply_rig(self, data):     # MP
                 self.import_tasty_rig_standalone(data)
 
     def load_blend_data(self):
