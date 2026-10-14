@@ -115,8 +115,12 @@ public partial class MaterialPorterService
         if (route == "fork-screenshot")
         {
             // The window showing an asset tab (type=; search=, filters=Title,Title, select=<display name> opens its info),
-            // rendered to a PNG (path=) after wait= seconds (icons load).
+            // rendered to a PNG (path=) after wait= seconds (icons load); rig=<ERigType> for this shot only.
             var window = AppServices.App.Lifetime.MainWindow!;
+            var rigWas = AppSettings.ExportSettings.Blender.RigType;
+            if (query["rig"] is { } shotRig)
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                    AppSettings.ExportSettings.Blender.RigType = Enum.Parse<ViewModels.Settings.ERigType>(shotRig, true));
             await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
             {
                 window.WindowState = Avalonia.Controls.WindowState.Normal;
@@ -154,6 +158,7 @@ public partial class MaterialPorterService
             {
                 var file = query["path"] ?? throw new ArgumentException("path missing");
                 var size = SaveShot(window, file);
+                AppSettings.ExportSettings.Blender.RigType = rigWas;
                 return new { file, size.Width, size.Height, AppServices.AssetLoading.ActiveLoader?.Filtered.Count };
             });
         }

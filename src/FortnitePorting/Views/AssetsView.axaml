@@ -625,12 +625,15 @@
                         </StackPanel>
                     </Button>
 
-                    <Button Grid.Column="1" ToolTip.Tip="Apply Tasty Rig"
+                    <Button Grid.Column="1" ToolTip.Tip="{Binding BlenderRig.RigApplyTip}"
                             Command="{Binding ExportTastyRigCommand}"
                             Margin="{ext:Space 1, 0, 0, 0}"
                             IsVisible="{Binding IsTastyRigApplyVisible}"
-                            RenderOptions.BitmapInterpolationMode="HighQuality" RenderOptions.EdgeMode="Antialias">
-                        <Image Width="16" Height="16" Source="/Assets/Icons/Tasty.png" />
+                            RenderOptions.BitmapInterpolationMode="HighQuality" RenderOptions.EdgeMode="Antialias"> <!-- MP: tip and icon follow the rig setting -->
+                        <Panel>
+                            <Image Width="16" Height="16" Source="/Assets/Icons/Tasty.png" IsVisible="{Binding !BlenderRig.IsOfficialRig}" />
+                            <material:MaterialIcon Kind="HumanHandsup" Width="16" Height="16" IsVisible="{Binding BlenderRig.IsOfficialRig}" /> <!-- MP -->
+                        </Panel>
                     </Button>
 
                     <Button Grid.Column="3" ToolTip.Tip="Export Settings" Content="{material:MaterialIconExt Settings}"

@@ -96,6 +96,31 @@ def _official(ctx):
                 bpy.ops.object.mode_set(mode='OBJECT')
 
 
+def apply_rig(ctx):
+    """The app's rig button with the official rig chosen in its settings: the official rig on the selected armature, in
+    place of Tasty's. False when Tasty's is the one to apply."""
+    if ctx.options.get("RigType") != ERigType.OFFICIAL:
+        return False
+    from ..processing.context import face_board, official_hands, official_rig
+    from ..processing.utils import get_selected_armature
+    from ..server import Server
+    skeleton = get_selected_armature()
+    if skeleton is None:
+        Server.instance.send_message("Select an armature to apply the official rig onto, then try again.")
+    elif skeleton.data.get(official_rig.MARK):
+        Server.instance.send_message("This armature already has the official rig.")
+    elif skeleton.data.get("is_tasty"):
+        Server.instance.send_message("This armature has the Tasty rig: the official rig goes on one without a rig.")
+    elif not official_rig.fits(skeleton):
+        Server.instance.send_message("The official rig fits the humanoid skeleton (pelvis, spine, arms, legs); this armature isn't one.")
+    else:
+        Log.info(official_rig.create(skeleton))
+        if ctx.options.get("OfficialRigHandControls"):
+            Log.info("%s: %d hand controls" % (skeleton.name, official_hands.build(skeleton)))
+        face_board.add(skeleton, head="head")
+    return True
+
+
 def _metahuman(ctx):
     """Epic's MetaHuman face board on a MetaHuman-style head (FACIAL bones, expression shape keys)."""
     from ..processing.context import metahuman_board
