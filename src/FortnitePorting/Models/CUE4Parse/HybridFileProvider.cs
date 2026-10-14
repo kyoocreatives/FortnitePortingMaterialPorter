@@ -53,15 +53,16 @@ public class HybridFileProvider : AbstractVfsFileProvider
         {
             foreach (var extraDirectory in ExtraDirectories)
             {
-                await RegisterFiles(extraDirectory);
+                await RegisterFiles(extraDirectory, FortnitePorting.MaterialPorter.IslandBundles.Stale(extraDirectory)); // MP
             }
         }
     }
 
-    public async Task RegisterFiles(DirectoryInfo directory)
+    public async Task RegisterFiles(DirectoryInfo directory, HashSet<string>? skip = null) // MP: skip
     {
         foreach (var file in directory.EnumerateFiles("*.*", EnumerationOptions))
         {
+            if (skip is not null && file.DirectoryName is { } folder && skip.Contains(folder)) continue; // MP: an island's older version
             var extension = file.Extension.SubstringAfter('.').ToLower();
             if (extension is "pak" or "utoc")
             {
