@@ -90,14 +90,16 @@ def set_prop(pose_bone, context=None):
     obj = pose_bone.id_data
     prop = pose_bone.fpmp_held_prop
     side = pose_bone.name.split("_")[1]
-    scale = sum(obj.matrix_world.to_scale()) / 3.0          # Shrinkwrap and Limit Distance work in world units
+    scale = sum(obj.matrix_world.to_scale()) / 3.0          # Limit Distance works in world units
+    # a Shrinkwrap's offset is in the prop's space: a gun scaled 2.2x held the fingers 2.2x a finger's thickness off it
+    held = sum(prop.matrix_world.to_scale()) / 3.0 if prop is not None else 1.0
     for bone in obj.pose.bones:
         if not (bone.name.startswith(TARGET) and bone.name.endswith("_" + side)):
             continue
         length = obj.data.bones[bone.name.replace(TARGET, GRIP)].length * scale
         for c in bone.constraints:
             if c.type == 'SHRINKWRAP' and c.name.startswith(PREFIX + "grip"):
-                c.target, c.mute, c.distance = prop, prop is None, length * THICKNESS
+                c.target, c.mute, c.distance = prop, prop is None, length * THICKNESS / max(held, 1e-6)
             elif c.type == 'LIMIT_DISTANCE' and c.name.startswith(PREFIX + "grip length"):
                 c.distance = length
 

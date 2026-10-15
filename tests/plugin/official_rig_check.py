@@ -938,6 +938,20 @@ hands.pose.bones["fingers_l_ctrl"]["finger_wrap"] = 1.0
 hands.update_tag()
 bpy.context.view_layer.update()
 check("Finger Wrap closes the finger joints onto it", max(off_axis(p) for p in joints()[:8]) < radius + 0.015, True)
+# a prop scaled up (and a character with it) is held the same: the joints sit a finger's thickness off its surface,
+# not twice that (user report: a gun scaled 2.2x held the fingers floating off its grip)
+wrapped = [off_axis(p) for p in joints()[:8]]
+hands.scale = (2.0, 2.0, 2.0)
+handle.scale, handle.location = (2.0, 2.0, 2.0), centre * 2.0
+hands.pose.bones["fingers_l_ctrl"].fpmp_held_prop = None        # picked again on the scaled character (the same prop
+bpy.context.view_layer.update()                                 # set twice runs no update)
+hands.pose.bones["fingers_l_ctrl"].fpmp_held_prop = handle
+hands.update_tag()
+bpy.context.view_layer.update()
+scaled = [math.hypot(p.x - centre.x * 2.0, p.z - centre.z * 2.0) / 2.0 for p in joints()[:8]]
+check("scaled 2x, the wrapped joints sit where they do at 1x", max(abs(a - b) for a, b in zip(wrapped, scaled)) < 1e-3, True)
+hands.scale, handle.scale, handle.location = (1.0, 1.0, 1.0), (1.0, 1.0, 1.0), centre
+hands.pose.bones["fingers_l_ctrl"].fpmp_held_prop = handle
 hands.pose.bones["fingers_l_ctrl"]["finger_wrap"] = 0.0
 hands.update_tag()
 hands.pose.bones["fingers_l_ctrl"].fpmp_held_prop = None
