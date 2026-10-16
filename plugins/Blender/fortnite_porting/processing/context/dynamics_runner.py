@@ -107,6 +107,19 @@ class Runner:
                 self.parts.append((part, []))
             self.parts[-1][1].append(s)
         self.parts = [sims for _, sims in self.parts]
+        # what each part hands on: its nodes' outputs, and what its rigs move that no other part reads, nor hangs from
+        # (VagueHex's hair rig moves the roots its chains hang from; Riku's body rig turns the head for its collars,
+        # under which the hair hangs)
+        reads = []
+        for sims in self.parts:
+            above = set()
+            for name in {n for s in sims for n in s.bones()}:
+                while name and name not in above:
+                    above.add(name)
+                    name = parent_of.get(name)
+            reads.append(above)
+        self.outputs = [{n for s in sims for n in s.outputs()} for sims in self.parts]
+        self.shared = [set().union(*(r for i, r in enumerate(reads) if i != k)) for k in range(len(self.parts))]
         scene = obj.users_scene[0] if obj.users_scene else bpy.context.scene
         fps = scene.render.fps / scene.render.fps_base
         self.steps = max(1, round(rate / fps))
@@ -131,14 +144,18 @@ class Runner:
         for n in self.order:
             cs[n] = compose(loc[n], cs[parent_of[n]]) if parent_of[n] in cs else loc[n]
         self._wind()
-        for sims in self.parts:
+        for k, sims in enumerate(self.parts):
             # each part's anim blueprint runs on its own copy of the pose: the next parts see the bones it hands on,
             # not what its rigs change for its own nodes (Riku's body rig turns the head for the collars, not the hair)
             part_loc, part_cs = (dict(loc), dict(cs)) if len(self.parts) > 1 else (loc, cs)
+            moved = set()
             for s in sims:
-                self._apply(s, part_loc, part_cs)
+                changed = self._apply(s, part_loc, part_cs)
+                if hasattr(s, "restrict"):      # a rig: what it moves
+                    moved |= changed
             if part_loc is not loc:
-                for name in sorted({n for s in sims for n in s.outputs()}, key=self.order.index):
+                handed = self.outputs[k] | {n for n in moved if n not in self.shared[k]}
+                for name in sorted((n for n in handed if n in part_loc), key=self.order.index):
                     loc[name] = part_loc[name]
                     self._settle(name, loc, cs)
         for c in self.clothes:      # the engine simulates cloth from the finished pose
@@ -146,7 +163,8 @@ class Runner:
         return cs
 
     def _apply(self, s, loc, cs):
-        parent_of = self.parent_of
+        """One node's result into the pose; the bones it set."""
+        parent_of, done = self.parent_of, set()
         for name, t in s.evaluate(self.dt, cs, self.root).items():
             a, par = s.node.get("alpha", 1.0), cs.get(parent_of[name])        # each node blends its own result
             if a < 1e-5:
@@ -156,6 +174,8 @@ class Runner:
                 local = blend(loc[name], local, a)
             loc[name] = local
             self._settle(name, loc, cs)
+            done.add(name)
+        return done
 
     def _settle(self, name, loc, cs):
         """A bone's global and its children's from their locals."""

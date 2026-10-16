@@ -659,6 +659,20 @@ store(alone, dict(tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=5000.0),
 run_apart, run_alone = Runner(apart), Runner(alone)
 got, want = run_apart.tick(run_apart.sample())["dyn_tag"], run_alone.tick(run_alone.sample())["dyn_tag"]
 check("another part's rig doesn't turn this part's simulation", round(got[0].rotation_difference(want[0]).angle, 4), 0.0)
+# ...while a part's own rig moving the root its chain hangs from reaches the final pose (VagueHex's hair rig keeps the
+# hair roots off the back: held back, the chains swung into the body)
+idle_program = dict(json.loads(json.dumps(rig_program)), writes=[], bones=[])
+idle_program["literals"]["0"] = []
+own = armature("own")
+store(own, {"kind": "control_rig", "program": idle_program, "alpha": 1.0, "variables": {}, "part": 0},
+      {"kind": "control_rig", "program": rig_program, "alpha": 1.0, "variables": {}, "part": 1},
+      dict(tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=5000.0), part=1))
+whole = armature("whole")
+store(whole, {"kind": "control_rig", "program": rig_program, "alpha": 1.0, "variables": {}, "part": 1},
+      dict(tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=5000.0), part=1))
+run_own, run_whole = Runner(own), Runner(whole)
+got, want = run_own.tick(run_own.sample())["dyn_tag"], run_whole.tick(run_whole.sample())["dyn_tag"]
+check("a part's own rig turning its chain's root reaches the final pose", round(got[0].rotation_difference(want[0]).angle, 4), 0.0)
 
 # a switch fed by a variable picks its side per movement state; nodes off in a state get alpha 0 there
 switch_dump = [dict(dump[0], ChildProperties=[{"Name": n} for n in ("AnimGraphNode_CopyPoseFromMesh", "AnimGraphNode_AnimDynamics",
