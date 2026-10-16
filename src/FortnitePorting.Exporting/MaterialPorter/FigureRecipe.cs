@@ -7,6 +7,7 @@ using global::CUE4Parse.UE4.Assets.Exports.Texture;
 using global::CUE4Parse_Conversion.Textures;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using FortnitePorting.CUE4Parse.Extensions;
 
 namespace FortnitePorting.Exporting.MaterialPorter;
 
@@ -285,7 +286,7 @@ public sealed class FigureRecipe
             {
                 foreach (var p in mi.ScalarParameterValues)
                     if (p.ParameterInfo.Name.Text.Equals(name, StringComparison.OrdinalIgnoreCase)) return p.ParameterValue;
-                mi = mi.Parent as UMaterialInstanceConstant;
+                mi = mi.Parent?.LoadOrDefault<UMaterialInstanceConstant>();
             }
         }
         catch

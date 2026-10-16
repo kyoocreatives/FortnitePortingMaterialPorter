@@ -117,7 +117,7 @@ public static class ShaderMapHints
         var defaults = new List<string>();
         if (m.TryGetValue(out FPackageIndex[] def, "ReferencedDefaultTextures"))
             foreach (var d in def) defaults.Add(PathOf(d));
-        var cue = m.ReferencedTextures.Select(t => t.GetPathName()).ToList();
+        var cue = m.ReferencedTextures.Select(t => t is null ? null : PathOf(t)).ToList();
         var maxIndex = set.UniformTextureParameters.Where(a => a != null).SelectMany(a => a).Select(p => p.TextureIndex).DefaultIfEmpty(-1).Max();
         var lists = new (string name, IReadOnlyList<string> items)[] { ("defaults", defaults), ("referenced", cue), ("imports", imported) };
         var chosen = lists.FirstOrDefault(l => l.items.Count > maxIndex);

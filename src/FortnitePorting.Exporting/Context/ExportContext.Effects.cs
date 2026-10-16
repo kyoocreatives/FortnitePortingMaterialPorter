@@ -312,7 +312,7 @@ public partial class ExportContext
     private ExportMaterial? EffectMaterial(UMaterialInterface? material, int slot, ParamSet? values)
     {
         // an instance embedded in the system: use its parent asset with the instance's values on top
-        while (material is UMaterialInstanceConstant { Parent: UMaterialInterface parent } inner && inner.GetPathName().Contains(':'))
+        while (material is UMaterialInstanceConstant inner && inner.GetPathName().Contains(':') && inner.Parent?.LoadOrDefault<UMaterialInterface>() is { } parent)
         {
             values ??= new ParamSet();
             foreach (var p in inner.ScalarParameterValues) values.Scalars.TryAdd(p.Name, p.ParameterValue);

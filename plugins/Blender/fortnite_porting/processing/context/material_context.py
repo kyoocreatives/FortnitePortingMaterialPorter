@@ -77,15 +77,6 @@ material_name_cache = {}
 
 class MaterialImportContext:
     
-    def __init__(self):
-        for key, mat in list(material_hash_cache.items()):
-            if not mat.name:
-                material_hash_cache.pop(key)
-                
-        for key, mat in list(material_name_cache.items()):
-            if not mat.name:
-                material_name_cache.pop(key)
-    
     def import_material(self, material_slot, material_data, meta, as_material_data=False):
 
         if not as_material_data:
@@ -149,14 +140,14 @@ class MaterialImportContext:
         hash_key = hash_code(material_hash)
 
         mp = ExactChoice(self, material_data, material_slot, as_material_data)     # MP
-        if (existing_material := material_hash_cache.get(hash_key)) and mp.reusable(existing_material):     # MP
+        if (existing_material := get_valid_cached_id(material_hash_cache, hash_key)) and mp.reusable(existing_material):     # MP
             if not as_material_data:
                 material_slot.material = existing_material
                 mp.reused(material_slot, existing_material, material_data)     # MP
                 return
 
         # same name but different hash
-        if (name_existing := material_name_cache.get(material_name.casefold())) and name_existing.get("Hash") != hash_key:
+        if (name_existing := get_valid_cached_id(material_name_cache, material_name.casefold())) and name_existing.get("Hash") != hash_key:
             material_name += f"_{hash_key}"
 
         if not as_material_data and material_slot.material.name.casefold() != material_name.casefold():
@@ -314,7 +305,7 @@ class MaterialImportContext:
                     mappings = first(target_mappings.colors, lambda x: x.name.casefold() == name.casefold())
 
                 if mappings is None:
-                    is_vector = any(vector_param_names, lambda x: x.casefold() in name.casefold()) or any(list(value.values())[0:4], lambda v: v < 0)
+                    is_vector = any(vector_param_names, lambda x: x.casefold() in name.casefold()) or any([v for v in value.values() if isinstance(v, (int, float))][0:4], lambda v: v < 0)     # MP: the fork's colours carry Hex among sorted keys
 
                 if mappings is None:
                     return
@@ -469,7 +460,7 @@ class MaterialImportContext:
                 value = item.get("Value")
                 is_vector = (
                         any(vector_param_names, lambda x: x.casefold() in name.casefold())
-                        or any(list(value.values())[0:4], lambda v: v < 0)
+                        or any([v for v in value.values() if isinstance(v, (int, float))][0:4], lambda v: v < 0)     # MP: Hex among sorted keys
                 )
                 return create_vector_node(nodes, name, value) if is_vector else create_color_node(nodes, name, value)
 

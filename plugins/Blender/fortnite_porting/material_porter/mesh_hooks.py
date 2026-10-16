@@ -1,8 +1,6 @@
 """What the fork adds to FP's mesh import (processing/context/mesh_context.py calls these)."""
 import json
-from math import radians
 
-import bmesh
 import bpy
 
 from ..logger import Log
@@ -324,18 +322,6 @@ def finish_empty(ctx, mesh, empty_object, imported_children):
         except ImportError:
             return
         sky.finish(ctx, mesh, empty_object, imported_children)
-
-
-def tris_to_quads(imported_mesh):
-    # Tris to Quads with its defaults (UVs compared), on the mesh data without mode switches
-    bm = bmesh.new()
-    bm.from_mesh(imported_mesh.data)
-    bmesh.ops.join_triangles(bm, faces=bm.faces[:], cmp_seam=False, cmp_sharp=False, cmp_uvs=True,
-                             cmp_vcols=False, cmp_materials=False,
-                             angle_face_threshold=radians(40), angle_shape_threshold=radians(40))
-    bm.to_mesh(imported_mesh.data)
-    bm.free()
-    imported_mesh.data.update()
 
 
 def after_model(ctx, mesh, imported_object, imported_mesh):

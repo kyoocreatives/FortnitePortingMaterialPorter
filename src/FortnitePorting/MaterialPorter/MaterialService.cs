@@ -4,6 +4,7 @@ using global::CUE4Parse_Conversion.Options;
 using global::CUE4Parse_Conversion.Textures;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using FortnitePorting.CUE4Parse.Extensions;
 
 namespace FortnitePorting.MaterialPorter;
 
@@ -309,9 +310,9 @@ public sealed class MaterialService
         {
             if (await game.Provider.LoadPackageObjectAsync(info.Master) is global::CUE4Parse.UE4.Assets.Exports.Material.UMaterial m)
             {
-                var list = new List<global::CUE4Parse.UE4.Assets.Exports.Material.UUnrealMaterial>();
+                var list = new List<global::CUE4Parse.UE4.Objects.UObject.FPackageIndex>();
                 m.AppendReferencedTextures(list, false);
-                foreach (var t in list.OfType<UTexture>().Concat(ImportedTextures(m)))
+                foreach (var t in list.Select(i => i.LoadOrDefault<UTexture>()).OfType<UTexture>().Concat(ImportedTextures(m)))
                     if (t.GetPathName() is { } tp && !info.ReferencedTextures.Contains(tp)) info.ReferencedTextures.Add(tp);
                 // what the compiled shader really uses (its shader map): textures sampled, parameters read
                 info.Shader = ShaderMapHints.For(ShaderMapHints.From(game.Provider, info.Master, m, info.ReferencedTextures), info.Scalars, info.Vectors);

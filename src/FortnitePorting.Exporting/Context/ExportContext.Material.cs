@@ -264,7 +264,8 @@ public partial class ExportContext
                 }
             }
 
-            if (materialInstance.Parent is UMaterialInterface parentMaterial) AccumulateParameters(parentMaterial, ref parameterCollection);
+            if (materialInstance.Parent?.TryLoad<UMaterialInterface>(out var parentMaterial) is true) 
+                AccumulateParameters(parentMaterial, ref parameterCollection);
         }
         else if (materialInterface is UMaterial material)
         {
@@ -290,7 +291,7 @@ public partial class ExportContext
                 
         foreach (var (name, value) in parameters.Textures)
         {
-            if (value is not UTexture2D texture) continue;
+            if (value.Load<UTexture2D>() is not { } texture) continue;     // MP: CUE4Parse hands lazy references now
             
             parameterCollection.Textures.AddUnique(new TextureParameter(name, new ExportTexture(Export(texture), texture.SRGB, texture.CompressionSettings)));
         }

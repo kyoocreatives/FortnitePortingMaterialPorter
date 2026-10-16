@@ -278,7 +278,7 @@ public sealed class Cars(IFileProvider provider)
         var obj = await provider.LoadPackageObjectAsync(meshPath);
         return obj switch
         {
-            USkeletalMesh sk => sk.SkeletalMaterials.Select(m => (m.MaterialSlotName.Text, m.Material?.ResolvedObject?.GetPathName())).ToList(),
+            USkeletalMesh sk => sk.SkeletalMaterials.Select(m => (m.MaterialSlotName.Text, m.MaterialInterface?.ResolvedObject?.GetPathName())).ToList(),
             UStaticMesh sm => sm.StaticMaterials.Select(m => (m.MaterialSlotName.Text, m.MaterialInterface?.ResolvedObject?.GetPathName())).ToList(),
             _ => [],
         };

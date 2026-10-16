@@ -11,6 +11,7 @@ using CUE4Parse.UE4.Objects.UObject;
 using FortnitePorting.Exporting.MaterialPorter;
 using FortnitePorting.Exporting.Models;
 using FortnitePorting.Shared.Extensions;
+using FortnitePorting.CUE4Parse.Extensions;
 
 namespace FortnitePorting.Exporting.Context;
 
@@ -152,7 +153,7 @@ public partial class ExportContext
         if (!wrap.GetOrDefault<FSoftObjectPath>("ItemWrapMaterial").TryLoad(out UMaterialInstanceConstant? material))
             return null;
         var values = new ParamSet { Label = wrap.Name };
-        for (UUnrealMaterial? current = material; current is UMaterialInstanceConstant instance; current = instance.Parent)
+        for (UUnrealMaterial? current = material; current is UMaterialInstanceConstant instance; current = instance.Parent?.LoadOrDefault<UUnrealMaterial>())
         {
             foreach (var p in instance.ScalarParameterValues) values.Scalars.TryAdd(p.Name, p.ParameterValue);
             foreach (var p in instance.VectorParameterValues)

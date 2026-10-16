@@ -11,7 +11,10 @@
         <SelfContained>true</SelfContained>
         <PublishSingleFile>true</PublishSingleFile>
         <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-        <!-- MP: the app is win-x64 only; libvlc's x86 and arm64 copies only made the exe bigger -->
+        <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    </PropertyGroup>
+    
+    <PropertyGroup>
         <VlcWindowsX86Enabled>false</VlcWindowsX86Enabled>
         <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
     </PropertyGroup>

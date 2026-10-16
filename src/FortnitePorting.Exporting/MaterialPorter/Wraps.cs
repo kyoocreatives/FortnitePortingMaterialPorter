@@ -11,6 +11,7 @@ using CUE4Parse.UE4.Assets.Exports.StaticMesh;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.UE4.Objects.UObject;
+using FortnitePorting.CUE4Parse.Extensions;
 
 namespace FortnitePorting.Exporting.MaterialPorter;
 
@@ -21,7 +22,7 @@ public static class Wraps
 
     public static bool HasMask(UObject? material)
     {
-        for (var current = material as UUnrealMaterial; current is UMaterialInstanceConstant instance; current = instance.Parent)
+        for (var current = material as UUnrealMaterial; current is UMaterialInstanceConstant instance; current = instance.Parent?.LoadOrDefault<UUnrealMaterial>())
             if (instance.TextureParameterValues.Any(t => t.Name == Mask))
                 return true;
         return false;
