@@ -3,13 +3,16 @@ An unofficial fork of [FortnitePorting](https://github.com/h4lfheart/FortnitePor
 **Install:** download `FortnitePortingMP.exe` below and run it (Windows x64, no installer). Windows may warn about an unsigned app: *More info > Run anyway*. It runs beside an installed FortnitePorting, with its own settings (`%APPDATA%\FortnitePorting MP`) and its own Blender plugin (`fortnite_porting_mp`), installed from the Plugins page as in FortnitePorting. Exact materials need Blender 5.0 or newer; older Blender gets FortnitePorting's shaders.
 
 **This release**
-- Chaos cloth on coats, skirts and capes; rigid bodies follow the character's own movement.
-- Wind: Blender Wind force fields push hair, cloth and dynamic bones (gusts and turbulence in *Physics > Character Wind*), plus the game's idle wind sway.
-- Gravity per movement state, read from each character's anim blueprint.
-- More of each character's deform rig is read: aims, distances, parent constraints, branches, and the Control Rig units characters use.
-- Fixes: dynamics popping when Live starts, cloth bakes, skirts with several influences.
-- Maps: actor name filter, landscape detail and restoring remeshed landscapes, textures capped at 1024 by default, normal maps kept compressed, Smart texture sampling.
-- Road from Curve helper: a road segment mesh repeated and bent along a curve.
+- Works with the latest Fortnite update (version 5 mappings).
+- Official rig: a clearer side panel with a control picker, one-click IK/FK, stretch and local toggles, and a Shift+Q pie; widgets and colours match Epic's; hand and limb controls sit on their bones.
+- Extra hand controls: curl and spread every finger at once, and a held prop the fingers close on.
+- The Assets page's rig button applies the official rig when it's chosen in the settings; a Face Board button puts a face board on the selected armature.
+- Creature, LEGO and car rigs rebuilt on the official rig's standard.
+- Animations: filters by gender, body type and use (locomotion, swimming, skydiving...), an icon per tile, and faster listings.
+- Physics: skirts follow and collide with the legs (also when a clip starts mid-pose); fixes for Roxas's coat and Riku's hair.
+- Bake to Controls: fingertips stay on the hand on fast clips; baked IK plays the animation.
+- Islands: only the newest downloaded version of an island is mounted.
+- Fixes: square sprites on effects (curve atlases), a faster rig panel, Shift+Q no longer taken by FortRig on the official rig.
 
 **What it adds**
 - Exact materials, rebuilt from each material's Unreal graph. *Settings > Blender > Prefer FP Shaders for Characters* keeps FortnitePorting's shaders for character materials it has one for.
