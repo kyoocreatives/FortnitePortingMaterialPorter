@@ -757,6 +757,7 @@ def _bake(obj, start, end):
     rest = {c: (pb[c].parent.bone.matrix_local.inverted() @ pb[c].bone.matrix_local) if pb[c].parent else
             pb[c].bone.matrix_local.copy() for c in keyed}
     still = _bake_rest(data, built, targets) + [b.name for b in obj.data.bones if b.get(HAND)]
+    held = any(getattr(pb.get("fingers_%s_ctrl" % s), "fpmp_held_prop", None) is not None for s in "lr")
     for f in range(start, end + 1):
         scene.frame_set(f)
         want = poses[f]
@@ -766,7 +767,9 @@ def _bake(obj, start, end):
         for _ in range(6):
             for control in keyed:
                 parent = pb[control].parent
+                pivot = None if held else _pivot_control(parent, want)
                 above = want[parent.name] if parent is not None and parent.name in want else \
+                    want[pivot] @ pb[pivot].bone.matrix_local.inverted() @ parent.bone.matrix_local if pivot else \
                     (parent.matrix if parent is not None else Matrix())
                 pb[control].matrix_basis = (above @ rest[control]).inverted() @ want[control]
             bpy.context.view_layer.update()
@@ -781,6 +784,15 @@ def _bake(obj, start, end):
     for chain in _chains(data, built):
         set_switch(obj, chain["switch"], ik=False, match=False)
     return end - start + 1
+
+
+def _pivot_control(bone, want):
+    """The control above a finger's curl pivots and grips (the hand layer, at rest during a bake, so they keep their
+    rest under it), None for any other parent. A fingertip sits nine links below the clavicle: waiting for updates to
+    place them took more passes than a bake makes, and a sprint's tips were keyed 20 cm off."""
+    while bone is not None and bone.name.startswith((MCH + "curl_", MCH + "grip_")):
+        bone = bone.parent
+    return bone.name if bone is not None and bone.name in want else None
 
 
 def _ik_bones(data, built):

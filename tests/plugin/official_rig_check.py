@@ -972,12 +972,25 @@ for f, angle in ((1, 0.0), (3, 0.6)):
         hands.pose.bones[n].rotation_mode = 'XYZ'
         hands.pose.bones[n].rotation_euler = (angle, 0.0, angle * 0.3)
         hands.pose.bones[n].keyframe_insert("rotation_euler", frame=f)
-bpy.context.scene.frame_set(3)
-want_hand = {n: world(hands, n).copy() for n in ("index_02_l", "pinky_01_l", "thumb_02_l", "index_03_l")}
+    # the arm swings far between frames (a sprint): the fingertips sit nine links down from the clavicle
+    hands.pose.bones["upperarm_l"].rotation_mode = 'XYZ'
+    hands.pose.bones["upperarm_l"].rotation_euler = (angle * 2.0, 0.0, 0.0)
+    hands.pose.bones["upperarm_l"].keyframe_insert("rotation_euler", frame=f)
+tips = ("index_02_l", "pinky_01_l", "thumb_02_l", "index_03_l", "middle_03_l", "pinky_03_l")
+want_hand = {}
+for f in (1, 2, 3):
+    bpy.context.scene.frame_set(f)
+    want_hand[f] = {n: world(hands, n).copy() for n in tips}
 official_rig.bake_to_controls(hands, 1, 3)
-bpy.context.scene.frame_set(3)
-check("with hand controls, the bake lands", all((world(hands, n).to_translation() - m.to_translation()).length < 1e-4
-      and same_rot(world(hands, n), m, 1e-3) for n, m in want_hand.items()), True)
+landed = []
+for f in (1, 2, 3):
+    bpy.context.scene.frame_set(f)
+    landed += [(world(hands, n).to_translation() - m.to_translation()).length < 1e-4 and same_rot(world(hands, n), m, 1e-3)
+               for n, m in want_hand[f].items()]
+check("with hand controls, the bake lands on every frame, fingertips too", all(landed), True)
+finger_locs = [fc for layer in hands.animation_data.action.layers for strip in layer.strips for bag in strip.channelbags
+               for fc in bag.fcurves if fc.data_path.endswith('_03_l_ctrl"].location')]
+check("and the finger controls only turn", max((abs(k.co[1]) for fc in finger_locs for k in fc.keyframe_points), default=0.0) < 1e-4, True)
 paths = {fc.data_path for layer in hands.animation_data.action.layers for strip in layer.strips for bag in strip.channelbags
          for fc in bag.fcurves}
 check("and the hand controls are keyed at rest", 'pose.bones["fingers_l_ctrl"].rotation_quaternion' in paths
