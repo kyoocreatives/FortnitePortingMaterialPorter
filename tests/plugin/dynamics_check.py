@@ -213,6 +213,29 @@ still_arm = armature("still")
 key_arm(still_arm, [(0, 0.0), (20, 0.0)])
 store(still_arm, tag_node(gravity_override=[0.0, 0.0, 0.0]))
 check("a still pose bakes one bone over its frames", db.bake(still_arm), (1, 21))
+
+
+class AnyLayout:
+    """A layout that takes every call (the panel's draw code, without a window)."""
+    def __getattr__(self, name):
+        return lambda *a, **k: AnyLayout()
+
+    def __setattr__(self, name, value):
+        pass
+
+
+# the panel redraws on every mouse move and playback frame: it reads the stored nodes once, not on each draw
+# (parsing a character's took 25 ms, three times per draw)
+parsed, real_loads = [0], db.json.loads
+db.json.loads = lambda *a, **k: (parsed.__setitem__(0, parsed[0] + 1), real_loads(*a, **k))[1]
+try:
+    for _ in range(5):
+        db.ui(AnyLayout(), still_arm)
+finally:
+    db.json.loads = real_loads
+check("five panel draws parse the stored nodes at most once", parsed[0] <= 1, True)
+store(still_arm, tag_node(gravity_override=[0.0, 0.0, -980.0]))
+check("and again after they change", db.states(still_arm) is not None and db._cloth(still_arm) == [], True)
 track = db._track(still_arm)
 check("one Dynamics strip", (track is not None, len(track.strips) if track else 0), (True, 1))
 action = track.strips[0].action

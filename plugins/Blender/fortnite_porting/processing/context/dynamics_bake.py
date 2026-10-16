@@ -27,9 +27,22 @@ def _curves(action):
     return [fc for layer in action.layers for strip in layer.strips for bag in strip.channelbags for fc in bag.fcurves]
 
 
+_stored = {}
+
+
+def stored(obj):
+    """The armature's stored nodes, parsed once per change: the panel reads them on every redraw (each mouse move,
+    each playback frame) and parsing a character's takes 25 ms. Read only."""
+    raw = obj.data.get(KEY) or "{}"
+    hit = _stored.get(obj.data.name_full)
+    if hit is None or hit[0] != raw:
+        hit = _stored[obj.data.name_full] = (raw, json.loads(raw))
+    return hit[1]
+
+
 def _cloth(obj):
     """The armature's cloth meshes that still exist."""
-    found = (cloth_render.find(c["id"]) for c in json.loads(obj.data.get(KEY) or "{}").get("cloth") or [])
+    found = (cloth_render.find(c["id"]) for c in stored(obj).get("cloth") or [])
     return [o for o in found if o is not None]
 
 
@@ -208,14 +221,13 @@ def ui(layout, obj):
 
 def states(obj):
     """The movement states the armature's dynamics parameters define, in their order."""
-    raw = obj.data.get(KEY)
-    if not raw:
+    if not obj.data.get(KEY):
         return []
-    stored = json.loads(raw)
-    for n in stored["nodes"]:
+    data = stored(obj)
+    for n in data["nodes"]:
         if n.get("states"):
             return list(n["states"])
-    for c in stored.get("cloth") or []:        # a cloth-only rig: its blueprint's cloth states
+    for c in data.get("cloth") or []:        # a cloth-only rig: its blueprint's cloth states
         for x in c["clothes"]:
             if x.get("by_state"):
                 return list(x["by_state"])
