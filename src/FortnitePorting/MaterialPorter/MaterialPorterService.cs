@@ -85,7 +85,8 @@ public partial class MaterialPorterService : IService
             // Unreal Editor for Fortnite has (about 5 GB of editor data in the Paks). Warn once instead of approximating silently.
             _ = Task.Run(() =>
             {
-                if (provider.Files.Keys.Any(k => k.EndsWith(".o.uasset", StringComparison.OrdinalIgnoreCase))) return;
+                // CUE4Parse merges them into the cooked packages now: they show as optional segments, no longer as files
+                if (provider.Files.OptionalById.Count > 0 || provider.Files.Keys.Any(k => k.EndsWith(".o.uasset", StringComparison.OrdinalIgnoreCase))) return;
                 Log.Warning("[Material Porter] no editor graphs in this install: materials are approximated (install Unreal Editor for Fortnite)");
                 // a build downloaded from its manifest gets them from its UEFN manifest instead
                 var downloaded = AppServices.AppSettings.Installation.CurrentProfile.IsCustomOnDemand;

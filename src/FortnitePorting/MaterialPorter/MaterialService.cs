@@ -96,6 +96,28 @@ public sealed class MaterialService
         string.Join("~", key.Replace(".o.uasset", "").Replace(".uasset", "").Split('/', StringSplitOptions.RemoveEmptyEntries));
 
     // ------------------------------------------------------------ paths
+    /// <summary>The key of the package holding path's editor-only half: its old "<path>.o.uasset", or (CUE4Parse since
+    /// October 2026) the cooked package its optional segment is merged into; null if the game has neither.</summary>
+    public string? EditorKey(string path)
+    {
+        if (ResolveKey(path, ".o.uasset") is { } old) return old;
+        if (ResolveKey(path, ".uasset") is not { } key) return null;
+        var files = game.Provider.Files;
+        return files.TryGetValue(key, out var f) && f is global::CUE4Parse.UE4.IO.Objects.FIoStoreEntry entry &&
+               files.TryGetOptionalSegmentPackage(entry.ChunkId.AsPackageId(), out _) ? key : null;
+    }
+
+    /// <summary>The editor-only exports of EditorKey's package (what an .o.uasset holds): its optional segment loaded on its
+    /// own, as the .o.uasset was (merged into the cooked package, its references to the cooked half come out unresolved).</summary>
+    async Task<List<global::CUE4Parse.UE4.Assets.Exports.UObject>> EditorExportsAsync(string key)
+    {
+        var files = game.Provider.Files;
+        if (!key.EndsWith(".o.uasset", StringComparison.OrdinalIgnoreCase) && files.TryGetValue(key, out var f) &&
+            f is global::CUE4Parse.UE4.IO.Objects.FIoStoreEntry entry && files.TryGetOptionalSegmentPackage(entry.ChunkId.AsPackageId(), out var segment))
+            return (await game.Provider.LoadPackageAsync(segment)).GetExports().ToList();
+        return (await game.Provider.LoadPackageAsync(key)).GetExports().ToList();
+    }
+
     /// <summary>Resolves "/Game/..", "/Engine/..", "/Plugin/..", "Pkg.Object", "Pkg.0" or a file key to the file key of "package+ext", if the game has it.</summary>
     public string ResolveKey(string p, string ext)
     {
@@ -171,7 +193,7 @@ public sealed class MaterialService
     /// <summary>The expression graph of a material or function (in the editor-only .o.uasset), dumped as ue_graph reads it.</summary>
     public Task<string> GraphAsync(string path) => Locked(async () =>
     {
-        var key = ResolveKey(path, ".o.uasset");
+        var key = EditorKey(path);
         if (key == null)
         {
             // an island's own master or function: the cooked pak has no editor graph, the creator's project does
@@ -180,8 +202,7 @@ public sealed class MaterialService
         }
         var file = System.IO.Path.Combine(Dir("graphs"), Safe(key) + ".json");
         if (File.Exists(file)) return file;
-        var pkg = await game.Provider.LoadPackageAsync(key);
-        await File.WriteAllTextAsync(file, JsonConvert.SerializeObject(pkg.GetExports().ToArray(), Formatting.None, Ser));
+        await File.WriteAllTextAsync(file, JsonConvert.SerializeObject((await EditorExportsAsync(key)).ToArray(), Formatting.None, Ser));
         return file;
     });
 
@@ -219,7 +240,7 @@ public sealed class MaterialService
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var info = await Locked(() => ChainAsync(path));
         await Locked(async () => { SkyValues(info, await DayValuesAsync()); return true; });
-        if (info.Master != null && ResolveKey(info.Master, ".o.uasset") == null)
+        if (info.Master != null && EditorKey(info.Master) == null)
         {
             // an island's own master: the creator's project if set up and it has it, else an approximation
             var project = await Locked(() => ProjectGraphAsync(info.Master));
@@ -368,15 +389,15 @@ public sealed class MaterialService
     // them a mask fell back to its default. A mask the instance doesn't override (bOverride false) is left to its parent.
     async Task EditorMasksAsync(string path, MaterialInfo info)
     {
-        var key = ResolveKey(path, ".o.uasset");
+        var key = EditorKey(path);
         // an island's instance has no editor package in the cooked pak: use the creator's project's
         var hit = key == null ? IslandProjects.Find(game.Provider, path) : null;
         if (key == null && hit == null) return;
         try
         {
-            var pkg = hit == null ? await game.Provider.LoadPackageAsync(key)
-                                  : await hit.Project.Provider.LoadPackageAsync(hit.Project.KeyOf(hit.Rel) ?? throw new FileNotFoundException(hit.Rel));
-            var ed = pkg.GetExports().FirstOrDefault(e => e.ExportType == "MaterialInstanceEditorOnlyData");
+            var exports = hit == null ? await EditorExportsAsync(key!)
+                                      : (await hit.Project.Provider.LoadPackageAsync(hit.Project.KeyOf(hit.Rel) ?? throw new FileNotFoundException(hit.Rel))).GetExports();
+            var ed = exports.FirstOrDefault(e => e.ExportType == "MaterialInstanceEditorOnlyData");
             if (ed == null) return;
             var sp = JObject.Parse(JsonConvert.SerializeObject(ed, Ser))["Properties"]?["StaticParameters"];
             foreach (var e in sp?["StaticComponentMaskParameters"] ?? new JArray())
