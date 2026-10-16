@@ -165,7 +165,10 @@ class RigNode:
         return list(self.keep)
 
     def restrict(self, simulated):
-        self.keep = [b for b in self.writes if b in simulated]
+        """Hand on what a simulation shares and the base_ bones its chains hang from (nothing else drives those, and
+        meshes are weighted to them: QuaintToy's skirt bases, aimed from the thighs); not the body's bones the
+        animation and correctives already move."""
+        self.keep = [b for b in self.writes if b in simulated or b.startswith("base_")]
 
     def evaluate(self, dt, cs, root):
         self.h.load(cs)

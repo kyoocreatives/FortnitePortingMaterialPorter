@@ -624,6 +624,22 @@ store(rigged, {"kind": "control_rig", "program": rig_program, "alpha": 1.0, "var
       tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=5000.0))
 run = Runner(rigged)
 check("the rig hands on nothing it doesn't share with a simulation", [s.outputs() for s in run.sims if hasattr(s, "machine")], [[]])
+
+# but a character's own helper bone the rig turns (QuaintToy's skirt bases, aimed from the thighs) reaches Blender:
+# nothing else drives it, and the mesh is weighted to it
+helped = armature("helped")
+bpy.context.view_layer.objects.active = helped
+bpy.ops.object.mode_set(mode='EDIT')
+base = helped.data.edit_bones.new("base_bow")
+base.head, base.tail, base.parent = (0.2, 0, 1), (0.2, 0, 0.9), helped.data.edit_bones["upperarm"]
+bpy.ops.object.mode_set(mode='OBJECT')
+helper_program = json.loads(json.dumps(rig_program))
+helper_program["literals"]["0"] = [{"Item": {"Name": "upperarm"}, "Transform": turn_upper}, {"Item": {"Name": "base_bow"}, "Transform": turn_upper}]
+helper_program["bones"], helper_program["writes"] = ["upperarm", "base_bow"], ["upperarm", "base_bow"]
+store(helped, {"kind": "control_rig", "program": helper_program, "alpha": 1.0, "variables": {}},
+      tag_node(gravity_override=[0.0, 0.0, 0.0], ang_spring=5000.0))
+check("a rig hands on the character's own helper bones, not the body's", [s.outputs() for s in Runner(helped).sims if hasattr(s, "machine")],
+      [["base_bow"]])
 pose_in = run.sample()
 cs_out = run.tick(pose_in)
 loc_t, q_t = run.basis(cs_out, "dyn_tag")

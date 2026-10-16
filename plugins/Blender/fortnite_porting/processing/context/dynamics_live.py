@@ -175,8 +175,9 @@ def _live_armatures(scene):
 def _fresh(obj):
     run = Runner(obj)
     modes = _modes(obj, run)
-    names = [pb.name for pb in obj.pose.bones]
-    slots = [names.index(TWIN + n) for n in run.simulated]
+    index = {pb.name: i for i, pb in enumerate(obj.pose.bones)}
+    # a bone the plugin started simulating after Live was turned on has no twin yet: it waits for Live off and on
+    slots = [(n, index[TWIN + n]) for n in run.simulated if TWIN + n in index]
     return {"runner": run, "modes": modes, "toggled": {n for n, m in modes.items() if m is None}, "slots": slots}
 
 
@@ -195,7 +196,7 @@ def _step(obj, scene):
     state["frame"], state["pose"] = frame, pose
     if run.clothes:
         cloth_render.store_frame(run.cloth(), frame, run.unit, obj)
-    state["pending"] = [(slot,) + run.basis(cs, name) for name, slot in zip(run.simulated, state["slots"])]
+    state["pending"] = [(slot,) + run.basis(cs, name) for name, slot in state["slots"]]
     _states[obj.name_full] = state
 
 
