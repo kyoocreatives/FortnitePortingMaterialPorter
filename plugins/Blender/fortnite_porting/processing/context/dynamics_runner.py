@@ -11,6 +11,7 @@ from .dynamics_solver import Sim, compose, relative
 KEY = "fpmp_dynamics"
 STATE = "fpmp_dynamics_state"       # the movement state whose dynamics parameters apply (emote, standing, skydiving...)
 PREROLL = 1.0       # seconds held on the first pose: in game the character was already idling when the emote began
+WALK_IN = 0.5       # seconds before that, moving from the rest pose (the idle the game's bodies start in) into it
 FLIP = Matrix(((1.0, 0.0, 0.0), (0.0, -1.0, 0.0), (0.0, 0.0, 1.0)))     # the game's axes vs Blender's
 COMPONENT = "__component__"     # a sampled pose's entry for the armature object (the game's mesh component) in the world
 
@@ -200,13 +201,27 @@ class Runner:
                 s.component_motion = motion
 
     def start(self, loc):
-        """The first frame: the bodies settle on it for the pre-roll."""
+        """The first frame: the bodies start at the rest pose, move into the frame, then settle on it for the pre-roll.
+        Starting on the frame itself hands them its overlaps as starting ones, which they keep: a clip starting
+        mid-stride let the legs through QuaintToy's skirt."""
         self.component_velocity = Vector()
         self._component(None)
         self.component = loc.get(COMPONENT, self.component)
+        rest, walk = self._rest(loc), round(WALK_IN / self.dt)
+        for k in range(walk):
+            self.tick({n: blend(rest[n], loc[n], k / walk) for n in loc})
         for _ in range(round(PREROLL / self.dt)):
             cs = self.tick(loc)
         return cs
+
+    def _rest(self, loc):
+        """The rest pose as a sampled one (locals in the game's numbers), on loc's component."""
+        bones = self.obj.data.bones
+        cs = {n: to_game(bones[n].matrix_local, self.offsets[n], self.unit) for n in self.order}
+        rest = {n: relative(cs[n], cs[self.parent_of[n]]) if self.parent_of[n] in cs else cs[n] for n in self.order}
+        if COMPONENT in loc:
+            rest[COMPONENT] = loc[COMPONENT]
+        return rest
 
     def advance(self, prev, loc):
         """One frame on, ticking through poses interpolated from the last frame's."""

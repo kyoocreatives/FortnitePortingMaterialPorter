@@ -691,6 +691,27 @@ baked0 = moving.pose.bones["dyn_tag"].matrix.to_quaternion()
 check("the bake's first frame matches its own simulation",
       round(math.degrees(baked0.rotation_difference(from_game(first["dyn_tag"], fresh.inv["dyn_tag"], fresh.unit).to_quaternion()).angle), 1), 0.0, 0.5)
 
+# the warm-up starts at the rest pose and moves into the first frame, as the game's idle does: a clip starting
+# mid-stride would hand the bodies its overlaps as starting ones, which they may keep (QuaintToy's skirt let the legs through)
+db.set_on(moving, False)
+scene.frame_set(10)
+warm = Runner(moving)
+mid = warm.sample()
+moving.data.pose_position = 'REST'
+bpy.context.view_layer.update()
+at_rest = warm.sample()
+moving.data.pose_position = 'POSE'
+bpy.context.view_layer.update()
+fed, real_tick = [], Runner.tick
+Runner.tick = lambda self, loc: (fed.append(loc), real_tick(self, loc))[1]
+try:
+    warm.start(mid)
+finally:
+    Runner.tick = real_tick
+db.set_on(moving, True)
+check("the warm-up starts at the rest pose", round(math.degrees(fed[0]["upperarm"][0].rotation_difference(at_rest["upperarm"][0]).angle), 3), 0.0)
+check("and ends on the first frame", round(math.degrees(fed[-1]["upperarm"][0].rotation_difference(mid["upperarm"][0]).angle), 3), 0.0)
+
 # each node's alpha is its own: a later switched-off control on the same bone doesn't switch off the simulation
 shared = armature("shared")
 store(shared, tag_node(gravity_override=[980.0, 0.0, 0.0], body={"ang_min": [-60.0] * 3, "ang_max": [60.0] * 3}),
