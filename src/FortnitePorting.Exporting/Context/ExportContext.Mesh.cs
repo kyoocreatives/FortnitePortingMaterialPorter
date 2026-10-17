@@ -59,6 +59,7 @@ public partial class ExportContext
             };
 
             AddMeshMaterials(exportPart, convertedMesh);
+            HideDisabledSections(exportPart, mesh, convertedMesh); // MP
             if (EffectsPick) MeshSockets(exportPart, mesh); // MP
             return exportPart;
         }
@@ -68,7 +69,7 @@ public partial class ExportContext
             return null;
         }
     }
-    
+
     public ExportMesh? Mesh(UStaticMesh? mesh)
     {
         return Mesh<ExportMesh>(mesh);

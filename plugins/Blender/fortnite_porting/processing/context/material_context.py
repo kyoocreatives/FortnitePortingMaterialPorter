@@ -167,6 +167,7 @@ class MaterialImportContext:
         outline_shell = any(toon_outline_names, lambda x: x in material_name) and not any(toon_outline_disable_names, lambda x: x in material_name) and not material_data.get("MPOutline")     # MP: a part's overlay outline is built
         if (any(crunch_names, lambda x: x in material_name) 
                 or get_param(scalars, "HT_CrunchVerts") == 1 
+                or material_data.get("MPHidden")     # MP: a section the game doesn't draw
                 or outline_shell):
             self.full_vertex_crunch_materials.append(material)
             if outline_shell:     # MP: the game's outline shell is hidden, FP's outline draws one instead

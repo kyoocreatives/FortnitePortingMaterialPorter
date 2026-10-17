@@ -22,6 +22,7 @@ public record ExportMaterial : ParameterCollection
     public string BaseMaterialPath => BaseMaterial?.GetPathName() ?? string.Empty;
     public int Slot;
     public int Hash;
+    public bool MPHidden; // MP
 
     public string PhysMaterialName;
     public EBlendMode OverrideBlendMode;

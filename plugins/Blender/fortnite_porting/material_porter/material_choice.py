@@ -44,6 +44,7 @@ class ExactChoice:
     def __init__(self, ctx, material_data, material_slot, as_material_data):
         from .hook import cosmetic_material, exact_available, subsurface as subsurface_of, texture_cap
         self.ctx = ctx
+        self.hidden = bool(material_data.get("MPHidden"))
         self.prefer_fp = bool(ctx.options.get("PreferFPShaders") and ctx.type in FP_SHADER_TYPES and has_fp_shader(material_data))
         if is_outline_shell(material_data) and exact_available(ctx) and not self.prefer_fp:
             # the game's own outline shell is built, its World Position Offset pushing it out, rather than hidden
@@ -57,7 +58,8 @@ class ExactChoice:
             if slot_object is not None and slot_object.type == 'MESH' and slot_object.get("mp_landscape") else None
 
     def reusable(self, existing):
-        return (bool(existing.get("MPPreferFP")) == self.prefer_fp
+        # a section the game doesn't draw is hidden again, not given a drawn one's material
+        return (not self.hidden and bool(existing.get("MPPreferFP")) == self.prefer_fp
                 and bool(existing.get("MPRimLight", self.rim_light)) == self.rim_light
                 and existing.get("MPSubsurface", self.subsurface) == self.subsurface
                 and existing.get("MPLandscapeLayers") == self.landscape
