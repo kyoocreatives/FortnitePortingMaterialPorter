@@ -8,6 +8,7 @@ from ..processing.enums import EExportType
 from ..processing.material.enums import ENodeType
 from ..processing.material.mappings import DefaultMappings
 from ..processing.material.mappings_registry import find_all_matching_mappings
+from ..processing.material.names import toon_outline_disable_names, toon_outline_names
 from ..processing.material.utils import get_param
 from ..utils import any, hash_code
 
@@ -30,14 +31,23 @@ def is_toon(material_data):
     return bool(mappings) and mappings[-1].node_name == "FPv4 Base Toon"
 
 
+def is_outline_shell(material_data):
+    """An inverted-hull outline slot of the mesh (FP hides these and draws its own outline)."""
+    name = material_data.get("Name") or ""
+    return any(toon_outline_names, lambda x: x in name) and not any(toon_outline_disable_names, lambda x: x in name)
+
+
 class ExactChoice:
     """One slot's choice. A material built under different settings (prefer FP, Rim Light, subsurface, landscape layers,
     texture cap) isn't reused."""
 
     def __init__(self, ctx, material_data, material_slot, as_material_data):
-        from .hook import cosmetic_material, subsurface as subsurface_of, texture_cap
+        from .hook import cosmetic_material, exact_available, subsurface as subsurface_of, texture_cap
         self.ctx = ctx
         self.prefer_fp = bool(ctx.options.get("PreferFPShaders") and ctx.type in FP_SHADER_TYPES and has_fp_shader(material_data))
+        if is_outline_shell(material_data) and exact_available(ctx) and not self.prefer_fp:
+            # the game's own outline shell is built, its World Position Offset pushing it out, rather than hidden
+            material_data.update(MPMoves=True, MPOutline=True)
         self.rim_light = bool(ctx.options.get("RimLight"))
         self.texture_cap = texture_cap(ctx)
         self.subsurface = "%g %g %g %g %s" % (tuple(subsurface_of(ctx, material_data)) + (cosmetic_material(ctx, material_data),))

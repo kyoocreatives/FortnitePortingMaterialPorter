@@ -112,8 +112,14 @@ class GeometryMixin:
         return self.shared("bitangent", make)
 
     def vertex_normal(self):
-        return self._hook("vertex_normal", lambda: self.shared(
-            "vertex normal", lambda: self.from_blender(self._geometry("Normal"))))
+        # Blender's Normal faces the viewer, UE's VertexNormalWS doesn't flip on a back face (inverted-hull outlines)
+        return self._hook("vertex_normal", lambda: self.shared("vertex normal", lambda: self.from_blender(self.vmath(
+            'SCALE', self._geometry("Normal"), self.binop('SUBTRACT', self.const(1.0), self.binop(
+                'MULTIPLY', self._geometry("Backfacing"), self.const(2.0))), out_w=3))))
+
+    def _facing_normal(self):
+        """The normal facing the viewer: UE's PixelNormalWS without a normal of the material's own."""
+        return self._hook("vertex_normal", lambda: self.shared("facing normal", lambda: self.from_blender(self._geometry("Normal"))))
 
     def pixel_normal(self):
         """UE's PixelNormalWS: the material's own Normal as lit, its normal map applied (the vertex
@@ -126,14 +132,14 @@ class GeometryMixin:
             return v
         mode = self._hook("normal_mode", lambda: None)
         if not mode or not mode[0]:
-            return self.vertex_normal()
+            return self._facing_normal()
         if self.function is not None:
             return self.function.env_input(PIXEL_NORMAL, 'NodeSocketVector', (0.0, 0.0, 1.0),
                                            "UE PixelNormalWS: the material's normal, its normal map applied")
         src = getattr(self, "_normal_src", None)
         if src is None or getattr(self, "_normal_busy", False):
             # (asked while the Normal itself is made: UE won't compile that)
-            return self.vertex_normal()
+            return self._facing_normal()
 
         def make():
             self._normal_busy = True
@@ -147,7 +153,7 @@ class GeometryMixin:
                 return None
             return self.from_blender(self.material_normal(n, mode[1]))
         got = self.shared("pixel normal", make)
-        return got if got is not None else self.vertex_normal()
+        return got if got is not None else self._facing_normal()
 
     def material_normal(self, n, tangent=True):
         """A material's Normal as Blender's world normal, one per tree (the BSDF and PixelNormalWS

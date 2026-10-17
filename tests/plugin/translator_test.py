@@ -34,6 +34,8 @@ PASSES = [0]
 # load_graph caches by (path, mtime, size): a file rewritten within one clock tick reads as the old graph
 SAVED = set()
 REWRITTEN = [0]
+# what the Geometry node gives (Blender's normal faces the viewer: flipped on a back face)
+GEOMETRY = {"Normal": (0.0, 0.0, 1.0), "Backfacing": 0.0}
 
 
 # ------------------------------------------------------------ evaluator
@@ -163,6 +165,8 @@ def ev(sock, ctx=()):
         if node.data_type == 'FLOAT':
             return one(*(i(j) for j in range(5)))
         return _cw(one, i(6), i(7), i(8), i(9), i(10))
+    if k == "ShaderNodeNewGeometry":
+        return GEOMETRY[sock.name]
     if k == "ShaderNodeTexImage":
         px = tuple(node.image.pixels[:4])
         return px[3] if sock.name == "Alpha" else px[:3]
@@ -337,6 +341,8 @@ class TestEnv:
         return self.tr.const((0.0, 0.0, 0.0), 3)
 
     def vertex_normal(self):
+        if self.over.get("geometry"):       # the translator's own, from the Geometry node (GEOMETRY)
+            return None
         return self.tr.const(self.over.get("normal", (0.0, 0.0, 1.0)), 3)
 
     def vertex_tangent(self):
@@ -474,6 +480,13 @@ check("SphereMask linked hardness", expr(lambda g: g.add("SphereMask", A=R(scala
                                                          Radius=R(scalar(g, 1.0)), Hardness=R(scalar(g, 0.9))))[0], 0.5)
 check("SphereMask hardness percent", expr(lambda g: g.add("SphereMask", A=R(scalar(g, 0.95)), B=R(scalar(g, 0.0)),
                                                           AttenuationRadius=1.0, HardnessPercent=90.0))[0], 0.5)
+
+
+# VertexNormalWS isn't flipped on a back face (UE flips only the pixel normal): the inverted-hull outlines' facing test
+GEOMETRY.update(Normal=(0.0, 0.0, -1.0), Backfacing=1.0)
+check("VertexNormalWS on a back face", expr(lambda g: g.add("VertexNormalWS"), geometry=True)[0], (0.0, 0.0, 1.0))
+check("PixelNormalWS on a back face", expr(lambda g: g.add("PixelNormalWS"), geometry=True)[0], (0.0, 0.0, -1.0))
+GEOMETRY.update(Normal=(0.0, 0.0, 1.0), Backfacing=0.0)
 
 
 # If: A >= B picks Greater; the Equals pin within the threshold; ConstB
