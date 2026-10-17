@@ -469,6 +469,12 @@ check("Clamp min only", expr(lambda g: g.add("Clamp", Input=R(scalar(g, 5.0)), C
 check("Clamp max only", expr(lambda g: g.add("Clamp", Input=R(scalar(g, -3.0)), ClampMode="EClampMode::CMODE_ClampMax"))[0], -3.0)
 check("Clamp vector", expr(lambda g: g.add("Clamp", Input=R(const3(g, (-1.0, 0.5, 2.0)))))[0], (0.0, 0.5, 1.0))
 
+# SphereMask: a linked Hardness is 0..1, only the HardnessPercent constant is in percent (the anime pupils)
+check("SphereMask linked hardness", expr(lambda g: g.add("SphereMask", A=R(scalar(g, 0.95)), B=R(scalar(g, 0.0)),
+                                                         Radius=R(scalar(g, 1.0)), Hardness=R(scalar(g, 0.9))))[0], 0.5)
+check("SphereMask hardness percent", expr(lambda g: g.add("SphereMask", A=R(scalar(g, 0.95)), B=R(scalar(g, 0.0)),
+                                                          AttenuationRadius=1.0, HardnessPercent=90.0))[0], 0.5)
+
 
 # If: A >= B picks Greater; the Equals pin within the threshold; ConstB
 def if_graph(a, b, with_eq, const_b=None):

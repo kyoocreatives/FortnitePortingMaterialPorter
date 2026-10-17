@@ -692,14 +692,14 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         if t == "CameraPositionWS":
             return env.camera_position()
         if t == "SphereMask":
-            # UMaterialExpressionSphereMask::Compile: hardness in percent
+            # UMaterialExpressionSphereMask::Compile: a linked hardness is 0..1, the HardnessPercent constant in percent
             a, b = P("A"), P("B")
             radius = self.input(g, p.get("Radius"), scope, self.const(float(p.get("AttenuationRadius", 256.0))))
-            hard = self.input(g, p.get("Hardness"), scope, self.const(float(p.get("HardnessPercent", 100.0))))
+            hard = self.input(g, p.get("Hardness"), scope, self.const(float(p.get("HardnessPercent", 100.0)) * 0.01))
             d = self.vmath('LENGTH', self.vmath('SUBTRACT', *self.flat(a, b), out_w=3), out_w=1) if max(a.w, b.w) > 1 \
                 else self.math('ABSOLUTE', self.binop('SUBTRACT', a, b))
             nd = self.binop('DIVIDE', d, self.math('MAXIMUM', radius, self.const(0.00001)))
-            soft = self.binop('SUBTRACT', self.const(1.0), self.binop('MULTIPLY', hard, self.const(0.01)))
+            soft = self.binop('SUBTRACT', self.const(1.0), hard)
             inv = self.binop('DIVIDE', self.const(1.0), self.math('MAXIMUM', soft, self.const(0.00001)))
             return self.math('MULTIPLY', self.binop('SUBTRACT', self.const(1.0), nd), inv, clamp=True, label="SphereMask")
         if t == "InverseLinearInterpolate":
