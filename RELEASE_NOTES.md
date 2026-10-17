@@ -3,6 +3,8 @@ An unofficial fork of [FortnitePorting](https://github.com/h4lfheart/FortnitePor
 **Install:** download `FortnitePortingMP.exe` below and run it (Windows x64, no installer). Windows may warn about an unsigned app: *More info > Run anyway*. It runs beside an installed FortnitePorting, with its own settings (`%APPDATA%\FortnitePorting MP`) and its own Blender plugin (`fortnite_porting_mp`), installed from the Plugins page as in FortnitePorting. Exact materials need Blender 5.0 or newer; older Blender gets FortnitePorting's shaders.
 
 **This release**
+- Anime and toon skins: the game's own ink outlines (also on older toon skins like Lexa), sharp pupils.
+- Mesh pieces the game doesn't draw stay hidden (the black shape on Sung Jinwoo).
 - Works with the latest Fortnite update (version 5 mappings).
 - Official rig: a clearer side panel with a control picker, one-click IK/FK, stretch and local toggles, and a Shift+Q pie; widgets and colours match Epic's; hand and limb controls sit on their bones.
 - Extra hand controls: curl and spread every finger at once, and a held prop the fingers close on.
