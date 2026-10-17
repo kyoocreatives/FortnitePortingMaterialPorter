@@ -260,9 +260,11 @@ def _dynamics(ctx, cloth=None, clothed=()):
 
 
 def after_parts(ctx, rig_type, tasty):
-    """Shell fur, the character's effects (not played yet, parts not merged) and a rig for what Tasty's doesn't fit."""
-    from . import shells
+    """Shell fur, outlines, the character's effects (not played yet, parts not merged) and a rig for what Tasty's
+    doesn't fit."""
+    from . import outlines, shells
     shells.apply(ctx, [m.get("Mesh") for m in ctx.imported_meshes])
+    outlines.apply(ctx, [m.get("Mesh") for m in ctx.imported_meshes])
     settle_effects(ctx)
     _correctives(ctx)
     try:
@@ -351,6 +353,10 @@ def prepare_shells(ctx, mesh, imported_mesh, meta):
     if mesh.get("MPShells") and imported_mesh is not None:
         from . import shells
         shells.prepare(ctx, imported_mesh, mesh.get("MPShells"), meta)
+    # an overlay material (the anime skins' outlines): built beside the part's own
+    if (overlay := (mesh.get("Meta") or {}).get("Overlay")) and imported_mesh is not None:
+        from . import outlines
+        outlines.prepare(ctx, imported_mesh, overlay, meta)
 
 
 def reparent_duplicate_bones(master_skeleton):

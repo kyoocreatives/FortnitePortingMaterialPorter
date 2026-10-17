@@ -14,6 +14,7 @@ public class BaseMeta
     public string? DynamicsParameters;     // MP: the per-state dynamics parameters its anim blueprint reads
     public string? AnimScript;     // MP: its anim blueprint with bytecode (the values bound to the dynamics nodes)
     public string? Cloth;     // MP: its mesh's clothing assets and render mapping (cloth replay)
+    public ExportMaterial? Overlay;     // MP: drawn over the mesh as a second pass (the anime skins' outlines)
 }
 
 public class ExportMasterSkeletonMeta : BaseMeta

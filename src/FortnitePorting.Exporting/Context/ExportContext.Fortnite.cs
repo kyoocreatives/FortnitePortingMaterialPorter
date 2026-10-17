@@ -130,6 +130,7 @@ public partial class ExportContext
             exportPart.Meta.Cloth = Cloth(skeletalMesh);     // MP
             exportPart.Meta.AnimScript = AnimScript(additionalData, exportPart.Meta.Cloth is not null);     // MP
         }        
+        exportPart.Meta.Overlay = Overlay(part, skeletalMesh);     // MP
         if (EffectsPick) PartEffects(part, exportPart);     // MP
         return ShellFur(part, exportPart);     // MP
     }

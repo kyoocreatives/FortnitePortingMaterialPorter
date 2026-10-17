@@ -164,7 +164,7 @@ class MaterialImportContext:
         # isn't hidden then, its graph says how see-through it is
         use_exact = mp.use_exact(material)
         crunch_names = [n for n in vertex_crunch_names if n != "Transparent"] if use_exact else vertex_crunch_names
-        outline_shell = any(toon_outline_names, lambda x: x in material_name) and not any(toon_outline_disable_names, lambda x: x in material_name)
+        outline_shell = any(toon_outline_names, lambda x: x in material_name) and not any(toon_outline_disable_names, lambda x: x in material_name) and not material_data.get("MPOutline")     # MP: a part's overlay outline is built
         if (any(crunch_names, lambda x: x in material_name) 
                 or get_param(scalars, "HT_CrunchVerts") == 1 
                 or outline_shell):
