@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using CUE4Parse.FileProvider.Objects;
@@ -30,13 +31,23 @@ public partial class HybridFileProvider
         var entry = _loose.AddOrUpdate(file.Path,
             _ => Added(file, written, load),
             (_, kept) => kept.Written == written ? kept : Added(file, written, load));
-        try { return entry.Package.Value; }
+        try
+        {
+            var package = entry.Package.Value;
+            if (TexturesOnly(package) && _loose.TryRemove(new(file.Path, entry))) Interlocked.Add(ref _looseBytes, -file.Size);
+            return package;
+        }
         catch
         {
-            _loose.TryRemove(file.Path, out _);     // a failed read isn't kept
+            _loose.TryRemove(new(file.Path, entry));     // a failed read isn't kept
             throw;
         }
     }
+
+    // A texture's package imports nothing to resolve, and its decoded pixels are large: not kept
+    static bool TexturesOnly(IPackage package) => package is Package { ExportMap.Length: > 0 } p &&
+        p.ExportMap.Where(e => e.OuterIndex.IsNull).All(e => e.ClassIndex.IsImport &&
+            p.ImportMap[-e.ClassIndex.Index - 1].ObjectName.Text.StartsWith("Texture", StringComparison.Ordinal));
 
     (DateTime, Lazy<IPackage>) Added(OsGameFile file, DateTime written, Func<IPackage> load)
     {

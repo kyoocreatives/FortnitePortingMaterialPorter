@@ -80,7 +80,16 @@ public partial class ExportContext
                 foreach (var read in levels)
                 {
                     CancellationToken.ThrowIfCancellationRequested();
-                    reader.LevelAsync(read, Matrix4x4.Identity, 0, CancellationToken).GetAwaiter().GetResult();
+                    try
+                    {
+                        reader.LevelAsync(read, Matrix4x4.Identity, 0, CancellationToken).GetAwaiter().GetResult();
+                    }
+                    catch (Exception e) when (e is not OperationCanceledException && Meta.MPLevels != null)
+                    {
+                        // a loose actor package deleted or being saved since it was listed
+                        scan.Skip("unreadable actor packages");
+                        MaterialPorter.Failures.Note("level reads", read, e);
+                    }
                 }
             }
             catch (OperationCanceledException)
@@ -188,7 +197,7 @@ public partial class ExportContext
         }
         foreach (var key in Meta.MPLevels)
         {
-            if (FileProvider.LoadPackage(key) is not global::CUE4Parse.UE4.Assets.Package package) continue;
+            if (!FileProvider.TryLoadPackage(key, out var loaded) || loaded is not global::CUE4Parse.UE4.Assets.Package package) continue;
             global::CUE4Parse.UE4.Assets.IPackage lazy = package;
             for (var i = 0; i < package.ExportMap.Length; i++)
             {

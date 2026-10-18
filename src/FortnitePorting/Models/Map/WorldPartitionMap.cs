@@ -63,7 +63,7 @@ public partial class WorldPartitionMap : ObservableObject
     
     private UWorld? _world;
     private ULevel? _level;
-    private ExportDataMeta? _exportMeta;
+    protected ExportDataMeta? _exportMeta;     // MP: protected
 
     public void Detach()
     {
