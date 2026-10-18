@@ -142,13 +142,9 @@ public partial class ExportContext
         }
 
         // terrain and HLODs go through FP's own export
-        foreach (var actorLazy in level.Actors)
+        foreach (var actor in TerrainActors(level))
         {
             if (CancellationToken.IsCancellationRequested) break;
-            if (actorLazy is null || actorLazy.IsNull) continue;
-            var type = actorLazy.ResolvedObject?.Class?.Name.Text ?? string.Empty;
-            if (!type.Contains("Landscape", StringComparison.Ordinal) && type != "FortMainHLOD") continue;
-            if (actorLazy.Load() is not { } actor) continue;
             if (ActorFilter is { } only && !actor.Name.Contains(only, StringComparison.OrdinalIgnoreCase)) continue;
             if (actor is ALandscapeProxy proxy)
             {
@@ -172,6 +168,36 @@ public partial class ExportContext
         }
 
         return meshes;
+    }
+
+    static bool IsTerrain(string type) => type.Contains("Landscape", StringComparison.Ordinal) || type == "FortMainHLOD";
+
+    /// <summary>The level's terrain and HLOD actors, or those of the packages read in its place (MPLevels: an editor
+    /// map's actors, each in its own package, found by class without reading the others).</summary>
+    private IEnumerable<UObject> TerrainActors(ULevel level)
+    {
+        if (Meta.MPLevels is null)
+        {
+            foreach (var actorLazy in level.Actors)
+            {
+                if (actorLazy is null || actorLazy.IsNull) continue;
+                if (!IsTerrain(actorLazy.ResolvedObject?.Class?.Name.Text ?? string.Empty)) continue;
+                if (actorLazy.Load() is { } actor) yield return actor;
+            }
+            yield break;
+        }
+        foreach (var key in Meta.MPLevels)
+        {
+            if (FileProvider.LoadPackage(key) is not global::CUE4Parse.UE4.Assets.Package package) continue;
+            global::CUE4Parse.UE4.Assets.IPackage lazy = package;
+            for (var i = 0; i < package.ExportMap.Length; i++)
+            {
+                var export = package.ExportMap[i];
+                if (export.OuterIndex is not { IsImport: true } outer || package.ImportMap[-outer.Index - 1].ObjectName.Text != "PersistentLevel") continue;
+                var type = export.ClassIndex.IsImport ? package.ImportMap[-export.ClassIndex.Index - 1].ObjectName.Text : "";
+                if (IsTerrain(type) && lazy.GetExport(i) is { } actor) yield return actor;
+            }
+        }
     }
 
     /// <summary>The _Generated_ cell levels beside a World Partition map whose runtime hash lists none (UEFN islands).</summary>
