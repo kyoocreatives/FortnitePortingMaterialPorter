@@ -78,6 +78,7 @@ public partial class ExportContext
     public T? Mesh<T>(UStaticMesh? mesh) where T : ExportMesh, new()
     {
         if (mesh is null) return null;
+        T? owned = null; OwnerStaticMesh(mesh, ref owned); if (owned != null) return owned;     // MP
 
         try
         {

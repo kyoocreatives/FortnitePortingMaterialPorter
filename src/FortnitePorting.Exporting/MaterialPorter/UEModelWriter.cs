@@ -109,7 +109,8 @@ public static class UEModelWriter
     }
 
     /// <summary>A skinned mesh from arrays (a Mutable mesh, which has no USkeletalMesh) on a skeleton's bones; each section's material slot named (name, material path).</summary>
-    public static void Write(string file, string objectName, RawSkinnedMesh mesh, USkeleton skeleton, IList<(string Name, string Path)> slots)
+    /// <summary>A raw mesh as a UEFormat model: skinned on the skeleton, or static without one.</summary>
+    public static void Write(string file, string objectName, RawSkinnedMesh mesh, USkeleton? skeleton, IList<(string Name, string Path)> slots)
     {
         Save(file, objectName, o =>
         {
@@ -167,6 +168,7 @@ public static class UEModelWriter
                         s.W.Write(faces);
                     }
                 });
+                if (skeleton != null)
                 inner.Section("WEIGHTS", mesh.Weights.Count, s =>
                 {
                     foreach (var (bone, vertex, weight) in mesh.Weights)
@@ -181,6 +183,7 @@ public static class UEModelWriter
                 l.W.Write(data.Length);
                 l.W.Write(data);
             });
+            if (skeleton == null) return;
             var skel = skeleton.ReferenceSkeleton;
             o.Section("SKELETON", 1, s =>
             {
