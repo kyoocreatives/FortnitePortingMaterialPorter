@@ -438,6 +438,7 @@ public partial class CUE4ParseService : ObservableObject, IService, IResettable
     [LoadingStage("Loading Virtual Paths", stage: 7, weight: 15)]
     private async Task LoadVirtualPaths()
     {
+        RegisterOwnerFiles();     // MP
         Provider.LoadVirtualPaths();
         Provider.PostMount();
         PreferCookedFiles();     // MP

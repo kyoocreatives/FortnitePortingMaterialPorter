@@ -19,6 +19,9 @@ public partial class CUE4ParseService
 {
     private InstallationProfile Profile => AppSettings.Installation.CurrentProfile;
 
+    // The owner's own files (fpfork-private), added before the plugin mounts are read.
+    partial void RegisterOwnerFiles();
+
     private void OnLoadingStarted()
     {
         MaterialPorter.MaterialPorterService.Instance.OnGameLoading();

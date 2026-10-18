@@ -65,8 +65,12 @@ public partial class MaterialPorterService
         return size;
     }
 
+    /// <summary>The owner's own test routes (fpfork-private): an answer, or null for the fork's.</summary>
+    public static Func<string, NameValueCollection, Task<object?>>? OwnerRoutes;
+
     private async Task<object?> TestRouteAsync(string route, NameValueCollection query)
     {
+        if (OwnerRoutes != null && await OwnerRoutes(route, query) is { } owned) return owned;
         if (route == "fork-projects")
         {
             // UEFN projects found, which island is which, and what graphs came from where so far
