@@ -3,6 +3,7 @@ using System.Text;
 using global::CUE4Parse.UE4.Assets.Exports.Animation;
 using global::CUE4Parse.UE4.Assets.Exports.SkeletalMesh;
 using global::CUE4Parse.UE4.Assets.Exports.StaticMesh;
+using global::CUE4Parse.UE4.Objects.Core.Math;
 using global::CUE4Parse_Conversion.Dto;
 using global::CUE4Parse_Conversion.Options;
 
@@ -110,7 +111,17 @@ public static class UEModelWriter
 
     /// <summary>A skinned mesh from arrays (a Mutable mesh, which has no USkeletalMesh) on a skeleton's bones; each section's material slot named (name, material path).</summary>
     /// <summary>A raw mesh as a UEFormat model: skinned on the skeleton, or static without one.</summary>
-    public static void Write(string file, string objectName, RawSkinnedMesh mesh, USkeleton? skeleton, IList<(string Name, string Path)> slots)
+    public static void Write(string file, string objectName, RawSkinnedMesh mesh, USkeleton skeleton, IList<(string Name, string Path)> slots)
+    {
+        var skel = skeleton?.ReferenceSkeleton;
+        var bones = skel == null ? null : Enumerable.Range(0, skel.FinalRefBoneInfo.Length).Select(i => (skel.FinalRefBoneInfo[i].Name.Text,
+            skel.FinalRefBoneInfo[i].ParentIndex, skel.FinalRefBonePose[i].Translation, skel.FinalRefBonePose[i].Rotation)).ToList();
+        Write(file, objectName, mesh, skeleton?.GetPathName(), bones, slots);
+    }
+
+    /// <summary>A raw mesh skinned on these bones (name, parent, pose relative to the parent), or static without bones.</summary>
+    public static void Write(string file, string objectName, RawSkinnedMesh mesh, string skeletonPath,
+        IList<(string Name, int Parent, FVector Translation, FQuat Rotation)> bones, IList<(string Name, string Path)> slots)
     {
         Save(file, objectName, o =>
         {
@@ -168,7 +179,7 @@ public static class UEModelWriter
                         s.W.Write(faces);
                     }
                 });
-                if (skeleton != null)
+                if (bones != null)
                 inner.Section("WEIGHTS", mesh.Weights.Count, s =>
                 {
                     foreach (var (bone, vertex, weight) in mesh.Weights)
@@ -183,24 +194,21 @@ public static class UEModelWriter
                 l.W.Write(data.Length);
                 l.W.Write(data);
             });
-            if (skeleton == null) return;
-            var skel = skeleton.ReferenceSkeleton;
+            if (bones == null) return;
             o.Section("SKELETON", 1, s =>
             {
-                s.Section("METADATA", 1, m => m.FString(skeleton.GetPathName()));
-                s.Section("BONES", skel.FinalRefBoneInfo.Length, b =>
+                s.Section("METADATA", 1, m => m.FString(skeletonPath ?? objectName));
+                s.Section("BONES", bones.Count, b =>
                 {
-                    for (var i = 0; i < skel.FinalRefBoneInfo.Length; i++)
+                    foreach (var (name, parent, translation, rotation) in bones)
                     {
-                        var info = skel.FinalRefBoneInfo[i];
-                        var pose = skel.FinalRefBonePose[i];
-                        b.FString(info.Name.Text);
-                        b.W.Write(info.ParentIndex);
-                        V3(b, pose.Translation.X, pose.Translation.Y, pose.Translation.Z);
-                        b.W.Write((float)pose.Rotation.X);
-                        b.W.Write((float)pose.Rotation.Y);
-                        b.W.Write((float)pose.Rotation.Z);
-                        b.W.Write((float)pose.Rotation.W);
+                        b.FString(name);
+                        b.W.Write(parent);
+                        V3(b, translation.X, translation.Y, translation.Z);
+                        b.W.Write((float)rotation.X);
+                        b.W.Write((float)rotation.Y);
+                        b.W.Write((float)rotation.Z);
+                        b.W.Write((float)rotation.W);
                     }
                 });
             });
