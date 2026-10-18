@@ -103,15 +103,22 @@ public sealed class MaterialService
         if (ResolveKey(path, ".o.uasset") is { } old) return old;
         if (ResolveKey(path, ".uasset") is not { } key) return null;
         var files = game.Provider.Files;
+        if (files.TryGetValue(key, out var loose) && IsLoose(loose)) return key;     // an uncooked package holds its own graph
         return files.TryGetValue(key, out var f) && f is global::CUE4Parse.UE4.IO.Objects.FIoStoreEntry entry &&
                files.TryGetOptionalSegmentPackage(entry.ChunkId.AsPackageId(), out _) ? key : null;
     }
+
+    // A package read from a file on disk (an uncooked one, e.g. a UEFN project's), not from the game's containers.
+    static bool IsLoose(global::CUE4Parse.FileProvider.Objects.GameFile file) =>
+        file is global::CUE4Parse.FileProvider.Objects.OsGameFile;
 
     /// <summary>The editor-only exports of EditorKey's package (what an .o.uasset holds): its optional segment loaded on its
     /// own, as the .o.uasset was (merged into the cooked package, its references to the cooked half come out unresolved).</summary>
     async Task<List<global::CUE4Parse.UE4.Assets.Exports.UObject>> EditorExportsAsync(string key)
     {
         var files = game.Provider.Files;
+        if (files.TryGetValue(key, out var loose) && IsLoose(loose))
+            return (await game.Provider.LoadPackageAsync(key)).GetExports().Where(e => !NotGraph.Contains(e.ExportType)).ToList();
         if (!key.EndsWith(".o.uasset", StringComparison.OrdinalIgnoreCase) && files.TryGetValue(key, out var f) &&
             f is global::CUE4Parse.UE4.IO.Objects.FIoStoreEntry entry && files.TryGetOptionalSegmentPackage(entry.ChunkId.AsPackageId(), out var segment))
             return (await game.Provider.LoadPackageAsync(segment)).GetExports().ToList();
@@ -201,7 +208,9 @@ public sealed class MaterialService
             throw new FileNotFoundException("No editor graph for " + path);
         }
         var file = System.IO.Path.Combine(Dir("graphs"), Safe(key) + ".json");
-        if (File.Exists(file)) return file;
+        // a loose package's graph is redone when its file changed (a project edited in UEFN)
+        if (File.Exists(file) && !(game.Provider.Files.TryGetValue(key, out var source) && source is global::CUE4Parse.FileProvider.Objects.OsGameFile os
+                                   && File.GetLastWriteTimeUtc(os.ActualFile.FullName) > File.GetLastWriteTimeUtc(file))) return file;
         await File.WriteAllTextAsync(file, JsonConvert.SerializeObject((await EditorExportsAsync(key)).ToArray(), Formatting.None, Ser));
         return file;
     });

@@ -56,7 +56,7 @@ public partial class MaterialPorterService
 
 
     // Renders the window as shown to a PNG (on the UI thread).
-    private static Avalonia.PixelSize SaveShot(Avalonia.Controls.Window window, string file)
+    internal static Avalonia.PixelSize SaveShot(Avalonia.Controls.Window window, string file)
     {
         var size = new Avalonia.PixelSize((int) window.Bounds.Width, (int) window.Bounds.Height);
         using var shot = new Avalonia.Media.Imaging.RenderTargetBitmap(size);
