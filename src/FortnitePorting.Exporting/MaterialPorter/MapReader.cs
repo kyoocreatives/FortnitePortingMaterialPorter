@@ -105,8 +105,10 @@ public sealed class MapReader
         var pkg = await game.Provider.LoadPackageAsync(path);
         var exports = pkg.GetExports().ToList();
         var level = exports.OfType<ULevel>().FirstOrDefault();
-        if (level == null) return;
         var world = exports.OfType<UWorld>().FirstOrDefault();
+        // no level: an editor map's external actor (World Partition keeps each in its own package, outside its level),
+        // whose editor-only components a cook would have left out
+        var levelName = level?.Name ?? "PersistentLevel";
 
         // components by actor (names are unique within a level)
         var byActor = new Dictionary<string, List<UObject>>(StringComparer.Ordinal);
@@ -115,18 +117,24 @@ public sealed class MapReader
         {
             var outer = e.Outer?.Name.Text;
             if (outer == null) continue;
-            if (outer == level.Name) levelOwned[e.Name] = e;
+            if (outer == levelName) levelOwned[e.Name] = e;
             else if (e.ExportType.Contains("Component", StringComparison.Ordinal))
             {
+                if (level == null && EditorOnly.Component(e, (o, name) => Prop(o, name, false)))
+                {
+                    scan.Skip("editor-only components");
+                    continue;
+                }
                 if (!byActor.TryGetValue(outer, out var l)) byActor[outer] = l = new List<UObject>();
                 l.Add(e);
             }
         }
         var ctx = new LevelContext(this, byActor, parent) { Level = path };
-        foreach (var idx in level.Actors ?? Array.Empty<FPackageIndex>())
+        var actorNames = level?.Actors?.Where(idx => idx != null && !idx.IsNull).Select(idx => idx.Name) ?? levelOwned.Keys.ToList();
+        foreach (var name in actorNames)
         {
             ct.ThrowIfCancellationRequested();
-            if (idx == null || idx.IsNull || !levelOwned.TryGetValue(idx.Name, out var actor)) continue;
+            if (!levelOwned.TryGetValue(name, out var actor)) continue;
             Interlocked.Increment(ref scan.Actors);
             try { await ActorAsync(actor, ctx, depth, ct); }
             catch (OperationCanceledException) { throw; }

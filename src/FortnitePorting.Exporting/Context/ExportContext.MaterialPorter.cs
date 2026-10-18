@@ -74,8 +74,7 @@ public partial class ExportContext
             var scan = new MapScan { Name = package, Key = package };
             var reader = new MapReader(new MapGame { Provider = FileProvider }, options, scan);
             // UEFN island cells aren't in the runtime hash (FP never visits them); read them too
-            var levels = new List<string> { package };
-            levels.AddRange(IslandCells(level, package));
+            var levels = Meta.MPLevels ?? [package, ..IslandCells(level, package)];
             try
             {
                 foreach (var read in levels)
