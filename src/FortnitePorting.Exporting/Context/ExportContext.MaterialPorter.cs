@@ -305,6 +305,9 @@ public partial class ExportContext
         };
     }
 
+    // A placement whose mesh couldn't be exported: the owner's code may put something in its place.
+    partial void MissingMesh(MapMesh m, ref ExportMesh? empty);
+
     /// <summary>One placement as FP's mesh record: the mesh (exported once), its transform and slot materials.</summary>
     private ExportMesh? Placement(MapMesh m)
     {
@@ -318,7 +321,12 @@ public partial class ExportContext
             };
             _mpMeshes[m.Mesh] = template;
         }
-        if (template is null) return null;
+        if (template is null)
+        {
+            ExportMesh? empty = null;
+            MissingMesh(m, ref empty);     // MP: the owner's placeholder (fpfork-private)
+            return empty;
+        }
 
         var export = new MaterialPorterMesh
         {

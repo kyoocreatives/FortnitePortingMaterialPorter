@@ -12,5 +12,8 @@
                 Command="{Binding UnlockIslandCommand}"/>
         <TextBlock Text="{Binding IslandStatus}" TextWrapping="Wrap" FontSize="11" Opacity="0.7"
                    IsVisible="{Binding IslandStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"/>
+        <Button HorizontalAlignment="Stretch" Content="{controls:IconText 'Sync Projects', Refresh}"
+                ToolTip.Tip="Re-read your local UEFN projects (new and changed files)"
+                Command="{Binding RefreshProjectsCommand}"/>
     </StackPanel>
 </UserControl>

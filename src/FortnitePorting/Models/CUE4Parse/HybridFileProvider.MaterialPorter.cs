@@ -20,8 +20,9 @@ public partial class HybridFileProvider
     public override IPackage LoadPackage(GameFile file) =>
         file is OsGameFile os ? Loose(os, () => base.LoadPackage(file)) : base.LoadPackage(file);
 
+    // (the loose read is synchronous: blocking on base.LoadPackageAsync deadlocks when called from the UI thread)
     public override async Task<IPackage> LoadPackageAsync(GameFile file) =>
-        file is OsGameFile os ? Loose(os, () => base.LoadPackageAsync(file).GetAwaiter().GetResult()) : await base.LoadPackageAsync(file);
+        file is OsGameFile os ? Loose(os, () => base.LoadPackage(file)) : await base.LoadPackageAsync(file);
 
     IPackage Loose(OsGameFile file, Func<IPackage> load)
     {

@@ -27,6 +27,22 @@ public partial class WorldPartitionMap
 
     public bool NoPreview => MapBitmap is null && !IsDrawingPreview && !_drawnPreview;
 
+    /// <summary>An export meta with the Map page's toggles and actor filter, as Export sets them.</summary>
+    protected Exporting.Models.ExportDataMeta WorldExportMeta()
+    {
+        var meta = AppSettings.ExportSettings.CreateExportMeta(MapVM.ExportLocation);
+        meta.WorldFlags = 0;
+        if (WorldFlagsActors) meta.WorldFlags |= EWorldFlags.Actors;
+        if (WorldFlagsInstancedFoliage) meta.WorldFlags |= EWorldFlags.InstancedFoliage;
+        if (WorldFlagsLandscape) meta.WorldFlags |= EWorldFlags.Landscape;
+        if (WorldFlagsHLODs) meta.WorldFlags |= EWorldFlags.HLODs;
+        if (WorldFlagsLights) meta.WorldFlags |= EWorldFlags.Lights;
+        if (WorldFlagsDecals) meta.WorldFlags |= EWorldFlags.Decals;
+        if (WorldFlagsEffects) meta.WorldFlags |= EWorldFlags.Effects;
+        meta.ActorFilter = string.IsNullOrWhiteSpace(ActorFilter) ? null : ActorFilter.Trim();
+        return meta;
+    }
+
     private bool _drawnPreview;
     private int _previewLevels;
     private CancellationTokenSource? _previewCancel;
@@ -56,7 +72,7 @@ public partial class WorldPartitionMap
     }
 
     // The levels to read: the map, its streamed cells (an island's beside it).
-    private List<string> PreviewLevels()
+    protected virtual List<string> PreviewLevels()
     {
         var levels = new List<string> { MapInfo.MapPath };
         var cells = Grids.SelectMany(g => g.Maps).Select(m => m.Path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -80,7 +96,7 @@ public partial class WorldPartitionMap
     }
 
     /// <summary>Called when the map is opened: draws its picture if it has none yet (one map at a time, in opening order).</summary>
-    public void EnsurePreview()
+    public virtual void EnsurePreview()
     {
         if (!_drawnPreview || MapBitmap is not null || IsDrawingPreview) return;
         var cancel = _previewCancel = new CancellationTokenSource();

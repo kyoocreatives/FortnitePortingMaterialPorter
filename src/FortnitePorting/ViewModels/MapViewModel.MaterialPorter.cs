@@ -15,6 +15,13 @@ public partial class MapViewModel
 {
     public bool CanUnlockIslands => Fork.Islands;
 
+    // The owner's own maps (fpfork-private): listed with the others, and re-read on request.
+    partial void AddOwnerMaps();
+    partial void RefreshOwnerProjects();
+
+    [RelayCommand]
+    public void RefreshProjects() => RefreshOwnerProjects();
+
     [ObservableProperty] private string _islandCode = string.Empty;
     [ObservableProperty] private string _islandStatus = string.Empty;
     [ObservableProperty] private bool _isUnlockingIsland;

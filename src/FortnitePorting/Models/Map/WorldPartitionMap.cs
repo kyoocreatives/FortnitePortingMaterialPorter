@@ -84,7 +84,7 @@ public partial class WorldPartitionMap : ObservableObject
         MapInfo = info;
     }
 
-    public async Task Load()
+    public virtual async Task Load()     // MP: virtual
     {
         Grids = [];
         
@@ -257,7 +257,7 @@ public partial class WorldPartitionMap : ObservableObject
     }
     
     [RelayCommand]
-    public async Task Export()
+    public virtual async Task Export()     // MP: virtual
     {
         _exportMeta = AppSettings.ExportSettings.CreateExportMeta(MapVM.ExportLocation);
         IsExporting = true;
