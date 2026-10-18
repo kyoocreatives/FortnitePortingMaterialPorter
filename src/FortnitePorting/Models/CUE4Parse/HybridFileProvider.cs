@@ -11,7 +11,7 @@ using EpicManifestParser.UE;
 
 namespace FortnitePorting.Models.CUE4Parse;
 
-public class HybridFileProvider : AbstractVfsFileProvider
+public partial class HybridFileProvider : AbstractVfsFileProvider     // MP: partial
 {
     public bool LoadExtraDirectories;
     public bool LoadOnDemandTocs;
