@@ -276,6 +276,10 @@ class System:
         props = self.props = self.asset["props"]
         self.rng = np.random.default_rng(seed)
         self.seed = seed
+        from .. import niagara_graph
+        if niagara_graph.uncooked(props, self.export):
+            self._uncooked(niagara_graph)
+            return
         compiled = props.get("SystemCompiledData") or {}
         self.compiled = compiled
         self.layout = Layout(compiled["DataSetCompiledData"]["Variables"])
@@ -360,6 +364,43 @@ class System:
             for h in e.handlers:
                 h.source = next((o for o in self.emitters if o.id == h.source_id), None)
 
+    def _uncooked(self, niagara_graph):
+        """A system never cooked (a UEFN project's own): no scripts to run; each emitter played from its module stack
+        (niagara_graph). Approximate throughout."""
+        self.uncooked = True
+        self.layout = Layout([])
+        self.data = self.next = self.layout.buffer(1)
+        self.user, self.shared, self.cooked, self.compiled = Store({}), Store({}), {}, {}
+        self.age, self.ticks, self.state, self.asked = 0.0, 0, ACTIVE, ACTIVE
+        self.globals, self.block, self.owner = bytearray(GLOBAL_SIZE), bytearray(SYSTEM_SIZE), bytearray(OWNER_SIZE)
+        self.previous, self.unanswered, self.meshless = None, set(), False
+        self.spawn = self.update = None
+        self.handles = self.props.get("EmitterHandles") or []
+        self.emitters, self.skipped, self.approximate, self.gpu = [], [], [], []
+        self.partial = []       # "<emitter>: <modules>" not played (custom ones, ones not known here)
+        self.user_values = niagara_graph.values(self.props.get("ExposedParameters") or {})     # User.* as the asset sets them
+        graph = niagara_graph.Graph(self.exports)
+        for index, handle in enumerate(self.handles):
+            if not handle.get("bIsEnabled", True):
+                continue
+            export = self.export((handle.get("VersionedInstance") or {}).get("Emitter"))
+            versions = (export or {}).get("props", {}).get("VersionData") or []
+            if not versions:
+                continue
+            wanted = handle["VersionedInstance"].get("Version")
+            version = next((v for v in versions if (v.get("Version") or {}).get("VersionGuid") == wanted), versions[0])
+            try:
+                emitter = niagara_graph.Emitter(self, index, handle, export, version, graph)
+            except Exception as e:
+                if self.strict:
+                    raise
+                self.skipped.append((handle["Name"], "from its modules: %s" % e))
+                continue
+            self.emitters.append(emitter)
+            self.approximate.append(handle["Name"])
+            if emitter.missing:
+                self.partial.append("%s: %s" % (handle["Name"], ", ".join(emitter.missing)))
+
     def unresolved(self):
         """Bones and sockets its scripts read that the character's pose lacks."""
         names = set()
@@ -371,6 +412,8 @@ class System:
 
     def _read(self):
         """Values of the parameter collections its scripts read, by name."""
+        if getattr(self, "uncooked", False):
+            return set()
         scripts = [self.spawn, self.update] + [s for e in self.emitters for s in
                                                (getattr(e, "spawn", None), getattr(e, "update", None), *[h.script for h in getattr(e, "handlers", ())]) if s is not None]
         return {name for s in scripts for name in s.store.offsets if name in self.shared.offsets}
@@ -378,6 +421,8 @@ class System:
     def users(self):
         """What the game sets, as a number or a few: the user parameters and the parameter
         collections' values its scripts read. Returns [(name, type, value)]."""
+        if getattr(self, "uncooked", False):
+            return [(n, "NiagaraFloat" if not hasattr(v, "__len__") else "Vector%df" % len(v), v) for n, v in sorted(self.user_values.items())]
         found = []
         read = self._read()
         for store in (self.user, self.shared):
@@ -397,6 +442,10 @@ class System:
     def set_user(self, name, value):
         """Override a user parameter's (or parameter collection's) asset value (a number, a bool or floats)."""
         name = name if name.startswith(("User.", "NPC.")) else "User." + name
+        if getattr(self, "uncooked", False):      # its modules read them by name (niagara_graph)
+            known = next((n for n in self.user_values if n.lower() == name.lower()), name)
+            self.user_values[known] = tuple(value) if hasattr(value, "__len__") else value
+            return
         # UE's names are case-insensitive
         name = next((n for n in list(self.user.offsets) + list(self.shared.offsets) if n.lower() == name.lower()), name)
         store = self.user if name in self.user.offsets else self.shared if name in self.shared.offsets else None
@@ -536,6 +585,18 @@ class System:
     def tick(self, dt):
         self.dt = dt
         self._owner(dt)
+        if getattr(self, "uncooked", False):
+            for e in list(self.emitters):
+                try:
+                    e.tick(dt)
+                except Exception as x:
+                    if self.strict:
+                        raise
+                    self.emitters.remove(e)
+                    self.skipped.append((e.name, "failed: %s" % x))
+            self.age += dt
+            self.ticks += 1
+            return
         struct.pack_into("<5fi", self.globals, 0, dt, dt, 1.0 / dt, self.age, self.age, QUALITY)
         # time since rendered, LOD distance and its fraction, age, execution state, ticks, emitters, alive emitters, significance, seed
         alive = sum(1 for e in self.emitters if e.state != COMPLETE)

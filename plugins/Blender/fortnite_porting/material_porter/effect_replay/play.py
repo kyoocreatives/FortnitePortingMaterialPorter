@@ -130,7 +130,7 @@ def _user(root, system):
                 value = True
             root[name] = value
     # UE's names are case-insensitive (a glider's bisFullyDeployed is the bIsFullyDeployed the game sets)
-    spelled = {n.lower(): n for n in list(system.user.offsets) + list(system.shared.offsets)}
+    spelled = {n.lower(): n for n in list(system.user.offsets) + list(system.shared.offsets) + list(getattr(system, "user_values", {}))}
     for name in [k for k in root.keys() if k.startswith(("User.", "NPC."))]:
         own = spelled.get(name.lower())
         if own is None:     # set by the export but not taken by this system
@@ -405,7 +405,10 @@ def play(root):
         yield "%s: %s drawn see-through all along (their colour's alpha 0: waiting on something the game sets%s)" % (
             root.name, ", ".join(clear_ones[:6]), ": its %s at 0 - set on the effect's empty, then Replay Effect" % ", ".join(zero[:5]) if zero else "")
     approximate = [name for name in played if name in system.approximate and name not in system.gpu]
-    if approximate:
+    if approximate and getattr(system, "uncooked", False):
+        yield "%s: %s: not cooked (a project's own), played from their modules (approximated)%s" % (
+            root.name, ", ".join(approximate), "; modules not played: " + "; ".join(system.partial) if system.partial else "")
+    elif approximate:
         yield "%s: %s: stateless emitters, played from their settings (the engine's random draws apart)" % (root.name, ", ".join(approximate))
     gpu = [name for name in played if name in system.gpu]
     if gpu:

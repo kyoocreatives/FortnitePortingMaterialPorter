@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using CUE4Parse.UE4.Assets.Exports;
+using CUE4Parse.UE4.Assets.Exports.EdGraph;
 using CUE4Parse.UE4.Assets.Objects;
 using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Objects.Core.Misc;
 using CUE4Parse.UE4.Objects.Engine.VectorField;
 using CUE4Parse.UE4.Objects.UObject;
+using CUE4Parse.Utils;
 using FortnitePorting.CUE4Parse.Extensions;
 using CUE4Parse.UE4.Objects.Engine;
 using Newtonsoft.Json;
@@ -431,6 +433,22 @@ public static class Effects
         return name is { Length: > 0 } && name != "None" ? name : null;
     }
 
+    // An uncooked system's graph nodes (its module stacks), by path in the package (each emitter's graph has the same names):
+    // each pin's name, direction, value and what it links to ({node, pin}), which is where a module input's dynamic input or curve is
+    private static string NodePath(UObject node) => node.GetPathName().SubstringAfter(':');
+
+    private static Dictionary<FGuid, (string Node, string Pin)> PinNames(IEnumerable<UObject> exports) =>
+        exports.OfType<UEdGraphNode>().SelectMany(n => n.Pins.OfType<UEdGraphPin>().Select(p => (n, p)))
+            .GroupBy(x => x.p.PinId).ToDictionary(g => g.Key, g => (NodePath(g.First().n), g.First().p.PinName.Text));
+
+    private static JArray Pins(UEdGraphNode node, Dictionary<FGuid, (string Node, string Pin)> names) =>
+        new(node.Pins.OfType<UEdGraphPin>().Select(p => new JObject
+        {
+            ["name"] = p.PinName.Text, ["dir"] = p.Direction.ToString(), ["value"] = p.DefaultValue, ["category"] = p.PinType?.PinCategory.Text,
+            ["links"] = new JArray(p.LinkedTo.Where(l => l != null && names.ContainsKey(l.PinId))
+                .Select(l => new JObject { ["node"] = names[l!.PinId].Node, ["pin"] = names[l.PinId].Pin })),
+        }));
+
     // compiled data only the engine's own VM and the editor read
     private static readonly HashSet<string> Unread =
         ["ExperimentalContextData", "StatScopes", "CompileTags", "ShaderScriptParametersMetadata", "SimulationStageMetaData"];
@@ -443,6 +461,7 @@ public static class Effects
     {
         var serializer = JsonSerializer.Create(new JsonSerializerSettings { ReferenceLoopHandling = ReferenceLoopHandling.Ignore });
         var exports = new JArray();
+        var pinNames = PinNames(system.Owner!.GetExports());
         foreach (var export in system.Owner!.GetExports())
         {
             var props = new JObject();
@@ -451,7 +470,13 @@ public static class Effects
                     props[p.Name.Text] = JToken.FromObject(value, serializer);
             Prune(props);
             if (export.ExportType == "NiagaraMeshRendererProperties" && MeshBounds(export) is { } bounds) props["MPBounds"] = bounds;
-            exports.Add(new JObject { ["name"] = export.Name, ["type"] = export.ExportType, ["outer"] = export.Outer?.Name.Text, ["props"] = props });
+            var entry = new JObject { ["name"] = export.Name, ["type"] = export.ExportType, ["outer"] = export.Outer?.Name.Text, ["props"] = props };
+            if (export is UEdGraphNode node)
+            {
+                entry["path"] = NodePath(node);
+                entry["pins"] = Pins(node, pinNames);
+            }
+            exports.Add(entry);
         }
         // the parameter collections its scripts read (time of day, wind): each one's values from its default instance's store
         // (a script's cooked store only holds placeholders)
