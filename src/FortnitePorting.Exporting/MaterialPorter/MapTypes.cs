@@ -45,6 +45,8 @@ public sealed class MapMesh
     public bool CastShadow { get; init; } = true;
     /// <summary>Seen only through its shadow: a shadow proxy (ShadowProxyMeshComponent: hidden, not in the main pass), e.g. the simple mesh a tree's shadow comes from.</summary>
     public bool ShadowOnly { get; init; }
+    /// <summary>Hidden in the game (its actor or component), placed only with MapOptions.Hidden.</summary>
+    public bool Hidden { get; init; }
     /// <summary>Where it stands, for an area's test: its origin, a spline mesh's segment middle.</summary>
     public Vector3 Anchor
     {
@@ -95,6 +97,8 @@ public sealed class MapLight
     public float SourceWidth { get; init; }
     public float SourceHeight { get; init; }
     public float BarnDoorAngle { get; init; }
+    /// <summary>Hidden in the game, placed only with MapOptions.Hidden.</summary>
+    public bool Hidden { get; init; }
 }
 
 /// <summary>
@@ -115,6 +119,8 @@ public sealed class MapDecal
     public string Material { get; init; }
     /// <summary>The values a dynamic instance sets over the material; else null.</summary>
     public ParamSet Params { get; init; }
+    /// <summary>Hidden in the game, placed only with MapOptions.Hidden.</summary>
+    public bool Hidden { get; init; }
 }
 
 /// <summary>A particle system a map places (a NiagaraComponent: a NiagaraActor's, a Blueprint's): where, and its user parameters' overrides.</summary>
@@ -128,6 +134,8 @@ public sealed class MapEffect
     public string System { get; init; }
     /// <summary>The component's user parameter overrides by name (as the system names them: "x", not "User.x"): a float, an int, a bool, or floats (a vector, a colour); may be empty.</summary>
     public Dictionary<string, object> Parameters { get; init; } = new();
+    /// <summary>Hidden in the game, placed only with MapOptions.Hidden.</summary>
+    public bool Hidden { get; init; }
 }
 
 public sealed class MapOptions
@@ -140,6 +148,8 @@ public sealed class MapOptions
     public bool Landscape { get; set; } = true;
     /// <summary>Water bodies: ocean, lakes, rivers (their surface meshes), pools and waterfalls.</summary>
     public bool Water { get; set; } = true;
+    /// <summary>Hidden actors and components too (bHidden, bVisible off, bHiddenInGame), marked Hidden; devices and editor-only ones never.</summary>
+    public bool Hidden { get; set; }
     /// <summary>Textures at most this size (the game's own smaller mips); 0: full size.</summary>
     public int TextureSize { get; set; }
     /// <summary>Only this area (UE cm, X/Y): the cells that touch it, and what they place inside it. Null: all of it.</summary>

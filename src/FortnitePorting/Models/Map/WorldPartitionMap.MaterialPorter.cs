@@ -23,6 +23,8 @@ public partial class WorldPartitionMap
     [ObservableProperty, NotifyPropertyChangedFor(nameof(NoPreview))] private string _previewStatus = string.Empty;
     /// <summary>Only actors whose name holds this are exported (empty: all): a map's roads alone ("Spline"), its terrain and roads ("Landscape").</summary>
     [ObservableProperty] private string _actorFilter = string.Empty;
+    // hidden actors too, in the import's Hidden collection (devices and editor-only ones never)
+    [ObservableProperty] private bool _worldFlagsHidden;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(NoPreview))] private bool _isDrawingPreview;
 
     public bool NoPreview => MapBitmap is null && !IsDrawingPreview && !_drawnPreview;
@@ -39,6 +41,7 @@ public partial class WorldPartitionMap
         if (WorldFlagsLights) meta.WorldFlags |= EWorldFlags.Lights;
         if (WorldFlagsDecals) meta.WorldFlags |= EWorldFlags.Decals;
         if (WorldFlagsEffects) meta.WorldFlags |= EWorldFlags.Effects;
+        if (WorldFlagsHidden) meta.WorldFlags |= EWorldFlags.Hidden;
         meta.ActorFilter = string.IsNullOrWhiteSpace(ActorFilter) ? null : ActorFilter.Trim();
         return meta;
     }

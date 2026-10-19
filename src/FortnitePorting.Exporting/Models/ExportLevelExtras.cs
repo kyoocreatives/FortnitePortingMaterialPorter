@@ -12,6 +12,9 @@ public record ExportDecal : ExportObject
     public float FadeScreenSize = 0.01f;
     /// <summary>The decal material as a mesh slot entry (dynamic instance values as MPValues).</summary>
     public ExportMaterial? Material;
+    /// <summary>True when the game hides it (the map export's Hidden Actors option); omitted otherwise.</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public bool? MPHidden;
 }
 
 /// <summary>A particle system a level places (NiagaraComponent). Transform is the world transform like meshes'.</summary>
@@ -21,4 +24,7 @@ public record ExportEffect : ExportObject
     public string System = string.Empty;
     /// <summary>User parameter overrides by name ("x", not "User.x"): float, int, bool, or floats (vector, colour); may be empty.</summary>
     public Dictionary<string, object> Parameters = [];
+    /// <summary>True when the game hides it (the map export's Hidden Actors option); omitted otherwise.</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public bool? MPHidden;
 }

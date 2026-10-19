@@ -27,6 +27,9 @@ public partial record ExportLight
     // a colour temperature (K) tinting Color when UseTemperature (6500 is white)
     public bool UseTemperature;
     public float Temperature = 6500.0f;
+    // hidden in the game (the map export's Hidden Actors option); omitted otherwise
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public bool? MPHidden;
 }
 
 // shines along its X axis; cone angles in degrees from it

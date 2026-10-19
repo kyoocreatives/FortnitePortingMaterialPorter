@@ -70,6 +70,7 @@ public partial class ExportContext
             {
                 Instances = actors && Meta.WorldFlags.HasFlag(EWorldFlags.InstancedFoliage),
                 Landscape = false,
+                Hidden = Meta.WorldFlags.HasFlag(EWorldFlags.Hidden),
             };
             var scan = new MapScan { Name = package, Key = package };
             var reader = new MapReader(new MapGame { Provider = FileProvider }, options, scan);
@@ -290,6 +291,7 @@ public partial class ExportContext
             AttenuationRadius = l.AttenuationRadius,
             Radius = l.SourceRadius,
             CastShadows = l.CastShadows,
+            MPHidden = l.Hidden ? true : null,
         };
         SetMaterialPorterTransform(export, l.World);
         return export;
@@ -315,6 +317,7 @@ public partial class ExportContext
             SortOrder = d.SortOrder,
             FadeScreenSize = d.FadeScreenSize,
             Material = SlotMaterial(material, 0, d.Params ?? new ParamSet()),
+            MPHidden = d.Hidden ? true : null,
         };
         SetMaterialPorterTransform(export, d.World);
         return export;
@@ -323,7 +326,7 @@ public partial class ExportContext
     /// <summary>One particle system as the world export's record: world transform, system path and user parameters.</summary>
     private static ExportEffect Effect(MapEffect e)
     {
-        var export = new ExportEffect { Name = e.Name, System = e.System, Parameters = e.Parameters };
+        var export = new ExportEffect { Name = e.Name, System = e.System, Parameters = e.Parameters, MPHidden = e.Hidden ? true : null };
         SetMaterialPorterTransform(export, e.World);
         return export;
     }
@@ -377,6 +380,7 @@ public partial class ExportContext
             MPSpline = m.Spline,
             MPCastShadow = m.CastShadow ? null : false,
             MPShadowOnly = m.ShadowOnly ? true : null,
+            MPHidden = m.Hidden ? true : null,
             MPActor = m.Actor,
         };
         export.Materials.AddRange(template.Materials);

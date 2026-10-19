@@ -194,6 +194,7 @@
                                                   IsChecked="{Binding SelectedMap.WorldFlagsDecals, Mode=TwoWay}" />
                                         <MenuItem Header="Effects" Classes="Checked"
                                                   IsChecked="{Binding SelectedMap.WorldFlagsEffects, Mode=TwoWay}" />
+                                        <MenuItem Header="Hidden Actors" Classes="Checked" IsChecked="{Binding SelectedMap.WorldFlagsHidden, Mode=TwoWay}" />     <!-- MP -->
 
                                     </MenuFlyout>
                                 </DropDownButton.Flyout>

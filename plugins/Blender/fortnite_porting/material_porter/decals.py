@@ -316,6 +316,8 @@ def _one(context, entry, surfaces, done, stats):
     obj.visible_shadow = False
     obj[KEY] = material.get("Name") or ""
     obj[KEY_SORT] = sort_order
+    if entry.get("MPHidden"):
+        obj["mp_hidden"] = 1.0
     obj[KEY_BOX] = [abs(h) for h in half]
     obj[KEY_HITS] = int(hit.sum())
     obj[KEY_FACING] = int(facing.sum())

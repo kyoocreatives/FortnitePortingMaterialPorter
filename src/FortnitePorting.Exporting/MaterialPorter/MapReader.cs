@@ -99,7 +99,8 @@ public sealed class MapReader
 
     // ------------------------------------------------------------ levels
 
-    public async Task LevelAsync(string path, Matrix4x4 parent, int depth, CancellationToken ct)
+    /// <summary>A level's actors placed under `parent`; `hidden`: all of them hidden (a hidden level instance's).</summary>
+    public async Task LevelAsync(string path, Matrix4x4 parent, int depth, CancellationToken ct, bool hidden = false)
     {
         ct.ThrowIfCancellationRequested();
         var pkg = await game.Provider.LoadPackageAsync(path);
@@ -129,7 +130,7 @@ public sealed class MapReader
                 l.Add(e);
             }
         }
-        var ctx = new LevelContext(this, byActor, parent) { Level = path };
+        var ctx = new LevelContext(this, byActor, parent) { Level = path, Hidden = hidden };
         var actorNames = level?.Actors?.Where(idx => idx != null && !idx.IsNull).Select(idx => idx.Name) ?? levelOwned.Keys.ToList();
         foreach (var name in actorNames)
         {
@@ -169,6 +170,7 @@ public sealed class MapReader
         readonly Dictionary<string, List<UObject>> byActor;
         public readonly Matrix4x4 Parent;
         public string Level { get; init; }
+        public bool Hidden { get; init; }
         readonly Dictionary<UObject, Matrix4x4> worlds = new(ReferenceEqualityComparer.Instance);
 
         public LevelContext(MapReader reader, Dictionary<string, List<UObject>> byActor, Matrix4x4 parent)
@@ -238,7 +240,8 @@ public sealed class MapReader
             return;
         }
         if (SkipActorPrefixes.Any(p => type.StartsWith(p, StringComparison.Ordinal) || actor.Name.StartsWith(p, StringComparison.Ordinal))) { scan.Skip("devices"); return; }
-        if (Prop(actor, "bHidden", false)) { scan.Skip("hidden actors"); return; }
+        var hidden = ctx.Hidden || Prop(actor, "bHidden", false);
+        if (hidden && !options.Hidden) { scan.Skip("hidden actors"); return; }
         // a zipline's cable is laid between its poles at run time (its saved root sits at the origin)
         if (type.Contains("ZipLine_Spline", StringComparison.OrdinalIgnoreCase)) { scan.Skip("ziplines (laid when the game runs)"); return; }
 
@@ -249,8 +252,9 @@ public sealed class MapReader
         if (EffectsOnlyPrefixes.Any(p => type.StartsWith(p, StringComparison.Ordinal) || actor.Name.StartsWith(p, StringComparison.Ordinal)))
         {
             scan.Skip("devices");
+            if (hidden) return;
             foreach (var c in comps)
-                if (c.ExportType.EndsWith("NiagaraComponent", StringComparison.Ordinal)) Effect(c, actor, ctx, root);
+                if (c.ExportType.EndsWith("NiagaraComponent", StringComparison.Ordinal)) Effect(c, actor, ctx, root, false);
             return;
         }
 
@@ -264,7 +268,7 @@ public sealed class MapReader
             var at = root != null ? ctx.World(root, null) : ctx.Parent;
             foreach (var w in worlds.Distinct())
             {
-                try { await LevelAsync(Package(w), at, depth + 1, ct); }
+                try { await LevelAsync(Package(w), at, depth + 1, ct, hidden); }
                 catch (OperationCanceledException) { throw; }
                 catch { scan.Skip("unreadable level instances"); }
             }
@@ -290,17 +294,17 @@ public sealed class MapReader
             if (waterBody != null && !waterSurface) continue;
             if (LightKind(c) is { } lightKind)
             {
-                Light(c, lightKind, actor, ctx, root);
+                Light(c, lightKind, actor, ctx, root, hidden);
                 continue;
             }
             if (ctype.EndsWith("DecalComponent", StringComparison.Ordinal))
             {
-                Decal(c, actor, ctx, root);
+                Decal(c, actor, ctx, root, hidden);
                 continue;
             }
             if (ctype.EndsWith("NiagaraComponent", StringComparison.Ordinal))
             {
-                Effect(c, actor, ctx, root);
+                Effect(c, actor, ctx, root, hidden);
                 continue;
             }
             // a shadow proxy: hidden and out of the main pass, but it casts its actor's shadow (a palm tree casts none itself)
@@ -316,7 +320,8 @@ public sealed class MapReader
                 continue;
             }
             // a water body's surface mesh is hidden: the game draws the water from it at run time
-            if (!waterSurface && !shadowProxy && (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false))) continue;
+            var hiddenMesh = hidden || !waterSurface && !shadowProxy && HiddenComponent(c);
+            if (hiddenMesh && !options.Hidden) continue;
             // drawn only into the terrain's runtime virtual texture (a dirt track on the landscape), never on its own
             if (!shadowProxy && !Prop(c, "bRenderInMainPass", true)
                 || (Prop(c, "VirtualTextureRenderPassType", new FName()).Text?.EndsWith("Never", StringComparison.Ordinal) == true
@@ -383,12 +388,13 @@ public sealed class MapReader
                         Mesh = mesh, World = Of(data[i].TransformData) * world, Overrides = overrides, Params = ps,
                         AllSlots = main ? skin : null, Actor = actor.Name, Level = ctx.Level,
                         PrimitiveData = perInstanceCpd ? mine : cpd, InstanceData = mine, CastShadow = castShadow, ShadowOnly = shadowProxy,
+                        Hidden = hiddenMesh,
                     });
                 }
                 continue;
             }
             Placed.Add(new MapMesh { Mesh = mesh, World = world, Overrides = overrides, Params = ps, AllSlots = main ? skin : null, Actor = actor.Name, Level = ctx.Level, Spline = spline,
-                               PrimitiveData = cpd, Area = area, CastShadow = castShadow, ShadowOnly = shadowProxy });
+                               PrimitiveData = cpd, Area = area, CastShadow = castShadow, ShadowOnly = shadowProxy, Hidden = hiddenMesh });
         }
     }
 
@@ -458,9 +464,10 @@ public sealed class MapReader
     /// make them 1/625 as bright. Hidden lights (bVisible, bHiddenInGame, bAffectsWorld) place nothing; lights of no brightness
     /// (a car's headlights, which its Blueprint turns on when driving) are placed at 0.
     /// </summary>
-    void Light(UObject c, string kind, UObject actor, LevelContext ctx, UObject root)
+    void Light(UObject c, string kind, UObject actor, LevelContext ctx, UObject root, bool hidden)
     {
-        if (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false) || !Prop(c, "bAffectsWorld", true))
+        hidden |= HiddenComponent(c);
+        if (hidden && !options.Hidden || !Prop(c, "bAffectsWorld", true))
         {
             scan.Skip("hidden lights");
             return;
@@ -496,6 +503,7 @@ public sealed class MapReader
             SourceWidth = kind == "Rect" ? Prop(c, "SourceWidth", 64f) : 0f,
             SourceHeight = kind == "Rect" ? Prop(c, "SourceHeight", 64f) : 0f,
             BarnDoorAngle = kind == "Rect" ? Prop(c, "BarnDoorAngle", 88f) : 0f,
+            Hidden = hidden,
         });
     }
 
@@ -506,9 +514,10 @@ public sealed class MapReader
     /// component's scale: UE's 128, 256, 256 unless stored; SortOrder; FadeScreenSize), with DecalMaterial (a dynamic instance's
     /// values over its parent). Hidden decals and decals without a material place nothing.
     /// </summary>
-    void Decal(UObject c, UObject actor, LevelContext ctx, UObject root)
+    void Decal(UObject c, UObject actor, LevelContext ctx, UObject root, bool hidden)
     {
-        if (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false))
+        hidden |= HiddenComponent(c);
+        if (hidden && !options.Hidden)
         {
             scan.Skip("hidden decals");
             return;
@@ -526,14 +535,15 @@ public sealed class MapReader
             DecalSize = new Vector3((float)size.X, (float)size.Y, (float)size.Z),
             SortOrder = Prop(c, "SortOrder", 0),
             FadeScreenSize = Prop(c, "FadeScreenSize", 0.01f),
-            Material = material, Params = values,
+            Material = material, Params = values, Hidden = hidden,
         });
     }
 
     /// <summary>A particle system (NiagaraComponent): its world matrix, system path and the user parameters its overrides set. Hidden components and ones without a system place nothing.</summary>
-    void Effect(UObject c, UObject actor, LevelContext ctx, UObject root)
+    void Effect(UObject c, UObject actor, LevelContext ctx, UObject root, bool hidden)
     {
-        if (!Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false))
+        hidden |= HiddenComponent(c);
+        if (hidden && !options.Hidden)
         {
             scan.Skip("hidden effects");
             return;
@@ -547,9 +557,12 @@ public sealed class MapReader
         Effects.Add(new MapEffect
         {
             Name = c.Name, Actor = actor.Name, Level = ctx.Level, World = ctx.World(c, root),
-            System = system, Parameters = UserParametersSafe(c),
+            System = system, Parameters = UserParametersSafe(c), Hidden = hidden,
         });
     }
+
+    /// <summary>A component the game doesn't draw (bVisible off, or bHiddenInGame).</summary>
+    bool HiddenComponent(UObject c) => !Prop(c, "bVisible", true) || Prop(c, "bHiddenInGame", false);
 
     Dictionary<string, object> UserParametersSafe(UObject c)
     {

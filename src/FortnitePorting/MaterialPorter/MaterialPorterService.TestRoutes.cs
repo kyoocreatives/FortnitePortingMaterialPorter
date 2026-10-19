@@ -332,7 +332,7 @@ public partial class MaterialPorterService
                     shot.Save(file + ".menu.png");
                 }
                 var map = maps.SelectedMap;
-                return new { file, Popup = popup?.Child is not null, items, map.WorldFlagsActors, map.WorldFlagsInstancedFoliage, map.WorldFlagsLandscape, map.WorldFlagsHLODs, map.WorldFlagsLights, map.WorldFlagsDecals, map.WorldFlagsEffects };
+                return new { file, Popup = popup?.Child is not null, items, map.WorldFlagsActors, map.WorldFlagsInstancedFoliage, map.WorldFlagsLandscape, map.WorldFlagsHLODs, map.WorldFlagsLights, map.WorldFlagsDecals, map.WorldFlagsEffects, map.WorldFlagsHidden };
             });
         }
         if (route == "fork-map-preview")
@@ -794,7 +794,7 @@ public partial class MaterialPorterService
                 assetData.Exports,
             }));
         }
-        // /fork-export-world?path=<level package>[&landscape=1][&actors=0][&lights=0][&decals=0][&effects=0][&actor=name part]:
+        // /fork-export-world?path=<level package>[&landscape=1][&actors=0][&lights=0][&decals=0][&effects=0][&hidden=1][&actor=name part]:
         // FP's world export of that level (actors and instances, as the Map page sends it to Blender) as the plugin receives it.
         // track=<Rocket Racing track object path>&points=x,y,z;x,y,z...: also lays that track's road along those points.
         if (route != "fork-export-world") return null;
@@ -805,7 +805,7 @@ public partial class MaterialPorterService
                     ?? throw new FileNotFoundException("no world in " + path);
         using var meta = AppServices.AppSettings.ExportSettings.CreateExportMeta(EExportLocation.Blender);
         meta.WorldFlags = (query["actors"] == "0" ? 0 : EWorldFlags.Actors | EWorldFlags.InstancedFoliage) | (query["landscape"] == "1" ? EWorldFlags.Landscape : 0)
-                         | (query["lights"] == "0" ? 0 : EWorldFlags.Lights) | (query["decals"] == "0" ? 0 : EWorldFlags.Decals) | (query["effects"] == "0" ? 0 : EWorldFlags.Effects);
+                         | (query["lights"] == "0" ? 0 : EWorldFlags.Lights) | (query["decals"] == "0" ? 0 : EWorldFlags.Decals) | (query["effects"] == "0" ? 0 : EWorldFlags.Effects) | (query["hidden"] == "1" ? EWorldFlags.Hidden : 0);
         var session = new ExportSession(meta);
         Exporting.Context.ExportContext.MaterialPorterActorFilter = query["actor"];
         if (query["track"] is { } track)

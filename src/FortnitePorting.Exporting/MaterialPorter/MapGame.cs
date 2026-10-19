@@ -30,6 +30,9 @@ public partial record MaterialPorterMesh : ExportMesh
     /// <summary>True when only its shadow shows (a tree's shadow proxy); omitted otherwise.</summary>
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public bool? MPShadowOnly;
+    /// <summary>True when the game hides it (the map export's Hidden Actors option); omitted otherwise.</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public bool? MPHidden;
     /// <summary>The actor the mesh came from; its lights don't shadow it (shadow linking).</summary>
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public string? MPActor;
