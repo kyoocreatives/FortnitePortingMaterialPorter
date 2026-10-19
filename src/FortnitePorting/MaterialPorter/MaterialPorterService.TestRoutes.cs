@@ -332,7 +332,20 @@ public partial class MaterialPorterService
                     shot.Save(file + ".menu.png");
                 }
                 var map = maps.SelectedMap;
-                return new { file, Popup = popup?.Child is not null, items, map.WorldFlagsActors, map.WorldFlagsInstancedFoliage, map.WorldFlagsLandscape, map.WorldFlagsHLODs, map.WorldFlagsLights, map.WorldFlagsDecals, map.WorldFlagsEffects, map.WorldFlagsHidden };
+                // sub=Header: that submenu opened; its items, the first toggled, and the map's layer toggles after
+                object? sub = null;
+                if (query["sub"] is { } subHeader && menu.Items.OfType<Avalonia.Controls.MenuItem>().FirstOrDefault(m => m.Header as string == subHeader) is { } parent)
+                {
+                    parent.IsSubMenuOpen = true;
+                    var containers = Enumerable.Range(0, parent.ItemCount).Select(parent.ContainerFromIndex).OfType<Avalonia.Controls.MenuItem>().ToList();
+                    if (containers.Count > 0) containers[0].IsChecked = !containers[0].IsChecked;
+                    sub = new
+                    {
+                        items = containers.Select(c => new { c.Header, c.IsChecked, ToggleType = c.ToggleType.ToString() }),
+                        layers = map.MPLayers.Select(l => new { l.Name, l.IsChecked }),
+                    };
+                }
+                return new { file, Popup = popup?.Child is not null, items, sub, map.WorldFlagsActors, map.WorldFlagsInstancedFoliage, map.WorldFlagsLandscape, map.WorldFlagsHLODs, map.WorldFlagsLights, map.WorldFlagsDecals, map.WorldFlagsEffects, map.WorldFlagsHidden };
             });
         }
         if (route == "fork-map-preview")

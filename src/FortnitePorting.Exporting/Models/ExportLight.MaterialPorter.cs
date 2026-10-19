@@ -30,6 +30,9 @@ public partial record ExportLight
     // hidden in the game (the map export's Hidden Actors option); omitted otherwise
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public bool? MPHidden;
+    // the data layer it comes from (a map's event the Map page added); omitted otherwise
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public string? MPLayer;
 }
 
 // shines along its X axis; cone angles in degrees from it

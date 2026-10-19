@@ -99,6 +99,9 @@ public sealed class MapReader
 
     // ------------------------------------------------------------ levels
 
+    /// <summary>The data layer the levels read next come from (each placement says so), or null.</summary>
+    public string Layer { get; set; }
+
     /// <summary>A level's actors placed under `parent`; `hidden`: all of them hidden (a hidden level instance's).</summary>
     public async Task LevelAsync(string path, Matrix4x4 parent, int depth, CancellationToken ct, bool hidden = false)
     {
@@ -388,13 +391,13 @@ public sealed class MapReader
                         Mesh = mesh, World = Of(data[i].TransformData) * world, Overrides = overrides, Params = ps,
                         AllSlots = main ? skin : null, Actor = actor.Name, Level = ctx.Level,
                         PrimitiveData = perInstanceCpd ? mine : cpd, InstanceData = mine, CastShadow = castShadow, ShadowOnly = shadowProxy,
-                        Hidden = hiddenMesh,
+                        Hidden = hiddenMesh, Layer = Layer,
                     });
                 }
                 continue;
             }
             Placed.Add(new MapMesh { Mesh = mesh, World = world, Overrides = overrides, Params = ps, AllSlots = main ? skin : null, Actor = actor.Name, Level = ctx.Level, Spline = spline,
-                               PrimitiveData = cpd, Area = area, CastShadow = castShadow, ShadowOnly = shadowProxy, Hidden = hiddenMesh });
+                               PrimitiveData = cpd, Area = area, CastShadow = castShadow, ShadowOnly = shadowProxy, Hidden = hiddenMesh, Layer = Layer });
         }
     }
 
@@ -503,7 +506,7 @@ public sealed class MapReader
             SourceWidth = kind == "Rect" ? Prop(c, "SourceWidth", 64f) : 0f,
             SourceHeight = kind == "Rect" ? Prop(c, "SourceHeight", 64f) : 0f,
             BarnDoorAngle = kind == "Rect" ? Prop(c, "BarnDoorAngle", 88f) : 0f,
-            Hidden = hidden,
+            Hidden = hidden, Layer = Layer,
         });
     }
 
@@ -535,7 +538,7 @@ public sealed class MapReader
             DecalSize = new Vector3((float)size.X, (float)size.Y, (float)size.Z),
             SortOrder = Prop(c, "SortOrder", 0),
             FadeScreenSize = Prop(c, "FadeScreenSize", 0.01f),
-            Material = material, Params = values, Hidden = hidden,
+            Material = material, Params = values, Hidden = hidden, Layer = Layer,
         });
     }
 
@@ -557,7 +560,7 @@ public sealed class MapReader
         Effects.Add(new MapEffect
         {
             Name = c.Name, Actor = actor.Name, Level = ctx.Level, World = ctx.World(c, root),
-            System = system, Parameters = UserParametersSafe(c), Hidden = hidden,
+            System = system, Parameters = UserParametersSafe(c), Hidden = hidden, Layer = Layer,
         });
     }
 

@@ -33,6 +33,9 @@ public partial record MaterialPorterMesh : ExportMesh
     /// <summary>True when the game hides it (the map export's Hidden Actors option); omitted otherwise.</summary>
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public bool? MPHidden;
+    /// <summary>The data layer it comes from (a map's event the Map page added); omitted otherwise.</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public string? MPLayer;
     /// <summary>The actor the mesh came from; its lights don't shadow it (shadow linking).</summary>
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public string? MPActor;

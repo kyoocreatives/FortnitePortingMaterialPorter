@@ -131,4 +131,6 @@ class LightImportMixin:
             light["mp_actor"] = str(data["Actor"])
         if data.get("MPHidden"):
             light["mp_hidden"] = 1.0
+        if data.get("MPLayer"):
+            light["mp_layer"] = str(data["MPLayer"])
         return light, light_data

@@ -25,6 +25,9 @@ public partial class WorldPartitionMap
     [ObservableProperty] private string _actorFilter = string.Empty;
     // hidden actors too, in the import's Hidden collection (devices and editor-only ones never)
     [ObservableProperty] private bool _worldFlagsHidden;
+    // data layers a map can add (a project map's events, which start unloaded): ticked ones export, each in its collection
+    public System.Collections.ObjectModel.ObservableCollection<MapLayerToggle> MPLayers { get; } = [];
+    [ObservableProperty] private bool _hasMPLayers;
     [ObservableProperty, NotifyPropertyChangedFor(nameof(NoPreview))] private bool _isDrawingPreview;
 
     public bool NoPreview => MapBitmap is null && !IsDrawingPreview && !_drawnPreview;
@@ -190,4 +193,12 @@ public partial class WorldPartitionGrid
         CellSize = cellSize;
         OnPropertyChanged(nameof(OffsetMargin));
     }
+}
+
+/// <summary>A data layer on the Map page's flags menu: exported when ticked.</summary>
+public partial class MapLayerToggle(string name) : ObservableObject
+{
+    public string Name { get; } = name;
+    public string Label => Name.Replace("_", "__");      // a menu header's first _ marks its access key
+    [ObservableProperty] private bool _isChecked;
 }

@@ -29,8 +29,9 @@ def after_lights(ctx, data):
     import_decals(ctx, data.get("Decals"))
     import_effects(ctx, data.get("Effects"))
     link_housings(ctx)
-    # hidden actors (the Map page's Hidden Actors option) apart, switched off
-    from .hidden import gather
+    # a map's data layers (events the Map page added) each in its collection; hidden actors apart, switched off
+    from .hidden import gather, gather_layers
+    gather_layers(ctx.collection)
     gather(ctx.collection)
 
 

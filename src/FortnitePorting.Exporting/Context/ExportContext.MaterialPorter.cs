@@ -81,6 +81,7 @@ public partial class ExportContext
                 foreach (var read in levels)
                 {
                     CancellationToken.ThrowIfCancellationRequested();
+                    reader.Layer = Meta.MPLayerOf?.GetValueOrDefault(read);
                     try
                     {
                         reader.LevelAsync(read, Matrix4x4.Identity, 0, CancellationToken).GetAwaiter().GetResult();
@@ -292,6 +293,7 @@ public partial class ExportContext
             Radius = l.SourceRadius,
             CastShadows = l.CastShadows,
             MPHidden = l.Hidden ? true : null,
+            MPLayer = l.Layer,
         };
         SetMaterialPorterTransform(export, l.World);
         return export;
@@ -318,6 +320,7 @@ public partial class ExportContext
             FadeScreenSize = d.FadeScreenSize,
             Material = SlotMaterial(material, 0, d.Params ?? new ParamSet()),
             MPHidden = d.Hidden ? true : null,
+            MPLayer = d.Layer,
         };
         SetMaterialPorterTransform(export, d.World);
         return export;
@@ -326,7 +329,7 @@ public partial class ExportContext
     /// <summary>One particle system as the world export's record: world transform, system path and user parameters.</summary>
     private static ExportEffect Effect(MapEffect e)
     {
-        var export = new ExportEffect { Name = e.Name, System = e.System, Parameters = e.Parameters, MPHidden = e.Hidden ? true : null };
+        var export = new ExportEffect { Name = e.Name, System = e.System, Parameters = e.Parameters, MPHidden = e.Hidden ? true : null, MPLayer = e.Layer };
         SetMaterialPorterTransform(export, e.World);
         return export;
     }
@@ -381,6 +384,7 @@ public partial class ExportContext
             MPCastShadow = m.CastShadow ? null : false,
             MPShadowOnly = m.ShadowOnly ? true : null,
             MPHidden = m.Hidden ? true : null,
+            MPLayer = m.Layer,
             MPActor = m.Actor,
         };
         export.Materials.AddRange(template.Materials);

@@ -318,6 +318,8 @@ def _one(context, entry, surfaces, done, stats):
     obj[KEY_SORT] = sort_order
     if entry.get("MPHidden"):
         obj["mp_hidden"] = 1.0
+    if entry.get("MPLayer"):
+        obj["mp_layer"] = str(entry["MPLayer"])
     obj[KEY_BOX] = [abs(h) for h in half]
     obj[KEY_HITS] = int(hit.sum())
     obj[KEY_FACING] = int(facing.sum())

@@ -26,6 +26,27 @@ def gather(root):
     return hidden
 
 
+def gather_layers(root):
+    """A map's data layers (its events, added on the Map page): each layer's objects in a collection named after it, under
+    the import's."""
+    tree = {root, *root.children_recursive}
+    made = {}
+    for obj in [o for o in root.all_objects if o.get("mp_layer")]:
+        name = str(obj["mp_layer"])
+        if name not in made:
+            made[name] = bpy.data.collections.new(name)
+            root.children.link(made[name])
+            tree.discard(made[name])
+        for o in (obj, *obj.children_recursive):
+            if made[name] in o.users_collection:
+                continue
+            for c in list(o.users_collection):
+                if c in tree:
+                    c.objects.unlink(o)
+            made[name].objects.link(o)
+    return list(made.values())
+
+
 def _layer(layer, collection):
     if layer.collection == collection:
         return layer

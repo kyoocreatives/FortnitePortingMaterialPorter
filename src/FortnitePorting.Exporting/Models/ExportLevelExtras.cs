@@ -15,6 +15,9 @@ public record ExportDecal : ExportObject
     /// <summary>True when the game hides it (the map export's Hidden Actors option); omitted otherwise.</summary>
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public bool? MPHidden;
+    /// <summary>The data layer it comes from (a map's event the Map page added); omitted otherwise.</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public string? MPLayer;
 }
 
 /// <summary>A particle system a level places (NiagaraComponent). Transform is the world transform like meshes'.</summary>
@@ -27,4 +30,7 @@ public record ExportEffect : ExportObject
     /// <summary>True when the game hides it (the map export's Hidden Actors option); omitted otherwise.</summary>
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public bool? MPHidden;
+    /// <summary>The data layer it comes from (a map's event the Map page added); omitted otherwise.</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public string? MPLayer;
 }

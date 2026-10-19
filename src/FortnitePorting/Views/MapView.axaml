@@ -195,6 +195,16 @@
                                         <MenuItem Header="Effects" Classes="Checked"
                                                   IsChecked="{Binding SelectedMap.WorldFlagsEffects, Mode=TwoWay}" />
                                         <MenuItem Header="Hidden Actors" Classes="Checked" IsChecked="{Binding SelectedMap.WorldFlagsHidden, Mode=TwoWay}" />     <!-- MP -->
+                                        <MenuItem Header="Data Layers" Classes="MPLayers" IsVisible="{Binding SelectedMap.HasMPLayers}" ItemsSource="{Binding SelectedMap.MPLayers}">     <!-- MP -->
+                                            <MenuItem.Styles>
+                                                <Style Selector="MenuItem.MPLayers MenuItem" x:DataType="map:MapLayerToggle">
+                                                    <Setter Property="Header" Value="{Binding Label}" />
+                                                    <Setter Property="ToggleType" Value="CheckBox" />
+                                                    <Setter Property="StaysOpenOnClick" Value="True" />
+                                                    <Setter Property="IsChecked" Value="{Binding IsChecked, Mode=TwoWay}" />
+                                                </Style>
+                                            </MenuItem.Styles>
+                                        </MenuItem>
 
                                     </MenuFlyout>
                                 </DropDownButton.Flyout>

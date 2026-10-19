@@ -47,6 +47,8 @@ public sealed class MapMesh
     public bool ShadowOnly { get; init; }
     /// <summary>Hidden in the game (its actor or component), placed only with MapOptions.Hidden.</summary>
     public bool Hidden { get; init; }
+    /// <summary>The data layer it was picked from (ExportDataMeta.MPLayerOf), else null.</summary>
+    public string Layer { get; init; }
     /// <summary>Where it stands, for an area's test: its origin, a spline mesh's segment middle.</summary>
     public Vector3 Anchor
     {
@@ -99,6 +101,8 @@ public sealed class MapLight
     public float BarnDoorAngle { get; init; }
     /// <summary>Hidden in the game, placed only with MapOptions.Hidden.</summary>
     public bool Hidden { get; init; }
+    /// <summary>The data layer it was picked from (ExportDataMeta.MPLayerOf), else null.</summary>
+    public string Layer { get; init; }
 }
 
 /// <summary>
@@ -121,6 +125,8 @@ public sealed class MapDecal
     public ParamSet Params { get; init; }
     /// <summary>Hidden in the game, placed only with MapOptions.Hidden.</summary>
     public bool Hidden { get; init; }
+    /// <summary>The data layer it was picked from (ExportDataMeta.MPLayerOf), else null.</summary>
+    public string Layer { get; init; }
 }
 
 /// <summary>A particle system a map places (a NiagaraComponent: a NiagaraActor's, a Blueprint's): where, and its user parameters' overrides.</summary>
@@ -136,6 +142,8 @@ public sealed class MapEffect
     public Dictionary<string, object> Parameters { get; init; } = new();
     /// <summary>Hidden in the game, placed only with MapOptions.Hidden.</summary>
     public bool Hidden { get; init; }
+    /// <summary>The data layer it was picked from (ExportDataMeta.MPLayerOf), else null.</summary>
+    public string Layer { get; init; }
 }
 
 public sealed class MapOptions

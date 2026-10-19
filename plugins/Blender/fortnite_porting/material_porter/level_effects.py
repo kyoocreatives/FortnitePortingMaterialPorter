@@ -109,6 +109,8 @@ def _place(context, entry, name):
     place["mp_level_system"] = str(entry.get("System") or "")
     if entry.get("MPHidden"):
         place["mp_hidden"] = 1.0
+    if entry.get("MPLayer"):
+        place["mp_layer"] = str(entry["MPLayer"])
     context.collection.objects.link(place)
     return place
 

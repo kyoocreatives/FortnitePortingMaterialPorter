@@ -17,10 +17,11 @@ def after_import(mesh, obj, mesh_obj, scale, landscape_detail=1):
     if (fx := mesh.get("MPEffect") or {}).get("Kind") == "Mesh":
         from . import effects
         effects.tag_mesh(target, fx)
-    if mesh.get("MPHidden"):
-        for o in (obj, mesh_obj):
-            if o is not None:
-                o["mp_hidden"] = 1.0
+    for key, tag in (("MPHidden", "mp_hidden"), ("MPLayer", "mp_layer")):
+        if value := mesh.get(key):
+            for o in (obj, mesh_obj):
+                if o is not None:
+                    o[tag] = 1.0 if value is True else str(value)
     if target is None or target.type != 'MESH':
         return
     if sp := mesh.get("MPSpline"):
