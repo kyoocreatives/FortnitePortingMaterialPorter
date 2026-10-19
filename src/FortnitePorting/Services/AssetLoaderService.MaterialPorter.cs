@@ -34,10 +34,11 @@ public partial class AssetLoaderService
             MPIconPath = EffectOwners.IconPath,
             MPUnregistered = registry => UEParse.Provider is { } provider ? Effects.ListedSystems(provider, registry) : registry,
             // the items' index and the systems' outlines are kept per build: later listings read only what was added since
-            MPBeforeListing = async () =>
+            MPBeforeListing = async loader =>
             {
                 var data = FortnitePorting.Application.AppServices.App.DataFolder.FullName;
-                await EffectOwners.Build(Path.Combine(data, "mp_effect_owners.tsv"), MaterialPorterService.Instance.Game.BuildVersion);
+                await EffectOwners.Build(Path.Combine(data, "mp_effect_owners.tsv"), MaterialPorterService.Instance.Game.BuildVersion,
+                    (done, all) => (loader.LoadedAssets, loader.TotalAssets) = (done, all));
                 Effects.Recall(Path.Combine(data, "mp_effects.tsv"), ListingKey());
             },
             MPAfterListing = Effects.Remember,
@@ -68,7 +69,7 @@ public partial class AssetLoaderService
             MPUnregistered = registry => UEParse.Provider is { } provider ? Animations.Candidates(provider, registry) : registry,
             MPOutline = async (package, name) => await Animations.ReadOutline(UEParse.Provider, package, name),
             // outlines and the items' index are kept from the last listing of the same build: seconds instead of over a minute
-            MPBeforeListing = async () =>
+            MPBeforeListing = async _ =>
             {
                 var key = ListingKey();
                 var data = FortnitePorting.Application.AppServices.App.DataFolder.FullName;

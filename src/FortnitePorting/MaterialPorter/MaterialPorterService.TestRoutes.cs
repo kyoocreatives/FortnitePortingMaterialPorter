@@ -710,6 +710,13 @@ public partial class MaterialPorterService
                 heavy = heavy.OrderByDescending(h => h.Cpu).Take(int.TryParse(query["heavy"], out var top) ? top : 60).Select(h => $"{h.Cpu} {h.Label} = {h.Item.Split(" = ").Last()}"),
             });
         }
+        if (route == "fork-loader-state")
+        {
+            // A tab's loading progress as its page shows it; start=1 starts its load first, without waiting for it.
+            var loader = AppServices.AssetLoading.Get(Enum.Parse<EExportType>(query["type"] ?? "Effect"));
+            if (query["start"] == "1") _ = loader.Load();
+            return JToken.FromObject(new { loaded = loader.LoadedAssets, total = loader.TotalAssets, percent = loader.LoadingPercentageText, loader.FinishedLoading });
+        }
         if (route == "fork-loader")
         {
             // Runs one asset tab's loader as the Assets page does and says what it lists (icons=1: with each one's icon).

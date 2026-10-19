@@ -4,7 +4,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
+using CUE4Parse.UE4.AssetRegistry.Objects;
 using CUE4Parse.UE4.Assets.Exports;
 using CUE4Parse.UE4.Objects.Core.i18N;
 using CUE4Parse.UE4.Objects.UObject;
@@ -58,7 +60,7 @@ public static class EffectOwners
 
     /// <summary>The items' index, kept in a file per build: a later listing reads only the items added since
     /// (on-demand content and hotfixes add some), not every cosmetic and weapon again.</summary>
-    public static async Task Build(string file, string build)
+    public static async Task Build(string file, string build, Action<int, int>? progress = null)
     {
         _byPackage.Clear();
         var items = UEParse.AssetRegistry.Select(a => (Data: a, Source: Sources.FirstOrDefault(s => s.Classes.Contains(a.AssetClass.Text))))
@@ -67,8 +69,21 @@ public static class EffectOwners
         var known = Recall(file, key);
         var fresh = known is null ? items : items.Where(x => !known.Contains(x.Data.ObjectPath)).ToList();
         if (fresh.Count == 0) return;
+        // kept a thousand at a time: a rebuild cut short (the app closed) goes on from there next time
+        var done = 0;
+        foreach (var batch in fresh.Chunk(1000))
+        {
+            var found = await Read(batch, () => progress?.Invoke(Interlocked.Increment(ref done), fresh.Count));
+            foreach (var (package, owner) in found) Own(package, owner);
+            Save(file, key, batch.Select(x => x.Data.ObjectPath), found, append: known is not null || done > batch.Length);
+        }
+        Serilog.Log.Information("[Material Porter] effect owners: {Count} item(s) read", fresh.Count);
+    }
+
+    private static async Task<List<(string Package, Owner Owner)>> Read(IEnumerable<(FPartialAssetData Data, (string[] Classes, EExportType Type, string Kind) Source)> items, Action read)
+    {
         var found = new ConcurrentBag<(string Package, Owner Owner)>();
-        await Parallel.ForEachAsync(fresh, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) }, async (x, _) =>
+        await Parallel.ForEachAsync(items, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) }, async (x, _) =>
         {
             try
             {
@@ -87,10 +102,12 @@ public static class EffectOwners
             {
                 Exporting.MaterialPorter.Failures.Note("effect owners", x.Data.ObjectPath, e);
             }
+            finally
+            {
+                read();
+            }
         });
-        foreach (var (package, owner) in found) Own(package, owner);
-        Serilog.Log.Information("[Material Porter] effect owners: {Count} item(s) read", fresh.Count);
-        Save(file, key, fresh.Select(x => x.Data.ObjectPath), found, append: known is not null);
+        return found.ToList();
     }
 
     // the file: the key, then "item<TAB>path" for each item read (failed ones too: not retried) and

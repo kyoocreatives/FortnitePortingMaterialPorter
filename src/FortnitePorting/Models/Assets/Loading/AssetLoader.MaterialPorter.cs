@@ -20,7 +20,7 @@ public partial class AssetLoader
     public Func<IReadOnlyList<(string Package, string Name)>, IReadOnlyList<(string Package, string Name)>>? MPUnregistered;
 
     /// <summary>Before and after the listing (an outline cache to read, then write).</summary>
-    public Func<Task>? MPBeforeListing;
+    public Func<AssetLoader, Task>? MPBeforeListing;
     public Action? MPAfterListing;
 
     /// <summary>Once every package's outline is read, before the items are made: for what needs them all (an owner found for one, given to its folder).</summary>
@@ -36,7 +36,10 @@ public partial class AssetLoader
     private async Task LoadUnregistered(IReadOnlyList<(string Package, string Name)> packages, CancellationToken token)
     {
         if (packages.Count == 0) return;
-        if (MPBeforeListing is not null) await MPBeforeListing();
+        // it may count its own work on the tab's progress (an index rebuilt after a game update)
+        var (loaded, total) = (LoadedAssets, TotalAssets);
+        if (MPBeforeListing is not null) await MPBeforeListing(this);
+        (LoadedAssets, TotalAssets) = (loaded, total);
         int start = LoadedAssets, done = 0;
         var found = new System.Collections.Concurrent.ConcurrentBag<(string Package, string Name, string Class, Unloaded.IOutline Outline)>();
         await Parallel.ForEachAsync(packages, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(2, Environment.ProcessorCount / 2) },
