@@ -105,7 +105,8 @@ def pole_angle(base, tip, pole):
     """IK pole angle that keeps a chain's rest pose (base: its first edit bone, tip: where it ends)."""
     def signed(a, b, normal):
         angle = a.angle(b)
-        return -angle if a.cross(b).angle(normal) < 1.0 else angle
+        # a turn toward the normal is negative; parallel axes (0 or 180 degrees) have no side
+        return -angle if a.cross(b).dot(normal) > 0.0 else angle
     normal = (tip - base.head).cross(pole - base.head)
     axis = normal.cross(base.tail - base.head)
     return signed(base.x_axis, axis, base.tail - base.head)

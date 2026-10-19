@@ -448,7 +448,7 @@ def _pole_angle(obj, root, pole):
     projected = normal.cross(axis)
     x = base.matrix_local.to_3x3().col[0]
     angle = x.angle(projected)
-    return -angle if x.cross(projected).angle(axis) < 1.0 else angle
+    return -angle if x.cross(projected).dot(axis) > 0.0 else angle
 
 
 def _chains(data, built):
