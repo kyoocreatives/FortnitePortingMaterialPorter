@@ -8,6 +8,7 @@ from ..utils import *
 from ...utils import *
 from ...logger import Log
 from ...material_porter.material_choice import ExactChoice     # MP
+from ...material_porter.material_onto import onto_selected     # MP
 
 def create_texture_node(nodes, name, image, srgb):
     node = nodes.new(type="ShaderNodeTexImage")
@@ -545,6 +546,8 @@ class MaterialImportContext:
         materials = data.get("Materials")
 
         if not materials:
+            return
+        if onto_selected(self, materials):     # MP: onto the selected meshes, with the attributes the material reads
             return
 
         if is_object_import:
