@@ -30,6 +30,7 @@ from .stand import (
 )
 from .points import Track, bind_parameters, particle_lights, bindings, bound, points
 from .nodes import group, ribbons
+from .offset import APPLIED
 
 
 def _set(modifier, tree, name, value):
@@ -228,7 +229,10 @@ def play(root):
     # scene frame the effect starts on: the range's first, unless its Start Frame property says otherwise
     if KEY_START not in root:
         root[KEY_START] = scene.frame_start
-    start = int(root[KEY_START])
+    # its Offset (the side panel's) on top: the replay is made shifted
+    shifted = int(getattr(root, "fpmp_effect_offset", 0))
+    start = int(root[KEY_START]) + shifted
+    root[APPLIED] = shifted
     frames = max(1, scene.frame_end - start + 1)
     # loops, except one timed by an animation or played on a swing or an event
     if KEY_LOOP not in root:

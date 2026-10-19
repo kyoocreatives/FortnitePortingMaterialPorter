@@ -317,6 +317,10 @@ class FPMP_PT_Exact(bpy.types.Panel):
         # Effects replay at import; this replays them on a character or another frame range.
         col.separator()
         col.operator(FPMP_OT_ReplayEffect.bl_idname, text="Replay Effect")
+        # the selected effect's timing, shifted live (its empty's, or the effect of what's selected under it)
+        from ..material_porter.effect_replay import roots
+        if context.active_object is not None and (found := roots([context.active_object])):
+            col.prop(found[0], "fpmp_effect_offset", text="Offset", slider=True)
         from ..material_porter.material_time import is_animated
         on = is_animated(context.scene)
         col.operator(FPMP_OT_MaterialAnimation.bl_idname, text="Animated Materials", icon='TIME', depress=on).on = not on

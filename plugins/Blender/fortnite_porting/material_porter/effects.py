@@ -428,6 +428,8 @@ def _on_render(*_):
 
 
 def register():
+    from .effect_replay import offset
+    offset.register()
     bpy.app.handlers.load_post.append(_on_load)
     bpy.app.handlers.render_pre.append(_on_render)
     bpy.app.handlers.frame_change_post.append(_on_render)      # for an animated camera
@@ -440,6 +442,8 @@ def unregister():
         if fn in handlers:
             handlers.remove(fn)
     bpy.msgbus.clear_by_owner(_ENGINE_OWNER)
+    from .effect_replay import offset
+    offset.unregister()
 
 
 def finish(context, mesh, root):
