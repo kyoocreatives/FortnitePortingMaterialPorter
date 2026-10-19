@@ -49,6 +49,7 @@ class Limb:
         self.kind = kind            # "leg", "arm", "wing", "face"
         self.chain = []             # IK chain bone names, top down
         self.foot = None            # the bone after the chain (its head ends it), or None: the chain ends at its tail
+        self.stub = False           # a nub too small to bend (a sprite's feet and hands): FK, ball controls
 
     @property
     def name(self):
@@ -136,9 +137,11 @@ class Survey:
                 low = min(min(self.bones[n].head.z, self.bones[n].tail.z) for n in chain)
                 kind = "leg" if low < self.ground + 0.2 * self.height and len(chain) >= 2 else "arm"
             limb = Limb(chain, kind)
-            if kind == "leg":
+            if kind in ("leg", "arm") and sum(self.bones[n].length for n in chain) < 0.15 * self.height:
+                limb.kind, limb.stub = "arm", True
+            elif kind == "leg":
                 self._leg(limb)
-            if limb.kind == "arm":
+            if limb.kind == "arm" and not limb.stub:
                 self._arm(limb)
             limbs.append(limb)
         return limbs
@@ -279,6 +282,20 @@ def create(obj):
         rig_kit.look(obj, controls[bone], shape, r, color, width, group, ring=True,
                      at=(b.head_local + b.tail_local) / 2.0 if at_mid else None)
 
+    def point(bone, color, group):
+        """A ball on a bone's head: a point the skin is pinned to (a sprite's squash bones, a nub), where a ring sized to
+        the mesh around it would circle the whole body."""
+        rig_kit.look(obj, controls[bone], "Sphere_Thick", h * 0.03, color, W["digit"], group, at=bones[bone].head_local)
+
+    whole = fit.bounds()
+
+    def off_axis(bone):
+        """The bone's head out toward the body's sides or front/back (past 45% of the way to its edge)."""
+        if whole is None:
+            return False
+        middle, half, at = (whole[0] + whole[1]) / 2.0, (whole[1] - whole[0]) / 2.0, bones[bone].head_local
+        return any(abs((at - middle).dot(axis)) > 0.45 * max(abs(half.dot(axis)), 1e-6) for axis in (left, ahead))
+
     def arrow(bone, color, group, width=W["digit"]):
         """An arrow along a bone (a digit, an ear): its length the bone's."""
         b = bones[bone]
@@ -324,7 +341,9 @@ def create(obj):
             if name not in controls:
                 continue
             placed.add(name)
-            if name in ik_driven:
+            if limb.stub:
+                point(name, rig_kit.tone(side), "Controls")
+            elif name in ik_driven:
                 ring(name, "Circle_Thick", rig_kit.tone(side), W["limb"], rig_style.FK, k=1.2, at_mid=True)
             elif limb.kind == "face":
                 arrow(name, rig_kit.tone(side, "digit"), "Secondary")
@@ -361,6 +380,8 @@ def create(obj):
         b = bones[name]
         if name in head_subtree:
             arrow(name, rig_kit.tone(side_of(name), "digit"), "Secondary")
+        elif not b.children and off_axis(name):
+            point(name, rig_kit.COLORS["hips"] if side_of(name) == "C" else rig_kit.tone(side_of(name)), "Controls")
         elif b.length > h * 0.04:
             side = side_of(name)
             ring(name, "Circle_Thick", rig_kit.COLORS["hips"] if side == "C" else rig_kit.tone(side), W["limb"], "Controls",
