@@ -37,15 +37,20 @@ FLIPBOOK = {"name": "flipbook",
             "pads": (("Brows", ("fb_browuvoffsetx", "fb_browuvoffsety"), "C"),
                      ("Eyes", ("fb_eyeuvoffsetx", "fb_eyeuvoffsety"), "C"),
                      ("Mouth", ("fb_mouthuvoffsetx", "fb_mouthuvoffsety"), "C"))}
-# Toon faces: per state slider its states, each the curves it sets (Banana's eye and brow tests)
-# The mouth steps through every cell of its sheet (Default Face: the cell shown while no mouth curve is set; the game's
-# curve tests only reach 7 of Peely's 11)
+# Toon faces (Peely's): the mouth steps through every cell of its sheet (Default Face: the cell shown while no mouth curve
+# is set; the game's curve tests only reach 7 of Peely's 11)
 TOON = {"name": "toon", "sliders": (("default face", "Mouth", "C"),),
-        "counts": {"default face": (("subimages", "subimages"),)}, "pads": (),
-        "states": (("Eyes", "C", (("Open", ()), ("Blink", ("R_blink_pose",)), ("Squint", ("R_squint_inner_pose",)))),
-                   ("Brows", "C", (("None", ()), ("Up", ("R_brow_up_pose",)), ("Raised", ("C_glabella_up_pose",)),
-                                   ("Angry", ("C_glabella_down_pose",)))))}
+        "counts": {"default face": (("subimages", "subimages"),)}, "pads": ()}
+# a face whose only controls are its eye and brow curves
+CURVES = {"name": "curves", "sliders": (), "counts": {}, "pads": ()}
 KINDS = (LEGO, FLIPBOOK, TOON)
+# Eye and brow pieces the face's curves swap (Peely's, WartyBark's): a state slider per group, a state per curve the
+# material reads (both sides' curves of a name together), in this order, with these labels where known
+STATE_GROUPS = (("Eyes", "Open", ("blink", "squint", "wide", "lid", "squeeze")), ("Brows", "None", ("brow", "glabella")))
+STATE_LABELS = {"blink": "Blink", "squint_inner": "Squint", "brow_up": "Up", "glabella_up": "Raised",
+                "glabella_down": "Angry", "brow_down": "Down", "wide": "Wide"}
+STATE_ORDER = ("blink", "squint_inner", "squint", "wide", "lower_lid_up", "squeeze", "brow_up", "glabella_up",
+               "glabella_down", "brow_down")
 # pupils that follow the look curves (Peabody's): a pad, each side's curve 0 to 1
 LOOK = ("Look", ("look_left_pose", "look_right_pose", "look_up_pose", "look_down_pose"), "C")
 COUNT = 16          # expressions a slider reaches when the face doesn't say
@@ -73,15 +78,15 @@ def faces(armature):
                 if n.type != 'GROUP':
                     continue
                 inputs = {i.name.lower(): i for i in n.inputs if i.type == 'VALUE'}
-                if any(key in inputs for k in KINDS for key in _keys(k)):
+                if any(key in inputs for k in KINDS for key in _keys(k)) or _curve_states(set(inputs)):
                     found[mat.name] = (mat, inputs)
                     break
     return list(found.values())
 
 
 def _keys(k):
-    """The inputs that tell a face kind: its sliders' (lower case), or the curves its states set."""
-    return [key for key, _, _ in k["sliders"]] + [c.lower() for _, _, states in k.get("states", ()) for _, cs in states for c in cs]
+    """The inputs that tell a face kind: its sliders' (lower case)."""
+    return [key for key, _, _ in k["sliders"]]
 
 
 def _have(found):
@@ -93,7 +98,7 @@ def _have(found):
 
 def kind(found):
     have = _have(found)
-    return next((k for k in KINDS if any(key in have for key in _keys(k))), None)
+    return next((k for k in KINDS if any(key in have for key in _keys(k))), CURVES if _curve_states(have) else None)
 
 
 def count(found, key, inputs=None):
@@ -124,13 +129,33 @@ def _looks(found):
     return [LOOK] if all(c in have for c in LOOK[1]) else []
 
 
+def _curve_states(have):
+    """State sliders from a face's eye and brow curves (`have`: lower-case input names): (name, role, [(label, curves)]),
+    the first state setting none; a slider only where there is a curve to set."""
+    curves = {}
+    for key in have:
+        parts = key.split("_")
+        if len(parts) < 3 or parts[0] not in ("l", "r", "c") or parts[-1] != "pose" or parts[1] == "look":
+            continue
+        curves.setdefault("_".join(parts[1:-1]), []).append(key)
+    rows = []
+    for name, first, words in STATE_GROUPS:
+        picked = [c for c in curves if any(w in c for w in words) and not (name == "Eyes" and "brow" in c)]
+        picked.sort(key=lambda c: (STATE_ORDER.index(c) if c in STATE_ORDER else len(STATE_ORDER), c))
+        states = [(STATE_LABELS.get(c) or c.replace("brow_", "").replace("_", " ").title(), tuple(sorted(curves[c])))
+                  for c in picked]
+        if states:
+            rows.append((name, "C", [(first, ())] + states))
+    return rows
+
+
 def _states(found):
-    """The toon face's state sliders: (name, role, [(label, curves)]) with the states its material has every curve for,
-    a slider only where it has more than one."""
-    have = _have(found)
-    rows = [(name, role, [(label, cs) for label, cs in states if all(c.lower() in have for c in cs)])
-            for name, role, states in kind(found).get("states", ())]
-    return [r for r in rows if len(r[2]) > 1]
+    """The face's state sliders (eye and brow pieces its curves swap), with the curves as the material spells them."""
+    if not found:
+        return []
+    inputs = found[0][1]
+    return [(name, role, [(label, tuple(inputs[c].name for c in cs)) for label, cs in st])
+            for name, role, st in _curve_states(_have(found))]
 
 
 def bones(edit, found, parent, at, left, up, size):

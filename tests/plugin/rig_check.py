@@ -1005,6 +1005,36 @@ check("toon mouth stops at the sheet's last cell", round(toon_values(40)["Defaul
 check("toon blink and angry brows", on(toon_values(0, 1, 3)), ["C_glabella_down_pose", "R_blink_pose"])
 check("toon eyes and brows stop at their last state", on(toon_values(0, 9, 9)), ["C_glabella_down_pose", "R_squint_inner_pose"])
 
+# a flipbook mouth with eye and brow pieces its own curves swap (WartyBark's): its states come from those curves
+BARK = {"flipbook_face_mouth_index": 0.0, "R_blink_pose": 0.0, "R_wide_pose": 0.0, "R_lower_lid_up_pose": 0.0,
+        "R_brow_down_pose": 0.0, "R_brow_squeeze_in_pose": 0.0, "Threshold_Blink": 0.5}
+bf = bpy.data.objects.new("barkfig", bpy.data.armatures.new("barkfig"))
+bpy.context.scene.collection.objects.link(bf)
+bpy.context.view_layer.objects.active = bf
+bpy.ops.object.mode_set(mode='EDIT')
+hb = bf.data.edit_bones.new("head")
+hb.head, hb.tail = (0, 0, 1.0), (0, 0, 1.2)
+bpy.ops.object.mode_set(mode='OBJECT')
+bmat, bnode = attach_face(bf, "barkfig", BARK)
+check("bark board added", face_board.add(bf, head="head"), True)
+check("bark states", dict(bf["fpmp_face_board_states"]), {"CR_Face_Eyes": ["Open", "Blink", "Wide", "Lower Lid Up"],
+                                                          "CR_Face_Brows": ["None", "Down", "Squeeze In"]})
+bf.pose.bones["CR_Face_Eyes"].location.x = 2 * face_board.step_of(bf)
+bf.update_tag()
+bpy.context.view_layer.update()
+check("bark wide eyes", [round(bnode.inputs[k].default_value) for k in ("R_blink_pose", "R_wide_pose")], [0, 1])
+# only eye and brow curves: a board all the same
+CURVED = {"R_blink_pose": 0.0, "R_brow_up_pose": 0.0}
+cf = bpy.data.objects.new("curvefig", bpy.data.armatures.new("curvefig"))
+bpy.context.scene.collection.objects.link(cf)
+bpy.context.view_layer.objects.active = cf
+bpy.ops.object.mode_set(mode='EDIT')
+hb = cf.data.edit_bones.new("head")
+hb.head, hb.tail = (0, 0, 1.0), (0, 0, 1.2)
+bpy.ops.object.mode_set(mode='OBJECT')
+attach_face(cf, "curvefig", CURVED)
+check("curves only: a board", face_board.add(cf, head="head"), True)
+
 # a flipbook face whose pupils follow the look curves (Peabody's): a Look pad, the mouth sheet's own size
 PEAS = {"flipbook_face_mouth_index": 0.0, "Mouth_SubimagesX": 4.0, "Mouth_SubimagesY": 2.0,
         "look_left_pose": 0.0, "look_right_pose": 0.0, "look_up_pose": 0.0, "look_down_pose": 0.0}

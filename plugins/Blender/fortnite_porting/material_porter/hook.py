@@ -8,6 +8,7 @@ and FP builds its own preset material.
 import hashlib
 import json
 import os
+import re
 import traceback
 from collections import namedtuple
 
@@ -284,9 +285,10 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     if material_data.get("MPMoves"):
         entry["moves"] = True
         entry["variant"] = _digest("%s moves" % entry.get("variant", ""))
-    # a face that swaps its pieces by the face's curves (Peely's eyes and brows): World Position Offset folds the unused
-    # ones away (build hides them)
-    elif any(str(x.get("Name", "")).lower().endswith("_pose") for x in material_data.get("Scalars") or []):
+    # a face that swaps its pieces by the face's curves (Peely's eyes and brows) or by eye and brow indices (WartyBrine's):
+    # World Position Offset folds the unused ones away (build hides them)
+    elif any(re.search(r"_pose$|^flipbook_face_[lr]_(eye|brow)_index$", str(x.get("Name", "")).lower())
+             for x in material_data.get("Scalars") or []):
         entry["folds"] = True
         entry["variant"] = _digest("%s folds" % entry.get("variant", ""))
     # import's subsurface values (fur its own); a cosmetic's materials get the controls even where the game doesn't scatter
