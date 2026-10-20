@@ -484,7 +484,10 @@ def paws(name, goals=True):
     spine1 = bone("spine_01", (0, 0.2, 0.6), (0, 0.0, 0.62), pelvis)
     spine2 = bone("spine_02", (0, 0.0, 0.62), (0.01, 0.0, 0.62), spine1)        # a stub, pointing sideways
     neck = bone("neck", (0, -0.3, 0.65), (0, -0.45, 0.8), spine2)
-    bone("head", (0, -0.45, 0.8), (0, -0.6, 0.85), neck)
+    head = bone("head", (0, -0.45, 0.8), (0, -0.6, 0.85), neck)
+    ear = bone("ear_01_l", (-0.05, -0.5, 0.88), (-0.06, -0.5, 0.95), head)
+    bone("ear_02_l", (-0.06, -0.5, 0.95), (-0.07, -0.5, 1.0), ear)
+    bone("lip_corner_l", (-0.03, -0.62, 0.78), (-0.03, -0.64, 0.78), head)
     goal_root = bone("IK_Foot_Root", (0, 0, 0), (0, 0.1, 0), root)
     for side, x in (("l", -0.12), ("r", 0.12)):
         for prefix, y, parent in (("bk", 0.35, pelvis), ("fr", -0.2, spine2)):
@@ -535,6 +538,9 @@ bpy.context.view_layer.update()
 pb = wp["spine_02_ctrl"]
 normal = w.data.bones["spine_02_ctrl"].matrix_local.to_3x3() @ pb.custom_shape_rotation_euler.to_matrix() @ Vector((0, 0, 1))
 along = (w.data.bones["neck"].head_local - w.data.bones["spine_02"].head_local).normalized()
+check("face: ear chain rings, lip a ball", [wp["ear_01_l_ctrl"].custom_shape.name, wp["ear_02_l_ctrl"].custom_shape.name,
+      wp["lip_corner_l_ctrl"].custom_shape.name], ["OR_Circle_Thick", "OR_Circle_Thick", "OR_Sphere_Thick"])
+check("face: the jaw a box", qp["jaw_ctrl"].custom_shape.name, "OR_Box_Thick")
 check("stub spine bone: square across the spine", abs(normal.normalized().dot(along)) > 0.99, True)
 
 def cow(name):

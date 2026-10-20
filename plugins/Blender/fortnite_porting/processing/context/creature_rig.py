@@ -9,7 +9,9 @@ limbs reaching the ground as legs, the tail and the face. Controls, as Epic's:
 - spine rounded squares shaded red to yellow, neck and head rings, tail rings, each sized to the mesh around it;
 - legs (and arms with a hand) IK: a box at the foot, a pole sphere out from the knee with a line to it; their FK rings
   show when the limb is switched to FK;
-- toes, claws, ears, jaw, tongue: arrows along the bone; the eyes look at a control ahead of the face.
+- toes, claws: arrows along the bone; the eyes look at a control ahead of the face;
+- the face: the jaw a flat box at the chin, chains (ears, tongue, whiskers) rings around each bone, the other face
+  bones (lips, brows, lids, cheeks) small balls on their joints.
 The game bones keep their names, rest pose and hierarchy and copy their controls (rig off: an animation plays on them).
 """
 
@@ -30,6 +32,7 @@ HAND = re.compile(r"^(hand|wrist|paw)[a-z]?$")                            # an a
 BALL = re.compile(r"^ball$")                                              # a paw or hoof's ball: where it meets the ground
 GAME_IK = re.compile(r"^ik_foot_(?!.*root)", re.IGNORECASE)               # the game's own IK goal bones (IK_Foot_Rear_L)
 EYE = re.compile(r"(^|_)eye(ball)?(_|$)", re.IGNORECASE)                  # eye_l, Eyeball_R; not eyelid, eyebrow
+JAW = re.compile(r"(^|_)jaw(_|$)", re.IGNORECASE)                          # jaw, Jaw_C; not reverse_jaw
 PELVIS = re.compile(r"pelvis|hips", re.IGNORECASE)
 TAIL = re.compile(r"tail", re.IGNORECASE)
 SHOULDER_BLADE = re.compile(r"clavicle|scapula", re.IGNORECASE)
@@ -352,6 +355,41 @@ def create(obj):
         rig_kit.look(obj, controls[bone], "Arrow_Thick", length / 2.0, color, width, group,
                      at=b.head_local + (b.tail_local - b.head_local) * 0.5)
 
+    face_heads = [bones[n].head_local for n in controls if n in head_subtree]
+
+    def face(name, side):
+        """A face bone's control: the jaw a flat box at the chin, a bone continuing into one other (an ear, the tongue,
+        a whisker) a ring around it, the last of such a chain too, any other a small ball on its joint."""
+        b, color = bones[name], rig_kit.tone(side, "digit")
+        kids = [c for c in b.children if c.name in controls and c.name in head_subtree]
+        if JAW.search(name) and not name.lower().startswith("reverse"):
+            # the chin: the front and bottom of the skin the jaw moves (its bone's tail is made up when it ends there)
+            skin = fit.bounds([name] + [c.name for c in b.children_recursive if c.name in head_subtree])
+            if skin:
+                middle, half = (skin[0] + skin[1]) / 2.0, (skin[1] - skin[0]) / 2.0
+                reach = abs(half.dot(ahead))
+                chin = middle + ahead * reach * 0.6
+                chin.z = skin[0].z
+                size = max(reach * 0.35, h * 0.015)
+            else:
+                tips = [c.head_local for c in b.children_recursive if c.name in head_subtree] + [b.tail_local]
+                chin = max(tips, key=lambda p: (p - b.head_local).length)
+                size = max((chin - b.head_local).length * 0.25, h * 0.015)
+            rig_kit.look(obj, controls[name], "Box_Thick", size, color, W["digit"], "Secondary", at=chin, stretch=(1.0, 1.0, 0.35))
+            rig_kit.align(obj, pose[controls[name]], y=ahead, z=up)
+            return
+        parent = b.parent
+        chained = (parent is not None and parent.name in controls and parent.name in head_subtree and parent.name != survey.head
+                   and len([c for c in parent.children if c.name in controls]) == 1 and not JAW.search(parent.name))
+        along = kids[0].head_local - b.head_local if len(kids) == 1 else             (b.head_local - parent.head_local if chained and not kids else None)
+        if along is not None and along.length > h * 0.005:
+            # a chain's last bone has a made-up tail: its ring on its joint, not past the tip
+            ring(name, "Circle_Thick", color, W["digit"], "Secondary", k=1.1, fallback=0.02, at_mid=bool(kids), along=along)
+            return
+        near = min(((p - b.head_local).length for p in face_heads if (p - b.head_local).length > 1e-6), default=h * 0.05)
+        rig_kit.look(obj, controls[name], "Sphere_Thick", min(max(near * 0.35, h * 0.006), h * 0.025), color, W["digit"],
+                     "Secondary", at=b.head_local)
+
     # global, root, body
     rig_kit.look(obj, "global_ctrl", "Hexagon_Thin", reach * 1.1, rig_kit.COLORS["root"], W["root"], "Controls")
     rig_kit.align(obj, pose["global_ctrl"], y=ahead, z=up)
@@ -398,7 +436,7 @@ def create(obj):
             elif name in ik_driven:
                 ring(name, "Circle_Thick", rig_kit.tone(side), W["limb"], rig_style.FK, k=1.2, at_mid=True)
             elif limb.kind == "face":
-                arrow(name, rig_kit.tone(side, "digit"), "Secondary")
+                face(name, side)
             elif limb.chain and limb.bones.index(name) < limb.bones.index(limb.chain[0]):
                 # before the IK chain: a shoulder blade or clavicle, as Epic's clavicle
                 b = bones[name]
@@ -431,7 +469,7 @@ def create(obj):
             continue
         b = bones[name]
         if name in head_subtree:
-            arrow(name, rig_kit.tone(side_of(name), "digit"), "Secondary")
+            face(name, side_of(name))
         elif not b.children and off_axis(name):
             point(name, rig_kit.COLORS["hips"] if side_of(name) == "C" else rig_kit.tone(side_of(name)), "Controls")
         elif b.length > h * 0.04:
