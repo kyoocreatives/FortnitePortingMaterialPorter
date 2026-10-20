@@ -208,19 +208,50 @@ def _samplers(mat):
     return count
 
 
+# mesh attributes one Eevee material can read (colour layers, UV maps, tangents): 15 failed to compile, 14 drew
+ATTRIBUTE_LIMIT = 14
+
+
+def _mesh_attributes(mat):
+    """The mesh attributes a material's trees read: colour layers, geometry attributes, UV maps and their tangents."""
+    seen, found = set(), set()
+    todo = [mat.node_tree] if mat and mat.node_tree else []
+    while todo:
+        tree = todo.pop()
+        if tree is None or tree.name in seen:
+            continue
+        seen.add(tree.name)
+        for n in tree.nodes:
+            kind = n.bl_idname
+            if kind == "ShaderNodeGroup":
+                todo.append(n.node_tree)
+            elif kind == "ShaderNodeVertexColor":
+                found.add(("colour", n.layer_name))
+            elif kind == "ShaderNodeAttribute" and n.attribute_type == 'GEOMETRY':
+                found.add(("attribute", n.attribute_name))
+            elif kind == "ShaderNodeUVMap":
+                found.add(("uv", n.uv_map))
+            elif kind == "ShaderNodeNormalMap" and n.space == 'TANGENT':
+                found.add(("tangent", n.uv_map))
+            elif kind == "ShaderNodeTangent" and n.direction_type == 'UV_MAP':
+                found.add(("tangent", n.uv_map))
+    return len(found)
+
+
 def _lightest_layer(obj, layers):
     """The painted layer of a landscape proxy with the least total weight."""
-    import numpy as np
-    total = {}
-    for name in layers:
-        a = obj.data.color_attributes.get(name)
-        if a is None:
-            total[name] = 0.0
-            continue
-        v = np.empty(len(a.data) * 4, dtype=np.float32)
-        a.data.foreach_get("color", v)
-        total[name] = float(v[0::4].sum())
-    return min(layers, key=lambda n: total[n])
+    from .landscape_layers import weight
+    return min(layers, key=lambda n: weight(obj, n))
+
+
+def _set_layers(entry, base, obj, layers):
+    """Build for these layers of a landscape proxy, read from the channels the mesh keeps them in."""
+    from . import landscape_layers
+    packed = landscape_layers.table(obj)
+    entry["landscape_layers"] = layers
+    entry["landscape_channels"] = {l: list(packed[l]) for l in layers if l in packed}
+    entry["name"] = "%s (%s)" % (base[1], "+".join(layers) if layers else "no layers")
+    entry["variant"] = _digest("%s layers %s" % (base[0], landscape_layers.key(obj, layers)))
 
 
 def build_exact(context, material_data, texture_data=None, override_parameters=None, obj=None):
@@ -305,25 +336,26 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     # (the Ch4 jungle landscape samples 43 textures over all layers, past Eevee's 32, and rendered magenta)
     landscape_base = (entry.get("variant", ""), entry["name"])
     if obj is not None and obj.type == 'MESH' and obj.get("mp_landscape"):
-        layers = sorted(a.name for a in obj.data.color_attributes if a.name != "COL0")
-        entry["landscape_layers"] = layers
-        entry["name"] = "%s (%s)" % (landscape_base[1], "+".join(layers) if layers else "no layers")
-        entry["variant"] = _digest("%s layers %s" % (landscape_base[0], " ".join(layers)))
+        # the painted ones: a layer made to paint later (a material put onto a mesh) waits for its paint
+        from .landscape_layers import painted
+        _set_layers(entry, landscape_base, obj, painted(obj))
     # lay out each tree when a node editor first shows it (two fifths of build time, cosmetic)
     build.LAZY_LAYOUT = True
     try:
         mat = _material(job, entry, obj)
-        # On OpenGL Eevee limits image samplers per material (past it: magenta). A proxy still over the limit
-        # drops its least painted layer, repeatedly.
+        # Eevee limits image samplers per material on OpenGL, and mesh attributes read on every backend (past either:
+        # magenta). A proxy still over a limit drops its least painted layer, repeatedly.
         limit = _sampler_limit() if entry.get("landscape_layers") else None
-        while limit and len(entry["landscape_layers"]) > 1 and (samplers := _samplers(mat)) > limit:
+        while entry.get("landscape_layers") and len(entry["landscape_layers"]) > 1:
+            samplers, attributes = _samplers(mat), _mesh_attributes(mat)
+            if not (limit and samplers > limit) and attributes <= ATTRIBUTE_LIMIT:
+                break
             lightest = _lightest_layer(obj, entry["landscape_layers"])
             layers = [l for l in entry["landscape_layers"] if l != lightest]
-            _log("%s: %d image samplers over Eevee's %d on OpenGL - its least painted layer left out" % (
-                entry["name"], samplers, limit))
-            entry["landscape_layers"] = layers
-            entry["name"] = "%s (%s)" % (landscape_base[1], "+".join(layers))
-            entry["variant"] = _digest("%s layers %s" % (landscape_base[0], " ".join(layers)))
+            _log("%s: %s - its least painted layer left out" % (entry["name"], (
+                "%d image samplers over Eevee's %d on OpenGL" % (samplers, limit)) if limit and samplers > limit else
+                "%d mesh attributes over Eevee's %d" % (attributes, ATTRIBUTE_LIMIT)))
+            _set_layers(entry, landscape_base, obj, layers)
             mat = _material(job, entry, obj)
     except Exception as e:
         at = traceback.extract_tb(e.__traceback__)[-1]

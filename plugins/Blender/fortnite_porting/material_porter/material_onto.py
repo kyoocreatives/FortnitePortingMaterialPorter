@@ -1,8 +1,8 @@
 """A material sent on its own (the app's Material export) goes onto the selected meshes: built into the active one's
 active slot, the same material then in each other selected mesh's active slot. What the material reads off a mesh is
-made on them when missing: a landscape material's layer colour attributes (the first one white, so its first layer
-shows; the others black, to paint: rebuild it after painting to bring those layers in), other geometry attributes it
-samples, and its UV maps (copies of the first)."""
+made on them when missing: a landscape material's layers, three to a colour attribute (Attribute1's red, green and
+blue...: landscape_layers; the first painted all over so it shows, the others to paint: import it again after painting
+to bring those layers in), other geometry attributes it samples, and its UV maps (copies of the first)."""
 import bpy
 
 from ..logger import Log
@@ -52,9 +52,9 @@ def onto_selected(ctx, materials):
 
 
 def _layers(material):
-    """A landscape material's layers: the colour layers its landscape layer nodes ("layer <name>") read."""
-    return {n.layer_name for tree in _trees(material) for n in tree.nodes
-            if n.bl_idname == "ShaderNodeVertexColor" and n.label.startswith("layer ") and n.layer_name}
+    """A landscape material's layers: the names of its landscape layer nodes ("layer <name>")."""
+    return {n.label[len("layer "):] for tree in _trees(material) for n in tree.nodes
+            if n.bl_idname == "ShaderNodeVertexColor" and n.label.startswith("layer ")}
 
 
 def _trees(material):
@@ -82,7 +82,7 @@ def _reads(material):
             kind = n.bl_idname
             if kind == "ShaderNodeGroup":
                 todo.append(n.node_tree)
-            elif kind == "ShaderNodeVertexColor" and n.layer_name:
+            elif kind == "ShaderNodeVertexColor" and n.layer_name and not n.label.startswith("layer "):
                 colors.add(n.layer_name)
             elif kind == "ShaderNodeAttribute" and n.attribute_type == 'GEOMETRY' and n.attribute_name:
                 attributes.add(n.attribute_name)
@@ -96,15 +96,17 @@ def make_attributes(obj, material):
     mesh = obj.data
     colors, attributes, uvs = _reads(material)
     made = set()
-    first = not any(a.name not in ("COL0",) for a in mesh.color_attributes)
+    layers = sorted(_layers(material))
+    if layers:
+        from . import landscape_layers
+        have = set(landscape_layers.table(obj))
+        landscape_layers.make(obj, layers)
+        made |= {"%s (%s)" % (l, obj[landscape_layers.KEY][l]) for l in layers if l not in have}
     for name in sorted(colors) + sorted(attributes):
         # the plugin's own attributes are made by its imports (mp_tangent: baked below), not left empty
         if name.lower() in BUILT_IN or name in mesh.attributes or name.startswith("mp_"):
             continue
-        layer = mesh.color_attributes.new(name, 'FLOAT_COLOR', 'POINT')
-        if name in colors and first:
-            layer.data.foreach_set("color", [1.0] * (4 * len(layer.data)))
-            first = False
+        mesh.color_attributes.new(name, 'FLOAT_COLOR', 'POINT')
         made.add(name)
     for name in sorted(uvs):
         if name and name not in mesh.uv_layers:

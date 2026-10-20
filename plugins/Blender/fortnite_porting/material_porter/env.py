@@ -325,10 +325,13 @@ class MaterialEnv:
         if layers is not None and name not in layers:
             return None
 
+        # its channel of a packed attribute (landscape_layers: Attribute1's red...), else its own attribute's red
+        attribute, channel = (self.entry.get("landscape_channels") or {}).get(name, (name, 0))
+
         def make():
             n = self.tr.node("ShaderNodeVertexColor", "layer " + name)
-            n.layer_name = name
-            return self.tr.comps(Val(n.outputs["Color"], 3))[0]
+            n.layer_name = attribute
+            return self.tr.comps(Val(n.outputs["Color"], 3))[channel]
         return self.once("layer " + name, make)
 
     def landscape_uv(self, index):

@@ -170,5 +170,7 @@ def restore(target, source):
         centres = [to_source @ f.center for f in dst.polygons]
         dst.polygons.foreach_set("material_index", [int(src_mats[h[2]]) if (h := sample(c)) else 0 for c in centres])
     target["mp_landscape"] = 1.0
+    if layers := source.get("mp_layers"):
+        target["mp_layers"] = dict(layers)        # which packed channel holds which layer
     dst.update()
     return done

@@ -1241,7 +1241,7 @@ def shape_key(entry):
     """What decides a build's node trees beyond its parameter values: the master's graph, static switches and masks,
     blend/shading overrides and subsurface profile. Instances alike in all of it differ only in parameter values
     (the material's group-node inputs) and texture images."""
-    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "folds", "shell", "cosmetic", "fixed", "landscape_layers")}
+    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "folds", "shell", "cosmetic", "fixed", "landscape_layers", "landscape_channels")}
     k["head"] = _is_head(entry)
     # with a time of day in the file collections stay live; without one they are folded in
     k["day"] = world.has_day()

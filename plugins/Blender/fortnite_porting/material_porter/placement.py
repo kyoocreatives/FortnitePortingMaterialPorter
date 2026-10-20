@@ -35,6 +35,9 @@ def after_import(mesh, obj, mesh_obj, scale, landscape_detail=1):
         for attribute in target.data.color_attributes:
             if attribute.name in names:
                 attribute.name = names[attribute.name]
+        # three to an attribute (Eevee reads 14 mesh attributes a material at most)
+        from .landscape_layers import pack
+        pack(target, [n for n in names.values() if n in target.data.color_attributes])
         target["mp_landscape"] = 1.0
         if landscape_detail > 1:
             from .landscape_detail import reduce

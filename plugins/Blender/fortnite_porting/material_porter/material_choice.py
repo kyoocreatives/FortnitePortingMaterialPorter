@@ -43,6 +43,7 @@ class ExactChoice:
 
     def __init__(self, ctx, material_data, material_slot, as_material_data):
         from .hook import cosmetic_material, exact_available, subsurface as subsurface_of, texture_cap
+        from .landscape_layers import key as layers_key
         self.ctx = ctx
         self.hidden = bool(material_data.get("MPHidden"))
         self.prefer_fp = bool(ctx.options.get("PreferFPShaders") and ctx.type in FP_SHADER_TYPES and has_fp_shader(material_data))
@@ -54,7 +55,7 @@ class ExactChoice:
         self.subsurface = "%g %g %g %g %s" % (tuple(subsurface_of(ctx, material_data)) + (cosmetic_material(ctx, material_data),))
         # a landscape proxy gets one material per set of painted layers (see hook.build_exact)
         slot_object = None if as_material_data else material_slot.id_data
-        self.landscape = "+".join(sorted(a.name for a in slot_object.data.color_attributes if a.name != "COL0")) \
+        self.landscape = layers_key(slot_object) \
             if slot_object is not None and slot_object.type == 'MESH' and slot_object.get("mp_landscape") else None
 
     def reusable(self, existing):
