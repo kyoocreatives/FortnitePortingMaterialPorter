@@ -123,6 +123,8 @@ class StaticsMixin:
             used = self._hook("landscape_layer", lambda: True, p.get("ParameterName"))
             return p.get("LayerUsed" if used else "LayerNotUsed")
         prefs = COMPILE_SWITCHES[t]
+        if t == "VirtualTextureFeatureSwitch" and getattr(self, "rvt_output", None):
+            prefs = ("Yes",) + prefs        # its own virtual texture is drawable: the PC branch (No is mobile's)
         for k in prefs:
             if linked(p.get(k)):
                 return p[k]

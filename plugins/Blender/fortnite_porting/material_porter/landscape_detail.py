@@ -172,5 +172,7 @@ def restore(target, source):
     target["mp_landscape"] = 1.0
     if layers := source.get("mp_layers"):
         target["mp_layers"] = dict(layers)        # which packed channel holds which layer
+    if source.get("mp_layers_all"):
+        target["mp_layers_all"] = 1.0
     dst.update()
     return done

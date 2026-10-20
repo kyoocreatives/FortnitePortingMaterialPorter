@@ -119,7 +119,8 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         if val is None:
             return
         if isinstance(val.s, (Attrs, TexRef)):
-            self.warnings.append("%s can't go into a socket (%s)" % (type(val.s).__name__, sock.name))
+            self.warnings.append("%s can't go into a socket (%s of %s in %s)" % (
+                type(val.s).__name__, sock.name, sock.node.label or sock.node.name, sock.id_data.name))
             return
         if val.const:
             v = val.s
@@ -449,6 +450,10 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         g = self.graph(path)
         pins = (g.editor_data() or {}).get("Properties") or {}
         self.carried = tuple(CARRIED) + tuple(n for n in names if n not in CARRIED)
+        # a material that writes the virtual texture it reads (Fortnite's landscapes on PC): the read is its own output
+        self.rvt_output = (g, next((x for x in g.o if T(x) == "RuntimeVirtualTextureOutput"), None))
+        if self.rvt_output[1] is None:
+            self.rvt_output = None
         if linked(pins.get("MaterialAttributes")):
             v = self.input(g, pins["MaterialAttributes"], {}, None)
             attrs = v.s if v is not None and isinstance(v.s, Attrs) else Attrs()

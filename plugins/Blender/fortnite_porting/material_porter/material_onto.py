@@ -1,8 +1,8 @@
 """A material sent on its own (the app's Material export) goes onto the selected meshes: built into the active one's
 active slot, the same material then in each other selected mesh's active slot. What the material reads off a mesh is
 made on them when missing: a landscape material's layers, three to a colour attribute (Attribute1's red, green and
-blue...: landscape_layers; the first painted all over so it shows, the others to paint: import it again after painting
-to bring those layers in), other geometry attributes it samples, and its UV maps (copies of the first)."""
+blue...: landscape_layers; unpainted, every one of them in the material, ready to paint), other geometry attributes it
+samples, and its UV maps (copies of the first)."""
 import bpy
 
 from ..logger import Log

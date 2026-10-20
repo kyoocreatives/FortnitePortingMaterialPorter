@@ -2,7 +2,7 @@
 
 import math
 
-from .core import TABLE, TexRef, Val, WATER_DEPTH_DEFAULT, SHELL_ATTRIBUTES, SHELL_VECTORS, render_tan_half_fov
+from .core import Attrs, TABLE, TexRef, Val, WATER_DEPTH_DEFAULT, SHELL_ATTRIBUTES, SHELL_VECTORS, render_tan_half_fov
 
 
 class RendererMixin:
@@ -288,10 +288,18 @@ class RendererMixin:
             v = self.sample_array(tex, self.input(g, p.get("Coordinates"), scope, None), p.get("SamplerType", ""))
             return self.rgba_out(Val(v.s, 3), v.a, out)
         if t in ("RuntimeVirtualTextureSampleParameter", "RuntimeVirtualTextureSample"):
-            # the terrain's virtual texture under the object: none here - a
-            # neutral surface, its height far below (height blends stay off)
             vals = [self.const((0.5, 0.5, 0.5), 3), self.const(0.5), self.const(0.5), self.const((0.0, 0.0, 1.0), 3),
                     self.const(-1e6), self.const(0.0), self.const(0.0)]
+            if getattr(self, "rvt_output", None):
+                # the material's own virtual texture (a landscape samples what it wrote, at the same place):
+                # what its Runtime Virtual Texture Output is given (base colour, specular, roughness, normal, height,
+                # mask, displacement)
+                rg, rx = self.rvt_output
+                rp = rx.get("Properties") or {}
+                pin = ("BaseColor", "Specular", "Roughness", "Normal", "WorldHeight", "Mask", "Displacement")[min(out, 6)]
+                return self.input(rg, rp.get(pin), {}, vals[min(out, 6)])
+            # the terrain's virtual texture under the object: none here - a
+            # neutral surface, its height far below (height blends stay off)
             return self.stand_in("runtime virtual texture", vals[min(out, len(vals) - 1)])
         if t == "ParticleColor":
             rgb, a = self._hook("particle_color", lambda: (self.const((1.0, 1.0, 1.0), 3), self.const(1.0)))
@@ -406,7 +414,7 @@ class RendererMixin:
             return self.binop('ADD', base, self.binop('MULTIPLY', layer, w))
         # LandscapeLayerBlend: weight-blended layers add up; height-blended ones share
         # what their heights make of their weights; alpha-blended ones go over the result
-        out, height_terms, alpha = None, [], []
+        terms, height_terms, alpha = [], [], []
         for layer in p.get("Layers") or []:
             name = layer.get("LayerName")
             w = self.layer_weight(name)
@@ -429,17 +437,44 @@ class RendererMixin:
             elif kind.endswith("AlphaBlend"):
                 alpha.append((value, w))
             else:
-                term = self.binop('MULTIPLY', value, w)
-                out = term if out is None else self.binop('ADD', out, term)
+                terms.append((value, w))
         if height_terms:
             total = height_terms[0][1]
             for _, mw in height_terms[1:]:
                 total = self.math('ADD', total, mw)
-            for value, mw in height_terms:
-                term = self.binop('MULTIPLY', value, self.math('DIVIDE', mw, total))
-                out = term if out is None else self.binop('ADD', out, term)
+            terms += [(value, self.math('DIVIDE', mw, total)) for value, mw in height_terms]
+        if any(isinstance(v.s, Attrs) for v, _ in terms + alpha):
+            # layers of material attributes (Athena's terrain): each attribute blended alike, made when read
+            return Val(LayerAttrs(self, terms, alpha), 0)
+        return self._blend_layers(terms, alpha)
+
+    def _blend_layers(self, terms, alpha):
+        out = None
+        for value, w in terms:
+            term = self.binop('MULTIPLY', value, w)
+            out = term if out is None else self.binop('ADD', out, term)
         if out is None:
             out = self.const(0.0)
         for value, w in alpha:
             out = self.lerp(out, value, w)
         return out
+
+
+class LayerAttrs(Attrs):
+    """A LandscapeLayerBlend of material attribute layers: per attribute, the layers' values blended as single values
+    are (weighted sum, then alpha layers over it); the shading model, which doesn't blend, from the first layer."""
+
+    def __init__(self, tr, terms, alpha):
+        super().__init__()
+        self.tr, self.terms, self.alpha = tr, terms, alpha
+
+    def get(self, name):
+        if name not in self.vals:
+            pick = lambda v: v.s.get(name) if isinstance(v.s, Attrs) else v       # noqa: E731
+            if name == "ShadingModel":
+                first = (self.terms + self.alpha)[0][0]
+                self.vals[name] = pick(first)
+            else:
+                self.vals[name] = self.tr._blend_layers([(pick(v), w) for v, w in self.terms],
+                                                        [(pick(v), w) for v, w in self.alpha])
+        return self.vals[name]

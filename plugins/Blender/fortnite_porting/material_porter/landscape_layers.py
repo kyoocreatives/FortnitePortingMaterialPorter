@@ -6,6 +6,7 @@ blend 20 layers and more; packed, 36 layers take 12. The mesh keeps which channe
 import numpy as np
 
 KEY = "mp_layers"
+ALL = "mp_layers_all"       # a mesh a material was put on: every layer built, painted or not, ready to paint
 PREFIX = "Attribute"
 CHANNELS = "RGB"
 
@@ -47,11 +48,17 @@ def painted(obj):
     return [layer for layer in layers(obj) if weight(obj, layer) > 0.0]
 
 
+def built(obj):
+    """The layers a material for the mesh blends: all of them on a mesh a material was put on, else the painted ones
+    (a map's landscape component, as UE compiles it)."""
+    return layers(obj) if obj.get(ALL) else painted(obj)
+
+
 def key(obj, chosen=None):
-    """What a material built for the mesh depends on: its painted layers (or `chosen`) and where each sits."""
+    """What a material built for the mesh depends on: its layers (or `chosen`) and where each sits."""
     packed = table(obj)
     return "+".join("%s@%s.%s" % ((layer,) + (packed[layer][0], CHANNELS[packed[layer][1]])) if layer in packed else layer
-                    for layer in (painted(obj) if chosen is None else chosen))
+                    for layer in (built(obj) if chosen is None else chosen))
 
 
 def _attribute(mesh, name, data_type, domain):
@@ -96,14 +103,10 @@ def pack(obj, names):
     return packed
 
 
-def make(obj, names, first_painted=True):
-    """Packed channels for `names` on a mesh that lacks them (unpainted; the first one painted all over when the mesh
-    has no layer yet, so its material shows)."""
-    fresh = not table(obj)
+def make(obj, names):
+    """Packed channels for `names` on a mesh that lacks them, unpainted; every layer built from then on."""
     packed = _place(obj, [n for n in names if n not in table(obj)], 'FLOAT_COLOR', 'POINT')
-    if fresh and first_painted and names:
-        a = obj.data.color_attributes[packed[names[0]][0]]
-        _write(obj, {names[0]: np.ones(len(a.data), dtype=np.float32)}, packed)
+    obj[ALL] = 1.0
     return packed
 
 

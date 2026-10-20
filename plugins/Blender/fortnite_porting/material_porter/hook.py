@@ -184,11 +184,11 @@ def _sampler_limit():
 
 
 def _samplers(mat):
-    """Count the image nodes that reach the material output, through groups (what Eevee binds)."""
-    seen, count = set(), 0
+    """Count the samplers Eevee binds for a material: the images reaching its output, through groups, one per image
+    and filtering (Blender shares a sampler between image nodes reading one image the same way)."""
+    seen, bound = set(), set()
 
     def walk(tree, outs):
-        nonlocal count
         back = {}
         for l in tree.links:
             back.setdefault(l.to_node.name, []).append(l.from_node)
@@ -199,13 +199,13 @@ def _samplers(mat):
                 continue
             done.add(n.name)
             if n.bl_idname == "ShaderNodeTexImage" and n.image is not None:
-                count += 1
+                bound.add((n.image.name, n.interpolation, n.extension))
             elif n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None and n.node_tree.name not in seen:
                 seen.add(n.node_tree.name)
                 walk(n.node_tree, [x for x in n.node_tree.nodes if x.bl_idname == "NodeGroupOutput"])
             todo.extend(back.get(n.name, []))
     walk(mat.node_tree, [n for n in mat.node_tree.nodes if n.bl_idname == "ShaderNodeOutputMaterial"])
-    return count
+    return len(bound)
 
 
 # mesh attributes one Eevee material can read (colour layers, UV maps, tangents): 15 failed to compile, 14 drew
@@ -336,9 +336,9 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     # (the Ch4 jungle landscape samples 43 textures over all layers, past Eevee's 32, and rendered magenta)
     landscape_base = (entry.get("variant", ""), entry["name"])
     if obj is not None and obj.type == 'MESH' and obj.get("mp_landscape"):
-        # the painted ones: a layer made to paint later (a material put onto a mesh) waits for its paint
-        from .landscape_layers import painted
-        _set_layers(entry, landscape_base, obj, painted(obj))
+        # the painted ones (a map's component), or all on a mesh a material was put on (to paint)
+        from .landscape_layers import built
+        _set_layers(entry, landscape_base, obj, built(obj))
     # lay out each tree when a node editor first shows it (two fifths of build time, cosmetic)
     build.LAZY_LAYOUT = True
     try:
