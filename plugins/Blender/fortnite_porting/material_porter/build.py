@@ -18,7 +18,7 @@ from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PA
 PREFIX = "MP "            # prefix of built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # game object the material translates
 KEY_REV = "mp_rev"        # build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 75       # bump when a builder change should rebuild existing materials
+BUILD_REVISION = 76       # bump when a builder change should rebuild existing materials
 KEY_REPLACES = "mp_replaces"
 KEY_FP = "mp_fp"          # function group fingerprint, for sharing groups
 KEY_VARIANT = "mp_variant"  # hash of a style's parameter values over the instance
@@ -1241,7 +1241,7 @@ def shape_key(entry):
     """What decides a build's node trees beyond its parameter values: the master's graph, static switches and masks,
     blend/shading overrides and subsurface profile. Instances alike in all of it differ only in parameter values
     (the material's group-node inputs) and texture images."""
-    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "folds", "shell", "cosmetic", "fixed", "landscape_layers", "landscape_channels")}
+    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "folds", "shell", "cosmetic", "fixed", "landscape_layers", "landscape_channels", "landscape_world")}
     k["head"] = _is_head(entry)
     # with a time of day in the file collections stay live; without one they are folded in
     k["day"] = world.has_day()

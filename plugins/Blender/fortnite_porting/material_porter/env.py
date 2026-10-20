@@ -335,8 +335,9 @@ class MaterialEnv:
         return self.once("layer " + name, make)
 
     def landscape_uv(self, index):
-        """A landscape's texture coordinates (UV0: landscape-wide quads, as exported)."""
-        return self.uv(index)
+        """A landscape's texture coordinates (UV0: landscape-wide quads, as exported); None on a mesh a landscape
+        material was put on, whose own UVs aren't quads (the world in 1 m quads then)."""
+        return None if self.entry.get("landscape_world") else self.uv(index)
 
     def vertex_color(self):
         def make():

@@ -248,10 +248,12 @@ def _set_layers(entry, base, obj, layers):
     """Build for these layers of a landscape proxy, read from the channels the mesh keeps them in."""
     from . import landscape_layers
     packed = landscape_layers.table(obj)
+    entry["landscape_world"] = bool(obj.get(landscape_layers.ALL))
     entry["landscape_layers"] = layers
     entry["landscape_channels"] = {l: list(packed[l]) for l in layers if l in packed}
     entry["name"] = "%s (%s)" % (base[1], "+".join(layers) if layers else "no layers")
-    entry["variant"] = _digest("%s layers %s" % (base[0], landscape_layers.key(obj, layers)))
+    entry["variant"] = _digest("%s layers %s%s" % (base[0], landscape_layers.key(obj, layers),
+                                                   " world" if entry["landscape_world"] else ""))
 
 
 def build_exact(context, material_data, texture_data=None, override_parameters=None, obj=None):

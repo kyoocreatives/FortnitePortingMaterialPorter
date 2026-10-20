@@ -364,9 +364,10 @@ class RendererMixin:
             base = self._hook("landscape_uv", lambda: None, index)
             stand = base is None
             if stand:
-                # not on a landscape: world XY in 1 m quads
+                # not on an exported landscape: the world in 1 m quads, on the mapping's plane (XY, XZ, YZ)
                 wp = self.comps(env.world_position(False))
-                base = self.combine([self.binop('DIVIDE', wp[0], self.const(100.0)), self.binop('DIVIDE', wp[1], self.const(100.0))])
+                a, b = ((0, 1), (0, 2), (1, 2))[index]
+                base = self.combine([self.binop('DIVIDE', wp[a], self.const(100.0)), self.binop('DIVIDE', wp[b], self.const(100.0))])
             bu, bv = self.comps(base)[:2]
             scale = 1.0 / (float(p.get("MappingScale", 0.0)) or 1.0)
             rot = math.radians(float(p.get("MappingRotation", 0.0)))
