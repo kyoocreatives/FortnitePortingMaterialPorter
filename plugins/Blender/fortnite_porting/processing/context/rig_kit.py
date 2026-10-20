@@ -117,8 +117,14 @@ def ik_limb(edit, name, chain, foot, tip, parent, target_parent, ahead, size, fr
     head is where they end) or None (they end at `tip`). A mechanism chain joint to joint (MCH_<bone>_ik) solves, each
     game bone follows it through a copy at its own rest frame (MCH_<bone>_ik_pose); `parent` holds the chain. The
     target (<name>_ik_ctrl) is world-aligned, flat, under `target_parent`; the pole (<name>_pv_ctrl) sits out from the bend. Returns the limb's
-    metadata (bone names) and the pole angle."""
-    joints = [edit[n].head.copy() for n in chain] + [tip.copy()]
+    metadata (bone names) and the pole angle.
+
+    A chain of three or more (a paw or hoof leg: thigh, shin, metatarsal) is digitigrade: the bones above the last solve
+    to its head (the hock), the last rides on the target, so the paw control carries the hock and turning it lifts
+    the heel; a free three-bone solve would fold knee and hock unpredictably."""
+    heel = chain[-1] if len(chain) >= 3 else None
+    solve = chain[:-1] if heel else list(chain)
+    joints = [edit[n].head.copy() for n in solve] + [edit[heel].head.copy() if heel else tip.copy()]
     length = sum((b - a).length for a, b in zip(joints, joints[1:]))
     line = joints[-1] - joints[0]
     off = lambda p: p - (joints[0] + line * ((p - joints[0]).dot(line) / max(line.length_squared, 1e-12)))
@@ -135,23 +141,29 @@ def ik_limb(edit, name, chain, foot, tip, parent, target_parent, ahead, size, fr
     if bend.length < 1e-6:
         bend = edit[chain[0]].z_axis.copy()
     mch = []
-    for i, bone in enumerate(chain):
+    for i, bone in enumerate(solve):
         m = new_bone(edit, MCH + bone + "_ik", joints[i], joints[i + 1], edit.get(parent) if i == 0 else edit[mch[-1]],
                      edit[bone].z_axis)
         m.use_connect = i > 0
         mch.append(m.name)
         copy_bone(edit, edit[bone], MCH + bone + "_ik_pose", m)
     down = Vector((0.0, 0.0, -1.0))
-    target = new_bone(edit, name + "_ik_ctrl", joints[-1], joints[-1] + ahead * size, edit.get(target_parent), -down)
+    target = new_bone(edit, name + "_ik_ctrl", tip.copy(), tip + ahead * size, edit.get(target_parent), -down)
+    carrier = target
+    if heel is not None:
+        # the IK goal at the hock; beside it the hock the heel and foot hang from, kept on the chain's end (a paw
+        # pulled past the leg's reach leaves the leg whole)
+        copy_bone(edit, edit[heel], MCH + heel + "_ik_pose", target)
+        carrier = copy_bone(edit, edit[heel], MCH + heel + "_ik_hock", target)
     if foot is not None:
-        copy_bone(edit, edit[foot], MCH + foot + "_ik_pose", target)
+        copy_bone(edit, edit[foot], MCH + foot + "_ik_pose", carrier)
     at = joints[bend_at] + bend.normalized() * length * 0.5
     pole = new_bone(edit, name + "_pv_ctrl", at, at + Vector((0.0, 0.0, size)), edit.get(target_parent), ahead)
     line_bone = new_bone(edit, MCH + name + "_pole_line", joints[bend_at], at, edit[mch[bend_at - 1]] if bend_at > 0 else None)
     line_bone.tail = at
     angle = pole_angle(edit[mch[0]], joints[-1], at)
     return {"name": name, "bones": list(chain) + ([foot] if foot else []), "mch": mch, "target": target.name,
-            "pole": pole.name, "line": line_bone.name, "bend": bend_at, "foot": foot}, angle
+            "pole": pole.name, "line": line_bone.name, "bend": bend_at, "foot": foot, "heel": heel}, angle
 
 
 # pose mode
@@ -207,11 +219,12 @@ def limb_constraints(obj, limb, angle, setting):
     pose = obj.pose.bones
     ik = pose[limb["mch"][-1]].constraints.new('IK')
     ik.name = PREFIX + "ik"
-    ik.target, ik.subtarget = obj, limb["target"]
+    heel = limb.get("heel")
+    ik.target, ik.subtarget = obj, (MCH + heel + "_ik_pose" if heel else limb["target"])
     ik.pole_target, ik.pole_subtarget, ik.pole_angle = obj, limb["pole"], angle
     ik.chain_count = len(limb["mch"])
     for bone in limb["bones"]:
-        if bone == limb["foot"]:
+        if bone == limb["foot"] and not heel:
             c = pose[bone].constraints.new('COPY_ROTATION')
             c.name, c.target, c.subtarget = PREFIX + "ik", obj, MCH + bone + "_ik_pose"
             rig_style.driven(obj, c, setting)
@@ -219,8 +232,11 @@ def limb_constraints(obj, limb, angle, setting):
             c.name, c.target, c.subtarget, c.head_tail = PREFIX + "ik tip", obj, limb["mch"][-1], 1.0
         else:
             c = pose[bone].constraints.new('COPY_TRANSFORMS')
-            c.name, c.target, c.subtarget = PREFIX + "ik", obj, MCH + bone + "_ik_pose"
+            c.name, c.target, c.subtarget = PREFIX + "ik", obj, MCH + bone + ("_ik_hock" if bone == heel else "_ik_pose")
         rig_style.driven(obj, c, setting)
+    if heel:
+        c = pose[MCH + heel + "_ik_hock"].constraints.new('COPY_LOCATION')
+        c.name, c.target, c.subtarget, c.head_tail = PREFIX + "ik tip", obj, limb["mch"][-1], 1.0
     stretch = pose[limb["line"]].constraints.new('STRETCH_TO')
     stretch.target, stretch.subtarget = obj, limb["pole"]
     line = pose[limb["line"]]
@@ -281,8 +297,9 @@ def _place_target(obj, limb):
 def _place_pole(obj, limb):
     """The pole's pose matrix out from the limb's bend as it is now."""
     pose = obj.pose.bones
-    joints = [pose[b].head.copy() for b in limb["bones"][:len(limb["mch"])]]
-    joints.append(pose[limb["foot"]].head.copy() if limb["foot"] else pose[limb["bones"][-1]].tail.copy())
+    n = len(limb["mch"])
+    joints = [pose[b].head.copy() for b in limb["bones"][:n]]
+    joints.append(pose[limb["bones"][n]].head.copy() if len(limb["bones"]) > n else pose[limb["bones"][-1]].tail.copy())
     length = sum((b - a).length for a, b in zip(joints, joints[1:]))
     line = joints[-1] - joints[0]
     p = joints[min(limb["bend"], len(joints) - 2)]

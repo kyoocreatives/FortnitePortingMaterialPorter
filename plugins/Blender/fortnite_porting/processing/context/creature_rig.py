@@ -27,6 +27,8 @@ SIDE = re.compile(r"(^|[_.\-\s])(l|left)([_.\-\s]|$)|(^|[_.\-\s])(r|right)([_.\-
 FOOT = re.compile(r"^(foot|ankle|wrist|paw|hoof)[a-z]?$")      # matches a name word: footA, Ankle; not PawedArm
 HEAD = re.compile(r"(^|_)head(_c|_jnt|_\d+)?$", re.IGNORECASE)          # includes head_01 (sidekicks)
 HAND = re.compile(r"^(hand|wrist|paw)[a-z]?$")                            # an arm's IK end, matched per name word
+BALL = re.compile(r"^ball$")                                              # a paw or hoof's ball: where it meets the ground
+GAME_IK = re.compile(r"^ik_foot_(?!.*root)", re.IGNORECASE)               # the game's own IK goal bones (IK_Foot_Rear_L)
 EYE = re.compile(r"(^|_)eye(ball)?(_|$)", re.IGNORECASE)                  # eye_l, Eyeball_R; not eyelid, eyebrow
 PELVIS = re.compile(r"pelvis|hips", re.IGNORECASE)
 TAIL = re.compile(r"tail", re.IGNORECASE)
@@ -82,7 +84,28 @@ class Survey:
                 self.head = head.name
                 self.spine = [b.name for b in reversed(head.parent_recursive) if b.name != self.root] + [head.name]
         self.tail = self._tail()
+        self.ik_ends = self._ik_ends(edit_bones)
         self.limbs = self._limbs(edit_bones)
+
+    def _ik_ends(self, edit_bones):
+        """The bones the game's own IK goals sit on (IK_Foot_Front_L on PawedArm_A_Ball_L): where its leg IK ends."""
+        ends = set()
+        for goal in (b for b in edit_bones if GAME_IK.search(b.name)):
+            near = [b for b in edit_bones if not HELPER.search(b.name) and side_of(b.name) == side_of(goal.name)
+                    and (b.head - goal.head).length < 1e-3 * self.height]
+            if near:
+                ends.add(min(near, key=lambda b: (b.head - goal.head).length).name)
+        return ends
+
+    def _end(self, names, start):
+        """Index of the bone a limb's IK ends at (its head), from the game's IK goals, else a ball bone; or None."""
+        for i in range(start + 2, len(names)):
+            if names[i] in self.ik_ends:
+                return i
+        if not self.ik_ends:
+            return next((i for i in range(start + 2, len(names))
+                         if any(BALL.match(w.lower()) for w in re.split(r"[_\d]+", names[i]))), None)
+        return None
 
     def _pelvis(self, edit_bones):
         named = [b.name for b in edit_bones if PELVIS.search(b.name) and side_of(b.name) == "C" and not HELPER.search(b.name)]
@@ -151,7 +174,9 @@ class Survey:
         no foot (LEGO cow) bends both, ending at the lower one's tail."""
         names = limb.bones
         start = 1 if SHOULDER_BLADE.search(names[0]) and len(names) > 3 else 0
-        foot = next((i for i in range(start + 1, len(names)) if any(FOOT.match(w.lower()) for w in re.split(r"[_\d]+", names[i]))), None)
+        foot = self._end(names, start)
+        if foot is None:
+            foot = next((i for i in range(start + 1, len(names)) if any(FOOT.match(w.lower()) for w in re.split(r"[_\d]+", names[i]))), None)
         if foot is None:
             # no foot name: first bone touching the ground (claw tip, toe), else the one above the toe
             touching = [i for i in range(start + 2, len(names)) if self.bones[names[i]].head.z < self.ground + 0.06 * self.height]
@@ -168,7 +193,9 @@ class Survey:
         """Arm IK chain if there is a hand: first bone (after a clavicle) to the bone above the hand."""
         names = limb.bones
         start = 1 if SHOULDER_BLADE.search(names[0]) else 0
-        hand = next((i for i in range(start + 2, len(names)) if any(HAND.match(w.lower()) for w in re.split(r"[_\d]+", names[i]))), None)
+        hand = self._end(names, start)
+        if hand is None:
+            hand = next((i for i in range(start + 2, len(names)) if any(HAND.match(w.lower()) for w in re.split(r"[_\d]+", names[i]))), None)
         if hand is not None:
             limb.chain, limb.foot = names[start:hand], names[hand]
 
@@ -226,6 +253,7 @@ def create(obj):
         at = edit[survey.pelvis].head.copy()
         body = rig_kit.new_bone(edit, "body_ctrl", at, at + up * h * 0.1, top, ahead)
     skipped = set(eyes) | {survey.root}
+    driven = {n for leg in legs for n in leg.chain + ([leg.foot] if leg.foot else [])}
     for bone in sorted(usable, key=lambda b: len(b.parent_recursive)):
         if bone.name in skipped or bone.name.startswith(PREFIX):
             continue
@@ -233,6 +261,10 @@ def create(obj):
         while holder is not None and holder.name not in controls:
             holder = holder.parent
         parent = edit[controls[holder.name]] if holder is not None else top
+        if holder is not None and holder.name in driven and bone.name not in driven:
+            # off an IK limb (toes, claws, a scapula beside the shoulder): hang from the bone as it is, IK or FK,
+            # not from its FK control
+            parent = edit[holder.name]
         # Epic's: everything hangs from the body, the hips and the spine side by side (turning the hips leaves the spine)
         if body is not None and (parent.name == top.name or bone.name == survey.pelvis
                                  or (len(survey.spine) > 1 and survey.spine[0] == survey.pelvis and bone.name == survey.spine[1])):
@@ -274,13 +306,30 @@ def create(obj):
     pose, bones = obj.pose.bones, armature.bones
     W = rig_kit.WIDTHS
 
-    def ring(bone, shape, color, width, group, k=1.15, fallback=0.06, at_mid=False):
-        """A gizmo around a game bone's control, sized to the mesh around the bone (plus a margin)."""
+    def ring(bone, shape, color, width, group, k=1.15, fallback=0.06, at_mid=False, along=None):
+        """A gizmo around a game bone's control, sized to the mesh around the bone (plus a margin). `along`: the
+        chain's direction at the bone (to the next joint), for a bone whose own axis doesn't follow it."""
         b = bones[bone]
-        r = fit.radius([bone], b.head_local, b.tail_local, max(b.length * 0.35, h * fallback * 0.5)) * k
+        head, tail = b.head_local, (b.head_local + along if along is not None else b.tail_local)
+        r = fit.radius([bone], head, tail, max((tail - head).length * 0.35, h * fallback * 0.5)) * k
         r = min(r, h * 0.45)
-        rig_kit.look(obj, controls[bone], shape, r, color, width, group, ring=True,
-                     at=(b.head_local + b.tail_local) / 2.0 if at_mid else None)
+        rig_kit.look(obj, controls[bone], shape, r, color, width, group, ring=True, at=(head + tail) / 2.0 if at_mid else None)
+        if along is not None:
+            n = along.normalized()
+            ref = up if abs(n.dot(up)) < 0.9 else ahead
+            rig_kit.align(obj, pose[controls[bone]], y=(ref - n * ref.dot(n)).normalized(), z=n)
+
+    def chain_dirs(names):
+        """Each bone's direction along a chain: to the next bone's head (the last: its own, else the one before)."""
+        dirs, last = {}, None
+        for i, name in enumerate(names):
+            b = bones[name]
+            d = bones[names[i + 1]].head_local - b.head_local if i + 1 < len(names) else b.tail_local - b.head_local
+            if i + 1 == len(names) and d.length < 0.02 * h and last is not None:
+                d = last
+            if d.length > 1e-6:
+                dirs[name] = last = d
+        return dirs
 
     def point(bone, color, group):
         """A ball on a bone's head: a point the skin is pinned to (a sprite's squash bones, a nub), where a ring sized to
@@ -320,18 +369,21 @@ def create(obj):
     # spine, neck, head, tail
     spine = [n for n in survey.spine if n in controls]
     neck_from = next((i for i, n in enumerate(spine) if "neck" in n.lower()), len(spine) - 1 if survey.head else len(spine))
+    along = chain_dirs(spine)
     for i, name in enumerate(spine):
         if name == survey.pelvis:
             ring(name, "Circle_Thick", rig_kit.COLORS["hips"], W["limb"], "Controls", k=1.25)
         elif name == survey.head:
-            ring(name, "Circle_Thick", rig_kit.COLORS["neck"], W["limb"], "Controls", k=1.2, at_mid=True)
+            ring(name, "Circle_Thick", rig_kit.COLORS["neck"], W["limb"], "Controls", k=1.2, at_mid=True, along=along.get(name))
         elif i >= neck_from:
-            ring(name, "Circle_Thick", rig_kit.COLORS["neck"], W["limb"], "Controls", k=1.05)
+            ring(name, "Circle_Thick", rig_kit.COLORS["neck"], W["limb"], "Controls", k=1.05, along=along.get(name))
         else:
-            ring(name, "RoundedSquare_Thick", rig_kit.spine_tone(i / max(neck_from - 1, 1)), W["limb"], "Controls", k=1.1, at_mid=True)
-    for i, name in enumerate(survey.tail):
-        if name in controls:
-            ring(name, "Circle_Thick", rig_kit.COLORS["hips"], W["limb"], "Controls", k=1.2, at_mid=True)
+            ring(name, "RoundedSquare_Thick", rig_kit.spine_tone(i / max(neck_from - 1, 1)), W["limb"], "Controls", k=1.1,
+                 at_mid=True, along=along.get(name))
+    tail = [n for n in survey.tail if n in controls]
+    along = chain_dirs(tail)
+    for name in tail:
+        ring(name, "Circle_Thick", rig_kit.COLORS["hips"], W["limb"], "Controls", k=1.2, at_mid=True, along=along.get(name))
     # limbs
     ik_driven = {n for limb in limbs for n in limb["bones"]}
     placed = set(spine) | set(survey.tail) | {survey.root}

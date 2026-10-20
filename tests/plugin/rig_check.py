@@ -464,6 +464,79 @@ check("shoulder blade a control", next((g for g in ("Controls", "Secondary") if 
 check("scapula: rest kept", rest_kept(q4) < 1e-4, True)
 
 
+def paws(name, goals=True):
+    """Fortnite's quadruped layout (wolf, sidekick dog): legs of thigh, knee, ankle (the long metatarsal), ball, toe;
+    the game's own IK goals (IK_Foot_Rear_L) on the balls; a scapula beside the front shoulder; a stub spine bone whose
+    tail points sideways (EggBawk's spine_03)."""
+    data = bpy.data.armatures.new(name)
+    obj = bpy.data.objects.new(name, data)
+    bpy.context.scene.collection.objects.link(obj)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.mode_set(mode='EDIT')
+    edit = data.edit_bones
+
+    def bone(n, head, tail, parent=None):
+        b = edit.new(n)
+        b.head, b.tail, b.parent = head, tail, parent
+        return b
+    root = bone("root", (0, 0, 0), (0, 0.1, 0))
+    pelvis = bone("pelvis", (0, 0.4, 0.6), (0, 0.2, 0.6), root)
+    spine1 = bone("spine_01", (0, 0.2, 0.6), (0, 0.0, 0.62), pelvis)
+    spine2 = bone("spine_02", (0, 0.0, 0.62), (0.01, 0.0, 0.62), spine1)        # a stub, pointing sideways
+    neck = bone("neck", (0, -0.3, 0.65), (0, -0.45, 0.8), spine2)
+    bone("head", (0, -0.45, 0.8), (0, -0.6, 0.85), neck)
+    goal_root = bone("IK_Foot_Root", (0, 0, 0), (0, 0.1, 0), root)
+    for side, x in (("l", -0.12), ("r", 0.12)):
+        for prefix, y, parent in (("bk", 0.35, pelvis), ("fr", -0.2, spine2)):
+            top = bone("thigh_%s_%s" % (prefix, side), (x, y, 0.55), (x, y - 0.08, 0.35), parent)
+            if prefix == "fr":
+                bone("scapula_%s_%s" % (prefix, side), (x, y, 0.55), (x, y + 0.05, 0.65), top)
+            knee = bone("knee_%s_%s" % (prefix, side), (x, y - 0.08, 0.35), (x, y + 0.02, 0.2), top)
+            ankle = bone("ankle_%s_%s" % (prefix, side), (x, y + 0.02, 0.2), (x, y - 0.02, 0.05), knee)
+            ball = bone("ball_%s_%s" % (prefix, side), (x, y - 0.02, 0.05), (x, y - 0.08, 0.02), ankle)
+            bone("toe_%s_%s" % (prefix, side), (x, y - 0.08, 0.02), (x, y - 0.13, 0.0), ball)
+            if goals:
+                bone("IK_Foot_%s_%s" % ("Rear" if prefix == "bk" else "Front", side.upper()), ball.head.copy(),
+                     ball.head + Vector((0, 0, 0.05)), goal_root)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    creature_rig.create(obj)
+    return obj
+
+
+w = paws("paws")
+wp, wl = w.pose.bones, {l["name"]: l for l in rig_kit.meta(w)["limbs"]}
+hind = wl["thigh_bk_l"]
+check("game IK goal: the leg ends at the ball", [hind["foot"], hind["heel"], len(hind["mch"])], ["ball_bk_l", "ankle_bk_l", 2])
+check("game IK goal: front too", wl["thigh_fr_l"]["foot"], "ball_fr_l")
+check("no goals: a ball bone ends it", rig_kit.meta(paws("paws_no_goals", goals=False))["limbs"][0]["foot"].startswith("ball_"), True)
+check("paws: rest kept", (rest_kept(w) < 1e-4, turned(w) < 1e-3), (True, True))
+# the paw control carries the hock: the knee chain ends on it, the ball lands on the target
+wp["thigh_bk_l_ik_ctrl"].location = (0.0, -0.05, 0.12)
+bpy.context.view_layer.update()
+hock_gap = (wp["MCH_knee_bk_l_ik"].tail - wp["ankle_bk_l"].head).length
+check("digitigrade: the hock stays on the knee", hock_gap < 1e-4, True)
+check("digitigrade: the ball lands on the paw control", (wp["ball_bk_l"].head - wp["thigh_bk_l_ik_ctrl"].head).length < 1e-4, True)
+toe_off = (wp["ball_bk_l"].matrix.inverted() @ wp["toe_bk_l"].matrix).translation -     (w.data.bones["ball_bk_l"].matrix_local.inverted() @ w.data.bones["toe_bk_l"].matrix_local).translation
+check("toes follow the IK paw", toe_off.length < 1e-4, True)
+# pulled past reach the leg stays whole
+wp["thigh_bk_l_ik_ctrl"].location = (0.0, 0.0, -0.5)
+bpy.context.view_layer.update()
+check("over-pulled: the leg stays whole", (wp["MCH_knee_bk_l_ik"].tail - wp["ankle_bk_l"].head).length < 1e-4, True)
+wp["thigh_bk_l_ik_ctrl"].location = (0.0, 0.0, 0.0)
+# a planted front leg while the body drops: the scapula stays on its shoulder
+wp["body_ctrl"].location = (0.0, 0.0, -0.05)
+bpy.context.view_layer.update()
+blade = (wp["thigh_fr_l"].matrix.inverted() @ wp["scapula_fr_l"].matrix).translation -     (w.data.bones["thigh_fr_l"].matrix_local.inverted() @ w.data.bones["scapula_fr_l"].matrix_local).translation
+check("a bone beside an IK limb stays on it", blade.length < 1e-4, True)
+check("planted paw stays put", (wp["ball_fr_l"].head - w.data.bones["ball_fr_l"].head_local).length < 1e-4, True)
+wp["body_ctrl"].location = (0.0, 0.0, 0.0)
+bpy.context.view_layer.update()
+# a stub spine bone's square stands across the spine, not along its sideways tail
+pb = wp["spine_02_ctrl"]
+normal = w.data.bones["spine_02_ctrl"].matrix_local.to_3x3() @ pb.custom_shape_rotation_euler.to_matrix() @ Vector((0, 0, 1))
+along = (w.data.bones["neck"].head_local - w.data.bones["spine_02"].head_local).normalized()
+check("stub spine bone: square across the spine", abs(normal.normalized().dot(along)) > 0.99, True)
+
 def cow(name):
     """The LEGO cow's layout: the head off the body's branch, the pelvis and chest beside it; legs of two bones."""
     data = bpy.data.armatures.new(name)

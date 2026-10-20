@@ -474,7 +474,7 @@ names = [s["name"] for s in data["settings"] if s["name"] in st.pose.bones]
 check("setting controls hidden, no shape", all(st.pose.bones[n].custom_shape is None and
       [c.name for c in st.data.bones[n].collections] == ["Mechanics"] for n in names), True)
 check("Epic's defaults", [official_rig.setting(st, n) for n in ("leg_l_fk_ik_switch", "arm_l_fk_ik_switch", "arm_l_fk_local",
-      "roll_blend_l_ctrl", "arm_l_stretch_switch")], [1.0, 0.0, 1.0, 1.0, 0.0])
+      "roll_blend_l_ctrl", "arm_l_stretch_switch")], [1.0, 0.0, 0.0, 1.0, 0.0])      # FK arms follow the spine (not Epic's 1)
 # stretch: a hand target 1.5 lengths out is reached with stretch on, not off; capped at 2
 official_rig.set_switch(st, "arm_l_fk_ik_switch", ik=True)
 L = (head(st, "lowerarm_l") - head(st, "upperarm_l")).length + (head(st, "hand_l") - head(st, "lowerarm_l")).length
