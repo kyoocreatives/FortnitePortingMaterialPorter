@@ -409,8 +409,10 @@ def _owner_panels():
 def register():
     from ..processing.context import vehicle_rig
     from . import rig_ui
+    from . import landscape_paint
     for c in classes:
         bpy.utils.register_class(c)
+    landscape_paint.register()
     rig_ui.register()
     vehicle_rig.register()          # registers the armature's fpmp_ground property
     for m in _owner_panels():
@@ -428,5 +430,7 @@ def unregister():
     vehicle_rig.unregister()
     from . import rig_ui
     rig_ui.unregister()
+    from . import landscape_paint
+    landscape_paint.unregister()
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
