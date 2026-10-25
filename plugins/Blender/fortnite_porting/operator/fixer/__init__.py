@@ -4,6 +4,7 @@ Fix FP Materials wires textures FP left unlinked (fixer.py). Recover Island Text
 only) fetches a UEFN map's missing textures and flat colours from the app (island.py).
 Both work on the whole file or only the selected objects.
 """
+import threading
 import time
 import types
 
@@ -15,20 +16,53 @@ from ...material_porter import hook
 from ...material_porter.app_client import AppClient, AppError
 
 REPORT_TEXT = 'FP Fixer Report'
-# App capabilities (fork-caps), None until asked. Island recovery is shown only when the app supports it.
-_caps = {'islands': None, 'asking': False, 'next': 0.0}
+RETRY = 30.0        # seconds between asks while the app is closed
+# App capabilities (fork-caps), None until the app answered. Island recovery is shown only when the app supports it.
+_caps = {'islands': None}
+_probe = {'thread': None, 'stop': None}
 _running = False
 
 
-def _ask_caps():
-    _caps['asking'] = False
-    try:
-        _caps['islands'] = bool(AppClient(hook.URL).get('fork-caps', '').get('islands'))
-    except Exception:
-        _caps['next'] = time.time() + 30      # app not open: retry in 30 s, not on every redraw
-        return None
+def islands_available():
+    return bool(_caps['islands'])
+
+
+def _ask(stop):
+    """Worker thread: ask the app until it answers (it may open after Blender)."""
+    while not stop.is_set():
+        try:
+            _caps['islands'] = bool(AppClient(hook.URL).get('fork-caps', '').get('islands'))
+            return
+        except AppError:
+            stop.wait(RETRY)
+
+
+def _redraw_when_known():
+    if _caps['islands'] is None:
+        thread = _probe['thread']
+        return 1.0 if thread is not None and thread.is_alive() else None
     tag_redraw(bpy.context)
     return None
+
+
+def start_probe():
+    """Ask the app for its capabilities off the main thread, so no draw waits on the network."""
+    if _probe['thread'] is not None and _probe['thread'].is_alive():
+        return
+    stop = threading.Event()
+    _probe['thread'] = threading.Thread(target=_ask, args=(stop,), name='fpmp-fork-caps', daemon=True)
+    _probe['stop'] = stop
+    _probe['thread'].start()
+    if not bpy.app.timers.is_registered(_redraw_when_known):
+        bpy.app.timers.register(_redraw_when_known, first_interval=1.0)
+
+
+def stop_probe():
+    if _probe['stop'] is not None:
+        _probe['stop'].set()
+    if _probe['thread'] is not None:
+        _probe['thread'].join(timeout=5)
+    _probe['thread'] = _probe['stop'] = None
 
 
 def scope_materials(context, scope):
@@ -142,6 +176,18 @@ class FPMP_OT_FixMaterials(bpy.types.Operator):
                       'Only empty inputs are filled')
     bl_options = {'REGISTER', 'UNDO'}
 
+    ask: BoolProperty(options={'HIDDEN', 'SKIP_SAVE'})
+
+    def invoke(self, context, event):
+        if self.ask:
+            return context.window_manager.invoke_props_dialog(self)
+        return self.execute(context)
+
+    def draw(self, context):
+        props = context.scene.fpmp_fixer
+        self.layout.row().prop(props, 'scope', expand=True)
+        self.layout.prop(props, 'preview')
+
     def execute(self, context):
         props = context.scene.fpmp_fixer
         run = fixer.fix_materials(scope_materials(context, props.scope), dry=props.preview)
@@ -151,10 +197,11 @@ class FPMP_OT_FixMaterials(bpy.types.Operator):
             ('Colour spaces', [f"{n}: {a} -> {b}" for n, a, b in run.cs_changes]),
             ("The fork's island materials", notes if notes else ([f"{rebuilt} would be rebuilt"] if props.preview and rebuilt else []))])
         n = len([m for m, v in run.report.items() if v])
-        verb = 'would change' if props.preview else 'changed'
-        props.status = f"{verb} {n} materials, {len(run.cs_changes)} colour spaces" + (
-            f", {'would rebuild' if props.preview else 'rebuilt'} {rebuilt} island materials" if rebuilt else "")
-        self.report({'INFO'}, f"FP Fixer: {props.status}. Details in Text Editor > '{REPORT_TEXT}'")
+        # one line in the sidebar: counts first, the preview marked
+        props.status = f"{n} materials, {len(run.cs_changes)} colour spaces" + (
+            f", {rebuilt} island materials" if rebuilt else "") + (" (preview)" if props.preview else "")
+        self.report({'INFO'}, f"FP Fixer {'would change' if props.preview else 'changed'}: {props.status}. "
+                              f"Details in Text Editor > '{REPORT_TEXT}'")
         return {'FINISHED'}
 
 
@@ -163,17 +210,30 @@ class FPMP_OT_RecoverIsland(bpy.types.Operator):
     bl_label = 'Recover Island Textures'
     bl_description = ("For a UEFN map's materials FortnitePorting imported without a base colour: find the island "
                       "material each was made from, wire the textures it really references and set its flat colours "
-                      "(the FP app must be open with the island loaded)")
+                      "(the FP app must be open with the island loaded). Esc cancels")
     bl_options = {'REGISTER', 'UNDO'}
 
+    ask: BoolProperty(options={'HIDDEN', 'SKIP_SAVE'})
     _timer = None
 
     @classmethod
     def poll(cls, context):
         return not _running
 
+    def draw(self, context):
+        props = context.scene.fpmp_fixer
+        self.layout.row().prop(props, 'scope', expand=True)
+        self.layout.prop(props, 'apply_colors')
+
+    def execute(self, context):
+        # the dialog's OK: the run itself is modal, started as from a button
+        bpy.ops.fpmp.recover_island('INVOKE_DEFAULT')
+        return {'FINISHED'}
+
     def invoke(self, context, event):
         global _running
+        if self.ask:
+            return context.window_manager.invoke_props_dialog(self)
         props = context.scene.fpmp_fixer
         targets = island.build_targets(scope_materials(context, props.scope))
         if not targets:
@@ -264,45 +324,42 @@ class FPMP_OT_RecoverIsland(bpy.types.Operator):
         self._finish(context)
 
 
+def _checkbox(layout, props, name):
+    col = layout.column()
+    col.use_property_split = True
+    col.use_property_decorate = False
+    col.prop(props, name)
+
+
 class FPMP_PT_fixer_base:
+    """Repair FP materials in place; the report goes to the "FP Fixer Report" text"""
     bl_label = 'Material Fixer'
     bl_region_type = 'UI'
     bl_category = 'Fortnite Porting'
 
     def draw(self, context):
         props = context.scene.fpmp_fixer
-        lay = self.layout
-        lay.prop(props, 'scope', expand=True)
-
-        box = lay.box()
-        box.label(text='Fix FP Materials', icon='NODE_MATERIAL')
-        box.prop(props, 'preview')
-        box.operator(FPMP_OT_FixMaterials.bl_idname, icon='CHECKMARK')
-
-        if _caps['islands'] is None and not _caps['asking'] and time.time() >= _caps['next']:
-            _caps['asking'] = True
-            bpy.app.timers.register(_ask_caps, first_interval=0.1)
-        if _caps['islands']:
-            box = lay.box()
-            box.label(text='Recover Island Textures', icon='WORLD')
-            box.prop(props, 'apply_colors')
-            row = box.row()
-            row.enabled = not _running
-            row.operator(FPMP_OT_RecoverIsland.bl_idname, text='Recover', icon='IMPORT')
-            if _running:
-                box.progress(factor=props.progress, text=props.status[9:][:60] or 'Working...')
-                box.label(text='Esc to cancel', icon='INFO')
-
-        if props.status and not _running and not props.status.startswith('Running'):
-            col = lay.column(align=True)
-            col.label(text=props.status, icon='INFO')
-            if REPORT_TEXT in bpy.data.texts:
-                col.label(text=f"Report: Text Editor > {REPORT_TEXT}")
+        layout = self.layout
+        layout.row().prop(props, 'scope', expand=True)
+        _checkbox(layout, props, 'preview')
+        layout.operator(FPMP_OT_FixMaterials.bl_idname, icon='CHECKMARK')
+        if islands_available():
+            header, body = layout.panel('fpmp_fixer_island', default_closed=True)
+            header.label(text='Recover Island Textures')
+            if body:
+                _checkbox(body, props, 'apply_colors')
+                body.operator(FPMP_OT_RecoverIsland.bl_idname, text='Recover', icon='IMPORT')
+        if _running:
+            layout.progress(factor=props.progress, text=props.status[9:][:60] or 'Working...')
+        elif props.status:
+            layout.label(text=props.status, icon='INFO', translate=False)
 
 
 class FPMP_PT_fixer_view3d(FPMP_PT_fixer_base, bpy.types.Panel):
     bl_idname = 'FPMP_PT_fixer_view3d'
     bl_space_type = 'VIEW_3D'
+    bl_parent_id = 'FPMP_PT_exact'
+    bl_options = {'DEFAULT_CLOSED'}
 
 
 class FPMP_PT_fixer_nodes(FPMP_PT_fixer_base, bpy.types.Panel):
@@ -321,9 +378,12 @@ def register():
     for c in classes:
         bpy.utils.register_class(c)
     bpy.types.Scene.fpmp_fixer = PointerProperty(type=FPMP_FixerProps)
+    if not bpy.app.background:
+        start_probe()
 
 
 def unregister():
+    stop_probe()
     del bpy.types.Scene.fpmp_fixer
     for c in reversed(classes):
         bpy.utils.unregister_class(c)

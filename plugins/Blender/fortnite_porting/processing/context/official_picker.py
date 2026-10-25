@@ -22,8 +22,8 @@ def _limb(side):
 R, L = _limb("r"), _limb("l")
 BODY = [      # R outer, R inner, middle, L inner, L outer
     [_, _, [("Head", "head_ik_ctrl"), ("Head", "head_ctrl")], _, _],
-    [_, _, [("Neck", "neck_02_ctrl")], _, _],
-    [_, R["clav"], [("Neck", "neck_01_ctrl")], L["clav"], _],
+    [_, _, [("Neck 2", "neck_02_ctrl")], _, _],
+    [_, R["clav"], [("Neck 1", "neck_01_ctrl")], L["clav"], _],
     [R["arm"], _, [("Chest", "chest_ctrl"), ("Spine 3", "spine_03_ctrl")], _, L["arm"]],
     [R["fore"], _, [("Chest Tan", "chest_tan_ctrl"), ("Spine 2", "spine_02_ctrl")], _, L["fore"]],
     [R["hand"], _, [("Hips Tan", "hips_tan_ctrl"), ("Spine 1", "spine_01_ctrl")], _, L["hand"]],
@@ -86,13 +86,17 @@ def ui_picker(layout, obj):
         for layout, cell in zip(_cells(left, 2) + [centre] + _cells(right, 2), cells):
             got = pick(obj, cell)
             _button(layout, obj, got[0] if got else "", [got[1]] if got else [])
+    col.separator()
     row = col.row(align=True)
     for label, name in GROUND:
         _button(row, obj, label, [name] if pick(obj, [(label, name)]) else [])
-    col = layout.column(align=True)
+    hands = {side: [finger(obj, side, f) for f in FINGERS] for side in ("r", "l")}
+    if not any(n for held in hands.values() for n in held):     # hidden with the body controls
+        return
+    col.separator()     # the fingers stay in this column: a second one drew them squeezed beside the last body row
     for side, text in (("r", "Fingers R"), ("l", "Fingers L")):
         split = col.row(align=True).split(factor=0.34, align=True)
-        _button(split, obj, text, [n for f in FINGERS for n in finger(obj, side, f)])
+        _button(split, obj, text, [n for held in hands[side] for n in held])
         row = split.row(align=True)
-        for f in FINGERS:
-            _button(row, obj, f[0].upper(), finger(obj, side, f))
+        for f, held in zip(FINGERS, hands[side]):
+            _button(row, obj, f[0].upper(), held)

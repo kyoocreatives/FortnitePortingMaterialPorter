@@ -431,8 +431,9 @@ def _ik_ready(obj, chain):
 
 
 def setting(obj, name):
-    """An Epic setting's value (a switch, stretch, softness, local, roll blend)."""
-    return obj.pose.bones[name][name]
+    """An Epic setting's value (a switch, stretch, softness, local, roll blend); 0 when the bone lost it."""
+    bone = obj.pose.bones.get(name)
+    return bone.get(name, 0.0) if bone is not None else 0.0
 
 
 def set_setting(obj, name, value):

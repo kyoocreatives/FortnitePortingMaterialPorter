@@ -2,12 +2,23 @@
 Group rows (All, Arms, Legs) switch every part they hold in one click; a group's button shows pressed when all agree."""
 from .official_rig import ON, _chains, load, setting
 
-LABEL = 0.26        # the part column
-BUTTONS = 0.5       # FK | IK against Stretch | Local
+LABEL = 0.2         # the part column
+BUTTONS = 0.4       # FK | IK against Stretch | Local: "Stretch" fits at the default sidebar width
+
+
+_parts = {}
 
 
 def parts(obj):
-    """Each switched part: {name, switch, stretch, softness, local} (names absent on this rig are None)."""
+    """Each switched part: {name, switch, stretch, softness, local} (names absent on this rig are None). Cached per
+    armature and bone count: the IK / FK table asks several times per redraw. Read only."""
+    hit = _parts.get(obj.data.name_full)
+    if hit is None or hit[0] != len(obj.pose.bones):
+        hit = _parts[obj.data.name_full] = (len(obj.pose.bones), _parts_of(obj))
+    return hit[1]
+
+
+def _parts_of(obj):
     data, pb = load(), obj.pose.bones
     s = data["solve"]
     local = {x["space"].split("_")[1] if x["space"].startswith("upperarm") else "neck": x["setting"] for x in s["local"]}
@@ -53,7 +64,7 @@ def _row(layout, obj, label, held, soft=False):
     row = layout.row(align=True)
     split = row.split(factor=LABEL, align=True)
     split.label(text=label)
-    cells = split.split(factor=BUTTONS, align=True)
+    cells = split.split(factor=BUTTONS)     # unaligned: a gap between the FK | IK choice and the option flags
     mode = cells.row(align=True)
     switches = ",".join(p["switch"] for p in held)
     ik = [setting(obj, p["switch"]) >= 0.5 for p in held]
@@ -73,7 +84,7 @@ def _row(layout, obj, label, held, soft=False):
 
 
 def ui_top(layout, obj):
-    """Rig on/off and Bake to Controls."""
+    """Rig on/off and Bake to Controls (the pie's; the panel has them as its header checkbox and a button)."""
     on = bool(obj.data.get(ON, True))
     row = layout.row(align=True)
     row.operator("fpmp.official_rig_on", text="Rig", icon='CONSTRAINT_BONE', depress=on).on = not on
@@ -81,7 +92,7 @@ def ui_top(layout, obj):
 
 
 def ui_body(layout, obj):
-    """Epic's Show Body Controls (fingers, toes, root, body, hips, neck)."""
+    """Epic's Show Body Controls (fingers, toes, root, body, hips, neck), in the pie."""
     show = load()["solve"]["visibility"]
     if show in obj.pose.bones:
         shown = setting(obj, show) >= 0.5
@@ -114,16 +125,19 @@ def has_hands(obj):
     return any(hasattr(obj.pose.bones.get("fingers_%s_ctrl" % s), "fpmp_held_prop") for s in ("l", "r"))
 
 
-def ui_hands(layout, obj):
-    """Each hand's held prop (official_grip) and, with one, how the fingers wrap it."""
+def ui_hands(layout, obj, split=False):
+    """Each hand's held prop (official_grip) and, with one, how the fingers wrap it. `split`: the panel's form, property
+    split (Left / Right, a row per wrap setting)."""
+    if split:
+        layout.use_property_split, layout.use_property_decorate = True, False
     pb = obj.pose.bones
-    for side in ("l", "r"):
+    for side, text in zip(("l", "r"), ("Left", "Right") if split else ("Held L", "Held R")):
         holder = pb.get("fingers_%s_ctrl" % side)
         if holder is None or not hasattr(holder, "fpmp_held_prop"):
             continue
         col = layout.column(align=True)
-        col.prop(holder, "fpmp_held_prop", text="Held " + side.upper())
+        col.prop(holder, "fpmp_held_prop", text=text)
         if holder.fpmp_held_prop is not None:
-            row = col.row(align=True)
+            row = col if split else col.row(align=True)
             for name, label in (("grip", "Grip"), ("thumb_wrap", "Thumb"), ("finger_wrap", "Fingers")):
                 row.prop(holder, '["%s"]' % name, text=label)

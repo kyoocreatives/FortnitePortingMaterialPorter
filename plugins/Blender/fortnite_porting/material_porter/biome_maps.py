@@ -5,6 +5,7 @@ The map image takes the game texture's place and layout: each rectangle the mate
 its RGBA channels, one biome each. The meshes sharing weightmaps share it, and read it across their combined area
 through UV map mp_weights; to paint a rectangle, UV map "mp_map_<parameter>_<n>" puts the meshes over it.
 obj["mp_biome_maps"] maps each parameter to its image; the image is packed into the .blend."""
+import functools
 import json
 
 import bpy
@@ -17,10 +18,13 @@ KEY = "mp_biome_maps"
 SIZE = 1024             # a map whose game scale isn't known
 SPAN = (32, 1024)       # pixels a rectangle spans across the meshes, at most and at least
 
+_loads = functools.lru_cache(maxsize=32)(json.loads)     # panels read it on every redraw
+
 
 def maps(mat):
-    """{parameter: {"texture", "rects"}} of the map-wide textures a material reads (as last built)."""
-    return json.loads(mat.get("mp_map_textures") or "{}") if mat is not None else {}
+    """{parameter: {"texture", "rects"}} of the map-wide textures a material reads (as last built). Shared between
+    calls: read it, don't change it."""
+    return _loads(mat.get("mp_map_textures") or "{}") if mat is not None else {}
 
 
 def uv_name(param, index):

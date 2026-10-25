@@ -98,7 +98,8 @@ def config(obj, found):
 
 def bake(obj):
     """The colour map painted from the mesh's masks, as the shader follows them; whether it was."""
-    found, which = biome_maps.maps(obj.active_material), pair(obj)
+    found = biome_maps.maps(obj.active_material)
+    which = pair(obj, found)
     if which is None:
         return False
     mask_param, colour_param = which

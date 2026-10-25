@@ -366,22 +366,9 @@ def add(obj, head, left=None, up=Vector((0.0, 0.0, 1.0)), size=None):
     return made
 
 
-def ui(layout, obj):
-    """The Face Board switch and the current expressions, for a rig that has a board."""
-    if BOARD not in obj.pose.bones and not obj.data.get("fpmp_metahuman_board"):
-        return
-    layout.prop(obj, "fpmp_face_board", text="Face Board", toggle=True)
-    mats = [bpy.data.materials.get(n) for n in obj.get("fpmp_face_board_materials", [])]
-    group = next((n for m in mats if m and m.node_tree for n in m.node_tree.nodes if n.type == 'GROUP'), None)
-    if group is None:
-        return
-    for control, socket in obj.get("fpmp_face_board_inputs", {}).items():
-        if socket in group.inputs:
-            layout.label(text="%s: %d" % (control[len(PREFIX):], round(group.inputs[socket].default_value)))
-    for control, labels in obj.get("fpmp_face_board_states", {}).items():
-        if control in obj.pose.bones:
-            k = max(0, min(len(labels) - 1, round(obj.pose.bones[control].location.x / obj.data[STEP])))
-            layout.label(text="%s: %s" % (control[len(PREFIX):], labels[k]))
+def has_board(obj):
+    """A bone board or a MetaHuman board on the armature."""
+    return BOARD in obj.pose.bones or bool(obj.data.get("fpmp_metahuman_board"))
 
 
 def set_on(obj, on):

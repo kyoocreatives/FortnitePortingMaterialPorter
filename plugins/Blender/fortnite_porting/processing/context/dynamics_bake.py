@@ -3,6 +3,7 @@ frame, tick the nodes between frames, key the simulated bones' twins into a Dyna
 meshes' caches."""
 import json
 import math
+import re
 import time
 
 import bpy
@@ -10,7 +11,7 @@ import numpy as np
 
 from ...logger import Log
 from . import cloth_render
-from .dynamics_runner import FLIP, KEY, Runner  # noqa: F401 (FLIP: the devtools checks read it here)
+from .dynamics_runner import FLIP, KEY, STATE, Runner  # noqa: F401 (FLIP: the devtools checks read it here)
 
 TRACK = "Dynamics"
 TWIN = "DYN_"
@@ -40,10 +41,22 @@ def stored(obj):
     return hit[1]
 
 
+_found = {}
+
+
 def _cloth(obj):
-    """The armature's cloth meshes that still exist."""
-    found = (cloth_render.find(c["id"]) for c in stored(obj).get("cloth") or [])
-    return [o for o in found if o is not None]
+    """The armature's cloth meshes that still exist. Found by name while they still carry their id: a search walks
+    every object, and the panel asks on each redraw; searched again when the object count changes."""
+    ids = [c["id"] for c in stored(obj).get("cloth") or []]
+    count = len(bpy.data.objects)
+    hit = _found.get(obj.data.name_full)
+    if hit is not None and hit[0] == count:
+        found = [bpy.data.objects.get(n) for n in hit[1]]
+        if all(o is not None and o.get(cloth_render.ID) in ids for o in found):
+            return found
+    found = [o for o in (cloth_render.find(i) for i in ids) if o is not None]
+    _found[obj.data.name_full] = (count, [o.name for o in found])
+    return found
 
 
 def is_on(obj):
@@ -51,6 +64,11 @@ def is_on(obj):
     if t is not None:
         return not t.mute
     return any(o.modifiers.get(cloth_render.MODIFIER) is not None and o.modifiers[cloth_render.MODIFIER].show_viewport for o in _cloth(obj))
+
+
+def baked(obj):
+    """A Dynamics layer or cloth cache to turn on and off."""
+    return _track(obj) is not None or bool(_cloth(obj))
 
 
 def set_on(obj, on):
@@ -203,11 +221,11 @@ def _write(obj, run, frames, start, poses):
 
 
 def ui(layout, obj):
-    """The panel's Dynamics row, on an armature with dynamics nodes."""
+    """The pie's Dynamics row, on an armature with dynamics nodes."""
     if not obj.data.get(KEY):
         return
     row = layout.row(align=True)
-    if _track(obj) is not None or _cloth(obj):
+    if baked(obj):
         on = is_on(obj)
         row.operator("fpmp.dynamics_on", text="Dynamics", icon='PHYSICS', depress=on).on = not on
     from .dynamics_live import is_live
@@ -215,8 +233,42 @@ def ui(layout, obj):
     row.operator("fpmp.dynamics_live", text="Live", icon='PLAY', depress=live).on = not live
     row.operator("fpmp.dynamics_bake", text="Simulate", icon='FILE_REFRESH')
     if states(obj):
-        from .dynamics_runner import STATE
-        layout.operator_menu_enum("fpmp.dynamics_state", "state", text=obj.data.get(STATE) or "OnGround_Standing", icon='ARMATURE_DATA')
+        layout.operator_menu_enum("fpmp.dynamics_state", "state", text=state_label(state(obj)), icon='ARMATURE_DATA')
+
+
+STANDING = "OnGround_Standing"      # the state the runner uses when none was chosen
+SMALL = {"Or", "And", "To"}
+_items = {}
+
+
+def state_label(name):
+    """OnGround_Standing as "On Ground, Standing"."""
+    parts = []
+    for part in name.split("_"):
+        words = re.findall(r"[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+", part) or [part]
+        parts.append(" ".join(w.lower() if i and w in SMALL else w for i, w in enumerate(words)))
+    return ", ".join(parts)
+
+
+def state_items(obj):
+    """The state enum's items (`obj` None: the default's). Cached: Blender keeps no copy of the strings an items
+    callback returns."""
+    names = tuple(states(obj) if obj is not None else ()) or (STANDING,)
+    if names not in _items:
+        _items[names] = [(s, state_label(s), "", i) for i, s in enumerate(names)]
+    return _items[names]
+
+
+def state(obj):
+    return obj.data.get(STATE) or STANDING
+
+
+def set_state(obj, name):
+    """The movement state whose dynamics settings apply; a live simulation restarts with it."""
+    from .dynamics_live import is_live, set_live
+    obj.data[STATE] = name
+    if is_live(obj):
+        set_live(obj, True)
 
 
 def states(obj):

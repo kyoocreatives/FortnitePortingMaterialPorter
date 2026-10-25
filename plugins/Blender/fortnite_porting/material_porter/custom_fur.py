@@ -369,11 +369,13 @@ def remove_fur(obj):
 
 
 def draw_inputs(layout, obj):
-    """Draw the modifier inputs as sliders."""
+    """Draw the modifier inputs."""
     mod = obj.modifiers.get(MODIFIER)
     if mod is None or mod.node_group is None:
-        return False
+        return
     col = layout.column(align=True)
+    col.use_property_split = True
+    col.use_property_decorate = False
     holder = getattr(getattr(mod, "properties", None), "inputs", None)
     for it in mod.node_group.interface.items_tree:
         if it.item_type != 'SOCKET' or it.in_out != 'INPUT' or it.name == "Geometry":
@@ -382,4 +384,3 @@ def draw_inputs(layout, obj):
             col.prop(getattr(holder, it.identifier), "value", text=it.name)
         else:
             col.prop(mod, '["%s"]' % it.identifier, text=it.name)
-    return True
