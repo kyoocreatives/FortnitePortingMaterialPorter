@@ -227,6 +227,32 @@ class FPMP_OT_OfficialRigBake(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FPMP_OT_ConvertTastyToOfficial(bpy.types.Operator):
+    bl_idname = "fpmp.convert_tasty_to_official"
+    bl_label = "Convert to Official Rig"
+    bl_description = ("Replace the Tasty rig with Fortnite's official rig, keeping the pose shown now (it is keyed on "
+                      "the official controls at this frame). The old animation is kept as a muted NLA track")
+    bl_options = {'REGISTER', 'UNDO'}
+    hands: bpy.props.BoolProperty(name="Hand Controls", description="Add the fingers and palm controls too")
+
+    @classmethod
+    def poll(cls, context):
+        from ..processing.context import official_convert
+        return official_convert.can_convert(_rig(context))
+
+    def invoke(self, context, event):
+        return context.window_manager.invoke_props_dialog(self)
+
+    def execute(self, context):
+        from ..processing.context import official_convert
+        try:
+            self.report({'INFO'}, official_convert.convert(_rig(context), self.hands))
+        except ValueError as e:
+            self.report({'ERROR'}, str(e))
+            return {'CANCELLED'}
+        return {'FINISHED'}
+
+
 class FPMP_OT_DeformRigOn(bpy.types.Operator):
     bl_idname = "fpmp.deform_rig_on"
     bl_label = "Correctives On/Off"
@@ -342,6 +368,8 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
         if data.get("is_tasty"):
             from ..processing.context import tasty_style
             _controls(col, data, tasty_style.SHOWN + tasty_style.HIDDEN + (face_board.GROUP,))
+            col.separator()
+            col.operator(FPMP_OT_ConvertTastyToOfficial.bl_idname, icon='ARMATURE_DATA')
             return
         if not any(data.get(k) for k in ("is_vehicle_rig", "is_creature_rig", "is_lego_rig")):
             col.operator("fpmp.creature_rig")
@@ -470,7 +498,8 @@ class FPMP_PT_RigFace(_RigSub, bpy.types.Panel):
 classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_RigPick, FPMP_OT_KitRigOn, FPMP_OT_KitBake,
            FPMP_OT_KitSwitch, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn,
            FPMP_OT_DynamicsBake, FPMP_OT_DynamicsOn, FPMP_OT_DynamicsLive, FPMP_OT_DynamicsState, FPMP_OT_OfficialRigSwitch,
-           FPMP_OT_OfficialRigSetting, FPMP_OT_OfficialRigBodyControls, FPMP_OT_OfficialRigBake, FPMP_PT_CreatureRig,
+           FPMP_OT_OfficialRigSetting, FPMP_OT_OfficialRigBodyControls, FPMP_OT_OfficialRigBake,
+           FPMP_OT_ConvertTastyToOfficial, FPMP_PT_CreatureRig,
            FPMP_PT_RigPicker, FPMP_PT_RigIK, FPMP_PT_RigHands, FPMP_PT_RigSimulation, FPMP_PT_RigFace)
 
 

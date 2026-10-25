@@ -398,12 +398,19 @@ classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_
 
 
 def _owner_panels():
-    """Panels of the owner-only overlay; empty when it isn't packed in."""
+    """Modules of the owner-only overlay (Time of Day, the FP Blender build's editor); none when it isn't packed in."""
+    found = []
     try:
         from ..material_porter import tod_panel
+        found.append(tod_panel)
     except ImportError:
-        return []
-    return [tod_panel]
+        pass
+    try:
+        from . import fortnite_editor
+        found.append(fortnite_editor)
+    except ImportError:
+        pass
+    return found
 
 
 def register():

@@ -4,8 +4,41 @@ namespace FortnitePorting.MaterialPorter;
 
 /// <summary>The fork's own names (settings, folders, pipe, mutex, ports) so it runs beside an installed FortnitePorting.</summary>
 // FORTNITEPORTING_MP_PROFILE (e.g. "test") runs a separate instance with its own folders, lock and bridge port.
-public static class Fork
+public static partial class Fork
 {
+    /// <summary>Sent on the single-instance pipe by a plain second launch: the running app comes to the front.</summary>
+    public const string ShowRequest = "fp-engine://show";
+
+    // owner builds (fpfork-private, App.props) add to these; without it they compile to nothing
+    static partial void OwnerStart(Avalonia.Controls.Window window, string[] args, ref bool done);
+    static partial void OwnerPipe(string message, ref bool handled);
+    static partial void OwnerComposition(ref Avalonia.Win32CompositionMode[] modes);
+
+    public static void Start(Avalonia.Controls.Window window, string[] args)
+    {
+        var done = false;
+        OwnerStart(window, args, ref done);
+    }
+
+    public static bool HandlePipe(string message)
+    {
+        var handled = false;
+        OwnerPipe(message, ref handled);
+        if (handled || message != ShowRequest) return handled;
+        Avalonia.Threading.Dispatcher.UIThread.Post(() => Application.AppServices.App.Lifetime.MainWindow?.Activate());
+        return true;
+    }
+
+    public static Avalonia.Win32CompositionMode[] CompositionModes
+    {
+        get
+        {
+            Avalonia.Win32CompositionMode[] modes = [Avalonia.Win32CompositionMode.WinUIComposition];
+            OwnerComposition(ref modes);
+            return modes;
+        }
+    }
+
     public static readonly string Profile = Environment.GetEnvironmentVariable("FORTNITEPORTING_MP_PROFILE")?.Trim() ?? "";
     public static string AppFolder => Profile.Length == 0 ? "FortnitePorting MP" : $"FortnitePorting MP {Profile}";
     public static string InstancePipe => "FortnitePortingMP" + Profile;

@@ -46,6 +46,8 @@ public static class Timing
 /// <summary>Exact materials: serves each material's description, graph and dependencies to FP's Blender plugin over the localhost bridge.</summary>
 public partial class MaterialPorterService : IService
 {
+    partial void OwnerRoute(string route, NameValueCollection query, ref Task<object?>? result);
+
     public static int Port => Fork.BridgePort;
 
     public static MaterialPorterService Instance => AppServices.Services.GetRequiredService<MaterialPorterService>();
@@ -317,6 +319,9 @@ public partial class MaterialPorterService : IService
     {
         // what this build does: the Material Fixer shows island recovery only where islands are
         if (route == "fork-caps") return new { islands = Fork.Islands };
+        Task<object?>? owned = null;
+        OwnerRoute(route, query, ref owned);     // owner builds: the FP Blender editor's routes (fpfork-private)
+        if (owned is not null) return await owned;
         if (route.StartsWith("fork-island-"))
         {
             // the Material Fixer's island texture recovery (IslandMaterials): owner builds only

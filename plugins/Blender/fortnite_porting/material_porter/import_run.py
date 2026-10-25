@@ -5,13 +5,31 @@ from contextlib import contextmanager
 import bpy
 
 
+def _landscape_layers(value, out=None):
+    """Every landscape layer name in an import's exports (MPLayerNames)."""
+    out = set() if out is None else out
+    if isinstance(value, dict):
+        names = value.get("MPLayerNames")
+        if isinstance(names, dict):
+            out.update(str(n) for n in names.values())
+        for v in value.values():
+            if isinstance(v, (dict, list)):
+                _landscape_layers(v, out)
+    elif isinstance(value, list):
+        for v in value:
+            _landscape_layers(v, out)
+    return out
+
+
 @contextmanager
 def import_run(exports):
     from . import status
     from .blend_data import drop_unused_blend_data
     from .build import pruning
 
+    from . import landscape_layers
     names = ", ".join(str(e.get("Name")) for e in exports or [])
+    landscape_layers.INCOMING = _landscape_layers(exports)
     status.post("Importing %s" % names, state="begin")
     t0 = time.perf_counter()
     objects0 = {o.name for o in bpy.data.objects}
@@ -24,6 +42,7 @@ def import_run(exports):
         failed = e
         raise
     finally:
+        landscape_layers.INCOMING = set()
         # UE's PreSkinnedPosition (LEGO face prints must not follow the skinning)
         for o in bpy.data.objects:
             if o.name not in objects0 and o.type == 'MESH' and any(m.type == 'ARMATURE' for m in o.modifiers):

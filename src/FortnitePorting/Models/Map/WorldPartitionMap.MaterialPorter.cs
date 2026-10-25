@@ -50,6 +50,7 @@ public partial class WorldPartitionMap
     }
 
     private bool _drawnPreview;
+    public bool DrawnPreview => _drawnPreview;
     private int _previewLevels;
     private CancellationTokenSource? _previewCancel;
     private static readonly SemaphoreSlim Drawing = new(1, 1);     // one map drawn at a time; the others wait

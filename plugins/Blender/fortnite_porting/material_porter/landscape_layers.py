@@ -7,6 +7,11 @@ import numpy as np
 
 KEY = "mp_layers"
 ALL = "mp_layers_all"       # a mesh a material was put on: every layer built, painted or not, ready to paint
+# a map's landscape proxy packed in the scene-wide layer order: every proxy keeps a layer in the same channel and builds
+# all the order's layers (unpainted read 0), so one material serves every proxy of a map instead of one per layer set
+MAP = "mp_layers_map"
+ORDER = "mp_landscape_layers"     # on the scene: the order, new layers appended (older channels never move)
+INCOMING = set()                  # the layers of the import running now (import_run): its proxies share one order
 PREFIX = "Attribute"
 CHANNELS = "RGB"
 
@@ -28,7 +33,11 @@ def _values(attribute):
 
 
 def weight(obj, layer):
-    """A layer's total weight on the mesh: its packed channel, or (unpacked) its own attribute's red."""
+    """A layer's total weight on the mesh: its weightmap's channel (weightmaps), its packed channel, or (unpacked) its
+    own attribute's red."""
+    from .weightmaps import weight as in_image
+    if (w := in_image(obj, layer)) is not None:
+        return w
     attribute, channel = table(obj).get(layer, (layer, 0))
     a = obj.data.color_attributes.get(attribute)
     if a is None or not len(a.data):
@@ -48,10 +57,20 @@ def painted(obj):
     return [layer for layer in layers(obj) if weight(obj, layer) > 0.0]
 
 
+def order(scene, names):
+    """The scene's landscape layer order with `names` (and the running import's layers) added at its end."""
+    known = list(scene.get(ORDER) or [])
+    new = sorted((set(names) | INCOMING) - set(known))
+    if new:
+        known += new
+        scene[ORDER] = known
+    return known
+
+
 def built(obj):
     """The layers a material for the mesh blends: all of them on a mesh a material was put on, else the painted ones
     (a map's landscape component, as UE compiles it)."""
-    return layers(obj) if obj.get(ALL) else painted(obj)
+    return layers(obj) if obj.get(ALL) or obj.get(MAP) else painted(obj)
 
 
 def key(obj, chosen=None):
@@ -87,8 +106,9 @@ def _place(obj, names, data_type, domain):
     return packed
 
 
-def pack(obj, names):
-    """Move a mesh's single-layer attributes (`names`: its layers) into packed channels and drop them."""
+def pack(obj, names, order=None):
+    """Move a mesh's single-layer attributes (`names`: its layers) into packed channels and drop them; with `order`,
+    every layer of it gets its channel at its place (the ones the mesh lacks unpainted) and the mesh is marked MAP."""
     mesh = obj.data
     sources = [mesh.color_attributes[n] for n in sorted(names) if n in mesh.color_attributes]
     if not sources:
@@ -98,15 +118,10 @@ def pack(obj, names):
     data_type, domain = first.data_type, first.domain
     for s in sources:
         mesh.color_attributes.remove(s)
-    packed = _place(obj, sorted(weights), data_type, domain)
+    packed = _place(obj, list(order) if order else sorted(weights), data_type, domain)
     _write(obj, {layer: weights[layer] for layer in weights}, packed)
-    return packed
-
-
-def make(obj, names):
-    """Packed channels for `names` on a mesh that lacks them, unpainted; every layer built from then on."""
-    packed = _place(obj, [n for n in names if n not in table(obj)], 'FLOAT_COLOR', 'POINT')
-    obj[ALL] = 1.0
+    if order:
+        obj[MAP] = 1.0
     return packed
 
 

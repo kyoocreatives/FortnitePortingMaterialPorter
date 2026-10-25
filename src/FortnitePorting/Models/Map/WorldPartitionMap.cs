@@ -330,7 +330,7 @@ public partial class WorldPartitionMap : ObservableObject
         await Load();
     }
 
-    private async Task ExportLandscapeMaps(EMapTextureExportType exportType)
+    public async Task ExportLandscapeMaps(EMapTextureExportType exportType, bool open = true)     // MP: public, open
     {
         var heightTileInfos = new List<MapTextureTileInfo>();
         var weightmapTileInfos = new Dictionary<string, List<MapTextureTileInfo>>();
@@ -536,7 +536,7 @@ public partial class WorldPartitionMap : ObservableObject
             }
         }
         
-        App.Launch(ExportPath);
+        if (open) App.Launch(ExportPath);     // MP
     }
 
     private string GetExportPath(string name, string folderName = "")

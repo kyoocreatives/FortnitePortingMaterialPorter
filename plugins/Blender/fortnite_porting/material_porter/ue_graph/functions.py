@@ -27,6 +27,8 @@ class FunctionsMixin:
         except TypeError:
             # an env that only takes the name (names can repeat across folders)
             path = self.env.function(fname)
+        if path:
+            self.env.__dict__.setdefault("function_paths", {})[path] = mf.get("ObjectPath", "")
         return (fname, self.graph(path)) if path else None
 
     @staticmethod
@@ -97,20 +99,25 @@ class FunctionsMixin:
         function worked out inline, a value instead of a group node (a time of day's weights
         broken out of a float4 the file holds no day for). None where it isn't."""
         needs = ft.reached(name) | (ft.reached(socket_name(name + " (A)")) if w == 4 else set())
-        if not needs:
+        # while map textures are probed the env's own inputs (world position, parameters) are constants too, and
+        # so may be an output reading none of the group's inputs (Hera's biome mask UVs: the world, inside it)
+        probing = getattr(self.env, "probe", None) is not None
+        if not needs and not probing:
             return None
         # in the group's input order, not the set's: reading an input builds the caller's nodes
         # (and other calls' outputs) as it goes, and the first non-constant one stops it; a set's
         # order followed PYTHONHASHSEED, and so did the trees
         needs = [s for s in ft.kind if s in needs]
-        if any(ft.kind[s][0] not in ("ue", "ue_alpha") for s in needs):
+        if any(ft.kind[s][0] not in ("ue", "ue_alpha") and not (probing and ft.kind[s][0] == "env") for s in needs):
             return None
-        for sock in needs:
+        for sock in [s for s in needs if ft.kind[s][0] != "env"]:
             kind, key = ft.kind[sock]
             lazy = ins.get(key)
             v = lazy.get(self) if lazy is not None else None
             if v is None and sock in ft.previews:
-                v = self.input(fg, ft.previews[sock], {"_id": ("preview", ft.fname, sock)}, None)
+                # (a probe's own: the build's preview reads the real world position)
+                pid = ("preview", ft.fname, sock) + ((self.env.probe,) if probing else ())
+                v = self.input(fg, ft.previews[sock], {"_id": pid}, None)
             if v is None or not v.const or (kind == "ue_alpha" and not self.alpha(v).const):
                 return None
         sub = dict(ins)
@@ -131,9 +138,13 @@ class FunctionsMixin:
         fixed = self._hook("function_key", lambda: ())
         key = (fg.path, tuple(sorted(statics.items())), fixed) if statics or fixed else fg.path
         ft = self.functions.get(key)
-        if ft is None:
+        new = ft is None
+        if new:
             ft = self.functions[key] = FunctionTree(self, fname, fg, statics, self.variant_label(fname, fg, statics))
-            if getattr(self.env, "whole_functions", False):
+        # the call building its outputs: map textures probed in the body read its inputs (FunctionTree.ue_input)
+        site_was, ft.site = ft.site, (self, ins)
+        try:
+            if new and getattr(self.env, "whole_functions", False):
                 # every output, in the function's own order: two materials calling it build the same
                 # group and share it (built as each asked, their groups differed by what each read:
                 # a copy of the function per material). Unread outputs cost nothing at render:
@@ -143,7 +154,9 @@ class FunctionsMixin:
                         ft.output(each)
                     except RuntimeError as e:       # (an output UE would compile on its own: a loop here)
                         self.warnings.append("%s: output %s left out (%s)" % (fname, (each.get("Properties") or {}).get("OutputName"), e))
-        name, w = ft.output(fo)
+            name, w = ft.output(fo)
+        finally:
+            ft.site = site_was
         if w != "attrs":
             if name in ft.const_outs:
                 return ft.const_outs[name]

@@ -2,7 +2,8 @@
 
 import math
 
-from .core import Attrs, TABLE, TexRef, Val, WATER_DEPTH_DEFAULT, SHELL_ATTRIBUTES, SHELL_VECTORS, render_tan_half_fov
+from .core import (Attrs, NORMAL_PASS, PIXEL_NORMAL, TABLE, TexRef, Val, WATER_DEPTH_DEFAULT, SHELL_ATTRIBUTES, SHELL_VECTORS,
+                   render_tan_half_fov)
 
 
 class RendererMixin:
@@ -297,7 +298,9 @@ class RendererMixin:
                 rg, rx = self.rvt_output
                 rp = rx.get("Properties") or {}
                 pin = ("BaseColor", "Specular", "Roughness", "Normal", "WorldHeight", "Mask", "Displacement")[min(out, 6)]
-                return self.input(rg, rp.get(pin), {}, vals[min(out, 6)])
+                # the Normal's pass reads its own copy: the main one may read PixelNormalWS (Hera's snow), a loop
+                own = {"_id": PIXEL_NORMAL} if self.section[:1] == [NORMAL_PASS] else {}
+                return self.input(rg, rp.get(pin), own, vals[min(out, 6)])
             # the terrain's virtual texture under the object: none here - a
             # neutral surface, its height far below (height blends stay off)
             return self.stand_in("runtime virtual texture", vals[min(out, len(vals) - 1)])

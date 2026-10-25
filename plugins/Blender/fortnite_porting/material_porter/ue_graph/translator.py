@@ -150,8 +150,9 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         return Val(v + (0.0,) * (3 - len(v)) if len(v) < 3 else v[:3], w or len(v))
 
     def math(self, op, a, b=None, c=None, clamp=False, label=""):
-        if a.const and (b is None or b.const) and (c is None or c.const) and not clamp and op in PY:
-            return Val(PY[op](a.s, None if b is None else b.s), 1)
+        if a.const and (b is None or b.const) and (c is None or c.const) and op in PY and isinstance(a.s, (int, float))                 and (b is None or isinstance(b.s, (int, float))):
+            r = PY[op](a.s, None if b is None else b.s)
+            return Val(min(max(r, 0.0), 1.0) if clamp else r, 1)
         if b is not None and c is None and not clamp:
             # x * 0, x * 1, x + 0, x - 0: known without a node (a weight of 0 drops its term)
             ka = a.s if a.const else None
@@ -814,6 +815,21 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
                 return self.sample_cube(tname, coords if coords is not None else self.reflection(), out)
             if coords is None:
                 coords = env.uv(0)
+            param = getattr(tname, "param", None) or p.get("ParameterName")
+            if param and (getattr(env, "entry", None) or {}).get("landscape_world"):
+                # a map-wide texture on a mesh a landscape material was put on (maptex): recorded, and read from
+                # the mesh's own painted map where it has one
+                from . import maptex
+                found = maptex.probe(self, g, p.get("Coordinates"), scope)
+                if found is not None:
+                    maptex.record(env, param, tname, found, g)
+                    following = (env.entry.get("biome_follow") or {}).get(param)
+                    if following is not None:
+                        return maptex.follow(self, following, out)
+                    image = (env.entry.get("biome_maps") or {}).get(param)
+                    rect = maptex.rect_of(found, (env.entry.get("biome_rects") or {}).get(param))
+                    if image is not None and rect is not None:
+                        return maptex.sample(self, image, rect, out)
             # its own sampler (the default source) filters and addresses as the texture says; a
             # shared sampler (world group settings) wraps or clamps as its group does
             src = str(p.get("SamplerSource", "")).split("::")[-1]

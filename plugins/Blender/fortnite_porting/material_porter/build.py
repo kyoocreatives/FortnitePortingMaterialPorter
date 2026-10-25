@@ -17,8 +17,10 @@ from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PA
 
 PREFIX = "MP "            # prefix of built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # game object the material translates
+KEY_SWITCHES = "mp_switches"      # the material's static switches as built, {name: on} (JSON): the panel's features
+KEY_MAPS = "mp_map_textures"      # map-wide textures found on a custom landscape, {parameter: {texture, rects}} (JSON)
 KEY_REV = "mp_rev"        # build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 76       # bump when a builder change should rebuild existing materials
+BUILD_REVISION = 78       # bump when a builder change should rebuild existing materials
 KEY_REPLACES = "mp_replaces"
 KEY_FP = "mp_fp"          # function group fingerprint, for sharing groups
 KEY_VARIANT = "mp_variant"  # hash of a style's parameter values over the instance
@@ -1132,6 +1134,21 @@ def mark_shared_bounds(objects):
         o[BOUNDS_CENTRE] = [(a + b) * 0.5 for a, b in zip(o[BOUNDS_MIN], o[BOUNDS_MAX])]
 
 
+def _switches(tr, entry):
+    """Every static switch the material's graphs (its own and its functions') have, as built: the instance's value,
+    else the switch's default."""
+    from .ue_graph.core import T
+    found, set_by = {}, entry.get("switches") or {}
+    for t in [tr] + [ft.tr for ft in tr.functions.values()]:
+        for g in t.graphs.values():
+            for x in g.o:
+                p = x.get("Properties") or {}
+                if T(x) in ("StaticSwitchParameter", "StaticBoolParameter") and p.get("ParameterName"):
+                    name = p["ParameterName"]
+                    found[name] = bool(set_by.get(name, p.get("DefaultValue", False)))
+    return dict(sorted(found.items()))
+
+
 def build_one(entry, app, objects=(), make_env=None):
     """Build a Blender material for one bundle entry. Returns (material, notes).
 
@@ -1197,6 +1214,19 @@ def build_one(entry, app, objects=(), make_env=None):
                 env.note("layout of %s: %s" % (mat.name, e))
     mat[KEY_PATH] = entry["path"]
     mat[KEY_REV] = BUILD_REVISION
+    mat[KEY_SWITCHES] = json.dumps(_switches(tr, entry))
+    if found := getattr(env, "map_textures", None):
+        from .ue_graph.maptex import finish, label
+        graphs = {g.path: g for t in [tr] + [ft.tr for ft in tr.functions.values()] for g in t.graphs.values()}
+
+        def fetch(objpath):
+            try:
+                path = env.function(objpath.rsplit("/", 1)[-1].split(".")[0], objpath)
+            except Exception:       # (not in the game's files)
+                return None
+            return tr.graph(path) if path else None
+        # map-wide textures a custom landscape can paint, their masks named (ue_graph.maptex)
+        mat[KEY_MAPS] = json.dumps(label(finish(found), graphs.values(), fetch))
     if entry.get("variant"):
         mat[KEY_VARIANT] = entry["variant"]
     if env.reusable:
@@ -1241,7 +1271,7 @@ def shape_key(entry):
     """What decides a build's node trees beyond its parameter values: the master's graph, static switches and masks,
     blend/shading overrides and subsurface profile. Instances alike in all of it differ only in parameter values
     (the material's group-node inputs) and texture images."""
-    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "folds", "shell", "cosmetic", "fixed", "landscape_layers", "landscape_channels", "landscape_world")}
+    k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "folds", "shell", "cosmetic", "fixed", "landscape_layers", "landscape_channels", "landscape_world", "landscape_images", "biome_maps", "biome_rects", "biome_follow", "landscape_dropped")}
     k["head"] = _is_head(entry)
     # with a time of day in the file collections stay live; without one they are folded in
     k["day"] = world.has_day()
@@ -1399,6 +1429,9 @@ def build_like(src, entry, app):
             sock.default_value = fit_socket(sock, rgba) if kind == "V" else float(rgba[3])
     mat[KEY_PATH] = entry["path"]
     mat[KEY_REV] = BUILD_REVISION
+    for key in (KEY_SWITCHES, KEY_MAPS):
+        if key in src:
+            mat[key] = src[key]
     mat["mp_copied_from"] = src.name
     if entry.get("variant"):
         mat[KEY_VARIANT] = entry["variant"]

@@ -238,6 +238,18 @@ def _mesh_attributes(mat):
     return len(found)
 
 
+_OVER_LIMITS = set()     # (material, map-wide layers) whose shared build went past Eevee's limits
+
+
+def _over_key(base, layers):
+    return base[0], tuple(layers)
+
+
+def built_layers(obj):
+    from .landscape_layers import built
+    return built(obj)
+
+
 def _lightest_layer(obj, layers):
     """The painted layer of a landscape proxy with the least total weight."""
     from .landscape_layers import weight
@@ -247,13 +259,27 @@ def _lightest_layer(obj, layers):
 def _set_layers(entry, base, obj, layers):
     """Build for these layers of a landscape proxy, read from the channels the mesh keeps them in."""
     from . import landscape_layers
-    packed = landscape_layers.table(obj)
+    from .weightmaps import images
+    packed, maps = landscape_layers.table(obj), images(obj)
     entry["landscape_world"] = bool(obj.get(landscape_layers.ALL))
     entry["landscape_layers"] = layers
-    entry["landscape_channels"] = {l: list(packed[l]) for l in layers if l in packed}
+    entry["landscape_dropped"] = sorted(set(landscape_layers.layers(obj)) - set(layers)) if entry["landscape_world"] else []
+    entry["landscape_channels"] = {l: list(packed[l]) for l in layers if l in packed and packed[l][0] not in maps}
+    entry["landscape_images"] = {l: [maps[packed[l][0]].name, packed[l][1]] for l in layers
+                                 if l in packed and packed[l][0] in maps}
+    # map-wide textures the meshes paint themselves (biome maps): parameter -> image
+    entry["biome_maps"] = {k: v for k, v in dict(obj.get("mp_biome_maps") or {}).items() if bpy.data.images.get(v)}
+    # their rectangles, as the material built before worked them out (ue_graph.maptex.finish)
+    known = json.loads((obj.active_material or {}).get("mp_map_textures") or "{}") if obj.active_material else {}
+    entry["biome_rects"] = {k: known[k]["rects"] for k in entry["biome_maps"] if k in known}
+    # a colour map following the painted masks (biome_colours): mixed in the shader
+    from . import biome_colours
+    entry["biome_follow"] = biome_colours.config(obj, known)
     entry["name"] = "%s (%s)" % (base[1], "+".join(layers) if layers else "no layers")
-    entry["variant"] = _digest("%s layers %s%s" % (base[0], landscape_layers.key(obj, layers),
-                                                   " world" if entry["landscape_world"] else ""))
+    entry["variant"] = _digest("%s layers %s%s %s %s" % (base[0], landscape_layers.key(obj, layers),
+                                                      " world" if entry["landscape_world"] else "",
+                                                      sorted(entry["biome_maps"].items()),
+                                                      json.dumps(entry["biome_follow"], sort_keys=True)))
 
 
 def build_exact(context, material_data, texture_data=None, override_parameters=None, obj=None):
@@ -338,9 +364,13 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     # (the Ch4 jungle landscape samples 43 textures over all layers, past Eevee's 32, and rendered magenta)
     landscape_base = (entry.get("variant", ""), entry["name"])
     if obj is not None and obj.type == 'MESH' and obj.get("mp_landscape"):
-        # the painted ones (a map's component), or all on a mesh a material was put on (to paint)
-        from .landscape_layers import built
-        _set_layers(entry, landscape_base, obj, built(obj))
+        # all of a map's layers (one material for its proxies), the painted ones (a map past Eevee's limits with all
+        # of them), or all on a mesh a material was put on (to paint)
+        from .landscape_layers import MAP, built, painted
+        layers = built(obj)
+        if obj.get(MAP) and _over_key(landscape_base, layers) in _OVER_LIMITS:
+            layers = painted(obj)
+        _set_layers(entry, landscape_base, obj, layers)
     # lay out each tree when a node editor first shows it (two fifths of build time, cosmetic)
     build.LAZY_LAYOUT = True
     try:
@@ -352,6 +382,15 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
             samplers, attributes = _samplers(mat), _mesh_attributes(mat)
             if not (limit and samplers > limit) and attributes <= ATTRIBUTE_LIMIT:
                 break
+            from .landscape_layers import MAP, painted
+            shared = obj.get(MAP) and _over_key(landscape_base, entry["landscape_layers"]) not in _OVER_LIMITS \
+                and entry["landscape_layers"] == built_layers(obj)
+            if shared:      # the map-wide build doesn't fit: this material builds per proxy's painted layers from now on
+                _OVER_LIMITS.add(_over_key(landscape_base, entry["landscape_layers"]))
+                layers = painted(obj) or entry["landscape_layers"][:1]
+                _set_layers(entry, landscape_base, obj, layers)
+                mat = _material(job, entry, obj)
+                continue
             lightest = _lightest_layer(obj, entry["landscape_layers"])
             layers = [l for l in entry["landscape_layers"] if l != lightest]
             _log("%s: %s - its least painted layer left out" % (entry["name"], (

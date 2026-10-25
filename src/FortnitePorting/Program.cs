@@ -71,7 +71,7 @@ internal static class Program
                 pipe.WaitForConnection();
 
                 var url = reader.ReadString();
-                App.HandleUrlScheme(url);
+                if (!MaterialPorter.Fork.HandlePipe(url)) App.HandleUrlScheme(url);     // MP
                 
                 pipe.Disconnect();
             }
@@ -88,7 +88,7 @@ internal static class Program
             pipe.Connect(1000);
 
             var writer = new BinaryWriter(pipe);
-            writer.Write(args[0]);
+            writer.Write(args.Length > 0 ? args[0] : MaterialPorter.Fork.ShowRequest);     // MP: a plain second launch shows the running app
         }
         catch (Exception e)
         {
@@ -101,5 +101,5 @@ internal static class Program
         => AppBuilder.Configure<FortnitePortingApp>()
             .UsePlatformDetect()
             .LogToTrace()
-            .With(new Win32PlatformOptions { CompositionMode = [Win32CompositionMode.WinUIComposition] });
+            .With(new Win32PlatformOptions { CompositionMode = MaterialPorter.Fork.CompositionModes });     // MP
 }

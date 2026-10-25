@@ -1,7 +1,7 @@
 """A material sent on its own (the app's Material export) goes onto the selected meshes: built into the active one's
 active slot, the same material then in each other selected mesh's active slot. What the material reads off a mesh is
-made on them when missing: a landscape material's layers, three to a colour attribute (Attribute1's red, green and
-blue...: landscape_layers; unpainted, every one of them in the material, ready to paint), other geometry attributes it
+made on them when missing: a landscape material's layers, in weightmap images the meshes share (weightmaps: three
+layers to an image, unpainted, every one of them in the material, ready to paint), other geometry attributes it
 samples, and its UV maps (copies of the first)."""
 import bpy
 
@@ -26,12 +26,14 @@ def onto_selected(ctx, materials):
         ctx.import_material(slot, material, {})
         built = slot.material
         made = set()
-        if _layers(built):
-            # a landscape material: its layers made on the meshes (marked as landscapes), then built again for those
-            # layers as a landscape import does (one material per set of painted layers, within Eevee's samplers)
+        if layers := _layers(built):
+            # a landscape material: its layers in weightmaps on the meshes (marked as landscapes), then built again
+            # for them as a landscape import does
+            from .weightmaps import ensure
+            ensure(meshes, sorted(layers))
+            made.add("weightmaps (%d layers)" % len(layers))
             for o in meshes:
                 made |= make_attributes(o, built)
-                o["mp_landscape"] = 1.0
             first = built
             slot.material = bpy.data.materials.new(material.get("Name") or "Material")
             ctx.import_material(slot, material, {})
@@ -52,9 +54,10 @@ def onto_selected(ctx, materials):
 
 
 def _layers(material):
-    """A landscape material's layers: the names of its landscape layer nodes ("layer <name>")."""
+    """A landscape material's layers: the names of its landscape layer nodes ("layer <name>", reading a colour
+    attribute or a weightmap)."""
     return {n.label[len("layer "):] for tree in _trees(material) for n in tree.nodes
-            if n.bl_idname == "ShaderNodeVertexColor" and n.label.startswith("layer ")}
+            if n.bl_idname in ("ShaderNodeVertexColor", "ShaderNodeTexImage") and n.label.startswith("layer ")}
 
 
 def _trees(material):
@@ -96,19 +99,13 @@ def make_attributes(obj, material):
     mesh = obj.data
     colors, attributes, uvs = _reads(material)
     made = set()
-    layers = sorted(_layers(material))
-    if layers:
-        from . import landscape_layers
-        have = set(landscape_layers.table(obj))
-        landscape_layers.make(obj, layers)
-        made |= {"%s (%s)" % (l, obj[landscape_layers.KEY][l]) for l in layers if l not in have}
     for name in sorted(colors) + sorted(attributes):
         # the plugin's own attributes are made by its imports (mp_tangent: baked below), not left empty
         if name.lower() in BUILT_IN or name in mesh.attributes or name.startswith("mp_"):
             continue
         mesh.color_attributes.new(name, 'FLOAT_COLOR', 'POINT')
         made.add(name)
-    for name in sorted(uvs):
+    for name in sorted(uvs - {"mp_weights"}):
         if name and name not in mesh.uv_layers:
             mesh.uv_layers.new(name=name)
             made.add(name)

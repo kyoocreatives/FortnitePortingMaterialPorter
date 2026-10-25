@@ -689,6 +689,7 @@ class FunctionTree:
         self.needs = {}
         self.const_outs = {}    # socket name -> Val: an output known when built goes to callers as data
         self.textures = {}      # closure input socket name -> (texture key, sampler, image, own sampler, address)
+        self.site = None        # (caller's translator, its inputs) while a call builds an output
 
     def _new_input(self, name, width, kind):
         base, i = name, 2
@@ -711,6 +712,13 @@ class FunctionTree:
             return self.tr.const(1.0 if self.statics.get(fid) else 0.0)
         if p.get("InputType") == ATTRIBUTES_INPUT:
             return Val(OpenAttrs(self, fid, p.get("InputName") or "Material Attributes"), 0)
+        point = getattr(self.tr.env, "probe", None)
+        if point is not None and self.site is not None and self.site[1].get(fid) is not None:
+            # a map texture's coordinates probed (maptex): the caller's value, which the shared group can't know
+            caller, lazy = self.site[0], self.site[1][fid]
+            v = caller.input(lazy.g, lazy.ref, dict(lazy.scope, _id=("map probe", point, lazy.scope.get("_id"))), None)
+            if v is not None:
+                return v
         if fid not in self.ue_names:
             w = INPUT_WIDTH.get(p.get("InputType"), 3)
             name = self._new_input(p.get("InputName") or "Input", w, ("ue", fid))

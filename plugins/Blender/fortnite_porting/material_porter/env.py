@@ -123,6 +123,8 @@ class MaterialEnv:
         self._images = {}
         self._defaults = {}
         self.notes = []
+        # probing a projection (ue_graph map textures): the world at a fixed point, parameters as plain values
+        self.probe = None
         self.root = None        # the material's node group: parameters become its inputs
         self.caller = None      # the function a parameter is reached through (its panel)
         self._params = {}       # key -> (interface item, Val, value, panel name)
@@ -207,6 +209,8 @@ class MaterialEnv:
         return self.once("camvec", lambda: self._ue(self._incoming()))
 
     def world_position(self, camera_relative=False):
+        if self.probe is not None:
+            return self.tr.const(self.probe, 3)
         p = self.once("wpos", lambda: self._ue(Val(self._geo().outputs["Position"], 3), 100.0))
         return self.tr.vmath('SUBTRACT', p, self.camera_position(), out_w=3) if camera_relative else p
 
@@ -287,6 +291,16 @@ class MaterialEnv:
 
     # ------------------------------------------------------------ mesh
     def uv(self, index):
+        if self.entry.get("landscape_world") and index <= 2:
+            # a landscape's UVs are its own coordinates (UV0 XY, UV1 XZ, UV2 YZ, in quads): on a mesh a landscape
+            # material was put on, the world in 1 m quads, as its LandscapeLayerCoords (Hera V2's colour map reads UV0)
+            def quads():
+                wp = self.tr.comps(self.world_position(False))
+                a, b = ((0, 1), (0, 2), (1, 2))[index]
+                return self.tr.combine([self.tr.binop('DIVIDE', wp[a], self.tr.const(100.0)),
+                                        self.tr.binop('DIVIDE', wp[b], self.tr.const(100.0))])
+            return quads() if self.probe is not None else self.once("landscape uv%d" % index, quads)
+
         def make():
             n = self.tr.node("ShaderNodeUVMap", "UV%d" % index)
             n.uv_map = "UV%d" % index
@@ -312,7 +326,9 @@ class MaterialEnv:
     def landscape_layer(self, name):
         """Whether a layer is painted on the landscape component this material is built for
         (entry["landscape_layers"]; otherwise a LandscapeLayerSwitch compiles its LayerNotUsed side, as UE does per
-        component). Unknown counts as painted."""
+        component). Unknown counts as painted; on a mesh a material was put on, every layer but those left out."""
+        if self.entry.get("landscape_world"):
+            return name not in (self.entry.get("landscape_dropped") or ())
         layers = self.entry.get("landscape_layers")
         return True if layers is None else name in layers
 
@@ -320,13 +336,27 @@ class MaterialEnv:
         """A landscape layer's weight: the exported landscape's colour layer of that name (a grey weight: its red
         channel); 0 on another mesh or where a component doesn't paint the layer.
         None for a layer the component is known not to paint: it is left out of the blend with its textures,
-        as UE compiles each component (the Ch4 jungle landscape's 43 samplers are past Eevee's 32)."""
+        as UE compiles each component (the Ch4 jungle landscape's 43 samplers are past Eevee's 32). On a mesh a
+        material was put on every layer is read, but those left out (Eevee's limits): one it has no weightmap
+        channel for yet still gets a node, so the panel adds it (a feature bringing in a layer)."""
         layers = self.entry.get("landscape_layers")
-        if layers is not None and name not in layers:
+        if self.entry.get("landscape_world"):
+            if name in (self.entry.get("landscape_dropped") or ()):
+                return None
+        elif layers is not None and name not in layers:
             return None
 
-        # its channel of a packed attribute (landscape_layers: Attribute1's red...), else its own attribute's red
+        # its weightmap's channel (weightmaps), its channel of a packed attribute (landscape_layers: Attribute1's
+        # red...), else its own attribute's red
         attribute, channel = (self.entry.get("landscape_channels") or {}).get(name, (name, 0))
+        if (image := (self.entry.get("landscape_images") or {}).get(name)) is not None:
+            def from_image():
+                uv = self.once("weights uv", lambda: self.tr.node("ShaderNodeUVMap", "weightmap UVs", uv_map="mp_weights"))
+                n = self.tr.node("ShaderNodeTexImage", "layer " + name, interpolation='Linear', extension='EXTEND')
+                n.image = bpy.data.images.get(image[0])
+                self.tr.link(Val(uv.outputs["UV"], 3), n.inputs["Vector"])
+                return self.tr.comps(Val(n.outputs["Color"], 3))[image[1]]
+            return self.once("layer " + name, from_image)
 
         def make():
             n = self.tr.node("ShaderNodeVertexColor", "layer " + name)
@@ -506,6 +536,8 @@ class MaterialEnv:
             # one the import settles (Rim Light off: baseBrightness 0): a value, not a control
             return self.tr.const(float(fixed[name]))
         v = float(self.entry.get("scalars", {}).get(name, default))
+        if self.probe is not None:
+            return self.tr.const(v)
         self.graph_defaults.setdefault("P: " + name, float(default or 0.0))
         self._defaults["P: " + name] = v
         fn = self.tr.function
@@ -535,6 +567,9 @@ class MaterialEnv:
             rgba = tuple(self.entry.get("vectors", {}).get(name, rgba))
         if not name or name in self.GAME_DRIVEN:
             rgba = tuple(rgba) + (1.0,) * (4 - len(rgba))
+            return self.tr.const(tuple(float(x) for x in rgba[:3]), 3), self.tr.const(float(rgba[3]))
+        if self.probe is not None:
+            rgba = tuple(self.entry.get("vectors", {}).get(name, rgba)) + (1.0,) * (4 - len(rgba))
             return self.tr.const(tuple(float(x) for x in rgba[:3]), 3), self.tr.const(float(rgba[3]))
         self.graph_defaults.setdefault("V: " + name, tuple(float(x) for x in rgba) + (1.0,) * (4 - len(rgba)))
         graph_default = rgba
