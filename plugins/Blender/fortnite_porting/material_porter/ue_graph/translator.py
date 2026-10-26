@@ -28,6 +28,7 @@ from .core import (
     linked,
     load_graph,
 )
+from .edits import holds
 from .statics import StaticsMixin
 from .attributes import AttributesMixin
 from .maths import MathsMixin
@@ -52,6 +53,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         # material's build reads besides (a moving one's World Position Offset)
         self.carried = parent.carried if parent else CARRIED
         self.function = None
+        self.placing = parent.placing if parent else None      # edits.Placing while a build holds locations back
         self.x, self.y = x0, y0
         self.warnings = []
         # layout section new nodes go in (layout): the material, then one frame
@@ -96,12 +98,16 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
     # ------------------------------------------------------------- nodes
     def node(self, kind, label="", **props):
         n = self.N.new(kind)
-        n.location = (self.x, self.y)
+        if self.placing is not None and self.placing.trees is not None:
+            self.placing.add(self.tree, n, self.x, self.y)
+        else:
+            n.location = (self.x, self.y)
         self.y -= 30
         n.label = label
         n[SECTION_KEY] = "/".join(self.section)
         for k, v in props.items():
-            setattr(n, k, v)
+            if not holds(getattr(n, k), v):
+                setattr(n, k, v)
         return n
 
     def reuse(self, key, make):
@@ -130,9 +136,10 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
                 v = tuple(v)[:3]
                 if sock.type == 'RGBA':
                     v = v + (1.0,)
+            elif not isinstance(v, (int, float)):
+                v = v[0]
+            if not holds(sock.default_value, v):
                 sock.default_value = v
-            else:
-                sock.default_value = v if isinstance(v, (int, float)) else v[0]
         else:
             self.L.new(val.s, sock)
 

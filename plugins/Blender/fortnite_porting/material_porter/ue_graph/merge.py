@@ -60,7 +60,11 @@ def merge_duplicates(tree, memo=None):
     would close a loop (UE compiles each output of a call on its own: one output's inputs may
     need another's result). Also: a vector split and recombined in order (UE's swizzles, free
     in HLSL, are nodes here) is the vector again; maths that hands a value on unchanged
-    (x * 1, x + 0) goes; so does what reaches no output. Returns how many nodes went."""
+    (x * 1, x + 0) goes; so does what reaches no output. Returns how many nodes went.
+
+    Links and removals change only ins/outs/nodes as it goes, and reach the tree at the end
+    (_apply): each edit of a tree makes Blender update all of it, and a fold's relinks often
+    feed nodes that fold later."""
     memo = {} if memo is None else memo
     MADE.get(tree.as_pointer(), {}).clear()
     nodes = {n.as_pointer(): n for n in tree.nodes}
@@ -78,7 +82,7 @@ def merge_duplicates(tree, memo=None):
             indeg[b] -= 1
             if indeg[b] == 0:
                 todo.append(b)
-    canon = {}
+    canon, removed = {}, []
 
     def root(p):
         while p in canon:
@@ -147,14 +151,12 @@ def merge_duplicates(tree, memo=None):
         for f, b, t in outs.pop(dup, []):
             if b not in nodes:
                 continue
-            tree.links.new(socket(k, f, True), socket(nodes[b], t, False))
             outs.setdefault(keep, []).append((f, b, t))
             ins.setdefault(b, {})[t] = (keep, f)
         if SECTION_KEY in k:
             k[SECTION_KEY] = section(k, d)
         ins.pop(dup, None)
-        del nodes[dup]
-        tree.nodes.remove(d)
+        removed.append(nodes.pop(dup))
         canon[dup] = keep
 
     def try_group(p, n, kept):
@@ -177,14 +179,10 @@ def merge_duplicates(tree, memo=None):
                 s = socket(m, i, False)
                 v = mine[i]
                 if isinstance(v, tuple) and v[:1] == ("link",):
-                    tree.links.new(socket(nodes[v[1]], v[2], True), s)
                     ins.setdefault(q, {})[i] = (v[1], v[2])
                     outs.setdefault(v[1], []).append((v[2], q, i))
                 else:
-                    if i in ins.get(q, {}):
-                        for l in s.links:
-                            tree.links.remove(l)
-                        del ins[q][i]
+                    ins.get(q, {}).pop(i, None)
                     if hasattr(s, "default_value") and v is not None:
                         s.default_value = v
             fold(p, q)
@@ -216,17 +214,16 @@ def merge_duplicates(tree, memo=None):
                 out.type == 'RGBA' and all(socket(nodes[b], t, False).type == 'VECTOR' for b, t in readers)):
             return False
         for b, t in readers:
-            tree.links.new(out, socket(nodes[b], t, False))
             outs.setdefault(a, []).append((ia, b, t))
             ins.setdefault(b, {})[t] = (a, ia)
         outs.pop(p, None)
         ins.pop(p, None)
-        tree.nodes.remove(nodes.pop(p))
+        removed.append(nodes.pop(p))
         rest = [e for e in outs.get(sep, ()) if e[1] != p and e[1] in nodes]
         outs[sep] = rest
         if not rest:
             ins.pop(sep, None)
-            tree.nodes.remove(nodes.pop(sep))
+            removed.append(nodes.pop(sep))
             return 2
         return 1
 
@@ -244,7 +241,8 @@ def merge_duplicates(tree, memo=None):
         if rules is None or getattr(n, "use_clamp", False):
             return False
         if n.bl_idname == "ShaderNodeVectorMath" and n.operation == 'SCALE':
-            keep = 0 if not n.inputs["Scale"].is_linked and _plain(n.inputs["Scale"].default_value) == 1.0 else None
+            scale = n.inputs["Scale"]
+            keep = 0 if scale.identifier not in ins.get(p, {}) and _plain(scale.default_value) == 1.0 else None
         else:
             rule = rules.get(n.operation)
             keep = None
@@ -261,14 +259,12 @@ def merge_duplicates(tree, memo=None):
         a, ia = root(feed[0]), feed[1]
         if a not in nodes or socket(nodes[a], ia, True).type != out.type:
             return False
-        src = socket(nodes[a], ia, True)
         for _f, b, t in outs.pop(p, []):
             if b in nodes:
-                tree.links.new(src, socket(nodes[b], t, False))
                 outs.setdefault(a, []).append((ia, b, t))
                 ins.setdefault(b, {})[t] = (a, ia)
         ins.pop(p, None)
-        tree.nodes.remove(nodes.pop(p))
+        removed.append(nodes.pop(p))
         return True
 
     def const_in(p, s):
@@ -290,11 +286,10 @@ def merge_duplicates(tree, memo=None):
             return False
         for _f, b, t in outs.pop(p, []):
             if b in nodes:
-                tree.links.new(src, socket(nodes[b], t, False))
                 outs.setdefault(a, []).append((ia, b, t))
                 ins.setdefault(b, {})[t] = (a, ia)
         ins.pop(p, None)
-        tree.nodes.remove(nodes.pop(p))
+        removed.append(nodes.pop(p))
         return True
 
     def constant(p, values):
@@ -312,13 +307,11 @@ def merge_duplicates(tree, memo=None):
                 return False
             plan.append((b, t, s, v))
         for b, t, s, v in plan:
-            for l in list(s.links):
-                tree.links.remove(l)
             s.default_value = v
             ins.get(b, {}).pop(t, None)
         outs.pop(p, None)
         ins.pop(p, None)
-        tree.nodes.remove(nodes.pop(p))
+        removed.append(nodes.pop(p))
         return True
 
     def settle(p, n):
@@ -465,10 +458,33 @@ def merge_duplicates(tree, memo=None):
                 todo += [root(a) for a, _i in ins.get(p, {}).values()]
         for p, n in list(nodes.items()):
             if p not in live and n.bl_idname not in ("NodeFrame", "NodeGroupInput"):
-                tree.nodes.remove(n)
+                removed.append(n)
                 del nodes[p]
                 gone += 1
+    _apply(tree, nodes, ins, removed, socket)
     return gone
+
+
+def _apply(tree, nodes, ins, removed, socket):
+    """Make the tree what merge_duplicates' model says: its removals first (the tree is smaller for
+    the relinks), then the links that differ. A link from a removed node is gone, as removing it did.
+    Group nodes go first: a link change makes Blender redeclare every group node left in the tree."""
+    removed.sort(key=lambda n: n.bl_idname != "ShaderNodeGroup")
+    for n in removed:
+        tree.nodes.remove(n)
+    have = {}
+    for l in tree.links:
+        have.setdefault(l.to_node.as_pointer(), {})[l.to_socket.identifier] = (
+            l.from_node.as_pointer(), l.from_socket.identifier, l)
+    for b, n in nodes.items():
+        want = {t: src for t, src in ins.get(b, {}).items() if src[0] in nodes}
+        got = have.get(b, {})
+        for t, (_a, _f, l) in got.items():
+            if t not in want:
+                tree.links.remove(l)
+        for t, (a, f) in want.items():
+            if got.get(t, ())[:2] != (a, f):
+                tree.links.new(socket(nodes[a], f, True), socket(n, t, False))
 
 
 _MATH_ARITY = {"ADD": 2, "SUBTRACT": 2, "MULTIPLY": 2, "DIVIDE": 2, "MAXIMUM": 2, "MINIMUM": 2, "POWER": 2,

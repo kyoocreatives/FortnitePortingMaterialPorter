@@ -11,6 +11,7 @@ The compiled shader is the same: bundles resolve at compile time.
 import bpy
 
 from .ue_graph import ATTRIBUTE_DEFAULT, ATTRIBUTE_WIDTH, BREAK_ORDER, CARRIED, pretty
+from .ue_graph.edits import holds
 
 KEY_FROM = "mp_bundled_from"    # a bundled group's fingerprint (build.KEY_FP) from before bundling
 TAG = "mp_bundle"               # on the bundle nodes made here: "in" / "out" / "use_in" / "use_out" / "set" / "join" / "shared"
@@ -60,12 +61,15 @@ def _set(sock, value):
     if value is None or not hasattr(sock, "default_value"):
         return
     try:
-        if hasattr(sock.default_value, "__len__"):
-            n = len(sock.default_value)
+        cur = sock.default_value
+        if hasattr(cur, "__len__"):
+            n = len(cur)
             vals = tuple(value) if hasattr(value, "__len__") else (value,) * n
-            sock.default_value = (vals + (1.0,) * n)[:n]
-        else:
-            sock.default_value = value[0] if hasattr(value, "__len__") else value
+            value = (vals + (1.0,) * n)[:n]
+        elif hasattr(value, "__len__"):
+            value = value[0]
+        if not holds(cur, value):       # (each set updates the whole tree)
+            sock.default_value = value
     except (TypeError, ValueError):
         pass
 
@@ -98,7 +102,8 @@ def _users(group, trees):
 
 def _items(node, names, types):
     """Create one bundle item per name. Returns {name: item name as Blender stores it} (it rewrites "(" and ":")."""
-    node.bundle_items.clear()
+    if len(node.bundle_items):
+        node.bundle_items.clear()
     for name in names:
         node.bundle_items.new(types[name], name)
     return {name: node.bundle_items[i].name for i, name in enumerate(names)}
@@ -130,7 +135,7 @@ def _bundle_group(group, trees):
                     if in_out == 'INPUT':
                         rec[name] = (_ref(s.links[0].from_socket) if s.is_linked else None, _value(s))
                     else:
-                        rec[name] = [_ref(l.to_socket) for l in s.links]
+                        rec[name] = [_ref(l.to_socket) for l in s.links] if s.is_linked else []
                 recorded.append((t, n, rec))
             # and inside: Group Input links out of those sockets, Group Output links into them
             inside = []
@@ -286,10 +291,12 @@ def _collapse(trees):
     for kind, t in [(k, t) for k in ("out", "use_in") for t in trees]:
         for comb in [n for n in t.nodes if n.get(TAG) == kind]:
             items = [s for s in comb.inputs if s.name and s.identifier != "__extend__" and s.enabled]
+            # (socket.links walks every link of the tree)
+            srcs = {s.identifier: s.links[0].from_socket for s in items if s.is_linked}
             counts = {}
             for s in items:
-                if s.is_linked:
-                    src = s.links[0].from_socket
+                src = srcs.get(s.identifier)
+                if src is not None:
                     if src.node.bl_idname == "NodeSeparateBundle" and src.node.get(TAG) in ("use_out", "in") and src.name == s.name:
                         counts[src.node] = counts.get(src.node, 0) + 1
             if not counts:
@@ -297,13 +304,14 @@ def _collapse(trees):
             source = max(counts, key=counts.get)
             if counts[source] < 2 or not source.inputs[0].is_linked:
                 continue
-            made = _contents(source.inputs[0].links[0].from_socket)
+            bundle = source.inputs[0].links[0].from_socket
+            made = _contents(bundle)
             strict = made is None       # items unknown: set every value over the bundle
             made = made or {}
             overrides = []
             for s in items:
-                if s.is_linked:
-                    src = s.links[0].from_socket
+                src = srcs.get(s.identifier)
+                if src is not None:
                     if src.node == source and src.name == s.name:
                         continue
                     overrides.append((s, src, None))
@@ -320,7 +328,6 @@ def _collapse(trees):
                 overrides.append((s, None, v))
             if len(overrides) * 2 > len(items):
                 continue
-            bundle = source.inputs[0].links[0].from_socket
             target = bundle
             if overrides:
                 put = t.nodes.new("NodeCombineBundle")

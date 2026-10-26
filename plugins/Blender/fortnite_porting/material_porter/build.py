@@ -15,6 +15,7 @@ from . import world
 from .env import MaterialEnv, fit_socket, match_names
 from .nodelib import SECTION_KEY
 from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PART_BOUNDS_MIN, HEAD_SOCKET, CARRIED, SHADING_MODELS, Translator, Val, merge_duplicates
+from .ue_graph.edits import Placing, holds
 
 PREFIX = "MP "            # prefix of built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # game object the material translates
@@ -1007,7 +1008,9 @@ def _inline_one(t, node, g, go, inner, socket_value):
             if k in _COPY_SKIP or prop.is_readonly and k != "node_tree":
                 continue
             try:
-                setattr(copy, k, getattr(inner, k))
+                v = getattr(inner, k)
+                if not holds(getattr(copy, k), v):
+                    setattr(copy, k, v)
             except (AttributeError, TypeError, ValueError):
                 pass
         copy.location, copy.parent = node.location, node.parent
@@ -1170,6 +1173,7 @@ def build_one(entry, app, objects=(), make_env=None):
     env = make_env(app, entry, objects) if make_env else MaterialEnv(app, entry, objects)
     env.root = root
     tr = Translator(root, env)
+    tr.placing = Placing()
     env.h[0] = tr
     # a particle's material also moves its vertices (World Position Offset: a zero-width lightning strip
     # thickened towards the camera, a mesh bent along a spline)
@@ -1183,6 +1187,7 @@ def build_one(entry, app, objects=(), make_env=None):
         with tr.at("Output"):
             vals["EmissiveColor"] = tr.vmath('MAXIMUM', tr.as3(emissive), tr.const((0.0, 0.0, 0.0), 3), out_w=3)
     assemble(tr, mat, vals, settings(entry))
+    tr.placing.place()
     groups = [ft.tree for ft in tr.functions.values()]
     # Merge alike nodes translation made (a texture per pin read, a group node per output of one call) and
     # drop nodes reaching no output. Runs before sharing, so twins compare folded groups, and before the
