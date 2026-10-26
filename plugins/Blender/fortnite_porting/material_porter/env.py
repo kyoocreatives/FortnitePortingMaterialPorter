@@ -15,7 +15,7 @@ import re
 
 import bpy
 
-from . import world
+from . import landscape_layers, world
 from .ue_graph import BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PART_BOUNDS_MIN, PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
 
 # A vector parameter that names a colour gets a colour socket (a picker); any other (offset, direction, channel, size)
@@ -346,6 +346,18 @@ class MaterialEnv:
         elif layers is not None and name not in layers:
             return None
 
+        return self.once("shown layer " + name, lambda: self.tr.binop(
+            'MULTIPLY', self._layer_weight(name), self.shown(landscape_layers.hide_key(name))))
+
+    def shown(self, key):
+        """1 - the mesh's custom property `key` (0 without it), as an object attribute: hiding a layer or a biome mask
+        (the Landscape tab's eye) zeroes it in the material, the paint left as it is."""
+        def make():
+            n = self.tr.node("ShaderNodeAttribute", "hidden " + key, attribute_type='OBJECT', attribute_name=key)
+            return self.tr.binop('SUBTRACT', self.tr.const(1.0), Val(n.outputs["Fac"], 1))
+        return self.once("hidden " + key, make)
+
+    def _layer_weight(self, name):
         # its weightmap's channel (weightmaps), its channel of a packed attribute (landscape_layers: Attribute1's
         # red...), else its own attribute's red
         attribute, channel = (self.entry.get("landscape_channels") or {}).get(name, (name, 0))

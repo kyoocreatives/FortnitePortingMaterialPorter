@@ -14,6 +14,11 @@ ORDER = "mp_landscape_layers"     # on the scene: the order, new layers appended
 INCOMING = set()                  # the layers of the import running now (import_run): its proxies share one order
 PREFIX = "Attribute"
 CHANNELS = "RGB"
+HIDE = "mp_hide_"       # on a mesh: obj[HIDE + layer] = 1 hides the layer in its material (read as an object attribute)
+
+
+def hide_key(layer):
+    return HIDE + layer
 
 
 def table(obj):

@@ -8,6 +8,7 @@ the texture (a quad of Hera's four); unclamped ones spanning over a kilometre co
 (env.map_textures); where the mesh has a painted map of its own (entry["biome_maps"]: parameter -> image) the sample
 reads that image across the mesh instead, over the same rectangle, through the weightmaps' UV map."""
 import re
+import zlib
 
 import bpy
 
@@ -204,8 +205,15 @@ def rect_of(found, rects):
     return next((r for r in rects or () if abs(r[0] - value[0]) < 1e-4 and abs(r[1] - value[1]) < 1e-4), None)
 
 
+def hide_key(image, rect, channel):
+    """The mesh's custom property hiding one channel of a painted map's rectangle (a biome mask) in its material
+    (the image by a hash: property names stop at 63 characters)."""
+    return "mp_hide_%08x_%d_%d_%d" % (zlib.crc32(image.encode()), round(rect[0] * 1000), round(rect[1] * 1000), channel)
+
+
 def _read(tr, image, rect):
-    """The mesh's own map (`image`) over `rect`, read through the weightmaps' UV map: (colour, alpha)."""
+    """The mesh's own map (`image`) over `rect`, read through the weightmaps' UV map: (colour, alpha), each channel
+    zeroed while hidden (hide_key)."""
     uv = tr.env.once("weights uv", lambda: tr.node("ShaderNodeUVMap", "weightmap UVs", uv_map="mp_weights"))
     u, v = tr.comps(Val(uv.outputs["UV"], 3))[:2]
     u0, v0, u1, v1 = rect
@@ -215,7 +223,9 @@ def _read(tr, image, rect):
     n = tr.node("ShaderNodeTexImage", "map " + image, interpolation='Linear', extension='EXTEND')
     n.image = bpy.data.images.get(image)
     tr.link(tr.combine([cu, tr.binop('SUBTRACT', tr.const(1.0), cv)]), n.inputs["Vector"])
-    return Val(n.outputs["Color"], 3), Val(n.outputs["Alpha"], 1)
+    shown = [tr.env.shown(hide_key(image, rect, c)) for c in range(4)]
+    rgb = tr.vmath('MULTIPLY', Val(n.outputs["Color"], 3), tr.combine(shown[:3]), out_w=3)
+    return rgb, tr.binop('MULTIPLY', Val(n.outputs["Alpha"], 1), shown[3])
 
 
 def _outputs(tr, rgb, alpha, out):
