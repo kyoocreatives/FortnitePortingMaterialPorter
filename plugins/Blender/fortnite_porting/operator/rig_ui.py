@@ -314,8 +314,9 @@ class FPMP_OT_DynamicsBake(_DynamicsOp, bpy.types.Operator):
     def poll(cls, context):
         if not super().poll(context):
             return False
-        if dynamics_bake.frame_range(_rig(context)) is None:
-            cls.poll_message_set("No animation on this armature")
+        reason = dynamics_bake.cannot_bake(_rig(context))
+        if reason:
+            cls.poll_message_set(reason)
             return False
         return True
 
@@ -391,11 +392,11 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
         obj = _rig(context)
         data, layout = obj.data, self.layout
         if data.get(OFFICIAL):          # first: it can be built on a Tasty-rigged armature
-            _controls(layout, obj, rig_style.COLLECTIONS + (face_board.GROUP,))
+            _controls(layout, context, obj, rig_style.COLLECTIONS + (face_board.GROUP,))
             layout.operator(FPMP_OT_OfficialRigBake.bl_idname, icon='ACTION')
         elif data.get("is_tasty"):
             from ..processing.context import tasty_style
-            _controls(layout, obj, tasty_style.SHOWN + tasty_style.HIDDEN + (face_board.GROUP,))
+            _controls(layout, context, obj, tasty_style.SHOWN + tasty_style.HIDDEN + (face_board.GROUP,))
             layout.operator(FPMP_OT_ConvertTastyToOfficial.bl_idname, icon='ARMATURE_DATA')
         elif not any(data.get(k) for k in RIGGED):
             col = layout.column(align=True)
@@ -406,7 +407,7 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
             if data.get("fpmp_metahuman_board"):        # a plain skeleton with a face board
                 layout.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select Controls")
         else:
-            _controls(layout, obj, rig_style.COLLECTIONS + (rig_style.FK,) + rig_style.LEGACY)
+            _controls(layout, context, obj, rig_style.COLLECTIONS + (rig_style.FK,) + rig_style.LEGACY)
             if rig_kit.is_kit(obj):
                 layout.operator(FPMP_OT_KitBake.bl_idname, icon='ACTION')
             if data.get("is_vehicle_rig"):
@@ -432,9 +433,9 @@ def _switch(layout, obj, prop, idname, arg, text, icon='NONE'):
 
 
 def _eye(layout, owner, prop, text, shown, op=None):
-    """A visibility row: flat, the eye says it, a hidden one greyed (`op`: the operator drawn on an override)."""
+    """A visibility row: flat, the eye says it (`op`: the operator drawn on an override)."""
     row = layout.row()
-    row.active, row.alignment = shown, 'LEFT'       # a list, not centred toggles
+    row.alignment = 'LEFT'       # a list, not centred toggles; never greyed: the closed eye says hidden
     icon = 'HIDE_OFF' if shown else 'HIDE_ON'
     if op is not None and _overridden(owner):
         row.operator(op, text=text, icon=icon, emboss=False, depress=shown).show = not shown
@@ -442,14 +443,17 @@ def _eye(layout, owner, prop, text, shown, op=None):
         row.prop(owner, prop, text=text, icon=icon, toggle=True, emboss=False, translate=False)
 
 
-def _controls(layout, obj, names):
-    """The rig's control groups (and the official rig's Body Controls) to show or hide, then select and reset."""
+def _controls(layout, context, obj, names):
+    """The rig's control groups (and the official rig's Body Controls) to show or hide, then select and reset (in the
+    3D viewport: a copy of this panel in an editor that picks and resets in its own view leaves them out)."""
     grid = layout.grid_flow(row_major=True, columns=2, even_columns=True, align=True)
     for group in [c for c in obj.data.collections if c.name in names]:
         _eye(grid, group, "is_visible", group.name, group.is_visible)
     if rig_props.body_switch(obj):
         _eye(grid, obj, "fpmp_body_controls", "Body Controls", obj.fpmp_body_controls,
              FPMP_OT_OfficialRigBodyControls.bl_idname)
+    if context.space_data is not None and context.space_data.type != 'VIEW_3D':
+        return
     row = layout.row(align=True)
     row.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select All")
     row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset").scope = 'SELECTED'

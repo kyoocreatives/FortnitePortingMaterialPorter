@@ -132,6 +132,16 @@ def frame_range(obj):
     return int(math.floor(min(a for a, _ in spans))), int(math.ceil(max(b for _, b in spans)))
 
 
+def cannot_bake(obj):
+    """Why Simulate can't run on `obj` (its poll message), "" when it can."""
+    ad = obj.animation_data
+    if ad is None or (ad.action is None and not any(t.strips for t in ad.nla_tracks if t.name != TRACK)):
+        return "No animation to simulate over: give the armature an action first"
+    if frame_range(obj) is None:
+        return "The animation's tracks are muted: unmute one to simulate over it"
+    return ""
+
+
 def _push_down(obj):
     """A plain action goes down into the NLA so the Dynamics layer can sit above it."""
     ad = obj.animation_data
