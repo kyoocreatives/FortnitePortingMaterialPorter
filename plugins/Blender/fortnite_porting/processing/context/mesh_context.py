@@ -65,7 +65,7 @@ class MeshImportContext(LightImportMixin):     # MP: spot and rect lights
         if self.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT, EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE] and self.options.get("MergeArmatures"):     # MP: LEGO too
             master_skeleton = merge_parts(self.imported_meshes)
             master_mesh = get_armature_mesh(master_skeleton)
-            mp.after_merge(master_mesh)     # MP
+            mp.after_merge(self, master_mesh)     # MP
             # Update attribute to account for joined mesh
             self.update_preskinned_bounds(master_mesh)
             
@@ -156,7 +156,7 @@ class MeshImportContext(LightImportMixin):     # MP: spot and rect lights
             return empty_object
         
         if self.type in [EExportType.PREFAB, EExportType.WORLD] and (index := self.mesh_indices.get(id(mesh))) is not None:
-            Log.info(f"Importing Actor: {name} {index} / {len(self.meshes)}")
+            mp.actor(self, index)     # MP: a count every so often, not a line per actor
 
         mesh_name = path.split(".")[1]
         if self.type in [EExportType.PREFAB, EExportType.WORLD] and (existing_mesh_data := bpy.data.meshes.get(mesh_name + "_LOD0")):
@@ -328,7 +328,7 @@ class MeshImportContext(LightImportMixin):     # MP: spot and rect lights
             for instance_index, instance_transform in enumerate(instances):
                 instance_name = f"Instance_{instance_index}_" + name
                 
-                Log.info(f"Importing Instance: {instance_name} {instance_index} / {len(instances)}")
+                mp.instances(name, instance_index, len(instances))     # MP: one line per instanced mesh
                 
                 instance_object = bpy.data.objects.new(f"Instance_{instance_index}_" + name, mesh_data)
                 self.collection.objects.link(instance_object)

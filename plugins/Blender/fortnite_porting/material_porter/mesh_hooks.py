@@ -1,8 +1,10 @@
 """What the fork adds to FP's mesh import (processing/context/mesh_context.py calls these)."""
 import json
+import time
 
 import bpy
 
+from . import progress
 from ..logger import Log
 from ..processing.enums import EExportType, ERigType
 
@@ -15,6 +17,7 @@ def begin(ctx, selected_armature):
 
 
 def after_meshes(ctx):
+    progress.actors_done(ctx)
     # depth under water surfaces, read by their exact materials
     if ctx.type in [EExportType.WORLD, EExportType.PREFAB]:
         from .placement import after_world
@@ -43,18 +46,43 @@ def before_merge(ctx):
         mark_shared_bounds([imported_mesh.get("Mesh") for imported_mesh in ctx.imported_meshes])
     # cloth maps onto each part's own vertices: after the join their order is gone
     ctx.mp_cloth = _cloth_parts(ctx)
+    if ctx.type in [EExportType.OUTFIT, EExportType.FALL_GUYS_OUTFIT, EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE] \
+            and ctx.options.get("MergeArmatures"):
+        progress.stage("Merging %d parts" % len(ctx.imported_meshes))
+        ctx.mp_merge_t0 = time.perf_counter()
 
 
-def after_merge(master_mesh):
+def after_merge(ctx, master_mesh):
     # joined mesh's bounds and head, read by its materials (built per part before the merge)
     from .build import mark_bounds
     mark_bounds([master_mesh])
+    progress.item("into %s: %s tris" % (master_mesh.name, progress.thousands(len(master_mesh.data.polygons))), ctx.mp_merge_t0)
+    # FP's Tasty rig is made next (mesh_context), timed until settle_effects
+    if ctx.options.get("RigType") == ERigType.TASTY and ctx.type not in [EExportType.LEGO_OUTFIT, EExportType.LEGO_WILDLIFE]:
+        progress.stage("Tasty rig")
+        ctx.mp_tasty_t0 = time.perf_counter()
 
 
 def settle_effects(ctx):
+    if getattr(ctx, "mp_tasty_t0", None) is not None:
+        progress.item("made", ctx.mp_tasty_t0)
+        ctx.mp_tasty_t0 = None
     if ctx.mp_deferred_effects is not None:
         from . import effects
+        t0, count = time.perf_counter(), len(ctx.mp_deferred_effects)
+        if count:
+            progress.stage("Effects")
         effects.settle(ctx)
+        if count:
+            progress.item("%d played" % count, t0)
+
+
+def actor(ctx, index):
+    progress.actor(ctx, index)
+
+
+def instances(name, index, total):
+    progress.instances(name, index, total)
 
 
 # imports that get their own rig (creature, vehicle, LEGO) rather than Tasty's or the official one
@@ -72,9 +100,12 @@ def _alive(o, kind='ARMATURE'):
 def _tasty(skeleton):
     """FP's character rig in the kit's colours, and a face board when the face is a flipbook; never fails the import."""
     from ..processing.context import tasty_style
+    t0 = time.perf_counter()
+    progress.stage("Tasty rig style on %s" % skeleton.name)
     try:
         if tasty_style.style(skeleton):
             tasty_style.add_face_board(skeleton)
+        progress.item("done", t0)
     except Exception as e:
         Log.error("%s: Tasty restyle (%s: %s)" % (skeleton.name, type(e).__name__, e))
         if bpy.context.mode != 'OBJECT':
@@ -87,11 +118,16 @@ def _official(ctx):
     for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
         if not official_rig.fits(skeleton):
             continue
+        progress.stage("Official rig on %s" % skeleton.name)
         try:
-            Log.info(official_rig.create(skeleton))
+            t0 = time.perf_counter()
+            progress.item(official_rig.create(skeleton), t0)
             if ctx.options.get("OfficialRigHandControls"):
-                Log.info("%s: %d hand controls" % (skeleton.name, official_hands.build(skeleton)))
-            face_board.add(skeleton, head="head")
+                t0 = time.perf_counter()
+                progress.item("%d hand controls" % official_hands.build(skeleton), t0)
+            t0 = time.perf_counter()
+            if face_board.add(skeleton, head="head"):
+                progress.item("face board", t0)
         except Exception as e:
             Log.error("%s: official rig (%s: %s)" % (skeleton.name, type(e).__name__, e))
             if bpy.context.mode != 'OBJECT':
@@ -159,7 +195,9 @@ def _metahuman(ctx):
                 # the head part's meta names it; the board may sit on the body's armature (merged parts)
                 dna = next((m["Meta"].get("FaceDNA") for m in ctx.imported_meshes
                             if isinstance(m.get("Meta"), dict) and m["Meta"].get("FaceDNA")), None)
-                Log.info("%s: MetaHuman board, %d drivers" % (skeleton.name, metahuman_board.add(skeleton, dna=dna)))
+                t0 = time.perf_counter()
+                progress.stage("MetaHuman face board on %s" % skeleton.name)
+                progress.item("%d drivers" % metahuman_board.add(skeleton, dna=dna), t0)
         except Exception as e:
             Log.error("%s: MetaHuman board (%s: %s)" % (skeleton.name, type(e).__name__, e))
             if bpy.context.mode != 'OBJECT':
@@ -173,10 +211,11 @@ def _correctives(ctx):
     for skeleton in {m.get("Skeleton") for m in ctx.imported_meshes if _alive(m.get("Skeleton"))}:
         if not any(b.name.startswith("deform_") for b in skeleton.data.bones):
             continue
+        t0 = time.perf_counter()
+        progress.stage("Deform correctives on %s" % skeleton.name)
         try:
             built = deform_rig.build(skeleton, deform_rig_read.library(), deform_rig_read.tuning(paths), getattr(ctx, "scale", 0.01))
-            if built:
-                Log.info("%s: %d deform correctives" % (skeleton.name, built))
+            progress.item("%d correctives" % built, t0)
         except Exception as e:
             Log.error("%s: deform correctives (%s: %s)" % (skeleton.name, type(e).__name__, e))
             if bpy.context.mode != 'OBJECT':
@@ -187,15 +226,18 @@ def _cloth_parts(ctx):
     """Each part's cloth mapped onto its mesh before the parts are joined: [{"part", "clothes", "anim"}]."""
     from ..processing.context import cloth_read, cloth_render
     out = []
+    if any(isinstance(m.get("Meta"), dict) and m["Meta"].get("Cloth") for m in ctx.imported_meshes):
+        progress.stage("Cloth")
     for m in ctx.imported_meshes:
         meta, obj, skeleton = m.get("Meta"), m.get("Mesh"), m.get("Skeleton")
         if not isinstance(meta, dict) or not meta.get("Cloth") or not _alive(obj, 'MESH') or not _alive(skeleton):
             continue
         try:
+            t0 = time.perf_counter()
             parent_of = {b.name: b.parent.name if b.parent else None for b in skeleton.data.bones}
             found = cloth_read.read(meta["Cloth"], len(obj.data.vertices), parent_of)
             if found is None:
-                Log.info("%s: no cloth on this LOD" % obj.name)
+                progress.item("%s: no cloth on this LOD" % obj.name)
                 continue
             offsets, total = [], 0
             for c in found["clothes"]:
@@ -205,7 +247,7 @@ def _cloth_parts(ctx):
                     c["by_state"] = cloth_read.states(meta.get("AnimScript"), c["name"])
             part = len(out) + 1
             slots = cloth_render.attach(obj, found["sections"], offsets, part)
-            Log.info("%s: cloth on %d vertices" % (obj.name, len(slots["tri"])))
+            progress.item("%s: cloth on %d vertices" % (obj.name, len(slots["tri"])), t0)
             if slots["tri"]:        # else the blueprint keeps its fallback for those bones
                 out.append({"part": part, "clothes": [c for c in found["clothes"] if c], "anim": meta.get("AnimBlueprint"),
                             "slots": slots, "particles": total})
@@ -246,6 +288,9 @@ def _dynamics(ctx, cloth=None, clothed=()):
         if isinstance(meta, dict) and meta.get("AnimBlueprint"):
             metas.setdefault(meta["AnimBlueprint"], meta)
     scale, cloth = getattr(ctx, "scale", 0.01), cloth or {}
+    t0 = time.perf_counter()
+    if metas or cloth:
+        progress.stage("Dynamic bones")
     try:
         found = dynamics_read.nodes(list(metas), [m.get("PhysicsAsset") for m in metas.values()],
                                     [m.get("PhysicsAssets") for m in metas.values()], [m.get("DynamicsParameters") for m in metas.values()],
@@ -258,7 +303,7 @@ def _dynamics(ctx, cloth=None, clothed=()):
                                          if n["kind"] == "control_rig" else n["bone"] in bones)]
             if mine or cloth.get(skeleton):
                 skeleton.data[dynamics_bake.KEY] = json.dumps({"scale": scale, "nodes": mine, "cloth": cloth.get(skeleton, [])})
-                Log.info("%s: %d dynamic bones, %d cloth meshes" % (skeleton.name, len(mine), len(cloth.get(skeleton, []))))
+                progress.item("%s: %d dynamic bones, %d cloth meshes" % (skeleton.name, len(mine), len(cloth.get(skeleton, []))), t0)
     except Exception as e:      # an odd dump costs the dynamic bones, never the import
         Log.error("[Material Porter] dynamic bones (%s: %s)" % (type(e).__name__, e))
 
@@ -303,8 +348,10 @@ def after_parts(ctx, rig_type, tasty):
         create_rig = lego_rig.create
     else:
         from ..processing.context.creature_rig import create as create_rig
+    t0 = time.perf_counter()
+    progress.stage("%s rig" % {EExportType.VEHICLE: "Vehicle", EExportType.LEGO_OUTFIT: "LEGO"}.get(ctx.type, "Creature"))
     try:
-        Log.info(create_rig(skeleton))
+        progress.item(create_rig(skeleton), t0)
     except Exception as e:
         Log.error("%s: no rig (%s: %s)" % (skeleton.name, type(e).__name__, e))
         if bpy.context.object is not None and bpy.context.object.mode != 'OBJECT':

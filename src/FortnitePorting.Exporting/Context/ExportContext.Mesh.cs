@@ -42,6 +42,7 @@ public partial class ExportContext
     {
         if (mesh is null) return null;
         T? owned = null; OwnerSkeletalMesh(mesh, ref owned); if (owned != null) return owned;     // MP
+        var mpStarted = System.Diagnostics.Stopwatch.GetTimestamp();     // MP
 
         try
         {
@@ -58,6 +59,7 @@ public partial class ExportContext
                 Path = ExportMeshFiles(mesh, files),
                 NumLods = LodCount(convertedMesh)
             };
+            MPTrace.Mesh(mesh, mpStarted);     // MP
 
             AddMeshMaterials(exportPart, convertedMesh);
             HideDisabledSections(exportPart, mesh, convertedMesh); // MP
@@ -80,6 +82,7 @@ public partial class ExportContext
     {
         if (mesh is null) return null;
         T? owned = null; OwnerStaticMesh(mesh, ref owned); if (owned != null) return owned;     // MP
+        var mpStarted = System.Diagnostics.Stopwatch.GetTimestamp();     // MP
 
         try
         {
@@ -93,6 +96,7 @@ public partial class ExportContext
                 Path = ExportMeshFiles(mesh, files, embeddedAsset: mesh.Owner?.Name.SubstringAfterLast("/") != mesh.Name),
                 NumLods = LodCount(convertedMesh)
             };
+            MPTrace.Mesh(mesh, mpStarted);     // MP
 
             AddMeshMaterials(exportPart, convertedMesh);
             if (EffectsPick) MeshSockets(exportPart, mesh); // MP
@@ -204,6 +208,7 @@ public partial class ExportContext
     public T? MeshComponent<T>(USplineMeshComponent? mesh) where T : ExportMesh, new()
     {
         if (mesh is null) return null;
+        var mpStarted = System.Diagnostics.Stopwatch.GetTimestamp();     // MP
 
         try
         {
@@ -217,6 +222,7 @@ public partial class ExportContext
                 Path = ExportMeshFiles(mesh, files, embeddedAsset: true),
                 NumLods = LodCount(convertedMesh)
             };
+            MPTrace.Mesh(mesh, mpStarted);     // MP
 
             AddMeshMaterials(exportPart, convertedMesh);
             if (EffectsPick) MeshSockets(exportPart, mesh); // MP

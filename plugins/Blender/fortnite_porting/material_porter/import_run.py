@@ -23,7 +23,7 @@ def _landscape_layers(value, out=None):
 
 @contextmanager
 def import_run(exports):
-    from . import status
+    from . import progress, status
     from .blend_data import drop_unused_blend_data
     from .build import pruning
 
@@ -35,9 +35,14 @@ def import_run(exports):
     objects0 = {o.name for o in bpy.data.objects}
     failed = None
     try:
-        with pruning():
+        with pruning() as pruned:
             yield
-        drop_unused_blend_data()
+            t1 = time.perf_counter()
+            progress.stage("Pruning node groups")
+        dropped = drop_unused_blend_data()
+        prune, bundle = pruned.seconds
+        progress.item("%d nodes pruned (%s), attributes bundled (%s), %d unused datablocks dropped" % (
+            pruned.gone, progress.seconds(prune), progress.seconds(bundle), dropped), t1)
     except Exception as e:
         failed = e
         raise

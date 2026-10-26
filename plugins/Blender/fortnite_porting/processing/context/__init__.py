@@ -7,8 +7,9 @@ from .anim_context import AnimImportContext
 from .font_context import FontImportContext
 from .pose_context import PoseImportContext
 from .tasty_context import TastyImportContext
+from ...material_porter.progress import ProgressMixin     # MP
 
-class ImportContext(BaseImportContext, MeshImportContext, MaterialImportContext, 
+class ImportContext(ProgressMixin, BaseImportContext, MeshImportContext, MaterialImportContext,      # MP: ProgressMixin logs each step
                    AnimImportContext, TextureImportContext, SoundImportContext, 
                    FontImportContext, PoseImportContext, TastyImportContext):
     

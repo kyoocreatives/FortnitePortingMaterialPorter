@@ -25,12 +25,21 @@ _queue = queue.Queue()
 _thread = None
 _lock = threading.Lock()
 
+# callables (line, state) told of every line and state as it's posted, on the posting thread, so an
+# in-process UI (the Fortnite editor) can show them during the blocking import; their errors are ignored
+LISTENERS = []
+
 
 def post(line, state=None):
     """Send the app a line (and/or an import's "begin"/"end")."""
     global _thread
     if line is not None:
         line = _ANSI.sub("", str(line))
+    for listener in list(LISTENERS):
+        try:
+            listener(line, state)
+        except Exception:
+            pass
     _queue.put((state, line))
     with _lock:
         if _thread is None or not _thread.is_alive():

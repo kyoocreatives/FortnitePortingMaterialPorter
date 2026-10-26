@@ -73,7 +73,7 @@ def node(p):
                                      ("retargeting", (p.get("RetargetingSettings") or {}).get("bEnabled")),
                                      ("its alpha input", _enum(p.get("AlphaInputType"), "Float") != "Float")) if on]
     if ignored:
-        Log.info("[Material Porter] dynamics: %s ignores %s" % (out["bone"], ", ".join(ignored)))
+        Log.info("    dynamics: %s ignores %s" % (out["bone"], ", ".join(ignored)))
     return out
 
 
@@ -320,10 +320,10 @@ def _part(raw, physics=None, by_node=None, table=None, script=None, rig=None, cl
         off = _switched_off(props, names, seen)
     unreached = [n for n in names if _reader(n) and n not in seen and n in props and n not in off]
     if unreached:           # state machine states aren't linked from the root
-        Log.info("[Material Porter] dynamics: %d nodes outside the main graph run last" % len(unreached))
+        Log.info("    dynamics: %d nodes outside the main graph run last" % len(unreached))
     skipped = [n for n in order if not _reader(n) and "ComponentPose" in props[n]]
     if skipped:
-        Log.info("[Material Porter] dynamics: not replayed: %s" % ", ".join(n.replace("AnimGraphNode_", "") for n in skipped))
+        Log.info("    dynamics: not replayed: %s" % ", ".join(n.replace("AnimGraphNode_", "") for n in skipped))
     found = []
     for n in order + unreached:
         if n in off:

@@ -42,7 +42,7 @@ class BoneControl:
                 target = rest[setup["target"]] if setup["offset"] != "None" else IDENTITY
                 kind = setup["type"]
                 if kind not in ("Parent", "Translation", "Rotation"):
-                    Log.info("[Material Porter] dynamics: %s's %s constraint is not replayed" % (node["bone"], kind))
+                    Log.info("    dynamics: %s's %s constraint is not replayed" % (node["bone"], kind))
                     continue
                 if setup["offset"] == "None":
                     offset = IDENTITY       # the engine takes the target as it is
@@ -54,7 +54,7 @@ class BoneControl:
                     offset = (target[0].conjugated() @ source[0], Vector())
                 self.data.append((setup, weight, offset))
         if node["kind"] == "modify_bone" and node["scale_mode"] != "Ignore":
-            Log.info("[Material Porter] dynamics: %s's scale change is not replayed" % node["bone"])
+            Log.info("    dynamics: %s's scale change is not replayed" % node["bone"])
 
     def bones(self):
         extra = [s["target"] for s in self.node.get("setups", [])]

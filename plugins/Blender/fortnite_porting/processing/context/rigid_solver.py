@@ -61,7 +61,7 @@ class RigidSim:
         self.actors = [Actor(i, b, b["type"] == "Simulated" or (default and b["type"] == "Default")) for i, b in enumerate(bodies)]
         for a in self.actors:
             if a.simulated and (not a.mass.shapes or min(a.mass.inv_inertia) <= 0.0):
-                Log.info("[Material Porter] dynamics: %s has no shape the bake knows, it follows the pose" % a.bone)
+                Log.info("    dynamics: %s has no shape the bake knows, it follows the pose" % a.bone)
                 a.simulated = False
         by_bone = {a.bone: a for a in self.actors}
         depth = {}

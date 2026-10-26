@@ -197,7 +197,7 @@ def bake(obj, rate=60):
     if run.clothes:
         cloth_render.store(cloth, start, run.unit, obj)
     set_on(obj, True)
-    Log.info("[Material Porter] dynamics: %d bones over %d frames in %.1fs" % (len(run.simulated), len(frames), time.time() - t0))
+    Log.info("    dynamics: %d bones over %d frames in %.1fs" % (len(run.simulated), len(frames), time.time() - t0))
     return len(run.simulated), len(frames)
 
 

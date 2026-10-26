@@ -55,6 +55,7 @@ public class ExportSession
         ExportStyleBase[] styles,
         IExportFileMeta? fileMeta = null)
     {
+        MaterialPorter.ExportTrace.Of(Meta).Asset(displayName, exportType, styles.Length);     // MP
         var primitiveType = exportType.PrimitiveType;
         return primitiveType switch
         {

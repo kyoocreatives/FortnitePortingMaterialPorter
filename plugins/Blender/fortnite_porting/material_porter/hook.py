@@ -53,6 +53,31 @@ def _log(message):
     Log.info("[Material Porter] " + message)
 
 
+def _outcome(context, text):
+    """Sets the import's line for this material (progress.py); False outside an import."""
+    record = getattr(context, "mp_material", None)
+    if record is not None:
+        record["outcome"] = text
+    return record is not None
+
+
+def _failed(context, name, why):
+    """A material left to FP's: an import's material line says why, elsewhere a line of its own."""
+    if not _outcome(context, "FP shader, not built: " + why):
+        _log("%s: %s - FP's own material" % (name, why))
+
+
+def _notes(context, notes):
+    record = getattr(context, "mp_material", None)
+    for note in notes:
+        if record is None:
+            _log(note)
+        else:       # under the material's line, without its name
+            prefix = "%s: " % record.get("name")
+            record.setdefault("notes", []).append(note[len(prefix):] if note.startswith(prefix) else note)
+    notes.clear()
+
+
 def _digest(text):
     return hashlib.sha1(text.encode("utf-8")).hexdigest()[:8]
 
@@ -288,6 +313,7 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         return None
     job = _session(context)
     if job["down"]:
+        _outcome(context, "FP shader, the app isn't answering")
         return None
     build.mark_bounds([obj] if obj else [])     # UE's Object Position is per object even for a shared material
     path = material_data.get("Path")
@@ -299,8 +325,9 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         if "isn't answering" in str(e):
             job["down"] = True
             _log("the FP app's bridge isn't answering at %s: FP's own materials this import" % URL)
+            _outcome(context, "FP shader, the app isn't answering")
         else:
-            _log("%s: %s - FP's own material" % (material_data.get("Name"), e))
+            _failed(context, material_data.get("Name"), str(e))
         return None
     overlay = _overlay(texture_data, override_parameters, material_data.get("MPValues"))
     # rebuilding a material (wrap.py): reapply the values it was built with
@@ -400,14 +427,12 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
             mat = _material(job, entry, obj)
     except Exception as e:
         at = traceback.extract_tb(e.__traceback__)[-1]
-        _log("%s: not built (%s: %s, at %s:%d) - FP's own material" % (
-            material_data.get("Name"), type(e).__name__, e, os.path.basename(at.filename), at.lineno))
+        _failed(context, material_data.get("Name"), "%s: %s, at %s:%d" % (
+            type(e).__name__, e, os.path.basename(at.filename), at.lineno))
         return None
     finally:
         build.LAZY_LAYOUT = False
-    for note in job["notes"]:
-        _log(note)
-    job["notes"].clear()
+    _notes(context, job["notes"])
     if build.KEY_SUBSURFACE in mat:
         # the root group node is the only one in its tree with those inputs
         values = {build.SKIN_SUBSURFACE_INPUT: sss.skin, build.SUBSURFACE_INTENSITY: sss.skin,

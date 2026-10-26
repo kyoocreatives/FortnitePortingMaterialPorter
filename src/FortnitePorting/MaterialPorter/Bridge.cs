@@ -78,7 +78,9 @@ public sealed class Bridge : IDisposable
                 "find-materials" => await materials.FindMaterialsAsync(Need(path).Split(',')),
                 _ => Extra != null && await Extra(route, q) is { } extra ? extra : throw new KeyNotFoundException("no route " + route),
             };
-            if (route is not ("ping" or "log")) Log?.Invoke($"Blender asked for {route} {ShortName(path)}");
+            // polled routes aren't logged: they'd bury what they poll for
+            if (route is not ("ping" or "log" or "status-log"))
+                Log?.Invoke($"Blender asked for {route}{(path is null ? "" : " " + ShortName(path))} ({sw.ElapsedMilliseconds} ms)");
             Timing.Log($"bridge {route} {ShortName(path)}", sw);
         }
         catch (Exception e)

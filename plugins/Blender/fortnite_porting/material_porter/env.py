@@ -915,6 +915,8 @@ class MaterialEnv:
         return None
 
     def _record(self, key):
+        if not key:     # a texture parameter left unset: nothing to ask the app for
+            return None
         try:
             return self.app.texture(key)
         except Exception as e:

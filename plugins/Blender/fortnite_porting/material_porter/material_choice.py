@@ -45,6 +45,10 @@ class ExactChoice:
         from .hook import cosmetic_material, exact_available, subsurface as subsurface_of, texture_cap
         from .landscape_layers import key as layers_key
         self.ctx = ctx
+        # this slot's line in the import's log (progress.py), when an import is logging one
+        self.record = getattr(ctx, "mp_material", None)
+        if self.record is not None:
+            self.record["name"] = material_data.get("Name")
         self.hidden = bool(material_data.get("MPHidden"))
         self.prefer_fp = bool(ctx.options.get("PreferFPShaders") and ctx.type in FP_SHADER_TYPES and has_fp_shader(material_data))
         if is_outline_shell(material_data) and exact_available(ctx) and not self.prefer_fp:
@@ -58,6 +62,10 @@ class ExactChoice:
         self.landscape = layers_key(slot_object) \
             if slot_object is not None and slot_object.type == 'MESH' and slot_object.get("mp_landscape") else None
 
+    def _outcome(self, text):
+        if self.record is not None:
+            self.record["outcome"] = text
+
     def reusable(self, existing):
         # a section the game doesn't draw is hidden again, not given a drawn one's material
         return (not self.hidden and bool(existing.get("MPPreferFP")) == self.prefer_fp
@@ -69,6 +77,7 @@ class ExactChoice:
     def reused(self, material_slot, existing, material_data):
         """A reused material still needs this mesh's UV maps, outline and hidden elements."""
         from .placement import ensure_slot_uvs
+        self._outcome("reused")
         ensure_slot_uvs(material_slot, existing)
         if is_toon(material_data):
             self.ctx.add_toon_outline = True
@@ -80,6 +89,7 @@ class ExactChoice:
         from .hook import exact_available
         if self.prefer_fp:
             material["MPPreferFP"] = True
+            self._outcome("FP shader, preferred")
         return exact_available(self.ctx) and not self.prefer_fp and getattr(self.ctx, "type", None) != EExportType.TIME_OF_DAY
 
     def build(self, material, material_data, meta, override_parameters, material_slot, as_material_data,
@@ -90,6 +100,7 @@ class ExactChoice:
                             None if as_material_data else material_slot.id_data)
         if not exact:
             return False
+        self._outcome("exact")
         # outline is FP's: a Solidify shell drawn with M_FP_Outline
         if is_toon(material_data):
             self.ctx.add_toon_outline = True

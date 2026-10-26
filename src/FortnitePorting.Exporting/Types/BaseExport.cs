@@ -31,5 +31,6 @@ public class BaseExport
         {
             await task.WaitAsync(TimeSpan.FromSeconds(60));
         }
+        MaterialPorter.ExportTrace.Of(Context.Meta).Waited(Name);     // MP
     }
 }

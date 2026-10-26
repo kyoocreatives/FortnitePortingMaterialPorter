@@ -107,14 +107,14 @@ public partial class ExportContext
             _ => !File.Exists(path)
         };
 
-        if (!shouldExport) return returnValue;
+        if (!shouldExport) return MPTrace.OnDisk(asset, returnValue);     // MP: counted for the status log
 
         var exportTask = new Task(() =>
         {
             try
             {
                 Log.Information("Exporting {ExportType}: {Path}", asset.ExportType, path);
-                Export(asset, path);
+                MPTrace.File(asset, TextureCap, () => Export(asset, path));     // MP: timed for the status log
             }
             catch (IOException e)
             {

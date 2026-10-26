@@ -43,7 +43,7 @@ def _body(p):
     inst = p.get("DefaultInstance") or {}
     shapes, skipped = _shapes(p.get("AggGeom") or {})
     if skipped:
-        Log.info("[Material Porter] dynamics: %s's %s shapes are left out" % (p.get("BoneName"), ", ".join(skipped)))
+        Log.info("    dynamics: %s's %s shapes are left out" % (p.get("BoneName"), ", ".join(skipped)))
     return {"bone": p.get("BoneName"), "type": _enum(p.get("PhysicsType"), "PhysType_Default").replace("PhysType_", ""),
             "shapes": shapes,
             "mass": float(inst.get("MassInKgOverride", 100.0)) if inst.get("bOverrideMass") else None,

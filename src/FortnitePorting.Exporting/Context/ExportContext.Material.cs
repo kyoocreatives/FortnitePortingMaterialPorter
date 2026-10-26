@@ -51,6 +51,7 @@ public partial class ExportContext
         exportMaterial.OverrideBlendMode = (exportMat as UMaterialInstanceConstant)?.BasePropertyOverrides?.BlendMode ?? exportMaterial.BaseBlendMode;
 
         MaterialCache.Add(exportMaterial);
+        MPTrace.Material(exportMaterial);     // MP
         return exportMaterial;
     }
     

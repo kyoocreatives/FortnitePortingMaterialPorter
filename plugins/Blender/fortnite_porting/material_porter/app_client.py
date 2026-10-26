@@ -3,6 +3,7 @@ import hashlib
 import http.client
 import json
 import os
+import time
 import urllib.parse
 
 
@@ -30,9 +31,18 @@ class AppClient:
         self._host, self._port = u.hostname or "localhost", u.port or 80
         self._conn = None
         self.max_texture = 0        # texture size cap in pixels (0: full size)
+        self.waits = {}             # route: (requests, seconds), for the import's log (progress.py)
 
     def _fetch(self, route, path):
         """(status, body) of GET /route?path=..., over one kept-alive connection."""
+        t0 = time.perf_counter()
+        try:
+            return self._request(route, path)
+        finally:
+            n, s = self.waits.get(route, (0, 0.0))
+            self.waits[route] = (n + 1, s + time.perf_counter() - t0)
+
+    def _request(self, route, path):
         query = {"path": path}
         if route == "texture" and self.max_texture:
             query["cap"] = self.max_texture

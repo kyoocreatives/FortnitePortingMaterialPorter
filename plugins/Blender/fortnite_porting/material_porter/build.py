@@ -5,6 +5,7 @@ A material is one group node (its graph, the "root" node group) into the Materia
 the parameters are that node's inputs, holding the instance's values (env.MaterialEnv)."""
 import hashlib
 import json
+import time
 
 import bpy
 
@@ -1045,11 +1046,14 @@ class pruning:
 
     def __exit__(self, kind, _value, _tb):
         if kind is None:
+            t0 = time.perf_counter()
             self.gone = prune_groups([g.name for g in bpy.data.node_groups if g.name not in self.before])
             # then bundle their Material Attributes, module to module (bundles.py)
             from . import bundles
+            t1 = time.perf_counter()
             new = [g for g in bpy.data.node_groups if g.name not in self.before and KEY_FP in g]
             self.bundled = bundles.bundle_attributes(new, KEY_FP, _KNOWN)
+            self.seconds = (t1 - t0, time.perf_counter() - t1)     # for the import's log
         return False
 
 

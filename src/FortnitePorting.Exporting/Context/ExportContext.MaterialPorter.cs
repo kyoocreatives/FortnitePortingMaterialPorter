@@ -42,6 +42,9 @@ public partial class ExportContext
     /// <summary>The largest textures are exported at for this export's type (0: full size).</summary>
     public int TextureCap;
 
+    /// <summary>This export's steps, as the status log shows them.</summary>
+    ExportTrace MPTrace => ExportTrace.Of(Meta);
+
     private readonly Dictionary<string, ExportMesh?> _mpMeshes = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Lights read so far; a world export puts them in its Lights (MeshExport).</summary>
@@ -146,10 +149,9 @@ public partial class ExportContext
                 .ThenBy(e => e.World.M41).ThenBy(e => e.World.M42).ThenBy(e => e.World.M43);
             if (withEffects)
                 foreach (var e in effects) MaterialPorterEffects.Add(Effect(e));
-            Log.Information("[Material Porter] {Level}: {Count} placements ({Unshadowed} casting no shadow), {Lights} lights, {Decals} decals, {Effects} effects, skipped {Skipped}",
-                package, meshes.Count, meshes.Count(m => m is MaterialPorterMesh { MPCastShadow: false }),
-                withLights ? reader.Lights.Count : 0, withDecals ? reader.Decals.Count : 0, withEffects ? reader.Effects.Count : 0,
-                string.Join(", ", scan.Skipped.Select(kv => $"{kv.Value} {kv.Key}")));
+            MPTrace.Level($"{package}: {meshes.Count} placements ({meshes.Count(m => m is MaterialPorterMesh { MPCastShadow: false })} casting no shadow), " +
+                          $"{(withLights ? reader.Lights.Count : 0)} lights, {(withDecals ? reader.Decals.Count : 0)} decals, " +
+                          $"{(withEffects ? reader.Effects.Count : 0)} effects, skipped {string.Join(", ", scan.Skipped.Select(kv => $"{kv.Value} {kv.Key}"))}");
         }
 
         // terrain and HLODs go through FP's own export
