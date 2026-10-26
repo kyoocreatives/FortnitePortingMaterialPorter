@@ -618,6 +618,8 @@ class Graph:
     @staticmethod
     def full_name(x):
         outer = inner_path(str((x.get("Outer") or {}).get("ObjectName", "")))
+        if not outer:       # a top-level expression: its references name it bare (key())
+            return x.get("Name")
         return "%s%s%s" % (outer, "." if ":" in outer else ":", x.get("Name"))
 
     def key(self, ref):

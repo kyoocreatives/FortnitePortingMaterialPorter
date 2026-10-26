@@ -894,6 +894,14 @@ ref = dict(R("MaterialExpressionConstant_1"), Expression={
     "ObjectName": "MaterialExpressionConstant'M_Dup:MaterialGraph_0.MaterialGraphNode_Composite_4.Collapsed Nodes."
                   "MaterialExpressionConstant_1'"})
 check("duplicate names resolved by path", run(g, ref)[0], 7.0)
+# the material's own copy has no Outer and its refs name it bare (the LEGO head, M_Figure_RigDrivenFace_rc1)
+g = G()
+g.add("Constant", _name="MaterialExpressionConstant_1", R=3.0)
+g.add("Constant", _name="MaterialExpressionConstant_1",
+      _outer="MaterialGraph'MaterialGraph_2:MaterialGraphNode_Composite_2.Collapsed Nodes'", R=7.0)
+ref = dict(R("MaterialExpressionConstant_1"), Expression={
+    "ObjectName": "MaterialExpressionConstant'MaterialExpressionConstant_1'"})
+check("duplicate name at top level resolved", run(g, ref)[0], 3.0)
 
 # ------------------------------------------------------ renderer stand-ins
 check("EyeAdaptation is exposure 1", expr(lambda g: g.add("EyeAdaptation"))[0], 1.0)
