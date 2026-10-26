@@ -17,7 +17,9 @@ TWIN = "mp_fur_twin_of"             # on a fur twin material: the material it tw
 LAYER = "mp_shell_layer_n"          # layer height, 0 at the root, 1 at the tip
 ATTRS = {"Density": "mp_fur_density", "Thickness": "mp_fur_thickness", "Root Shadow": "mp_fur_shadow",
          "Length Variation": "mp_fur_vary", "Clumping": "mp_fur_clump", "Clump Size": "mp_fur_clump_size"}
-STRANDS_REV = 2                     # MP Fur Strands revision (2: clumping); an older one is rebuilt
+# sidebar labels that fit its width (the socket names stay: existing furs' modifiers use them)
+LABELS = {"Length Variation": "Variation"}
+STRANDS_REV = 2                    # MP Fur Strands revision (2: clumping); an older one is rebuilt
 ROOT = "mp_fur_root"                # surface point of a layer's vertex (meshes without UVs)
 
 INPUTS = (  # name, kind, default, min, max, description
@@ -380,7 +382,8 @@ def draw_inputs(layout, obj):
     for it in mod.node_group.interface.items_tree:
         if it.item_type != 'SOCKET' or it.in_out != 'INPUT' or it.name == "Geometry":
             continue
+        text = LABELS.get(it.name, it.name)
         if holder is not None and hasattr(holder, it.identifier):
-            col.prop(getattr(holder, it.identifier), "value", text=it.name)
+            col.prop(getattr(holder, it.identifier), "value", text=text)
         else:
-            col.prop(mod, '["%s"]' % it.identifier, text=it.name)
+            col.prop(mod, '["%s"]' % it.identifier, text=text)

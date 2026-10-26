@@ -4,7 +4,7 @@ import re
 
 import bpy
 
-from .stand import KEY_ROOT
+from .stand import KEY_ROOT, note_holders
 
 APPLIED = "mp_offset_applied"      # on an effect's empty: the frames its replay is shifted by now
 
@@ -43,11 +43,23 @@ def _changed(self, context):
         context.scene.frame_set(context.scene.frame_current)
 
 
+@bpy.app.handlers.persistent
+def _note_holders(*_):
+    note_holders()
+
+
 def register():
     bpy.types.Object.fpmp_effect_offset = bpy.props.IntProperty(
         name="Offset", default=0, soft_min=-250, soft_max=250, update=_changed,
         description="Frames the effect plays later (negative: earlier), on top of its Start Frame")
+    # the slider shows on an effect's holder too: the holders are noted per session, as each file opens
+    bpy.app.handlers.load_post.append(_note_holders)
+    bpy.app.timers.register(_note_holders, first_interval=0.5)     # the file open when the add-on is enabled
 
 
 def unregister():
+    if _note_holders in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_note_holders)
+    if bpy.app.timers.is_registered(_note_holders):
+        bpy.app.timers.unregister(_note_holders)
     del bpy.types.Object.fpmp_effect_offset

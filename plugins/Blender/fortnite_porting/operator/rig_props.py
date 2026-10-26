@@ -1,6 +1,6 @@
 """The Rig panel's switches as Object properties: each reads and writes the rig's own stored state through the
-functions its operator calls (the operators stay, for the pie, keymaps and scripts). Not animatable: the state they
-stand for isn't a single value."""
+functions its operator calls (the operators stay, for the pie, keymaps, scripts and override characters, where these
+can't be written). Not animatable: the state they stand for isn't a single value."""
 import bpy
 
 from ..processing.context import deform_rig, dynamics_bake, dynamics_live, official_rig, rig_kit

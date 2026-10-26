@@ -7,14 +7,28 @@ BUTTONS = 0.4       # FK | IK against Stretch | Local: "Stretch" fits at the def
 
 
 _parts = {}
+_names = []
+
+
+def _read():
+    """Every bone name parts() reads: which of them the rig has decides its parts."""
+    if not _names:
+        s = load()["solve"]
+        held = s["ik"] + [s["spine"], s["neck"]]
+        _names.extend(n for p in held for n in (p["switch"], p["stretch"], p.get("softness")) if n)
+        _names.extend(x["setting"] for x in s["local"])
+    return _names
 
 
 def parts(obj):
     """Each switched part: {name, switch, stretch, softness, local} (names absent on this rig are None). Cached per
-    armature and bone count: the IK / FK table asks several times per redraw. Read only."""
+    armature and the bones it reads (same-named armatures differ across files): the IK / FK table asks several times
+    per redraw. Read only."""
+    pb = obj.pose.bones
+    key = tuple(n in pb for n in _read())
     hit = _parts.get(obj.data.name_full)
-    if hit is None or hit[0] != len(obj.pose.bones):
-        hit = _parts[obj.data.name_full] = (len(obj.pose.bones), _parts_of(obj))
+    if hit is None or hit[0] != key:
+        hit = _parts[obj.data.name_full] = (key, _parts_of(obj))
     return hit[1]
 
 
@@ -60,19 +74,23 @@ def _setting_toggle(row, obj, names, text):
     op.name, op.value = ",".join(names), 0.0 if on else 1.0
 
 
-def _row(layout, obj, label, held, soft=False):
-    row = layout.row(align=True)
-    split = row.split(factor=LABEL, align=True)
-    split.label(text=label)
+def cells(layout, label, factor=LABEL):
+    """A row of the IK / FK tables (this one and the kit's): label | FK | IK pair | option flags. Returns the pair's
+    and the flags' rows."""
+    split = layout.row(align=True).split(factor=factor, align=True)
+    split.label(text=label, translate=False)
     cells = split.split(factor=BUTTONS)     # unaligned: a gap between the FK | IK choice and the option flags
-    mode = cells.row(align=True)
+    return cells.row(align=True), cells.row(align=True)
+
+
+def _row(layout, obj, label, held, soft=False):
+    mode, flags = cells(layout, label)
     switches = ",".join(p["switch"] for p in held)
     ik = [setting(obj, p["switch"]) >= 0.5 for p in held]
     fk_op = mode.operator("fpmp.official_rig_switch", text="FK", depress=not any(ik))
     fk_op.switch, fk_op.ik = switches, False
     ik_op = mode.operator("fpmp.official_rig_switch", text="IK", depress=all(ik))
     ik_op.switch, ik_op.ik = switches, True
-    flags = cells.row(align=True)
     _setting_toggle(flags, obj, [p["stretch"] for p in held], "Stretch")
     _setting_toggle(flags, obj, sorted({p["local"] for p in held if p["local"]}), "Local")
     if soft:

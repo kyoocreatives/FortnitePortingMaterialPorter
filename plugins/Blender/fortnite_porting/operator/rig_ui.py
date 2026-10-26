@@ -1,14 +1,15 @@
 """The Rig panel (sidebar, Fortnite Porting tab) for the fork's rigs: show or hide each control group, select or
 reset the controls, the rig's switches; the official rig's picker, IK / FK, held props and dynamics in sub-panels
-(and a Shift+Q pie: rig_pie). The switches are Object properties (rig_props)."""
+(and a Shift+Q pie: rig_pie). The switches are Object properties (rig_props), their operators on override characters."""
 import bpy
 
 from ..processing.context import deform_rig, dynamics_bake, face_board, official_rig, rig_kit, rig_style
 from . import rig_props
 
 OFFICIAL = official_rig.MARK
+RIG_OPS = ("fpmp.official_rig", "fpmp.creature_rig", "fpmp.vehicle_rig", "fpmp.lego_rig")      # a plain armature's rigs
 VEHICLE_SETTINGS = (("auto_wheels", "Wheels Spin"), ("auto_steer", "Wheels Steer"), ("countersteer", "Counter-steer"),
-                    ("suspension", "Body Follows Wheels"), ("lean", "Lean in Turns"))
+                    ("suspension", "Suspension"), ("lean", "Lean in Turns"))
 RIGGED = ("is_vehicle_rig", "is_creature_rig", "is_lego_rig")
 
 
@@ -18,7 +19,9 @@ def _rig(context):
 
 
 class _RigOp:
-    """The shared poll of the operators acting on the rig: an active armature of their kind, with editable data."""
+    """The shared poll of the operators acting on the rig: an active armature of their kind, with editable data
+    (`pose_only`: the pose is enough, which an override character's object has)."""
+    pose_only = False
 
     @staticmethod
     def kind(obj):
@@ -29,7 +32,10 @@ class _RigOp:
         obj = _rig(context)
         if obj is None or not cls.kind(obj):
             return False
-        if not obj.data.is_editable:
+        if cls.pose_only and obj.library is not None:
+            cls.poll_message_set("The armature is linked: override it first")
+            return False
+        if not cls.pose_only and not obj.data.is_editable:
             cls.poll_message_set("The armature's data is linked: make it local or override it first")
             return False
         return True
@@ -56,6 +62,7 @@ class FPMP_OT_RigSelectControls(_RigOp, bpy.types.Operator):
     bl_idname = "fpmp.rig_select_controls"
     bl_label = "Select Controls"
     bl_options = {'REGISTER', 'UNDO'}
+    pose_only = True
 
     def execute(self, context):
         obj = _rig(context)
@@ -71,6 +78,7 @@ class FPMP_OT_RigResetPose(_RigOp, bpy.types.Operator):
     bl_idname = "fpmp.rig_reset_pose"
     bl_label = "Reset Pose"
     bl_options = {'REGISTER', 'UNDO'}
+    pose_only = True
     scope: bpy.props.EnumProperty(items=[('SELECTED', "Selected", "The selected controls"),
                                          ('ALL', "All", "Every control")], default='SELECTED')
 
@@ -95,6 +103,7 @@ class FPMP_OT_RigPick(_RigOp, bpy.types.Operator):
     bl_idname = "fpmp.rig_pick"
     bl_label = "Pick"
     bl_options = {'REGISTER', 'UNDO'}
+    pose_only = True
     names: bpy.props.StringProperty(description="The controls, comma separated")
     extend: bpy.props.BoolProperty(description="Add to the selection")
 
@@ -127,6 +136,7 @@ class FPMP_OT_KitRigOn(_KitOp, bpy.types.Operator):
     bl_label = "Rig On/Off"
     bl_description = "The rig drives the bones, or the bones play their own animation"
     bl_options = {'REGISTER', 'UNDO'}
+    pose_only = True
     on: bpy.props.BoolProperty(default=True)
 
     def execute(self, context):
@@ -170,6 +180,7 @@ class FPMP_OT_OfficialRigOn(_OfficialOp, bpy.types.Operator):
     bl_label = "Rig On/Off"
     bl_description = "The rig drives the bones, or the bones play their own animation"
     bl_options = {'REGISTER', 'UNDO'}
+    pose_only = True
     on: bpy.props.BoolProperty(default=True)
 
     def execute(self, context):
@@ -228,6 +239,7 @@ class FPMP_OT_OfficialRigBodyControls(_OfficialOp, bpy.types.Operator):
     bl_label = "Body Controls"
     bl_description = "Show or hide the fingers, toes, root, body, hips and neck controls"
     bl_options = {'REGISTER', 'UNDO'}
+    pose_only = True
     show: bpy.props.BoolProperty(default=True)
 
     def execute(self, context):
@@ -279,6 +291,7 @@ class FPMP_OT_DeformRigOn(_RigOp, bpy.types.Operator):
     bl_label = "Correctives On/Off"
     bl_description = "Fortnite's deform correctives follow the pose, or stay at rest"
     bl_options = {'REGISTER', 'UNDO'}
+    pose_only = True
     on: bpy.props.BoolProperty(default=True)
 
     @staticmethod
@@ -317,6 +330,7 @@ class FPMP_OT_DynamicsOn(_DynamicsOp, bpy.types.Operator):
     bl_label = "Dynamics On/Off"
     bl_description = "Play the simulated dynamic bones, or the animation's own"
     bl_options = {'REGISTER', 'UNDO'}
+    pose_only = True
     on: bpy.props.BoolProperty(default=True)
 
     def execute(self, context):
@@ -370,7 +384,8 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
     def draw_header(self, context):
         obj = _rig(context)
         if obj.data.get(OFFICIAL) or rig_kit.is_kit(obj):
-            self.layout.prop(obj, "fpmp_rig_on", text="")
+            op = FPMP_OT_OfficialRigOn if obj.data.get(OFFICIAL) else FPMP_OT_KitRigOn
+            _switch(self.layout, obj, "fpmp_rig_on", op.bl_idname, "on", text="")
 
     def draw(self, context):
         obj = _rig(context)
@@ -384,10 +399,10 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
             layout.operator(FPMP_OT_ConvertTastyToOfficial.bl_idname, icon='ARMATURE_DATA')
         elif not any(data.get(k) for k in RIGGED):
             col = layout.column(align=True)
-            col.operator("fpmp.official_rig")
-            col.operator("fpmp.creature_rig")
-            col.operator("fpmp.vehicle_rig")
-            col.operator("fpmp.lego_rig")
+            # only the rigs that fit this skeleton; all of them (greyed, their tooltips say why) when none does
+            fitting = [i for i in RIG_OPS if getattr(bpy.ops.fpmp, i.split(".")[1]).poll()]
+            for idname in fitting or RIG_OPS:
+                col.operator(idname)
             if data.get("fpmp_metahuman_board"):        # a plain skeleton with a face board
                 layout.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select Controls")
         else:
@@ -399,11 +414,32 @@ class FPMP_PT_CreatureRig(bpy.types.Panel):
         _switches(layout, obj)
 
 
-def _eye(layout, owner, prop, text, shown):
-    """A visibility row: flat, the eye says it, a hidden one greyed."""
+def _overridden(obj):
+    """A library-override character or linked armature data: the switch properties can't be written there."""
+    return obj.override_library is not None or not obj.data.is_editable
+
+
+def _switch(layout, obj, prop, idname, arg, text, icon='NONE'):
+    """A switch: its property, or on an override character its operator, pressed while on."""
+    if not _overridden(obj):
+        layout.prop(obj, prop, text=text, icon=icon)
+        return
+    on = getattr(obj, prop)
+    header = not text and icon == 'NONE'        # drawn as the header's checkbox
+    if header:
+        icon = 'CHECKBOX_HLT' if on else 'CHECKBOX_DEHLT'
+    setattr(layout.operator(idname, text=text, icon=icon, emboss=not header, depress=on), arg, not on)
+
+
+def _eye(layout, owner, prop, text, shown, op=None):
+    """A visibility row: flat, the eye says it, a hidden one greyed (`op`: the operator drawn on an override)."""
     row = layout.row()
     row.active, row.alignment = shown, 'LEFT'       # a list, not centred toggles
-    row.prop(owner, prop, text=text, icon='HIDE_OFF' if shown else 'HIDE_ON', toggle=True, emboss=False, translate=False)
+    icon = 'HIDE_OFF' if shown else 'HIDE_ON'
+    if op is not None and _overridden(owner):
+        row.operator(op, text=text, icon=icon, emboss=False, depress=shown).show = not shown
+    else:
+        row.prop(owner, prop, text=text, icon=icon, toggle=True, emboss=False, translate=False)
 
 
 def _controls(layout, obj, names):
@@ -412,7 +448,8 @@ def _controls(layout, obj, names):
     for group in [c for c in obj.data.collections if c.name in names]:
         _eye(grid, group, "is_visible", group.name, group.is_visible)
     if rig_props.body_switch(obj):
-        _eye(grid, obj, "fpmp_body_controls", "Body Controls", obj.fpmp_body_controls)
+        _eye(grid, obj, "fpmp_body_controls", "Body Controls", obj.fpmp_body_controls,
+             FPMP_OT_OfficialRigBodyControls.bl_idname)
     row = layout.row(align=True)
     row.operator(FPMP_OT_RigSelectControls.bl_idname, text="Select All")
     row.operator(FPMP_OT_RigResetPose.bl_idname, text="Reset").scope = 'SELECTED'
@@ -431,9 +468,9 @@ def _switches(layout, obj):
     if has_correctives or has_board:
         col = _split(layout).column(heading="Drive", align=True)     # Blender's checkbox group: heading, boxes beside it
         if has_correctives:
-            col.prop(obj, "fpmp_correctives")
+            _switch(col, obj, "fpmp_correctives", FPMP_OT_DeformRigOn.bl_idname, "on", "Correctives")
         if has_board:
-            col.prop(obj, "fpmp_face_board")
+            col.prop(obj, "fpmp_face_board", text="Face")
 
 
 def _vehicle(layout, obj):
@@ -503,7 +540,7 @@ class FPMP_PT_RigIK(_RigSub, bpy.types.Panel):
         else:
             col = self.layout.column(align=True)
             for key in sliders:
-                col.prop(owner, '["%s"]' % key, text=key[3:].replace("_", " "), slider=True, translate=False)
+                col.prop(owner, '["%s"]' % key, text=key[3:].replace("_", " ").title(), slider=True, translate=False)
         if eyes:
             self.layout.prop(owner, '["eyes_aim"]', text="Eyes Aim", slider=True)
 
@@ -538,10 +575,12 @@ class FPMP_PT_RigSimulation(_RigSub, bpy.types.Panel):
     def draw_header(self, context):
         obj = _rig(context)
         self.layout.enabled = dynamics_bake.baked(obj)        # nothing to play before a bake
-        self.layout.prop(obj, "fpmp_dynamics", text="")
+        _switch(self.layout, obj, "fpmp_dynamics", FPMP_OT_DynamicsOn.bl_idname, "on", "")
 
     def draw(self, context):
         obj = _rig(context)
+        # greyed with the header off, as Blender's panels; not before a bake (Simulate makes one) nor while Live plays
+        self.layout.active = obj.fpmp_dynamics or obj.fpmp_dynamics_live or not dynamics_bake.baked(obj)
         col = _split(self.layout)
         col.prop(obj, "fpmp_dynamics_live")
         if dynamics_bake.states(obj):

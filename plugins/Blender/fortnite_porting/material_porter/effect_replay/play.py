@@ -24,6 +24,7 @@ from .stand import (
     TURN_OWN,
     can_move,
     plain_world,
+    hold,
     holder_of,
     program,
     replay,
@@ -216,6 +217,7 @@ def play(root):
         yield "%s: nothing to replay it from" % root.name
         return
     exports, fields, table = stored
+    hold(root)          # it may have been put on another object by hand since
     scale = float(root.get(KEY_SCALE, 0.01))
     drawn_order = {}        # per piece (its layers: Fire, Fire001...): the players in creation order
     scene = bpy.context.scene

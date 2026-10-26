@@ -78,6 +78,13 @@ def _effect_root(obj):
     return at if at is not None and at.get(KEY_PROGRAM) else None
 
 
+def _effect_roots(obj):
+    """The replayable effects the object is part of, else the ones it holds (a pickaxe's trail), with no scene walk."""
+    from ..material_porter import effect_replay
+    root = _effect_root(obj)
+    return [root] if root is not None else effect_replay.held(obj)
+
+
 def _plain_armature(cls, context):
     """The active armature when it has no rig yet and its data can change, else None (with the poll's message)."""
     obj = context.active_object
@@ -221,9 +228,8 @@ class FPMP_OT_ReplayEffect(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        from ..material_porter import effect_replay
-        if _effect_root(context.active_object) is None and not effect_replay.roots(context.selected_objects):
-            cls.poll_message_set("Select an imported effect (its empty, or anything under it)")
+        if not _effect_roots(context.active_object) and not any(_effect_roots(o) for o in context.selected_objects):
+            cls.poll_message_set("Select an imported effect (its empty, anything under it, or what holds it)")
             return False
         return True
 
@@ -423,12 +429,14 @@ class FPMP_PT_Effect(bpy.types.Panel):
 
     @classmethod
     def poll(cls, context):
-        return _effect_root(context.active_object) is not None
+        return bool(_effect_roots(context.active_object))
 
     def draw(self, context):
         col = self.layout.column(align=True)
         col.operator(FPMP_OT_ReplayEffect.bl_idname, icon='PLAY')
-        col.prop(_effect_root(context.active_object), "fpmp_effect_offset", text="Offset", slider=True)
+        roots = _effect_roots(context.active_object)
+        for root in roots:
+            col.prop(root, "fpmp_effect_offset", text="Offset" if len(roots) == 1 else root.name)
 
 
 class FPMP_OT_AddShellFur(bpy.types.Operator):
@@ -498,7 +506,8 @@ class FPMP_PT_ShellFur(bpy.types.Panel):
             layout.operator(FPMP_OT_AddShellFur.bl_idname, icon='ADD')
         if custom_fur.MODIFIER in obj.modifiers:
             custom_fur.draw_inputs(layout, obj)
-            layout.operator(FPMP_OT_RemoveShellFur.bl_idname, icon='X')
+            if obj.mode == 'OBJECT':        # Remove needs Object Mode: hidden, not greyed
+                layout.operator(FPMP_OT_RemoveShellFur.bl_idname, icon='X')
 
 
 def _get_animated(scene):

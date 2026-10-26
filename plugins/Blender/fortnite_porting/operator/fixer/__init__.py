@@ -31,10 +31,13 @@ def _ask(stop):
     """Worker thread: ask the app until it answers (it may open after Blender)."""
     while not stop.is_set():
         try:
-            _caps['islands'] = bool(AppClient(hook.URL).get('fork-caps', '').get('islands'))
-            return
-        except AppError:
+            islands = bool(AppClient(hook.URL).get('fork-caps', '').get('islands'))
+        except Exception:       # app closed, or an answer that isn't the caps (another app on the port)
             stop.wait(RETRY)
+            continue
+        if not stop.is_set():   # stopped mid-request: a reloaded add-on asks again itself
+            _caps['islands'] = islands
+        return
 
 
 def _redraw_when_known():
@@ -58,11 +61,12 @@ def start_probe():
 
 
 def stop_probe():
+    """Tell the probe to stop without waiting: it is a daemon, and a request in flight would freeze a reload."""
     if _probe['stop'] is not None:
         _probe['stop'].set()
-    if _probe['thread'] is not None:
-        _probe['thread'].join(timeout=5)
     _probe['thread'] = _probe['stop'] = None
+    if bpy.app.timers.is_registered(_redraw_when_known):
+        bpy.app.timers.unregister(_redraw_when_known)
 
 
 def scope_materials(context, scope):
@@ -95,6 +99,18 @@ def write_report(title, sections):
         for line in lines:
             txt.write(f"  {line}\n")
         txt.write("\n")
+
+
+def _count(n, word):
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
+def fix_status(materials, colour_spaces, preview):
+    """The sidebar's one status line for a fix: what changed (or would), the rest is in the report."""
+    parts = [_count(n, word) for n, word in ((materials, "material"), (colour_spaces, "colour space")) if n]
+    if not parts:
+        return "Nothing to fix"
+    return ("Would fix " if preview else "Fixed ") + ", ".join(parts)
 
 
 def tag_redraw(context):
@@ -196,12 +212,9 @@ class FPMP_OT_FixMaterials(bpy.types.Operator):
             ('Material fixes', [f"{m}: {msg}" for m, msgs in run.report.items() for msg in msgs]),
             ('Colour spaces', [f"{n}: {a} -> {b}" for n, a, b in run.cs_changes]),
             ("The fork's island materials", notes if notes else ([f"{rebuilt} would be rebuilt"] if props.preview and rebuilt else []))])
-        n = len([m for m, v in run.report.items() if v])
-        # one line in the sidebar: counts first, the preview marked
-        props.status = f"{n} materials, {len(run.cs_changes)} colour spaces" + (
-            f", {rebuilt} island materials" if rebuilt else "") + (" (preview)" if props.preview else "")
-        self.report({'INFO'}, f"FP Fixer {'would change' if props.preview else 'changed'}: {props.status}. "
-                              f"Details in Text Editor > '{REPORT_TEXT}'")
+        n = len([m for m, v in run.report.items() if v]) + rebuilt
+        props.status = fix_status(n, len(run.cs_changes), props.preview)
+        self.report({'INFO'}, f"FP Fixer: {props.status}. Details in Text Editor > '{REPORT_TEXT}'")
         return {'FINISHED'}
 
 
@@ -211,7 +224,7 @@ class FPMP_OT_RecoverIsland(bpy.types.Operator):
     bl_description = ("For a UEFN map's materials FortnitePorting imported without a base colour: find the island "
                       "material each was made from, wire the textures it really references and set its flat colours "
                       "(the FP app must be open with the island loaded). Esc cancels")
-    bl_options = {'REGISTER', 'UNDO'}
+    bl_options = {'UNDO'}       # no redo: in the UI the run is modal
 
     ask: BoolProperty(options={'HIDDEN', 'SKIP_SAVE'})
     _timer = None
@@ -225,38 +238,64 @@ class FPMP_OT_RecoverIsland(bpy.types.Operator):
         self.layout.row().prop(props, 'scope', expand=True)
         self.layout.prop(props, 'apply_colors')
 
-    def execute(self, context):
-        # the dialog's OK: the run itself is modal, started as from a button
-        bpy.ops.fpmp.recover_island('INVOKE_DEFAULT')
-        return {'FINISHED'}
-
     def invoke(self, context, event):
-        global _running
         if self.ask:
             return context.window_manager.invoke_props_dialog(self)
+        return self.execute(context)
+
+    def execute(self, context):
+        global _running
+        if not self._start(context):
+            return {'CANCELLED'}
+        if bpy.app.background or context.window is None:
+            # no event loop to tick a modal run: all of it now
+            try:
+                self.records = self._advance(context.scene.fpmp_fixer)
+            except Exception as e:
+                return self._failed(context, e)
+            return self._apply(context)
+        _running = True
+        self._timer = context.window_manager.event_timer_add(0.05, window=context.window)
+        context.window_manager.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+
+    def _start(self, context):
         props = context.scene.fpmp_fixer
         targets = island.build_targets(scope_materials(context, props.scope))
         if not targets:
             self.report({'INFO'}, 'Nothing to recover: every FP material in scope already has a base colour')
-            return {'CANCELLED'}
+            return False
         self.app = AppClient(hook.URL)
         try:
             _caps['islands'] = bool(self.app.get('fork-caps', '').get('islands'))
         except AppError as e:
             self.report({'ERROR'}, "The FP app isn't answering: open FortnitePorting MP with the island loaded (%s)" % e)
-            return {'CANCELLED'}
+            return False
         if not _caps['islands']:
             self.report({'ERROR'}, "Island texture recovery is only in the owner's builds")
-            return {'CANCELLED'}
-        self.n_targets = len(targets)
+            return False
         self.steps = island.resolve(self.app, targets)
         self.records = None
-        props.status = f'Running: {self.n_targets} materials'
+        props.status = f'0/{len(targets)} materials'
         props.progress = 0.0
-        _running = True
-        self._timer = context.window_manager.event_timer_add(0.05, window=context.window)
-        context.window_manager.modal_handler_add(self)
-        return {'RUNNING_MODAL'}
+        return True
+
+    def _advance(self, props, until=None):
+        """Run the resolve steps until `until` (perf_counter time; None: to the end). The records once done, else None."""
+        try:
+            while until is None or time.perf_counter() < until:
+                done, total, label = next(self.steps)
+                props.progress = done / max(1, total)
+                props.status = f'{done}/{total} {label}'
+        except StopIteration as stop:
+            return stop.value
+        return None
+
+    def _failed(self, context, error):
+        context.scene.fpmp_fixer.status = 'Failed: see the report'
+        write_report('Recover Island Textures: FAILED', [('Error', [str(error)])])
+        self.report({'ERROR'}, "Island recovery failed: %s" % error)
+        return {'CANCELLED'}
 
     def modal(self, context, event):
         props = context.scene.fpmp_fixer
@@ -266,21 +305,12 @@ class FPMP_OT_RecoverIsland(bpy.types.Operator):
             return {'CANCELLED'}
         if event.type != 'TIMER':
             return {'PASS_THROUGH'}
-        # Work in ~0.15 s slices per timer tick so the UI stays responsive.
-        until = time.perf_counter() + 0.15
         try:
-            while time.perf_counter() < until:
-                done, total, label = next(self.steps)
-                props.progress = done / max(1, total)
-                props.status = f'Running: {done}/{total} {label}'
-        except StopIteration as stop:
-            self.records = stop.value
+            # ~0.15 s slices per timer tick so the UI stays responsive
+            self.records = self._advance(props, time.perf_counter() + 0.15)
         except Exception as e:
             self._finish(context)
-            props.status = 'Failed, see report'
-            write_report('Recover Island Textures: FAILED', [('Error', [str(e)])])
-            self.report({'ERROR'}, "Island recovery failed: %s" % e)
-            return {'CANCELLED'}
+            return self._failed(context, e)
         tag_redraw(context)
         if self.records is None:
             return {'RUNNING_MODAL'}
@@ -314,9 +344,9 @@ class FPMP_OT_RecoverIsland(bpy.types.Operator):
             ('Not resolved (per-object overrides, or an island not loaded in the app)', unresolved),
         ])
         props.progress = 1.0
-        props.status = (f"{len(resolved)}/{len(records)} materials found, {n_tex} textures, "
-                        f"{added} nodes added, {len(color_log)} colour fixes")
-        self.report({'INFO'}, f"FP Fixer: {props.status}. Details in Text Editor > '{REPORT_TEXT}'")
+        props.status = f"Recovered {len(resolved)}/{len(records)} materials"
+        self.report({'INFO'}, f"FP Fixer: {len(resolved)}/{len(records)} materials found, {n_tex} textures, {added} nodes "
+                              f"added, {len(color_log)} colour fixes. Details in Text Editor > '{REPORT_TEXT}'")
         tag_redraw(context)
         return {'FINISHED'}
 
@@ -342,7 +372,7 @@ class FPMP_PT_fixer_base:
         layout = self.layout
         layout.row().prop(props, 'scope', expand=True)
         _checkbox(layout, props, 'preview')
-        layout.operator(FPMP_OT_FixMaterials.bl_idname, icon='CHECKMARK')
+        layout.operator(FPMP_OT_FixMaterials.bl_idname)
         if islands_available():
             header, body = layout.panel('fpmp_fixer_island', default_closed=True)
             header.label(text='Recover Island Textures')
@@ -350,7 +380,7 @@ class FPMP_PT_fixer_base:
                 _checkbox(body, props, 'apply_colors')
                 body.operator(FPMP_OT_RecoverIsland.bl_idname, text='Recover', icon='IMPORT')
         if _running:
-            layout.progress(factor=props.progress, text=props.status[9:][:60] or 'Working...')
+            layout.progress(factor=props.progress, text=props.status[:60] or 'Working...')
         elif props.status:
             layout.label(text=props.status, icon='INFO', translate=False)
 

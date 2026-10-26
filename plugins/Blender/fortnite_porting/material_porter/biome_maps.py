@@ -121,9 +121,9 @@ def _start(px, rects, game):
         px[ys, xs, 3] = 1.0
 
 
-def fill(obj, param, index, channel, info):
+def fill(obj, param, index, channel, info, value=1.0):
     """This biome everywhere: its channel of its rectangle at 1, every other biome's (every channel of every
-    rectangle) at 0; channel -1 clears them all."""
+    rectangle) at 0; channel -1 clears them all. `value` 0: only this biome cleared, the others kept."""
     image = bpy.data.images.get(dict(obj.get(KEY) or {}).get(param, ""))
     if image is None:
         return
@@ -131,7 +131,11 @@ def fill(obj, param, index, channel, info):
     px = weightmaps._pixels(image).reshape(size, size, 4)
     for i, rect in enumerate(info["rects"]):
         xs, ys = _pixels_in(rect, size)
+        if value <= 0.0 and channel >= 0:
+            if i == index:
+                px[ys, xs, channel] = 0.0
+            continue
         px[ys, xs, :] = 0.0
         if i == index and channel >= 0:
-            px[ys, xs, channel] = 1.0
+            px[ys, xs, channel] = value
     weightmaps._store(image, px.reshape(-1, 4))

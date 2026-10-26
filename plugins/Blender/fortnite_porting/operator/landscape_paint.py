@@ -24,10 +24,11 @@ def switches(mat):
     return _loads(mat.get("mp_switches") or "{}") if mat is not None else {}
 
 
-def features(mat):
-    """[(switch, on)] as the panel shows them: built, or as edited since."""
+def features(mat, match=""):
+    """[(switch, on)] as the panel shows them: built, or as edited since; those whose name holds `match` (any case)."""
     edits = dict(mat.get(EDITS) or {}) if mat is not None else {}
-    return [(name, bool(edits.get(name, on))) for name, on in switches(mat).items()]
+    match = match.lower()
+    return [(name, bool(edits.get(name, on))) for name, on in switches(mat).items() if match in name.lower()]
 
 
 def _brush_color(context, paint, rgb):
@@ -154,11 +155,35 @@ class FPMP_OT_NormalizeLandscape(bpy.types.Operator):
         return {'FINISHED'}
 
 
-def _set_meshes(obj):
-    """The meshes sharing `obj`'s weightmaps (in the scene)."""
+def _set_meshes(context, obj):
+    """The meshes sharing `obj`'s weightmaps, in the view layer (the rebuild selects them: others can't be)."""
     from ..material_porter import weightmaps
     group = obj.get(weightmaps.SET)
-    return [o for o in bpy.context.scene.objects if o.type == 'MESH' and group and o.get(weightmaps.SET) == group] or [obj]
+    return [o for o in context.view_layer.objects if o.type == 'MESH' and group and o.get(weightmaps.SET) == group] or [obj]
+
+
+def _rebuild(context, obj, meshes):
+    """Update Material on exactly these meshes (they share the material), `obj` active, then the user's selection and
+    active object back. True when it rebuilt them."""
+    layer = context.view_layer
+    if obj not in list(layer.objects):
+        return False
+    selected, active = list(context.selected_objects), layer.objects.active
+    for o in selected:
+        o.select_set(False)
+    for o in meshes:
+        o.select_set(True)
+    layer.objects.active = obj
+    try:
+        return bpy.ops.fpmp.update_landscape_material() == {'FINISHED'}
+    except RuntimeError:
+        return False
+    finally:
+        for o in meshes:
+            o.select_set(False)
+        for o in selected:
+            o.select_set(True)
+        layer.objects.active = active
 
 
 class FPMP_OT_MakeBiomeMap(bpy.types.Operator):
@@ -178,18 +203,14 @@ class FPMP_OT_MakeBiomeMap(bpy.types.Operator):
             return {'CANCELLED'}
         if obj.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
-        meshes = _set_meshes(obj)
+        meshes = _set_meshes(context, obj)
         from ..material_porter import biome_colours
         game = next((n.image for name, n in _textures(obj.active_material) if name == self.param), None)             or biome_colours.game_image(info)
         if biome_maps.create(meshes, self.param, info, game) is None:
             self.report({'WARNING'}, "No weightmaps on %s: put the landscape material on it again" % obj.name)
             return {'CANCELLED'}
-        for o in context.selected_objects:
-            o.select_set(False)
-        for o in meshes:
-            o.select_set(True)
-        context.view_layer.objects.active = obj
-        return bpy.ops.fpmp.update_landscape_material()
+        _rebuild(context, obj, meshes)        # Update Material reports what it couldn't rebuild
+        return {'FINISHED'}
 
 
 class FPMP_OT_RemoveBiomeMap(bpy.types.Operator):
@@ -205,7 +226,7 @@ class FPMP_OT_RemoveBiomeMap(bpy.types.Operator):
         obj = context.active_object
         if obj.mode != 'OBJECT':
             bpy.ops.object.mode_set(mode='OBJECT')
-        meshes = _set_meshes(obj)
+        meshes = _set_meshes(context, obj)
         name = dict(obj.get(biome_maps.KEY) or {}).get(self.param)
         for o in meshes:
             found = dict(o.get(biome_maps.KEY) or {})
@@ -215,12 +236,8 @@ class FPMP_OT_RemoveBiomeMap(bpy.types.Operator):
                 o.data.uv_layers.remove(layer)
         if name and bpy.data.images.get(name) is not None:
             bpy.data.images.remove(bpy.data.images[name])
-        for o in context.selected_objects:
-            o.select_set(False)
-        for o in meshes:
-            o.select_set(True)
-        context.view_layer.objects.active = obj
-        return bpy.ops.fpmp.update_landscape_material()
+        _rebuild(context, obj, meshes)        # Update Material reports what it couldn't rebuild
+        return {'FINISHED'}
 
 
 class FPMP_OT_PaintBiome(bpy.types.Operator):
@@ -272,7 +289,8 @@ class FPMP_OT_PaintBiome(bpy.types.Operator):
 
 
 class FPMP_OT_FillBiome(bpy.types.Operator):
-    """This biome everywhere, every other cleared (Clear All: no biome anywhere, the material's default ground)"""
+    """Fill: this biome everywhere, every other cleared (Clear: this biome removed everywhere; Clear All: no biome
+    anywhere, the material's default ground)"""
     bl_idname = "fpmp.fill_biome"
     bl_label = "Fill Biome"
     bl_options = {'REGISTER', 'UNDO'}
@@ -280,13 +298,18 @@ class FPMP_OT_FillBiome(bpy.types.Operator):
     param: bpy.props.StringProperty()
     index: bpy.props.IntProperty()
     channel: bpy.props.IntProperty()
+    value: bpy.props.FloatProperty(default=1.0, min=0.0, max=1.0)
+
+    @classmethod
+    def poll(cls, context):
+        return _landscape(context) is not None
 
     def execute(self, context):
         from ..material_porter import biome_maps
         obj = context.active_object
         info = biome_maps.maps(obj.active_material).get(self.param)
         if info is not None:
-            biome_maps.fill(obj, self.param, self.index, self.channel, info)
+            biome_maps.fill(obj, self.param, self.index, self.channel, info, self.value)
         return {'FINISHED'}
 
 
@@ -296,6 +319,10 @@ class FPMP_OT_FollowBiomes(bpy.types.Operator):
     bl_idname = "fpmp.follow_biomes"
     bl_label = "Grass Follows Biomes"
     bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        return _landscape(context) is not None
 
     def execute(self, context):
         obj = context.active_object
@@ -309,17 +336,28 @@ def _follows(obj):
 
 def _set_follow(obj, on):
     from ..material_porter import biome_colours
+    context = bpy.context
+    if context.active_object is not None and context.active_object.mode != 'OBJECT':
+        bpy.ops.object.mode_set(mode='OBJECT')
     if not on:
         biome_colours.bake(obj)         # the colours it showed, to paint over
-    for o in _set_meshes(obj):
+    meshes = _set_meshes(context, obj)
+    was = [(o, o.get(biome_colours.FOLLOW)) for o in meshes]
+    for o in meshes:
         o[biome_colours.FOLLOW] = on
-    if obj.mode != 'OBJECT':
-        bpy.ops.object.mode_set(mode='OBJECT')
-    return bpy.ops.fpmp.update_landscape_material()
+    if _rebuild(context, obj, meshes):
+        return {'FINISHED'}
+    for o, value in was:        # the materials still show the old colours
+        if value is None:
+            del o[biome_colours.FOLLOW]
+        else:
+            o[biome_colours.FOLLOW] = value
+    return {'CANCELLED'}
 
 
 def _follow_set(obj, on):
-    if on != _follows(obj):
+    # a setter can't report: on anything but a landscape mesh it changes nothing
+    if obj.type == 'MESH' and obj.get("mp_landscape") and on != _follows(obj):
         _set_follow(obj, on)
 
 
@@ -331,6 +369,10 @@ class FPMP_OT_LandscapeSwitch(bpy.types.Operator):
 
     name: bpy.props.StringProperty()
     on: bpy.props.BoolProperty()
+
+    @classmethod
+    def poll(cls, context):
+        return (obj := _landscape(context)) is not None and obj.active_material is not None
 
     def execute(self, context):
         mat = context.active_object.active_material
@@ -390,6 +432,8 @@ class FPMP_OT_UpdateLandscapeMaterial(bpy.types.Operator):
                 slot.material = new
         if skipped:
             self.report({'WARNING'}, "Not rebuilt (is the FP app running?): %s" % ", ".join(sorted(set(skipped))))
+            if not rebuilt:
+                return {'CANCELLED'}
         else:
             self.report({'INFO'}, ", ".join(sorted(m.name for m in rebuilt.values())) or "Nothing to rebuild")
         return {'FINISHED'}
@@ -443,7 +487,7 @@ class FPMP_PT_LandscapePaint(_LandscapePanel, bpy.types.Panel):
                        (obj.mode == 'VERTEX_PAINT' and active is not None and active.name == name)
             row.operator(FPMP_OT_PaintLandscapeLayer.bl_idname, text="", icon='BRUSH_DATA', depress=painting).layer = layer
             if maps:
-                op = row.operator(FPMP_OT_FillLandscapeLayer.bl_idname, text="", icon='SNAP_FACE')
+                op = row.operator(FPMP_OT_FillLandscapeLayer.bl_idname, text="", icon='GP_DRAW_FILL')
                 op.layer, op.value = layer, 1.0
                 op = row.operator(FPMP_OT_FillLandscapeLayer.bl_idname, text="", icon='X')
                 op.layer, op.value = layer, 0.0
@@ -453,7 +497,7 @@ class FPMP_PT_LandscapePaint(_LandscapePanel, bpy.types.Panel):
 
 class FPMP_PT_LandscapeBiomes(_LandscapePanel, bpy.types.Panel):
     """The map-wide textures the material reads (biome masks, colour maps): paintable, a biome per channel"""
-    bl_label = "Biomes"
+    bl_label = "Biome Maps"
     bl_idname = "FPMP_PT_landscape_biomes"
     bl_parent_id = FPMP_PT_LandscapeLayers.bl_idname
     bl_order = 1
@@ -483,14 +527,19 @@ class FPMP_PT_LandscapeBiomes(_LandscapePanel, bpy.types.Panel):
                     op = row.operator(FPMP_OT_PaintBiome.bl_idname, text="", icon='BRUSH_DATA')
                     op.param, op.index, op.channel = param, i, -1
                 if which and which[1] == param:
-                    row.prop(obj, "fpmp_follow_biomes", text="", icon='LINKED', toggle=True)
-            row.operator(FPMP_OT_RemoveBiomeMap.bl_idname, text="", icon='X').param = param
+                    if obj.override_library is None and obj.is_editable:
+                        row.prop(obj, "fpmp_follow_biomes", text="", icon='LINKED', toggle=True)
+                    else:           # the property can't be written on an override
+                        row.operator(FPMP_OT_FollowBiomes.bl_idname, text="", icon='LINKED', depress=_follows(obj))
+            row.operator(FPMP_OT_RemoveBiomeMap.bl_idname, text="", icon='TRASH').param = param     # not the rows' Clear X
             if not colour:
                 self._masks(layout, param, info)
 
     def _masks(self, layout, param, info):
         header, body = layout.panel("fpmp_biome_masks_" + param, default_closed=False)
         header.label(text="Masks")
+        op = header.operator(FPMP_OT_FillBiome.bl_idname, text="Clear All")
+        op.param, op.index, op.channel = param, 0, -1
         if body is None:
             return
         labels = info.get("labels") or {}
@@ -502,13 +551,11 @@ class FPMP_PT_LandscapeBiomes(_LandscapePanel, bpy.types.Panel):
         unnamed = [(i, c) for i, c, name in rows if name is None]
         if labels and unnamed:
             header, more = body.panel("fpmp_biome_unnamed_" + param, default_closed=True)
-            header.label(text="Unnamed")
+            header.label(text="Other")
             if more is not None:
                 col = more.column(align=True)
                 for i, c in unnamed:
                     self._mask_row(col, param, i, c, "Mask %d" % (i * 4 + c + 1))
-        op = body.operator(FPMP_OT_FillBiome.bl_idname, text="Clear All")
-        op.param, op.index, op.channel = param, 0, -1
 
     @staticmethod
     def _mask_row(col, param, index, channel, name):
@@ -516,8 +563,9 @@ class FPMP_PT_LandscapeBiomes(_LandscapePanel, bpy.types.Panel):
         row.label(text=name, translate=False)
         op = row.operator(FPMP_OT_PaintBiome.bl_idname, text="", icon='BRUSH_DATA')
         op.param, op.index, op.channel = param, index, channel
-        op = row.operator(FPMP_OT_FillBiome.bl_idname, text="", icon='SNAP_FACE')
-        op.param, op.index, op.channel = param, index, channel
+        for icon, value in (('GP_DRAW_FILL', 1.0), ('X', 0.0)):
+            op = row.operator(FPMP_OT_FillBiome.bl_idname, text="", icon=icon)
+            op.param, op.index, op.channel, op.value = param, index, channel, value
 
 
 class FPMP_PT_LandscapeFeatures(_LandscapePanel, bpy.types.Panel):
@@ -528,15 +576,21 @@ class FPMP_PT_LandscapeFeatures(_LandscapePanel, bpy.types.Panel):
     bl_options = {'DEFAULT_CLOSED'}
     bl_order = 2
 
+    @classmethod
+    def poll(cls, context):
+        return (obj := _landscape(context)) is not None and obj.active_material is not None
+
     def draw(self, context):
+        mat = context.active_object.active_material
+        self.layout.prop(context.window_manager, "fpmp_feature_filter", text="", icon='VIEWZOOM')
         col = self.layout.column(align=True)
-        for name, on in features(context.active_object.active_material):
+        for name, on in features(mat, context.window_manager.fpmp_feature_filter):
             row = col.row()
             row.alignment = 'LEFT'      # an operator centres its text: drawn as a checkbox, it sits left
             op = row.operator(FPMP_OT_LandscapeSwitch.bl_idname, text=name, translate=False, emboss=False,
                               icon='CHECKBOX_HLT' if on else 'CHECKBOX_DEHLT')
             op.name, op.on = name, not on
-        waiting = len(context.active_object.active_material.get(EDITS) or {})
+        waiting = len(mat.get(EDITS) or {})
         self.layout.operator(FPMP_OT_UpdateLandscapeMaterial.bl_idname, icon='FILE_REFRESH',
                              text="Update Material (%d changed)" % waiting if waiting else "Update Material")
 
@@ -562,7 +616,7 @@ class FPMP_PT_LandscapeMaterial(_LandscapePanel, bpy.types.Panel):
         if body is not None:
             for name, n in _textures(mat):
                 body.label(text=name, translate=False)
-                body.template_ID(n, "image", new="image.new", open="image.open")
+                body.prop(n, "image", text="")      # the image's full name; no unlink button on a slot the material needs
         header, body = self.layout.panel("fpmp_landscape_parameters", default_closed=True)
         header.label(text="Parameters")
         if body is not None:
@@ -593,6 +647,8 @@ def register():
     bpy.types.Object.fpmp_follow_biomes = bpy.props.BoolProperty(
         name="Grass Follows Biomes", description=" ".join(FPMP_OT_FollowBiomes.__doc__.split()),
         get=_follows, set=_follow_set, options=set())
+    bpy.types.WindowManager.fpmp_feature_filter = bpy.props.StringProperty(
+        name="Filter", description="Show only the features whose name holds this text", options={'TEXTEDIT_UPDATE'})
     if _pack_weightmaps not in bpy.app.handlers.save_pre:
         bpy.app.handlers.save_pre.append(_pack_weightmaps)
 
@@ -600,6 +656,7 @@ def register():
 def unregister():
     if _pack_weightmaps in bpy.app.handlers.save_pre:
         bpy.app.handlers.save_pre.remove(_pack_weightmaps)
+    del bpy.types.WindowManager.fpmp_feature_filter
     del bpy.types.Object.fpmp_follow_biomes
     for c in reversed(classes):
         bpy.utils.unregister_class(c)
