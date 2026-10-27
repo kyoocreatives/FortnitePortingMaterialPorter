@@ -383,6 +383,14 @@ def after_model(ctx, mesh, imported_object, imported_mesh):
     after_import(mesh, imported_object, imported_mesh, ctx.scale, int(ctx.options.get("LandscapeDetail") or 1))
 
 
+def instance_points(ctx, mesh, imported_object, parent, can_spawn_at_3d_cursor):
+    """An instanced mesh component's record: its object becomes the source of a points object (returned) placing it."""
+    if not mesh.get("MPInstances") or imported_object is None:
+        return imported_object
+    from .instances import place
+    return place(ctx, mesh, imported_object, parent, can_spawn_at_3d_cursor and ctx.options.get("ImportAt3DCursor"))
+
+
 def final_materials(mesh, override_materials):
     """Each slot's material as the import ends. A style's swap replaces the default, so only that one
     is built (an exact material takes a second or two). A style swaps by the name the slot shows

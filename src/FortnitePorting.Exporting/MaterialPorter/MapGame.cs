@@ -20,6 +20,9 @@ public partial record MaterialPorterMesh : ExportMesh
     public float[]? MPPrimitiveData;
     /// <summary>An instance's custom data floats (PerInstanceCustomData), or null.</summary>
     public float[]? MPInstanceData;
+    /// <summary>An instanced mesh component's instances (the record itself sits at the origin); omitted otherwise.</summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public MaterialPorterInstances? MPInstances;
     /// <summary>A spline mesh's bend, applied in Blender (meshes.spline_bend), or null.</summary>
     public Dictionary<string, object>? MPSpline;
     /// <summary>A landscape's weight layers: LayerInfo asset name -> LayerName.</summary>
@@ -47,6 +50,23 @@ public partial record MaterialPorterMesh : ExportMesh
     /// "Mesh" (Index: which of the renderer's meshes) or "Sprite"/"Ribbon" (no mesh; SubImages, Facing). A renderer's node names it (Renderer).
     /// </summary>
     public Dictionary<string, object>? MPEffect;
+}
+
+/// <summary>
+/// One instanced mesh component's instances, imported as one points object (material_porter/instances.py). Transforms: per instance
+/// Location XYZ (cm), Rotation Pitch Yaw Roll (degrees), Scale XYZ, as a placement record's. Data: per instance Floats custom data floats.
+/// </summary>
+public sealed class MaterialPorterInstances
+{
+    public string Class = "";
+    public string Component = "";
+    public string Actor = "";
+    public int Count;
+    public float[] Transforms = [];
+    public int Floats;
+    public float[]? Data;
+    /// <summary>Each instance's Data is also its custom primitive data (a building ISM's).</summary>
+    public bool PrimitiveData;
 }
 
 /// <summary>A material with values over it (a dynamic instance's, a building's texture data).</summary>

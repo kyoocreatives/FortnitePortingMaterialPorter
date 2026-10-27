@@ -49,6 +49,8 @@ public sealed class MapMesh
     public bool Hidden { get; init; }
     /// <summary>The data layer it was picked from (ExportDataMeta.MPLayerOf), else null.</summary>
     public string Layer { get; init; }
+    /// <summary>The instanced mesh component it is one instance of; its instances export as one record. Else null.</summary>
+    public MapInstances Group { get; init; }
     /// <summary>Where it stands, for an area's test: its origin, a spline mesh's segment middle.</summary>
     public Vector3 Anchor
     {
@@ -59,6 +61,16 @@ public sealed class MapMesh
             return World.Translation;
         }
     }
+}
+
+/// <summary>An instanced mesh component (PCG grass, scatter props): what its instances share, for the editor to group them by.</summary>
+public sealed class MapInstances
+{
+    /// <summary>The owner actor's class, e.g. BP_MeshGrass_C.</summary>
+    public string Class { get; init; }
+    public string Component { get; init; }
+    /// <summary>Each instance's custom data floats are also its primitive data (a building ISM's).</summary>
+    public bool PrimitiveData { get; init; }
 }
 
 /// <summary>

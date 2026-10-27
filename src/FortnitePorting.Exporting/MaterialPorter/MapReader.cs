@@ -209,6 +209,8 @@ public sealed class MapReader
     static readonly string[] SkipActorPrefixes = { "Device_", "VerseDevice_" };
     /// <summary>Blueprint devices: meshes and lights stay out too, but their particle systems play on their own (a mushroom bouncer's light beams).</summary>
     static readonly string[] EffectsOnlyPrefixes = { "BP_Device_" };
+    /// <summary>An instanced mesh with this many instances exports as one group; fewer stay separate objects (a few props are edited one by one).</summary>
+    const int MinGroup = 4;
 
     async Task ActorAsync(UObject actor, LevelContext ctx, int depth, CancellationToken ct)
     {
@@ -383,6 +385,7 @@ public sealed class MapReader
                 // a building ISM stands in for building actors (TemplateActorClass): each instance's floats are its building's
                 // custom primitive data (36 of them; texture data tints at 30/31/35)
                 var perInstanceCpd = custom != null && ctype.Contains("BuildingInstancedStaticMesh", StringComparison.Ordinal);
+                var group = data.Length >= MinGroup ? new MapInstances { Class = actor.ExportType, Component = ctype, PrimitiveData = perInstanceCpd } : null;
                 for (var i = 0; i < data.Length; i++)
                 {
                     var mine = custom?[(i * floats)..((i + 1) * floats)];
@@ -391,7 +394,7 @@ public sealed class MapReader
                         Mesh = mesh, World = Of(data[i].TransformData) * world, Overrides = overrides, Params = ps,
                         AllSlots = main ? skin : null, Actor = actor.Name, Level = ctx.Level,
                         PrimitiveData = perInstanceCpd ? mine : cpd, InstanceData = mine, CastShadow = castShadow, ShadowOnly = shadowProxy,
-                        Hidden = hiddenMesh, Layer = Layer,
+                        Hidden = hiddenMesh, Layer = Layer, Group = group,
                     });
                 }
                 continue;

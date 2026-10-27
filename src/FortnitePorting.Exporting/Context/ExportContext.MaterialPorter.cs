@@ -123,11 +123,13 @@ public partial class ExportContext
                 .Where(m => ActorFilter is null || m.Actor.Contains(ActorFilter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(m => m.Actor, StringComparer.Ordinal).ThenBy(m => m.Mesh, StringComparer.Ordinal).ToList();
             var done = 0;
+            var groups = placed.Where(m => m.Group != null).GroupBy(m => m.Group).ToDictionary(g => g.Key, g => g.ToList());
             foreach (var m in placed)
             {
                 if (CancellationToken.IsCancellationRequested) break;
                 if (++done % 200 == 0) Meta.OnUpdateProgress(m.Actor, done, placed.Count);
-                meshes.AddIfNotNull(Placement(m));
+                if (m.Group is null) meshes.AddIfNotNull(Placement(m));
+                else if (groups.Remove(m.Group, out var members)) meshes.AddRange(InstanceGroup(members));
             }
             var lights = reader.Lights.Where(l => ActorFilter is null || l.Actor.Contains(ActorFilter, StringComparison.OrdinalIgnoreCase))
                 .OrderBy(l => l.Actor, StringComparer.Ordinal).ThenBy(l => l.Name, StringComparer.Ordinal)
@@ -170,6 +172,7 @@ public partial class ExportContext
                         Name = landscape.Name, Path = landscape.Path, NumLods = landscape.NumLods, IsEmpty = landscape.IsEmpty,
                         Location = landscape.Location, Rotation = landscape.Rotation, Scale = landscape.Scale,
                         MPLayerNames = names,
+                        MPGrass = LandscapeGrass(landscape),
                     };
                     export.Materials.AddRange(landscape.Materials);
                     export.OverrideMaterials.AddRange(landscape.OverrideMaterials);
@@ -239,6 +242,26 @@ public partial class ExportContext
             .OrderBy(k => k, StringComparer.OrdinalIgnoreCase).ToList();
         Log.Information("[Material Porter] {Map}: {Count} island cells beside it", package, cells.Count);
         return cells;
+    }
+
+    private readonly Dictionary<string, Dictionary<string, object>?> _mpGrass = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A landscape's grass outputs (GrassTypes.Landscape), read once per set of masters.</summary>
+    private Dictionary<string, object>? LandscapeGrass(ExportMesh landscape)
+    {
+        var masters = landscape.Materials.Concat(landscape.OverrideMaterials).Select(m => m.BaseMaterial).OfType<UMaterial>()
+            .DistinctBy(m => m.GetPathName()).ToList();
+        var key = string.Join("|", masters.Select(m => m.GetPathName()));
+        lock (_mpGrass)
+        {
+            if (_mpGrass.TryGetValue(key, out var known)) return known;
+            try { return _mpGrass[key] = GrassTypes.Landscape(FileProvider, masters); }
+            catch (Exception e)
+            {
+                MaterialPorter.Failures.Note("landscape grass", key, e);
+                return _mpGrass[key] = null;
+            }
+        }
     }
 
     /// <summary>A landscape's weight layers: LayerInfo asset name -> LayerName that materials sample.</summary>
@@ -410,6 +433,33 @@ public partial class ExportContext
             export.OverrideMaterials.Add(SlotMaterial(material, slot, values));
         }
         return export;
+    }
+
+    /// <summary>An instanced mesh component's instances as one record at the origin (MPInstances); one placement each when its mesh is a placeholder.</summary>
+    private IEnumerable<ExportMesh> InstanceGroup(List<MapMesh> members)
+    {
+        var first = members[0];
+        if (Placement(first) is not MaterialPorterMesh export) return members.Select(Placement).OfType<ExportMesh>();
+        var floats = first.InstanceData?.Length ?? 0;
+        var transforms = new float[members.Count * 9];
+        var data = floats > 0 ? new float[members.Count * floats] : null;
+        for (var i = 0; i < members.Count; i++)
+        {
+            var (l, r, s) = MaterialPorterTransform(members[i].World);
+            new[] { l.X, l.Y, l.Z, r.Pitch, r.Yaw, r.Roll, s.X, s.Y, s.Z }.CopyTo(transforms, i * 9);
+            members[i].InstanceData?.CopyTo(data!, i * floats);
+        }
+        export.Location = FVector.ZeroVector;
+        export.Rotation = FRotator.ZeroRotator;
+        export.Scale = FVector.OneVector;
+        export.MPInstanceData = null;
+        if (first.Group.PrimitiveData) export.MPPrimitiveData = null;
+        export.MPInstances = new MaterialPorterInstances
+        {
+            Class = first.Group.Class, Component = first.Group.Component, Actor = first.Actor, Count = members.Count,
+            Transforms = transforms, Floats = floats, Data = data, PrimitiveData = first.Group.PrimitiveData,
+        };
+        return [export];
     }
 
     /// <summary>A Rocket Racing car: body with the tier's (or a decal's) material, picked wheels on the wheel sockets, and the Mutable values per material. Picks: channel index -> option index.</summary>
@@ -628,6 +678,11 @@ public partial class ExportContext
     /// <summary>A UE world matrix (row vectors) as FP's location, rotation and scale; a mirror goes into X scale.</summary>
     private static void SetMaterialPorterTransform(ExportObject export, Matrix4x4 world)
     {
+        (export.Location, export.Rotation, export.Scale) = MaterialPorterTransform(world);
+    }
+
+    private static (FVector Location, FRotator Rotation, FVector Scale) MaterialPorterTransform(Matrix4x4 world)
+    {
         var mirrored = world.GetDeterminant() < 0;
         if (mirrored) world = Matrix4x4.CreateScale(-1, 1, 1) * world;
         if (!Matrix4x4.Decompose(world, out var scale, out var rotation, out var translation))
@@ -637,9 +692,8 @@ public partial class ExportContext
             translation = world.Translation;
         }
         if (mirrored) scale.X = -scale.X;
-        export.Location = new FVector(translation.X, translation.Y, translation.Z);
-        export.Rotation = new FQuat(rotation.X, rotation.Y, rotation.Z, rotation.W).Rotator();
-        export.Scale = new FVector(scale.X, scale.Y, scale.Z);
+        return (new FVector(translation.X, translation.Y, translation.Z), new FQuat(rotation.X, rotation.Y, rotation.Z, rotation.W).Rotator(),
+                new FVector(scale.X, scale.Y, scale.Z));
     }
 
     /// <summary>An object by its path, also one nested in a level ("/Map.Map:PersistentLevel.Actor.Component.WaterInfoMesh_0").</summary>

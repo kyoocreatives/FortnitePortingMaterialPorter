@@ -153,4 +153,12 @@ public partial class MeshExport
                 return false;
         }
     }
+
+    /// <summary>Puts materials over the first mesh's slots (null keeps the slot's own): a grass type's OverrideMaterials.</summary>
+    public void OverrideSlots(IReadOnlyList<UMaterialInterface?> materials)
+    {
+        if (Meshes.FirstOrDefault() is not { } mesh) return;
+        for (var slot = 0; slot < materials.Count; slot++)
+            if (materials[slot] is { } material) mesh.OverrideMaterials.AddIfNotNull(Context.Material(material, slot));
+    }
 }

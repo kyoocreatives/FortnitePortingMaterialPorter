@@ -608,7 +608,8 @@ class MaterialEnv:
 
     def primitive_data(self, v, index, w):
         """UE's Custom Primitive Data: floats a placed component carries (e.g. a tree's season tint), read from the
-        object's mp_cpd<index> properties (a map import sets them, with mp_cpd = 1).
+        object's mp_cpd<index> properties (a map import sets them, with mp_cpd = 1), or the instance's attributes of
+        the same names where geometry nodes instance it (a building ISM's instances, see instances.py).
 
         An object without them keeps the material's own value `v`, and so does an index past the array the component
         carries (mp_cpd_n floats; UE starts a primitive's data from the parameters' defaults). An object imported
@@ -619,7 +620,7 @@ class MaterialEnv:
             def make():
                 with tr.at("Parameters"):
                     n = tr.node("ShaderNodeAttribute", name)
-                n.attribute_type = 'OBJECT'
+                n.attribute_type = 'INSTANCER'     # the instance's attribute, else the object's own property
                 n.attribute_name = name
                 return Val(n.outputs["Fac"], 1)
             return self.once("attr " + name, make)
@@ -762,7 +763,8 @@ class MaterialEnv:
         return Val(out.s, 4, tr.math('ADD', da, tr.math('MULTIPLY', tr.math('SUBTRACT', alpha, da), flag)))
 
     def instance_data(self, v, index, w):
-        """UE's PerInstanceCustomData: an instanced mesh's own floats, from the object's mp_pic<index> properties.
+        """UE's PerInstanceCustomData: an instanced mesh's own floats, from the instance's mp_pic<index> attributes
+        (a map's instanced mesh as points, see instances.py), else the object's properties of the same names.
         The material's default `v` is used where the instance has fewer than index + w of them
         (mp_pic holds the count, 0 on other objects), as UE reads past NumCustomDataFloats."""
         tr = self.tr
@@ -771,7 +773,7 @@ class MaterialEnv:
             def make():
                 with tr.at("Parameters"):
                     n = tr.node("ShaderNodeAttribute", name)
-                n.attribute_type = 'OBJECT'
+                n.attribute_type = 'INSTANCER'     # the instance's attribute, else the object's own property
                 n.attribute_name = name
                 return Val(n.outputs["Fac"], 1)
             return self.once("attr " + name, make)

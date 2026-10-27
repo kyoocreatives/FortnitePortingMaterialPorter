@@ -40,6 +40,10 @@ def after_import(mesh, obj, mesh_obj, scale, landscape_detail=1):
         present = [n for n in names.values() if n in target.data.color_attributes]
         pack(target, present, order(bpy.context.scene, present))
         target["mp_landscape"] = 1.0
+        if grass := mesh.get("MPGrass"):
+            # its material's grass outputs and their types: the editor's Scatter mode and grass_masks read them
+            import json
+            target["mp_grass"] = json.dumps(grass)
         if landscape_detail > 1:
             from .landscape_detail import reduce
             old = target.data

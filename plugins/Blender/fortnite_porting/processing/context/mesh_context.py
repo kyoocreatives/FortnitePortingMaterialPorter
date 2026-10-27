@@ -341,6 +341,7 @@ class MeshImportContext(LightImportMixin):     # MP: spot and rect lights
                 for i, slot_mat in enumerate(instance_materials):
                     instance_object.material_slots[i].material = slot_mat
 
+        imported_object = mp.instance_points(self, mesh, imported_object, parent, can_spawn_at_3d_cursor)     # MP: a map's instanced mesh as points
 
         return imported_object
     
