@@ -88,7 +88,7 @@ internal static class Program
             pipe.Connect(1000);
 
             var writer = new BinaryWriter(pipe);
-            writer.Write(args.Length > 0 ? args[0] : MaterialPorter.Fork.ShowRequest);     // MP: a plain second launch shows the running app
+            writer.Write(MaterialPorter.Fork.PipeMessage(args));     // MP: a plain second launch shows the running app
         }
         catch (Exception e)
         {

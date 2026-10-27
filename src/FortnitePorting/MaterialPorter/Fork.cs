@@ -29,6 +29,18 @@ public static partial class Fork
         return true;
     }
 
+    /// <summary>What a second launch sends the running app. Only the launched process may take the foreground,
+    /// so it hands that right on; otherwise the shown window opens behind the one in front.</summary>
+    public static string PipeMessage(string[] args)
+    {
+        if (OperatingSystem.IsWindows()) AllowSetForegroundWindow(-1);     // ASFW_ANY
+        return args.Length > 0 ? args[0] : ShowRequest;
+    }
+
+    [System.Runtime.InteropServices.LibraryImport("user32.dll")]
+    [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+    private static partial bool AllowSetForegroundWindow(int processId);
+
     public static Avalonia.Win32CompositionMode[] CompositionModes
     {
         get
