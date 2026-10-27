@@ -1282,6 +1282,8 @@ def shape_key(entry):
     (the material's group-node inputs) and texture images."""
     k = {g: entry.get(g) for g in ("graph", "master", "switches", "masks", "overrides", "asset", "subsurface", "sprite", "ribbon", "particle", "moves", "folds", "shell", "cosmetic", "fixed", "landscape_layers", "landscape_channels", "landscape_world", "landscape_images", "biome_maps", "biome_rects", "biome_follow", "landscape_dropped")}
     k["head"] = _is_head(entry)
+    if entry.get("cap"):        # a texture cap (per import): a copy keeps its source's unswapped images
+        k["cap"] = entry["cap"]
     # with a time of day in the file collections stay live; without one they are folded in
     k["day"] = world.has_day()
     return hashlib.sha1(json.dumps(k, sort_keys=True, default=str).encode()).hexdigest()[:16]

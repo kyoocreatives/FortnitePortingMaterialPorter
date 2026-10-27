@@ -355,6 +355,7 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
     # textures capped smaller (Max / Map Texture Size): a material of its own, never shared with full-size ones
     if cap := texture_cap(context):
         entry["variant"] = _digest("%s cap%d" % (entry.get("variant", ""), cap))
+        entry["cap"] = cap      # and a shape of its own: build_like shares the images it doesn't swap
     # flipbook sprite: UV0 is the sub-image the particle shows (env.uv)
     if sprite := material_data.get("MPSprite"):
         entry["sprite"] = [float(x) for x in sprite]
