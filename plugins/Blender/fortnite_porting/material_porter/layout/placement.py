@@ -4,6 +4,7 @@ from collections import defaultdict
 
 from .metrics import ALIGN, GAP_BOX_X, GAP_BOX_Y, GAP_NODE_X, GAP_NODE_Y, LABEL, PAD, PULL_UP, ROUTE_LANES
 from .routing import pull_right, pull_up, vgap, wire_routes
+from .wires import ordered_links
 
 
 # ------------------------------------------------------------------ boxes
@@ -48,7 +49,7 @@ def build_boxes(tree, tags):
                 b.kids[part].order = i
             b = b.kids[part]
         b.nodes.append(n)
-    for link in tree.links:
+    for link in ordered_links(tree):
         pu, pv = tags.get(link.from_node.name), tags.get(link.to_node.name)
         if pu is None or pv is None:
             continue

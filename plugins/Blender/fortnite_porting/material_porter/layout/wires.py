@@ -29,9 +29,27 @@ def input_socket(node, ident):
     return next(s for s in node.inputs if s.identifier == ident)
 
 
+def ordered_links(tree):
+    """tree.links by node order and socket index, not list order: the list is the order the links were made in,
+    and a build that makes the same links in another order must lay out the same."""
+    order = {n.name: i for i, n in enumerate(tree.nodes)}
+    index = {}
+
+    def at(node, output, ident):
+        if (node.name, output) not in index:
+            index[node.name, output] = {s.identifier: i for i, s in enumerate(node.outputs if output else node.inputs)}
+        return index[node.name, output].get(ident, -1)
+
+    def key(l):
+        a, b = l.from_node, l.to_node
+        return (order[b.name], at(b, False, l.to_socket.identifier), l.multi_input_sort_id,
+                order[a.name], at(a, True, l.from_socket.identifier))
+    return sorted(tree.links, key=key)
+
+
 def scan_wires(tree):
     wires = []
-    for l in tree.links:
+    for l in ordered_links(tree):
         sa = l.from_socket
         wires.append(Wire(l, l.from_node, sa.identifier, sa.type,
                            l.to_node, l.to_socket.identifier))
