@@ -363,14 +363,18 @@ def _render(objects, rect, px, zr):
 
 
 def _signature(mat):
-    """What a bake copy depends on: the material's unlinked input values (a tint changed on its group node)."""
-    vals = []
+    """What a bake copy depends on: the material's links and values (a tint on its group node, an RGB or Value node's
+    own output)."""
+    def plain(v):
+        return tuple(round(x, 5) for x in v) if hasattr(v, "__len__") else (round(v, 5) if isinstance(v, float) else str(v))
+    vals = [(l.from_node.name, l.from_socket.identifier, l.to_node.name, l.to_socket.identifier)
+            for l in mat.node_tree.links]
     for n in mat.node_tree.nodes:
         for i in n.inputs:
             if not i.is_linked and hasattr(i, "default_value"):
-                v = i.default_value
-                vals.append((n.name, i.identifier, tuple(round(x, 5) for x in v) if hasattr(v, "__len__") else
-                             (round(v, 5) if isinstance(v, float) else str(v))))
+                vals.append((n.name, i.identifier, plain(i.default_value)))
+        if n.bl_idname in ("ShaderNodeRGB", "ShaderNodeValue"):
+            vals.append((n.name, plain(n.outputs[0].default_value)))
     return str(hash(tuple(vals)))
 
 
