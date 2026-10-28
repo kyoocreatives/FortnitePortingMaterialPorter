@@ -868,6 +868,15 @@ if socks != ["Layer: Base Color", "Result: Base Color"]:
 else:
     PASSES[0] += 1
 
+# a plain value into a Material Attributes input is every attribute (Asteria grass's FN_RVT_Switch_Material)
+g = G()
+a, _ = run_attrs(g, call(g, "MF_Tint", {"Layer": vector(g, (0.4, 0.6, 0.8))}))
+check("plain value into attributes input", a["BaseColor"], (0.2, 0.3, 0.4))
+function("MF_PassAttrs", lambda g: g.add("Reroute", Input=R(fn_input(g, "Layer", "MaterialAttributes"))))
+g = G()
+a, _ = run_attrs(g, call(g, "MF_PassAttrs", {"Layer": vector(g, (0.4, 0.6, 0.8))}))
+check("plain value through attributes input", a["BaseColor"], (0.4, 0.6, 0.8))
+
 # plain pins read as attributes (a material without Material Attributes)
 g = G()
 g.save("M_plain", None)

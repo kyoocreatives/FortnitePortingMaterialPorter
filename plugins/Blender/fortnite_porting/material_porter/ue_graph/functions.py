@@ -8,7 +8,6 @@ from .core import (
     LazyInput,
     Loop,
     SpecialInputs,
-    as_attrs,
     section_name,
     socket_name,
 )
@@ -219,8 +218,8 @@ class FunctionsMixin:
                 fid, attr = key
                 lazy = ins.get(fid)
                 v = lazy.get(self) if lazy is not None else None
-                attrs = v.s if v is not None and isinstance(v.s, Attrs) else Attrs()
-                v = attrs.get(attr)
+                # a plain value wired in is every attribute (UE compiles one property at a time)
+                v = Attrs().get(attr) if v is None else self.attribute_value(v, attr)
             elif kind in ("ue", "ue_alpha"):
                 lazy = ins.get(key)
                 v = lazy.get(self) if lazy is not None else None
@@ -254,8 +253,9 @@ class FunctionsMixin:
                     def own(fid=o[1], a=a):
                         if fid not in passed:
                             lazy = ins.get(fid)
-                            passed[fid] = as_attrs(lazy.get(self) if lazy is not None else None)
-                        return passed[fid].get(a)
+                            passed[fid] = lazy.get(self) if lazy is not None else None
+                        v = passed[fid]
+                        return Attrs().get(a) if v is None else self.attribute_value(v, a)
                     got.thunks[a] = self.deferred(own)
                 elif o[0] == "const":
                     got.vals[a] = o[1]
