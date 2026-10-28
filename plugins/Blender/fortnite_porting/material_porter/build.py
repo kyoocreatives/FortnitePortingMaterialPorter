@@ -9,7 +9,7 @@ import time
 
 import bpy
 
-from . import layout
+from . import foliage, layout
 from .app_client import AppClient
 from . import world
 from .env import MaterialEnv, fit_socket, match_names
@@ -22,7 +22,7 @@ KEY_PATH = "mp_path"      # game object the material translates
 KEY_SWITCHES = "mp_switches"      # the material's static switches as built, {name: on} (JSON): the panel's features
 KEY_MAPS = "mp_map_textures"      # map-wide textures found on a custom landscape, {parameter: {texture, rects}} (JSON)
 KEY_REV = "mp_rev"        # build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 81      # bump when a builder change should rebuild existing materials
+BUILD_REVISION = 82     # bump when a builder change should rebuild existing materials
 KEY_REPLACES = "mp_replaces"
 KEY_FP = "mp_fp"          # function group fingerprint, for sharing groups
 KEY_VARIANT = "mp_variant"  # hash of a style's parameter values over the instance
@@ -65,12 +65,16 @@ def settings(entry):
     """Blend mode, shading model and the rest: instance overrides, else the master's asset, else UE's defaults."""
     asset, over = entry.get("asset") or {}, entry.get("overrides") or {}
     pick = lambda k, d: over.get(k, asset.get(k, d))
+    blend, shading = _enum(pick("BlendMode", None), "BLEND_Opaque"), _enum(pick("ShadingModel", None), "MSM_DefaultLit")
+    models, two_sided = _models(asset.get("ShadingModels")), bool(pick("TwoSided", False))
     return {
-        "blend": _enum(pick("BlendMode", None), "BLEND_Opaque"),
-        "shading": _enum(pick("ShadingModel", None), "MSM_DefaultLit"),
+        "blend": blend,
+        "shading": shading,
         # shading models it compiles (UE's ShadingModels; None if the app doesn't say)
-        "models": _models(asset.get("ShadingModels")),
-        "two_sided": bool(pick("TwoSided", False)),
+        "models": models,
+        "two_sided": two_sided,
+        # grass, leaves, bushes, trees: get the Foliage panel's base darkening
+        "foliage": foliage.is_foliage(shading, models, two_sided, blend, entry),
         "clip": float(pick("OpacityMaskClipValue", 0.3333)),
         "tangent_normal": bool(asset.get("bTangentSpaceNormal", True)),
         # how a lit translucent material is lit (None if the app doesn't say: as a surface)
@@ -112,6 +116,9 @@ def assemble(tr, mat, a, s):
                 else "MSM_DefaultLit"
         # the water medium comes from the graph's SingleLayerWaterMaterialOutput
         water = shading == "MSM_SingleLayerWater" and "WaterAbsorption" in a
+        if s.get("foliage") and tr.tree != mat.node_tree and a.get("BaseColor") is not None \
+                and a.get("Specular") is not None:
+            a["BaseColor"], a["Specular"] = foliage.darken(tr, a["BaseColor"], a["Specular"])
 
         # UE lights translucent materials from the translucency volume: diffuse only (no specular; Metallic only darkens).
         # Lit per vertex or without direction, the Normal is unused (smoke sprites' sphere normals would shade each puff as a ball).
@@ -1199,6 +1206,7 @@ def build_one(entry, app, objects=(), make_env=None):
         drop_unread_inputs(t)
     values = env.finish_parameters()
     _subsurface_panel(root)
+    foliage.panel(root)
     # twins of earlier materials' groups go first: laying out a group about to be thrown away
     # was half of all layout time
     shared, kept = share_groups(groups, owners=[root])
@@ -1428,6 +1436,7 @@ def build_like(src, entry, app):
     node = next(n for n in mat.node_tree.nodes if n.bl_idname == "ShaderNodeGroup" and n.node_tree == root1)
     node.node_tree = root2
     node.label = entry["name"]
+    foliage.reset(node)
     scalars, vectors = entry.get("scalars") or {}, entry.get("vectors") or {}
     by_id = {s.identifier: s for s in node.inputs}
     for ident, kind, name, default in params:

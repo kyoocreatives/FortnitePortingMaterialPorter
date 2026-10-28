@@ -36,6 +36,9 @@ SAVED = set()
 REWRITTEN = [0]
 # what the Geometry node gives (Blender's normal faces the viewer: flipped on a back face)
 GEOMETRY = {"Normal": (0.0, 0.0, 1.0), "Backfacing": 0.0}
+# what Attribute nodes (by name; missing ones read 0, as in Blender) and the Texture Coordinate node give
+ATTRIBUTES = {}
+TEXCOORD = {}
 
 
 # ------------------------------------------------------------ evaluator
@@ -137,6 +140,15 @@ def ev(sock, ctx=()):
             if node.clamp_factor:
                 t = max(0.0, min(1.0, t))
             return a + (b - a) * t
+        if node.data_type == 'RGBA':
+            t, a, b = i(0), i(6), i(7)
+            if node.clamp_factor:
+                t = max(0.0, min(1.0, t))
+            if node.blend_type == 'MULTIPLY':
+                b = _cw(lambda x, y: x * y, a, b)
+            elif node.blend_type != 'MIX':
+                raise RuntimeError("evaluator: no %s colour mix" % node.blend_type)
+            return _cw(lambda x, y: x + (y - x) * t, a, b)
         a, b = i(4), i(5)
         t = i(1) if node.factor_mode == 'NON_UNIFORM' else (i(0),) * 3
         return _cw(lambda x, y, s: x + (y - x) * s, a, b, t)
@@ -167,6 +179,14 @@ def ev(sock, ctx=()):
         return _cw(one, i(6), i(7), i(8), i(9), i(10))
     if k == "ShaderNodeNewGeometry":
         return GEOMETRY[sock.name]
+    if k == "ShaderNodeAttribute":
+        v = ATTRIBUTES.get(node.attribute_name, (0.0, 0.0, 0.0))
+        return _num(v) if sock.name == "Fac" else _vec(v)
+    if k == "ShaderNodeTexCoord":
+        return TEXCOORD.get(sock.name, (0.0, 0.0, 0.0))
+    if k == "ShaderNodeRGBToBW":
+        c = i(0)
+        return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]     # scene linear (Rec. 709) luminance
     if k == "ShaderNodeTexImage":
         px = tuple(node.image.pixels[:4])
         return px[3] if sock.name == "Alpha" else px[:3]
@@ -1532,6 +1552,93 @@ env.h[0] = tr
 v = tr.material_output(g.save("M_%d" % g.id, R(mix)), "EmissiveColor")
 check("map texture in a function: recorded once", len(getattr(env, "map_textures", {})), 1)
 check("map texture in a function: the biome tint lerps by the game's sample while unpainted", value(v), (0.25, 0.0, 0.75))
+
+# ------------------------------------------------------------ foliage base darkening (build.assemble + foliage.panel)
+from fpmp_baseline.material_porter import build, foliage  # noqa: E402
+
+grass_entry = {"asset": {"ShadingModel": "EMaterialShadingModel::MSM_FromMaterialExpression", "TwoSided": True,
+                         "BlendMode": "EBlendMode::BLEND_Masked", "ShadingModels": {"ShadingModelField": 6}}}
+for name, entry, want in (
+        ("grass (picks lit or subsurface, two-sided, masked)", grass_entry, True),
+        ("tree bark (lit, compiles subsurface, two-sided)", {"asset": {"ShadingModel": "MSM_DefaultLit", "TwoSided": True,
+                                                                      "ShadingModels": {"ShadingModelField": 4}}}, True),
+        ("one-sided foliage model", {"asset": {"ShadingModel": "MSM_TwoSidedFoliage"}}, True),
+        ("a one-sided prop that compiles subsurface", {"asset": {"ShadingModel": "MSM_FromMaterialExpression",
+                                                                "ShadingModels": {"ShadingModelField": 86}}}, False),
+        ("translucent two-sided subsurface", {"asset": {"ShadingModel": "MSM_Subsurface", "TwoSided": True,
+                                                        "BlendMode": "BLEND_Translucent"}}, False),
+        ("a cosmetic's two-sided subsurface", {"asset": {"ShadingModel": "MSM_Subsurface", "TwoSided": True},
+                                               "cosmetic": True}, False),
+        ("two-sided lit", {"asset": {"ShadingModel": "MSM_DefaultLit", "TwoSided": True}}, False)):
+    check("foliage: " + name, float(build.settings(entry)["foliage"]), float(want))
+
+
+def foliage_built(entry, colour=(0.4, 0.6, 0.2), specular=0.3):
+    """(material, group node) for a material of Base Color `colour` and Specular `specular` built as build_one does."""
+    nodes = [{"Type": "MaterialExpressionVectorParameter", "Name": "Bc", "Properties": {"ParameterName": "bc",
+              "DefaultValue": {"R": colour[0], "G": colour[1], "B": colour[2], "A": 1.0}}},
+             {"Type": "MaterialExpressionScalarParameter", "Name": "Sp", "Properties": {"ParameterName": "sp", "DefaultValue": specular}},
+             {"Type": "MaterialEditorOnlyData", "Name": "MaterialEditorOnlyData_0",
+              "Properties": {"BaseColor": R("Bc"), "Specular": R("Sp")}}]
+    path = os.path.join(TMP, "M_foliage_%d.json" % len(bpy.data.materials))
+    json.dump(nodes, open(path, "w", encoding="utf-8"))
+    mat = bpy.data.materials.new("foliage")
+    mat.node_tree.nodes.clear()
+    root = bpy.data.node_groups.new(mat.name, "ShaderNodeTree")
+    env = TestEnv()
+    tr = Translator(root, env)
+    env.h[0] = tr
+    build.assemble(tr, mat, tr.material_attributes(path, build.CARRIED), build.settings(dict(entry, name="foliage")))
+    foliage.panel(root)
+    node = mat.node_tree.nodes.new("ShaderNodeGroup")
+    node.node_tree = root
+    return mat, node
+
+
+def bsdf_in(node, name):
+    bsdf = next(n for n in node.node_tree.nodes if n.bl_idname == "ShaderNodeBsdfPrincipled")
+    return ev_input(bsdf.inputs[name], (node,))
+
+
+mat, node = foliage_built(grass_entry)
+items = node.node_tree.interface.items_tree
+panel = next((it for it in items if it.item_type == 'PANEL' and it.name == foliage.PANEL), None)
+check("foliage: a Foliage panel", float(panel is not None), 1.0)
+check("foliage: its three inputs in it", float(panel is not None and [it.name for it in panel.interface_items] == list(foliage.INPUTS)), 1.0)
+check("foliage: none at the root", float(any(it.name in foliage.INPUTS and it.parent != panel for it in items)), 0.0)
+check("foliage: darkening off by default", node.inputs[foliage.DARKENING].default_value, 0.0)
+ATTRIBUTES.update({"mp_part_bounds_min": (-1.0, -1.0, -0.5), "mp_part_bounds_max": (1.0, 1.0, 2.0)})
+game = {n.label: n for n in node.node_tree.nodes if n.label in ("foliage base", "foliage base specular")}
+for z in (-0.5, 0.0, 0.7, 2.0):
+    TEXCOORD["Object"] = (0.0, 0.0, z)
+    check("foliage: default leaves the game's colour exactly at z %g" % z, bsdf_in(node, "Base Color"),
+          ev_input(game["foliage base"].inputs[6], (node,)), tol=0.0)
+    check("foliage: default leaves the game's specular exactly at z %g" % z, bsdf_in(node, "Specular IOR Level"),
+          ev_input(game["foliage base specular"].inputs[2], (node,)), tol=0.0)
+check("foliage: the game's colour", bsdf_in(node, "Base Color"), (0.4, 0.6, 0.2))
+tint = tuple(node.inputs[foliage.TINT].default_value)[:3]
+node.inputs[foliage.DARKENING].default_value = 1.0
+TEXCOORD["Object"] = (0.0, 0.0, 0.0)
+check("foliage: the foot takes the tint", bsdf_in(node, "Base Color"), tuple(c * t for c, t in zip((0.4, 0.6, 0.2), tint)))
+grey = 0.2126 * tint[0] + 0.7152 * tint[1] + 0.0722 * tint[2]
+check("foliage: ...and its specular the tint's brightness", bsdf_in(node, "Specular IOR Level"), 0.3 * grey)
+TEXCOORD["Object"] = (0.0, 0.0, 2.0)
+check("foliage: the top keeps its colour", bsdf_in(node, "Base Color"), (0.4, 0.6, 0.2))
+TEXCOORD["Object"] = (0.0, 0.0, 0.5)
+node.inputs[foliage.DARKENING].default_value = 0.5
+node.inputs[foliage.HEIGHT].default_value = 0.5
+# a quarter of the way up, half of Base Height: weight 0.5 x 0.5
+check("foliage: a linear fade to Base Height, x Base Darkening",
+      bsdf_in(node, "Base Color"), tuple(c * (1.0 + 0.25 * (t - 1.0)) for c, t in zip((0.4, 0.6, 0.2), tint)))
+ATTRIBUTES.clear()
+TEXCOORD.update({"Object": (0.0, 0.0, 5.0), "Generated": (0.5, 0.5, 0.0)})
+node.inputs[foliage.HEIGHT].default_value = 1.0
+check("foliage: a mesh without part bounds fades by its generated height",
+      bsdf_in(node, "Base Color"), tuple(c * (1.0 + 0.5 * (t - 1.0)) for c, t in zip((0.4, 0.6, 0.2), tint)))
+TEXCOORD.clear()
+mat, node = foliage_built({"asset": {"ShadingModel": "MSM_DefaultLit"}})
+check("foliage: none on a lit one-sided material",
+      float(any(it.name in foliage.INPUTS + (foliage.PANEL,) for it in node.node_tree.interface.items_tree)), 0.0)
 
 check("no graph file written twice", REWRITTEN[0], 0)
 
