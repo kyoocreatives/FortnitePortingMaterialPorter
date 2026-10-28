@@ -119,6 +119,7 @@ def _built(path, variant):
     # fallbacks (island materials without a graph) from an older fallback builder are rebuilt
     return next((m for m in bpy.data.materials if m.get(build.KEY_PATH) == path
                  and m.get(build.KEY_VARIANT, "") == variant and build.KEY_REPLACES not in m
+                 and "mp_rvt_source" not in m
                  and m.get(build.KEY_REV, 1) >= build.BUILD_REVISION
                  and m.get("mp_fallback", fallback.REVISION) >= fallback.REVISION), None)
 

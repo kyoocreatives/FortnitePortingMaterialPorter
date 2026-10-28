@@ -367,9 +367,13 @@ def _signature(mat):
     own output)."""
     def plain(v):
         return tuple(round(x, 5) for x in v) if hasattr(v, "__len__") else (round(v, 5) if isinstance(v, float) else str(v))
-    vals = [(l.from_node.name, l.from_socket.identifier, l.to_node.name, l.to_socket.identifier)
-            for l in mat.node_tree.links]
+    vals = [mat.as_pointer()]
+    vals += [(l.from_node.name, l.from_socket.identifier, l.to_node.name, l.to_socket.identifier)
+             for l in mat.node_tree.links]
     for n in mat.node_tree.nodes:
+        if n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None:
+            # a reconverted material's new root group has the same node names
+            vals.append((n.name, n.node_tree.name, n.node_tree.as_pointer()))
         for i in n.inputs:
             if not i.is_linked and hasattr(i, "default_value"):
                 vals.append((n.name, i.identifier, plain(i.default_value)))
@@ -388,7 +392,12 @@ def _bake_copy(mat):
         return copy
     if copy is not None:
         bpy.data.materials.remove(copy)
+    from . import build
     copy = mat.copy()
+    # not a build: reuse by path or shape must never find it
+    for k in (build.KEY_PATH, build.KEY_VARIANT, build.KEY_REV, build.KEY_SHAPE, build.KEY_FP):
+        if k in copy:
+            del copy[k]
     copy.name, copy["mp_rvt_source"], copy["mp_rvt_sig"] = name, mat.name, sig
     tree = copy.node_tree
     out = _output(copy) if tree is not None else None

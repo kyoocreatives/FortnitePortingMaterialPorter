@@ -1374,7 +1374,7 @@ def _root_of(mat):
 def find_shape(shape):
     """A material this file already built for that shape, current and copyable."""
     return next((m for m in bpy.data.materials if m.get(KEY_SHAPE) == shape and m.get(KEY_REV, 1) >= BUILD_REVISION
-                 and _root_of(m) is not None), None)
+                 and "mp_rvt_source" not in m and _root_of(m) is not None), None)
 
 
 def build_like(src, entry, app):
