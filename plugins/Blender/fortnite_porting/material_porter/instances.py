@@ -123,6 +123,18 @@ def _attribute(mesh, name, kind, field, values):
     mesh.attributes.new(name, kind, 'POINT').data.foreach_set(field, np.ascontiguousarray(values, dtype=np.float32).ravel())
 
 
+def set_ground(points, mode, style, strength):
+    """A points object's Ground Blend (ground.py): its custom properties, which its instances' materials read."""
+    from . import ground
+    ground.set_object(points, mode, style, strength)
+
+
+def ground_of(points):
+    """{"mode", "style", "strength"} of a points object's Ground Blend."""
+    from . import ground
+    return ground.get_object(points)
+
+
 def _layer(layer, collection):
     if layer.collection == collection:
         return layer

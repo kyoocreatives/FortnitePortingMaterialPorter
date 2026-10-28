@@ -20,10 +20,10 @@ import uuid
 import bpy
 import numpy as np
 
-from . import landscape_layers, scatter_biomes, weightmaps
+from . import ground, landscape_layers, scatter_biomes, weightmaps
 
 GROUP = "FP Scatter"
-VERSION = 4
+VERSION = 5
 VERSION_KEY = "mp_scatter_version"
 KEY = "mp_scatter"
 MASK = "mp_scatter_"            # + id: the layer's paint mask (float, point domain)
@@ -36,6 +36,7 @@ CELL = ".mp_scatter_cell"       # UE grid: the cell a point started in
 HALTON_WRAP = 1 << 24           # Halton indices wrap here (its digits stay exact in float)
 PREFIX = "FP Scatter · "
 CM = 0.01
+GROUND = {"Ground Blend": ground.ATTR_BLEND, "Ground Style": ground.ATTR_STYLE, "Ground Off": ground.ATTR_OFF}
 WIND_SPRITES = "SM_Apollo_Motes"
 VIEW_LIMIT = 250000             # instances a new layer shows in the viewport before its Display % drops
 
@@ -83,6 +84,11 @@ INPUTS = (
     "Look",
     ("Biome", 'NodeSocketInt', 0, 0, 64, "The biome a map-wide biome mask reads here, 1-based (0: the world's, by "
      "position)"),
+    ("Ground Blend", 'NodeSocketFloat', 0.0, 0.0, 1.0, "How much the instances take the baked ground colour under "
+     "them (0: the game's colour)"),
+    ("Ground Style", 'NodeSocketInt', 0, 0, 1, "0: the whole blade; 1: the ground at the root fading to the plant's "
+     "colour at the top"),
+    ("Ground Off", 'NodeSocketFloat', 0.0, 0.0, 1.0, "1: a material that reads the game's RVT keeps its no-RVT colour"),
     "Display",
     ("Display %", 'NodeSocketFloat', 100.0, 0.0, 100.0, "Share of the instances shown in the viewport"),
     ("Camera Cull", 'NodeSocketBool', False, None, None, "No instances beyond Cull End from the active camera"),
@@ -255,6 +261,8 @@ def _build(tree):
                                                          _rotation(b, I, normal), _scale(b, I, weight))).outputs[0]
     inst = b.store(inst, I["Tag"], 'BOOLEAN', 'INSTANCE', True, 10, 0)
     inst = b.store(inst, scatter_biomes.CHOICE, 'INT', 'INSTANCE', I["Biome"], 10, 2)
+    for k, (name, attr) in enumerate(GROUND.items()):
+        inst = b.store(inst, attr, 'FLOAT', 'INSTANCE', I[name], 10, 4 + k)
     inst = b.store(inst, FADE, 'FLOAT', 'INSTANCE', _fade(b, I, camera), 11, 0, selection=cull)
     back = b.node("FunctionNodeInvertMatrix", 11, 3, (matrix,))
     local = b.node("GeometryNodeTransform", 12, 0, (inst, ("Mode", 'Matrix'), ("Transform", back.outputs["Matrix"])))
@@ -707,6 +715,23 @@ def set_biome(obj, layer, index):
     if mod is None:
         raise KeyError(layer)
     _apply(obj, mod, {"Biome": int(index)})
+
+
+def set_ground(obj, layer, mode, style, strength):
+    """The layer's Ground Blend (ground.MODES, ground.STYLES, strength 0..1), on its instances."""
+    mod = _modifier(obj, layer)
+    if mod is None:
+        raise KeyError(layer)
+    v = ground.values(mode, style, strength)
+    _apply(obj, mod, {name: (int(v[attr]) if name == "Ground Style" else v[attr]) for name, attr in GROUND.items()})
+    records = _records(obj)
+    records[layer]["ground"] = {"mode": mode, "style": style, "strength": float(strength)}
+    _save(obj, records)
+
+
+def ground_of(obj, layer):
+    """{"mode", "style", "strength"} of the layer's Ground Blend (Game for a new layer)."""
+    return _records(obj).get(layer, {}).get("ground") or {"mode": "Game", "style": ground.STYLES[0], "strength": 1.0}
 
 
 def layers(obj):
