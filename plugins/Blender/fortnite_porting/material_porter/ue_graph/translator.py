@@ -837,12 +837,14 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
                     rect = maptex.rect_of(found, (env.entry.get("biome_rects") or {}).get(param))
                     if image is not None and rect is not None:
                         return maptex.sample(self, image, rect, out)
-            # its own sampler (the default source) filters and addresses as the texture says; a
-            # shared sampler (world group settings) wraps or clamps as its group does
-            src = str(p.get("SamplerSource", "")).split("::")[-1]
-            own = src in ("", "SSM_FromTextureAsset")
-            address = None if own else ("Clamp", "Clamp") if "Clamp" in src or "Terrain" in src else ("Wrap", "Wrap")
-            return self.sample(tname, coords, out, p.get("SamplerType", ""), own, address)
+            elif param and getattr(env, "entry", None) is not None and "landscape_layers" not in env.entry:
+                # off landscapes (grass blades): the terrain an instance is scattered on may paint this map
+                from . import maptex
+                found = maptex.probe(self, g, p.get("Coordinates"), scope)
+                if found is not None:
+                    maptex.record(env, param, tname, found, g)
+                    return maptex.instanced(self, param, found, self._plain_sample(p, tname, coords, out), out)
+            return self._plain_sample(p, tname, coords, out)
         if t == "FunctionInput" and scope.get("_fn") is not None:
             return scope["_fn"].ue_input(x)
         if t == "FunctionInput":
@@ -875,6 +877,14 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
                 return v
         self.warnings.append("unsupported %s (%s) -> 0" % (t, x["Name"]))
         return self.const(0.0)
+
+    def _plain_sample(self, p, tname, coords, out):
+        # its own sampler (the default source) filters and addresses as the texture says; a
+        # shared sampler (world group settings) wraps or clamps as its group does
+        src = str(p.get("SamplerSource", "")).split("::")[-1]
+        own = src in ("", "SSM_FromTextureAsset")
+        address = None if own else ("Clamp", "Clamp") if "Clamp" in src or "Terrain" in src else ("Wrap", "Wrap")
+        return self.sample(tname, coords, out, p.get("SamplerType", ""), own, address)
 
     # ------------------------------------------------------ compile time
     # Static bools never become nodes: UE picks the branch while compiling,

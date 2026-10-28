@@ -8,7 +8,8 @@ about its up axis and aligned to the surface. Weight = the layer's paint mask (f
 float attribute (grass_masks' mp_grass_<name>), a packed landscape layer's colour channel, or a weightmap image's
 channel read through UV map mp_weights (weightmaps). Points are placed in world space (density per world m², height in
 world Z) and the instances are never realized. With camera cull on, each instance's fade (0 at the variety's cull
-start, 1 at its end) is in instance attribute mp_fade.
+start, 1 at its end) is in instance attribute mp_fade. Each instance carries its terrain's weightmap UV under its root
+and the layer's chosen biome (scatter_biomes: map-wide textures read off the terrain's painted maps).
 
 obj["mp_scatter"] (JSON) keeps each layer: {id: {label, source, type, variety, weight, cast_shadow}}. Settings arrive in
 the app's schema (UE units: cm, degrees) and are converted here."""
@@ -19,10 +20,10 @@ import uuid
 import bpy
 import numpy as np
 
-from . import landscape_layers, weightmaps
+from . import landscape_layers, scatter_biomes, weightmaps
 
 GROUP = "FP Scatter"
-VERSION = 3
+VERSION = 4
 VERSION_KEY = "mp_scatter_version"
 KEY = "mp_scatter"
 MASK = "mp_scatter_"            # + id: the layer's paint mask (float, point domain)
@@ -35,6 +36,7 @@ CELL = ".mp_scatter_cell"       # UE grid: the cell a point started in
 HALTON_WRAP = 1 << 24           # Halton indices wrap here (its digits stay exact in float)
 PREFIX = "FP Scatter · "
 CM = 0.01
+WIND_SPRITES = "SM_Apollo_Motes"
 VIEW_LIMIT = 250000             # instances a new layer shows in the viewport before its Display % drops
 
 SOURCES = ("None", "Attribute", "Layer", "Image")
@@ -78,6 +80,9 @@ INPUTS = (
     ("Source Channel", 'NodeSocketInt', 0, 0, 3, "Channel of the colour attribute or image: R, G, B, A"),
     ("Source Image", 'NodeSocketImage', None, None, None, "Weightmap image, read through UV map " + weightmaps.UV),
     ("Mask", 'NodeSocketString', "", None, None, "The layer's paint mask (float point attribute, absent = 1)"),
+    "Look",
+    ("Biome", 'NodeSocketInt', 0, 0, 64, "The biome a map-wide biome mask reads here, 1-based (0: the world's, by "
+     "position)"),
     "Display",
     ("Display %", 'NodeSocketFloat', 100.0, 0.0, 100.0, "Share of the instances shown in the viewport"),
     ("Camera Cull", 'NodeSocketBool', False, None, None, "No instances beyond Cull End from the active camera"),
@@ -244,9 +249,12 @@ def _build(tree):
     normal = b.node("ShaderNodeVectorMath", 7, 10, (normal, ("Scale", up)), operation='SCALE').outputs[0]
     keep, cull = _keep(b, I, weight, normal, camera, has_camera)
     item = b.node("GeometryNodeObjectInfo", 8, 6, (I["Instance"], True), transform_space='ORIGINAL')
+    points = b.store(points, scatter_biomes.UV, 'FLOAT_VECTOR', 'POINT',
+                     b.attribute('FLOAT_VECTOR', weightmaps.UV, 7, 4)["Attribute"], 8, 4)
     inst = b.node("GeometryNodeInstanceOnPoints", 9, 0, (points, keep, item.outputs["Geometry"], None, None,
                                                          _rotation(b, I, normal), _scale(b, I, weight))).outputs[0]
     inst = b.store(inst, I["Tag"], 'BOOLEAN', 'INSTANCE', True, 10, 0)
+    inst = b.store(inst, scatter_biomes.CHOICE, 'INT', 'INSTANCE', I["Biome"], 10, 2)
     inst = b.store(inst, FADE, 'FLOAT', 'INSTANCE', _fade(b, I, camera), 11, 0, selection=cull)
     back = b.node("FunctionNodeInvertMatrix", 11, 3, (matrix,))
     local = b.node("GeometryNodeTransform", 12, 0, (inst, ("Mode", 'Matrix'), ("Transform", back.outputs["Matrix"])))
@@ -673,7 +681,32 @@ def add_layer(obj, settings, instance_obj, label=None, weight=None):
                       "cast_shadow": bool(settings.get("cast_shadow", True))}
     _save(obj, records)
     set_weight(obj, layer, weight)
+    if is_wind_sprite(instance_obj):
+        mod.show_viewport = mod.show_render = False
+    scatter_biomes.refresh()
     return layer
+
+
+def is_wind_sprite(instance_obj):
+    """Fortnite's grass motes: sprites placed by World Position Offset alone, nothing to see in Blender."""
+    return instance_obj is not None and instance_obj.name.startswith(WIND_SPRITES)
+
+
+def biomes(obj, layer):
+    """[(index, name)] of the biomes the layer's instances can be set to (their material's biome mask), else []."""
+    mod = _modifier(obj, layer)
+    inst = _get(mod, "Instance") if mod is not None else None
+    if inst is None:
+        return []
+    return scatter_biomes.choices([s.material for s in inst.material_slots])
+
+
+def set_biome(obj, layer, index):
+    """The biome the layer's instances read (scatter_biomes): 1-based as biomes() lists them, 0 the world's."""
+    mod = _modifier(obj, layer)
+    if mod is None:
+        raise KeyError(layer)
+    _apply(obj, mod, {"Biome": int(index)})
 
 
 def layers(obj):

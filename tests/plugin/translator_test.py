@@ -1475,6 +1475,41 @@ go = tree.nodes.new("NodeGroupOutput"); tree.links.new(b.outputs[0], go.inputs[0
 merge_duplicates(tree)
 check("settled: constant maths folds to the group output's own value", (count(tree, "ShaderNodeMath"), round(go.inputs[0].default_value, 4)), (0, 1.0))
 
+# a map-wide texture off a landscape (a scattered grass blade's biome mask): the game's sample mixed with the shared
+# MP Biome group's by its Painted, 0 until a painted terrain fills it (scatter_biomes); on a landscape, no group
+class MapEnv(TestEnv):
+    def __init__(self, entry, **over):
+        super().__init__(**over)
+        self.entry, self.probe, self._once = entry, None, {}
+
+    def once(self, key, make):
+        k = (self.tr.tree.as_pointer(), key)
+        if k not in self._once:
+            self._once[k] = make()
+        return self._once[k]
+
+    def world_position(self, camera_relative=False):
+        return self.tr.const(self.probe if self.probe is not None else (2.0e5, -1.0e5, 0.0), 3)
+
+
+for entry, want_groups in (({}, 1), ({"landscape_layers": []}, 0)):
+    g = G()
+    wp = g.add("WorldPosition")
+    uv = g.add("Saturate", Input=R(g.add("Add", A=R(g.add("Divide", A=R(wp, 0, "RG"), B=R(g.add("Constant", R=1.0e6)))),
+                                         B=R(g.add("Constant", R=0.5)))))
+    ts = g.add("TextureSampleParameter2D", ParameterName="BiomeTexture", Coordinates=R(uv),
+               Texture={"ObjectName": "Texture2D'T_0.75_0.25_0.5'"})
+    tree = bpy.data.node_groups.new("_test", "ShaderNodeTree")
+    env = MapEnv(entry)
+    tr = Translator(tree, env)
+    env.h[0] = tr
+    v = tr.material_output(g.save("M_%d" % g.id, R(ts)), "EmissiveColor")
+    biome = [n for n in tree.nodes if n.bl_idname == "ShaderNodeGroup" and n.node_tree.name.startswith("MP Biome")]
+    tag = "off a landscape" if not entry else "on a landscape"
+    check("map texture %s: MP Biome groups" % tag, len(biome), want_groups)
+    check("map texture %s: recorded" % tag, len(getattr(env, "map_textures", {})), want_groups)
+    check("map texture %s: the game's sample while unpainted" % tag, value(v), (0.75, 0.25, 0.5))
+
 check("no graph file written twice", REWRITTEN[0], 0)
 
 print("[translator_test] %d passed, %d failed" % (PASSES[0], len(FAILS)))

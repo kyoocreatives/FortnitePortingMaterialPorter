@@ -211,11 +211,20 @@ def hide_key(image, rect, channel):
     return "mp_hide_%08x_%d_%d_%d" % (zlib.crc32(image.encode()), round(rect[0] * 1000), round(rect[1] * 1000), channel)
 
 
+def _weights_uv(tr):
+    """Where the pixel is on the weightmaps' UV map: the mesh's own, or the env's (scatter_biomes: an instance's
+    terrain's)."""
+    own = getattr(tr.env, "weights_uv", None)
+    if own is not None:
+        return own()
+    uv = tr.env.once("weights uv", lambda: tr.node("ShaderNodeUVMap", "weightmap UVs", uv_map="mp_weights"))
+    return Val(uv.outputs["UV"], 3)
+
+
 def _read(tr, image, rect):
     """The mesh's own map (`image`) over `rect`, read through the weightmaps' UV map: (colour, alpha), each channel
     zeroed while hidden (hide_key)."""
-    uv = tr.env.once("weights uv", lambda: tr.node("ShaderNodeUVMap", "weightmap UVs", uv_map="mp_weights"))
-    u, v = tr.comps(Val(uv.outputs["UV"], 3))[:2]
+    u, v = tr.comps(_weights_uv(tr))[:2]
     u0, v0, u1, v1 = rect
     cu = tr.binop('ADD', tr.const(u0), tr.binop('MULTIPLY', u, tr.const(u1 - u0)))
     cv = tr.binop('ADD', tr.const(v0), tr.binop('MULTIPLY', v, tr.const(v1 - v0)))
@@ -242,6 +251,30 @@ def sample(tr, image, rect, out):
     """The mesh's own map (`image`) over `rect`: the sample's outputs."""
     rgb, alpha = _read(tr, image, rect)
     return _outputs(tr, rgb, alpha, out)
+
+
+def instanced(tr, param, found, game, out):
+    """A map-wide sample on a mesh scattered over a terrain (scatter_biomes): the terrain's painted map where it
+    paints this texture, or the layer's chosen biome, else the game's (`game`), mixed by the shared group's
+    Painted (0 on map landscapes: the game's exactly)."""
+    from .. import scatter_biomes
+    g = scatter_biomes.group_for(param, found)
+    tr.env.uses_biomes = True       # (the build fills the groups after)
+
+    def make():
+        n = tr.node("ShaderNodeGroup", g.name)
+        n.node_tree = g
+        return n
+    n = tr.env.once("biome " + g.name, make)
+    painted = Val(n.outputs["Painted"], 1)
+    mine = _outputs(tr, Val(n.outputs["Color"], 3), Val(n.outputs["Alpha"], 1), out)
+    rgb = mine if out != 5 else Val(mine.s, 3)
+
+    def mix(a, b):
+        return tr.binop('ADD', a, tr.binop('MULTIPLY', tr.binop('SUBTRACT', b, a), painted))
+    if out == 5:
+        return tr.with_alpha(mix(Val(game.s, 3), rgb), mix(tr.alpha(game), mine.a))
+    return mix(game, rgb)
 
 
 def follow(tr, cfg, out):

@@ -22,7 +22,7 @@ KEY_PATH = "mp_path"      # game object the material translates
 KEY_SWITCHES = "mp_switches"      # the material's static switches as built, {name: on} (JSON): the panel's features
 KEY_MAPS = "mp_map_textures"      # map-wide textures found on a custom landscape, {parameter: {texture, rects}} (JSON)
 KEY_REV = "mp_rev"        # build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 80      # bump when a builder change should rebuild existing materials
+BUILD_REVISION = 81      # bump when a builder change should rebuild existing materials
 KEY_REPLACES = "mp_replaces"
 KEY_FP = "mp_fp"          # function group fingerprint, for sharing groups
 KEY_VARIANT = "mp_variant"  # hash of a style's parameter values over the instance
@@ -614,7 +614,7 @@ def _fingerprint(tree, memo):
                 if prop.identifier == "node_tree" and v is not None:
                     # world and collection groups: one each per file, growing as materials ask for more
                     # (hashing their contents would make every group around them differ)
-                    world = "mp_path" in v or v.name.startswith(("MP World", "MP Collection"))
+                    world = "mp_path" in v or v.name.startswith(("MP World", "MP Collection", "MP Biome"))
                     v = "world:" + v.name if world else v.get(KEY_FP) or _fingerprint(v, memo)
                 elif prop.identifier == "image" and v is not None:
                     v = v.filepath or v.name
@@ -1236,6 +1236,10 @@ def build_one(entry, app, objects=(), make_env=None):
             return tr.graph(path) if path else None
         # map-wide textures a custom landscape can paint, their masks named (ue_graph.maptex)
         mat[KEY_MAPS] = json.dumps(label(finish(found), graphs.values(), fetch))
+        if getattr(env, "uses_biomes", False) or entry.get("landscape_world"):
+            # scattered meshes reading them follow painted terrains (scatter_biomes)
+            from . import scatter_biomes
+            scatter_biomes.refresh()
     if entry.get("variant"):
         mat[KEY_VARIANT] = entry["variant"]
     if env.reusable:
