@@ -1684,6 +1684,10 @@ def rvt_tests():
         def once(self, key, make):
             return make()
 
+        @property
+        def foliage(self):
+            return self.over.get("foliage", True)
+
     def rvt_run(g, out, **over):
         tree = bpy.data.node_groups.new("_test", "ShaderNodeTree")
         env = RvtEnv(**over)
@@ -1696,6 +1700,7 @@ def rvt_tests():
         im = rvt.image()
         im.scale(1, 1)
         im.pixels[:] = colour
+        im.pack()       # as bake() does: it survives a reload
         bpy.context.scene[rvt.KEY] = json.dumps({"bounds": [0.0, 0.0, 10.0, 10.0], "size": [1, 1], "objects": []})
         rvt._aim(rvt.lookup_group(), [0.0, 0.0, 10.0, 10.0])
 
@@ -1724,6 +1729,22 @@ def rvt_tests():
     g = G()
     check("rvt: ...and reads again after reload",
           rvt_run(g, switch(g), world=(250.0, -250.0, 0.0))[0], 7.0)
+    g = G()
+    check("rvt: ...its colour too", rvt_run(g, sample(g, (250.0, -250.0, 0.0)))[0], (0.2, 0.4, 0.1), tol=1.0 / 255)
+
+    # scope: only foliage reading the bake's colour alone takes Yes (rocks, trees, props read its height too)
+    def read_switch(g, out):
+        rd = g.add("RuntimeVirtualTextureSample", WorldPosition=R(const3(g, (250.0, -250.0, 0.0))))
+        return g.add("VirtualTextureFeatureSwitch", No=R(const3(g, (0.9, 0.9, 0.9))), Yes=R(rd, out))
+    g = G()
+    got, _ = rvt_run(g, read_switch(g, 0), world=(250.0, -250.0, 0.0))
+    check("rvt scope: a foliage switch reading BaseColor blends", got, (0.2, 0.4, 0.1), tol=1.0 / 255)
+    g = G()
+    got, _ = rvt_run(g, read_switch(g, 4), world=(250.0, -250.0, 0.0))
+    check("rvt scope: a switch reading WorldHeight keeps No", got, (0.9, 0.9, 0.9))
+    g = G()
+    got, _ = rvt_run(g, read_switch(g, 0), world=(250.0, -250.0, 0.0), foliage=False)
+    check("rvt scope: a lit prop keeps No", got, (0.9, 0.9, 0.9))
 
     rvt.clear()
     g = G()

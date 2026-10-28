@@ -117,9 +117,9 @@ class StaticsMixin:
 
     def virtual_texture_blends(self, p):
         """Whether a VirtualTextureFeatureSwitch blends its branches by where the RVT is baked (env), rather than
-        compiling one: in a material that doesn't write the RVT, with a PC branch."""
+        compiling one: in foliage that doesn't write the RVT, with a PC branch (rocks and props: step 2)."""
         return not getattr(self, "rvt_output", None) and linked(p.get("Yes")) and \
-            getattr(self.env, "virtual_texture_available", lambda: False)()
+            getattr(self.env, "foliage", False) and getattr(self.env, "virtual_texture_available", lambda: False)()
 
     def switch_pin(self, x):
         """The input a compile-time switch compiles (COMPILE_SWITCHES)."""
@@ -191,7 +191,14 @@ class StaticsMixin:
         if t == "VirtualTextureFeatureSwitch" and self.virtual_texture_blends(p):
             # the PC branch where the file's RVT is baked, the no-VT one elsewhere
             no = self.input(g, p.get("No"), scope, self.const(0.0))
-            yes = self.input(g, p.get("Yes"), scope, self.const(0.0))
+            self.rvt_reads.append(set())
+            try:
+                yes = self.input(g, p.get("Yes"), scope, self.const(0.0))
+            finally:
+                reads = self.rvt_reads.pop()
+            if not reads <= {0}:
+                # it also reads the RVT's height, normal or roughness, which aren't baked
+                return no
             return self.lerp(no, yes, self._hook("virtual_texture_valid", lambda: None), label="where the RVT is baked")
         if t in COMPILE_SWITCHES or t == "LandscapeLayerSwitch":
             return self.input(g, self.switch_pin(x), scope, self.const(0.0))

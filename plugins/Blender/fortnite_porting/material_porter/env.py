@@ -236,6 +236,7 @@ class MaterialEnv:
 
     # a material that writes the RVT reads its own output instead (ue_graph.translator.material_attributes)
     writes_rvt = False
+    foliage = False     # build.settings' "foliage": only foliage reads the bake (statics.virtual_texture_blends)
 
     def _rvt(self, position):
         from .rvt import lookup_group

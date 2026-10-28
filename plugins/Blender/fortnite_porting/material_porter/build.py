@@ -1202,6 +1202,7 @@ def build_one(entry, app, objects=(), make_env=None):
     root = bpy.data.node_groups.new(mat.name, "ShaderNodeTree")
     env = make_env(app, entry, objects) if make_env else MaterialEnv(app, entry, objects)
     env.root = root
+    env.foliage = settings(entry)["foliage"]
     tr = Translator(root, env)
     tr.placing = Placing()
     env.h[0] = tr

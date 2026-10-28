@@ -47,6 +47,8 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         self.call_sites = {}
         self.shared_calls = set()       # names of the call nodes more than one output reads
         self.graphs = parent.graphs if parent else {}
+        # RVT outputs read while a VirtualTextureFeatureSwitch translates its Yes side (statics), functions included
+        self.rvt_reads = parent.rvt_reads if parent else []
         # material functions become shared node groups (env.nest_functions)
         self.functions = parent.functions if parent else {}
         # Material Attributes a function's group passes in and out: CARRIED, plus what this

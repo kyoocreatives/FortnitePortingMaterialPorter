@@ -304,6 +304,8 @@ class RendererMixin:
             # the terrain's virtual texture under the object: its baked Base Color (env), else a neutral surface, its
             # height far below (height blends stay off)
             pos = self.input(g, p.get("WorldPosition"), scope, None)
+            if self.rvt_reads:
+                self.rvt_reads[-1].add(out)
             return self._hook("runtime_virtual_texture", lambda: self.stand_in("runtime virtual texture", vals[min(out, 6)]),
                               out, pos)
         if t == "ParticleColor":
