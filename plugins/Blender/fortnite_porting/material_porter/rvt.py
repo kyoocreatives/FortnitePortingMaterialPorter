@@ -201,7 +201,7 @@ def bake(target=None, texel=TEXEL, max_size=MAX_SIZE, scene=None):
     scene = scene or bpy.context.scene
     targets = [o for o in _objects(target, scene) if writes(o)]
     if not targets:
-        return {"objects": 0}
+        return {"objects": 0, "reason": "nothing to bake"}
     state = {} if target is None else _state(scene)
     region, zr = _bounds(targets)
     old = state.get("bounds")

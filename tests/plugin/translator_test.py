@@ -1615,7 +1615,9 @@ def foliage_built(entry, colour=(0.4, 0.6, 0.2), specular=0.3):
     env = TestEnv()
     tr = Translator(root, env)
     env.h[0] = tr
-    build.assemble(tr, mat, tr.material_attributes(path, build.CARRIED), build.settings(dict(entry, name="foliage")))
+    vals = tr.material_attributes(path, build.CARRIED)
+    build.assemble(tr, mat, vals, build.settings(dict(entry, name="foliage")))
+    build._rvt_output(tr, entry, vals)
     foliage.panel(root)
     node = mat.node_tree.nodes.new("ShaderNodeGroup")
     node.node_tree = root
@@ -1749,6 +1751,21 @@ def _with_base(g, src):
 
 
 rvt_tests()
+
+
+# a landscape without an RVT output (Hera's proxies, custom terrain) still gives the bake its finished Base Color
+def rvt_written(entry):
+    from fpmp_baseline.material_porter import rvt
+    mat, node = foliage_built(entry, colour=(0.3, 0.2, 0.1))
+    out = next(n for n in node.node_tree.nodes if n.bl_idname == "NodeGroupOutput")
+    sock = out.inputs.get(rvt.SOCKET)
+    return None if sock is None or not sock.is_linked else ev_input(sock, (node,))
+
+
+check("rvt: a landscape writes its Base Color", rvt_written({"landscape_layers": {"Gravel": "Attribute1.R"}}),
+      (0.3, 0.2, 0.1))
+check("rvt: ...a custom terrain too", rvt_written({"landscape_images": {"Gravel": "Weightmap1.R"}}), (0.3, 0.2, 0.1))
+check("rvt: a prop writes nothing", float(rvt_written({}) is None), 1.0)
 
 check("no graph file written twice", REWRITTEN[0], 0)
 

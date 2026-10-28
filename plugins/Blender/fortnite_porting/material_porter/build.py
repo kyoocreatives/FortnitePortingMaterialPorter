@@ -536,10 +536,13 @@ def _with_alpha(tr, surface, alpha):
     return Val(mix.outputs[0], 3)
 
 
-def _rvt_output(tr):
+def _rvt_output(tr, entry, vals):
     """A material that writes the runtime virtual texture: its Base Color pin as the root's output rvt.SOCKET, shown
     to rvt.bake() by an AOV (_material_node), which also keeps it from pruning."""
     colour = tr.rvt_base_color()
+    if colour is None and any(entry.get(k) for k in ("landscape_layers", "landscape_world", "landscape_images")):
+        # a landscape without an RVT output (Hera's proxies, custom terrain): its finished Base Color
+        colour = vals.get("BaseColor")
     if colour is None:
         return
     from .rvt import SOCKET
@@ -1214,7 +1217,7 @@ def build_one(entry, app, objects=(), make_env=None):
         with tr.at("Output"):
             vals["EmissiveColor"] = tr.vmath('MAXIMUM', tr.as3(emissive), tr.const((0.0, 0.0, 0.0), 3), out_w=3)
     assemble(tr, mat, vals, settings(entry))
-    _rvt_output(tr)
+    _rvt_output(tr, entry, vals)
     tr.placing.place()
     groups = [ft.tree for ft in tr.functions.values()]
     # Merge alike nodes translation made (a texture per pin read, a group node per output of one call) and
