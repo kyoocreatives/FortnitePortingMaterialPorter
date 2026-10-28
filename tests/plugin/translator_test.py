@@ -39,6 +39,7 @@ GEOMETRY = {"Normal": (0.0, 0.0, 1.0), "Backfacing": 0.0}
 # what Attribute nodes (by name; missing ones read 0, as in Blender) and the Texture Coordinate node give
 ATTRIBUTES = {}
 TEXCOORD = {}
+OBJECT_INFO = {}    # the Object Info node's outputs by name (Location in metres)
 
 
 # ------------------------------------------------------------ evaluator
@@ -184,6 +185,8 @@ def ev(sock, ctx=()):
         return _num(v) if sock.name == "Fac" else _vec(v)
     if k == "ShaderNodeTexCoord":
         return TEXCOORD.get(sock.name, (0.0, 0.0, 0.0))
+    if k == "ShaderNodeObjectInfo":
+        return OBJECT_INFO.get(sock.name, (0.0, 0.0, 0.0))
     if k == "ShaderNodeRGBToBW":
         c = i(0)
         return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]     # scene linear (Rec. 709) luminance
@@ -1670,6 +1673,18 @@ check("foliage: none on a lit one-sided material",
       float(any(it.name in foliage.INPUTS + (foliage.PANEL,) for it in node.node_tree.interface.items_tree)), 0.0)
 
 # rvt: RVT samples read the file's bake (material_porter/rvt.py), feature switches take Yes where it's baked
+def rvt_bake_one(colour):
+    """A 1 x 1 bake over (0, 0)..(10, 10) m: the evaluator reads pixel 0 wherever it's inside."""
+    from fpmp_baseline.material_porter import rvt
+    im = rvt.image()
+    im.scale(1, 1)
+    im.pixels[:] = colour
+    im.pack()       # as bake() does: it survives a reload
+    bpy.context.scene[rvt.KEY] = json.dumps({"bounds": [0.0, 0.0, 10.0, 10.0], "size": [1, 1], "objects": []})
+    rvt._aim(rvt.lookup_group(), [0.0, 0.0, 10.0, 10.0])
+    return tuple(im.pixels[:3])
+
+
 def rvt_tests():
     from fpmp_baseline.material_porter import rvt
     from fpmp_baseline.material_porter.env import MaterialEnv
@@ -1695,14 +1710,7 @@ def rvt_tests():
         env.h[0] = tr
         return value(tr.material_output(g.save("M_%d" % g.id, out), "EmissiveColor")), tr
 
-    def bake_one(colour):
-        # a 1 x 1 bake over (0, 0)..(10, 10) m: the evaluator reads pixel 0 wherever it's inside
-        im = rvt.image()
-        im.scale(1, 1)
-        im.pixels[:] = colour
-        im.pack()       # as bake() does: it survives a reload
-        bpy.context.scene[rvt.KEY] = json.dumps({"bounds": [0.0, 0.0, 10.0, 10.0], "size": [1, 1], "objects": []})
-        rvt._aim(rvt.lookup_group(), [0.0, 0.0, 10.0, 10.0])
+    bake_one = rvt_bake_one
 
     def sample(g, pos):
         return g.add("RuntimeVirtualTextureSample", WorldPosition=R(const3(g, pos)))
@@ -1745,6 +1753,11 @@ def rvt_tests():
     g = G()
     got, _ = rvt_run(g, read_switch(g, 0), world=(250.0, -250.0, 0.0), foliage=False)
     check("rvt scope: a lit prop keeps No", got, (0.9, 0.9, 0.9))
+    ATTRIBUTES["mp_ground_off"] = 1.0
+    g = G()
+    got, _ = rvt_run(g, read_switch(g, 0), world=(250.0, -250.0, 0.0))
+    check("ground: Off forces No on an RVT reader", got, (0.9, 0.9, 0.9))
+    ATTRIBUTES.clear()
 
     rvt.clear()
     g = G()
@@ -1787,6 +1800,43 @@ check("rvt: a landscape writes its Base Color", rvt_written({"landscape_layers":
       (0.3, 0.2, 0.1))
 check("rvt: ...a custom terrain too", rvt_written({"landscape_images": {"Gravel": "Weightmap1.R"}}), (0.3, 0.2, 0.1))
 check("rvt: a prop writes nothing", float(rvt_written({}) is None), 1.0)
+
+# ground: the opt-in Ground Blend on foliage that doesn't read the RVT (ground.py), at the plant's root
+def ground_tests():
+    from fpmp_baseline.material_porter import ground
+    g = rvt_bake_one((0.3, 0.25, 0.2, 1.0))
+    base = (0.1, 0.2, 0.05)
+    k = (0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2]) / 0.25
+    whole = tuple(c * k for c in g)
+    mat, node = foliage_built(grass_entry, colour=base)
+    node.inputs[ground.REFERENCE].default_value = 0.25
+    OBJECT_INFO["Location"] = (2.5, 2.5, 0.0)        # the root over the bake
+    TEXCOORD["Generated"] = (0.5, 0.5, 0.0)          # no part bounds: height 0 at the foot
+    check("ground: Game on a non-RVT material leaves base", bsdf_in(node, "Base Color"), base)
+    ATTRIBUTES.update(ground.values("On", "Whole blade", 1.0))
+    check("ground: On, whole blade, strength 1", bsdf_in(node, "Base Color"), whole, tol=1e-3)
+    ATTRIBUTES.update(ground.values("On", "Whole blade", 0.5))
+    check("ground: strength 0.5 halves the lerp", bsdf_in(node, "Base Color"),
+          tuple(b + (w - b) * 0.5 for b, w in zip(base, whole)), tol=1e-3)
+    ATTRIBUTES.update(ground.values("On", "Root to tip", 1.0))
+    check("ground: root to tip, the foot takes the ground", bsdf_in(node, "Base Color"), whole, tol=1e-3)
+    TEXCOORD["Generated"] = (0.5, 0.5, 1.0)
+    check("ground: root to tip keeps the tip", bsdf_in(node, "Base Color"), base, tol=1e-3)
+    ATTRIBUTES.update(ground.values("On", "Whole blade", 1.0))
+    OBJECT_INFO["Location"] = (50.0, 50.0, 0.0)
+    check("ground: outside the bake leaves base", bsdf_in(node, "Base Color"), base)
+    ATTRIBUTES.update(ground.values("Off", "Whole blade", 1.0))
+    OBJECT_INFO["Location"] = (2.5, 2.5, 0.0)
+    check("ground: Off leaves base", bsdf_in(node, "Base Color"), base)
+    mat, node = foliage_built({"asset": {"ShadingModel": "MSM_DefaultLit"}})
+    check("ground: none on a lit one-sided material",
+          float(any(it.name == ground.REFERENCE for it in node.node_tree.interface.items_tree)), 0.0)
+    ATTRIBUTES.clear()
+    TEXCOORD.clear()
+    OBJECT_INFO.clear()
+
+
+ground_tests()
 
 check("no graph file written twice", REWRITTEN[0], 0)
 

@@ -49,34 +49,12 @@ def darken(tr, base, specular):
     amount = new_input(DARKENING, 'NodeSocketFloat', "How much darker foliage gets at its foot (0: the game's colour)")
     height = new_input(HEIGHT, 'NodeSocketFloat', "How far up the plant the darkening fades out (share of its height)")
     tint = new_input(TINT, 'NodeSocketColor', "The colour the foot is multiplied by at full darkening")
-
-    def node(kind, label, *links, **props):
-        n = tr.node(kind, label, **props)
-        for i, s in links:
-            tr.L.new(s, n.inputs[i])
-        return n
-
-    def attr(name):
-        return node("ShaderNodeAttribute", name, attribute_type='GEOMETRY', attribute_name=name).outputs["Vector"]
-
-    # height over the mesh's top; unmarked meshes (no part bounds) take their generated Z (0 to 1 over the box)
-    tc = node("ShaderNodeTexCoord", "texture coordinate")
-    z = node("ShaderNodeSeparateXYZ", "local position", (0, tc.outputs["Object"])).outputs["Z"]
-    top = node("ShaderNodeSeparateXYZ", "part top", (0, attr(PART_BOUNDS_MAX))).outputs["Z"]
-    top = node("ShaderNodeMath", "part top (not 0)", (0, top), operation='MAXIMUM')
-    top.inputs[1].default_value = 1e-4
-    own = node("ShaderNodeMath", "height over the top", (0, z), (1, top.outputs[0]), operation='DIVIDE')
-    size = node("ShaderNodeVectorMath", "part size", (0, attr(PART_BOUNDS_MAX)), (1, attr(PART_BOUNDS_MIN)),
-                operation='DISTANCE')
-    marked = node("ShaderNodeMath", "has part bounds", (0, size.outputs["Value"]), operation='GREATER_THAN')
-    marked.inputs[1].default_value = 1e-9
-    generated = node("ShaderNodeSeparateXYZ", "generated", (0, tc.outputs["Generated"])).outputs["Z"]
-    h = node("ShaderNodeMix", "plant height", (0, marked.outputs[0]), (2, generated), (3, own.outputs[0]),
-             data_type='FLOAT')
+    node = _maker(tr)
+    h = plant_height(tr)
     # 1 at the foot to 0 at Base Height
     span = node("ShaderNodeMath", "base height (not 0)", (0, height), operation='MAXIMUM')
     span.inputs[1].default_value = 1e-3
-    fade = node("ShaderNodeMapRange", "base fade", (0, h.outputs[0]), (2, span.outputs[0]))
+    fade = node("ShaderNodeMapRange", "base fade", (0, h), (2, span.outputs[0]))
     fade.inputs[1].default_value = 0.0
     fade.inputs[3].default_value = 1.0
     fade.inputs[4].default_value = 0.0
@@ -90,6 +68,40 @@ def darken(tr, base, specular):
     spec = node("ShaderNodeMix", "foliage base specular", (0, weight.outputs[0]), (3, dimmed.outputs[0]), data_type='FLOAT')
     tr.link(specular, spec.inputs[2])
     return Val(mix.outputs[2], 3), Val(spec.outputs[0], 1)
+
+
+def _maker(tr):
+    """node(kind, label, (input, socket)..., **props): a node with its links."""
+    def node(kind, label, *links, **props):
+        n = tr.node(kind, label, **props)
+        for i, s in links:
+            tr.L.new(s, n.inputs[i])
+        return n
+    return node
+
+
+def plant_height(tr):
+    """The point's height over its mesh's top (0 at the foot, 1 at the top), shared by the tree; unmarked meshes (no
+    part bounds) take their generated Z (0 to 1 over the box)."""
+    def make():
+        node = _maker(tr)
+
+        def attr(name):
+            return node("ShaderNodeAttribute", name, attribute_type='GEOMETRY', attribute_name=name).outputs["Vector"]
+        tc = node("ShaderNodeTexCoord", "texture coordinate")
+        z = node("ShaderNodeSeparateXYZ", "local position", (0, tc.outputs["Object"])).outputs["Z"]
+        top = node("ShaderNodeSeparateXYZ", "part top", (0, attr(PART_BOUNDS_MAX))).outputs["Z"]
+        top = node("ShaderNodeMath", "part top (not 0)", (0, top), operation='MAXIMUM')
+        top.inputs[1].default_value = 1e-4
+        own = node("ShaderNodeMath", "height over the top", (0, z), (1, top.outputs[0]), operation='DIVIDE')
+        size = node("ShaderNodeVectorMath", "part size", (0, attr(PART_BOUNDS_MAX)), (1, attr(PART_BOUNDS_MIN)),
+                    operation='DISTANCE')
+        marked = node("ShaderNodeMath", "has part bounds", (0, size.outputs["Value"]), operation='GREATER_THAN')
+        marked.inputs[1].default_value = 1e-9
+        generated = node("ShaderNodeSeparateXYZ", "generated", (0, tc.outputs["Generated"])).outputs["Z"]
+        return node("ShaderNodeMix", "plant height", (0, marked.outputs[0]), (2, generated), (3, own.outputs[0]),
+                    data_type='FLOAT').outputs[0]
+    return tr.shared("plant height", make)
 
 
 def panel(root):

@@ -199,6 +199,7 @@ class StaticsMixin:
             if not reads <= {0}:
                 # it also reads the RVT's height, normal or roughness, which aren't baked
                 return no
+            self.env.rvt_blended = True     # (build: no Ground Blend on top)
             return self.lerp(no, yes, self._hook("virtual_texture_valid", lambda: None), label="where the RVT is baked")
         if t in COMPILE_SWITCHES or t == "LandscapeLayerSwitch":
             return self.input(g, self.switch_pin(x), scope, self.const(0.0))

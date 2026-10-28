@@ -9,7 +9,7 @@ import time
 
 import bpy
 
-from . import foliage, layout
+from . import foliage, ground, layout
 from .app_client import AppClient
 from . import world
 from .env import MaterialEnv, fit_socket, match_names
@@ -118,6 +118,9 @@ def assemble(tr, mat, a, s):
         water = shading == "MSM_SingleLayerWater" and "WaterAbsorption" in a
         if s.get("foliage") and tr.tree != mat.node_tree and a.get("BaseColor") is not None \
                 and a.get("Specular") is not None:
+            if not getattr(tr.env, "rvt_blended", False):
+                # (a material that reads the RVT takes the ground its own way: statics.virtual_texture_blends)
+                a["BaseColor"] = ground.blend(tr, a["BaseColor"])
             a["BaseColor"], a["Specular"] = foliage.darken(tr, a["BaseColor"], a["Specular"])
 
         # UE lights translucent materials from the translucency volume: diffuse only (no specular; Metallic only darkens).
@@ -1232,6 +1235,7 @@ def build_one(entry, app, objects=(), make_env=None):
     values = env.finish_parameters()
     _subsurface_panel(root)
     foliage.panel(root)
+    ground.panel(root)
     # twins of earlier materials' groups go first: laying out a group about to be thrown away
     # was half of all layout time
     shared, kept = share_groups(groups, owners=[root])
@@ -1462,6 +1466,7 @@ def build_like(src, entry, app):
     node.node_tree = root2
     node.label = entry["name"]
     foliage.reset(node)
+    ground.reset(node)
     scalars, vectors = entry.get("scalars") or {}, entry.get("vectors") or {}
     by_id = {s.identifier: s for s in node.inputs}
     for ident, kind, name, default in params:

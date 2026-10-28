@@ -259,7 +259,12 @@ class MaterialEnv:
         """1 where the file's RVT is baked under the pixel: a VirtualTextureFeatureSwitch takes its PC branch there."""
         if not self.virtual_texture_available():
             return None
-        return self.once("rvt valid", lambda: Val(self._rvt(self.world_position()).outputs["Valid"], 1))
+        def make():
+            from .ground import ATTR_OFF, attribute
+            # Ground Blend Off (per instance) keeps the no-RVT side
+            on = self.tr.math('SUBTRACT', self.tr.const(1.0), attribute(self.tr, ATTR_OFF))
+            return self.tr.math('MULTIPLY', Val(self._rvt(self.world_position()).outputs["Valid"], 1), on)
+        return self.once("rvt valid", make)
 
     def light_direction(self):
         """Towards the sun: the file's sun group (driven by the scene's sun lamp or a time of day)."""
