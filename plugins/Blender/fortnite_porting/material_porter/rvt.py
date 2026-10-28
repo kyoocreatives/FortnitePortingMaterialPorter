@@ -17,6 +17,7 @@ import json
 import math
 import os
 import tempfile
+import time
 
 import bpy
 import numpy as np
@@ -195,15 +196,25 @@ def _inside(a, b):
 
 
 # ------------------------------------------------------------------ bake
-def bake(target=None, texel=TEXEL, max_size=MAX_SIZE, scene=None):
+def bake(target=None, texel=TEXEL, max_size=MAX_SIZE, scene=None, rect=None):
     """Draw what `target` (an object, a collection, a list; None: every visible writer, from scratch) writes to the
-    RVT into the file's image. Returns {"objects", "bounds", "size", "texel", "region"}."""
+    RVT into the file's image; rect (x0, y0, x1, y1 m): only that area of the last bake, redrawn from what it baked
+    (a repainted stroke; outside the bounds, everything again). Returns {"objects", "bounds", "size", "texel",
+    "region", "ms"}."""
+    t0 = time.perf_counter()
     scene = scene or bpy.context.scene
-    targets = [o for o in _objects(target, scene) if writes(o)]
+    state = {} if target is None and rect is None else _state(scene)
+    if rect is not None:
+        if not state.get("bounds") or not _inside(rect, state["bounds"]):
+            return bake(None, texel, max_size, scene)
+        targets = [o for o in (scene.objects.get(n) for n in state.get("objects") or []) if o is not None and writes(o)]
+    else:
+        targets = [o for o in _objects(target, scene) if writes(o)]
     if not targets:
         return {"objects": 0, "reason": "nothing to bake"}
-    state = {} if target is None else _state(scene)
     region, zr = _bounds(targets)
+    if rect is not None:
+        region = tuple(rect)
     old = state.get("bounds")
     im = image()
     if old and _inside(region, old) and list(im.size) == list(state.get("size") or []):
@@ -240,16 +251,36 @@ def bake(target=None, texel=TEXEL, max_size=MAX_SIZE, scene=None):
     buf[j0:j1, i0:i1] = _encode(px)
     im.pixels.foreach_set(buf.ravel())
     im.update()
-    try:
-        im.pack()
-    except RuntimeError:
-        pass
+    if full:
+        _pack(im)
+    else:
+        # packing encodes the whole image (most of a stroke's re-bake): done before the file saves instead
+        _pack_on_save()
     t = lookup_group()
     _aim(t, bounds)
     scene[KEY] = json.dumps({"bounds": bounds, "size": size, "objects": sorted(o.name for o in drawn)
                              if full else sorted(drawn_names)})
     return {"objects": len(drawn), "bounds": [round(v, 2) for v in bounds], "size": size, "texel": round(step, 4),
-            "region": [i0, j0, i1, j1]}
+            "region": [i0, j0, i1, j1], "ms": round((time.perf_counter() - t0) * 1000.0, 1)}
+
+
+def _pack(im):
+    try:
+        im.pack()
+    except RuntimeError:
+        pass
+
+
+@bpy.app.handlers.persistent
+def _pack_before_save(*_):
+    im = bpy.data.images.get(NAME)
+    if im is not None and im.is_dirty:
+        _pack(im)
+
+
+def _pack_on_save():
+    if _pack_before_save not in bpy.app.handlers.save_pre:
+        bpy.app.handlers.save_pre.append(_pack_before_save)
 
 
 def _encode(px):
@@ -268,7 +299,7 @@ def _render(objects, rect, px, zr):
     if not objects or w < 1 or h < 1:
         return np.zeros((max(h, 0), max(w, 0), 4), dtype=np.float32)
     tmp = bpy.data.scenes.new("MP RVT Bake")
-    made, swaps = [], []
+    made = []
     path = os.path.join(tempfile.gettempdir(), "mp_rvt_%d.exr" % os.getpid())
     try:
         r = tmp.render
@@ -288,6 +319,12 @@ def _render(objects, rect, px, zr):
         for o in objects:
             c = o.copy()
             c.hide_render = False
+            # each slot drawn by its material's bake copy, on the copy alone (the mesh's slots stay)
+            for slot in c.material_slots:
+                if slot.material is not None:
+                    mat = _bake_copy(slot.material)
+                    slot.link = 'OBJECT'
+                    slot.material = mat
             for m in list(c.modifiers):
                 if m.type == 'NODES' and m.node_group is not None and m.node_group.name.startswith(SCATTER):
                     c.modifiers.remove(m)
@@ -304,8 +341,6 @@ def _render(objects, rect, px, zr):
         cam.data.clip_end = (zr[1] - zr[0]) + 20.0
         cam.location = ((rect[0] + rect[2]) / 2, (rect[1] + rect[3]) / 2, zr[1] + 10.0)
         cam.rotation_euler = (0.0, 0.0, 0.0)
-        for mat in {s.material for o in objects for s in o.material_slots if s.material is not None}:
-            swaps.append(_draw_written(mat))
         bpy.ops.render.render(write_still=False, scene=tmp.name)
         result = bpy.data.images.get("Render Result")
         result.save_render(path, scene=tmp)
@@ -317,9 +352,6 @@ def _render(objects, rect, px, zr):
             bpy.data.images.remove(im)
         return buf.reshape(h, w, 4)
     finally:
-        for undo in reversed(swaps):
-            if undo is not None:
-                undo()
         for o in made:
             data = o.data if o.type == 'CAMERA' else None
             bpy.data.objects.remove(o)
@@ -330,26 +362,38 @@ def _render(objects, rect, px, zr):
             os.remove(path)
 
 
-def _draw_written(mat):
-    """Make the material's surface a flat emission of what it writes to the RVT (transparent when it writes none);
-    returns the undo."""
-    tree = mat.node_tree
-    out = _output(mat) if tree is not None else None
-    if out is None:
-        return None
-    src = _source(mat)
-    old = out.inputs["Surface"].links[0].from_socket if out.inputs["Surface"].is_linked else None
-    old_method = mat.surface_render_method
-    em = tree.nodes.new("ShaderNodeEmission" if src is not None else "ShaderNodeBsdfTransparent")
-    em.label = "MP RVT bake"
-    if src is not None:
-        tree.links.new(src, em.inputs["Color"])
-    tree.links.new(em.outputs[0], out.inputs["Surface"])
-    mat.surface_render_method = 'DITHERED'
+def _signature(mat):
+    """What a bake copy depends on: the material's unlinked input values (a tint changed on its group node)."""
+    vals = []
+    for n in mat.node_tree.nodes:
+        for i in n.inputs:
+            if not i.is_linked and hasattr(i, "default_value"):
+                v = i.default_value
+                vals.append((n.name, i.identifier, tuple(round(x, 5) for x in v) if hasattr(v, "__len__") else
+                             (round(v, 5) if isinstance(v, float) else str(v))))
+    return str(hash(tuple(vals)))
 
-    def undo():
-        tree.nodes.remove(em)
-        if old is not None:
-            tree.links.new(old, out.inputs["Surface"])
-        mat.surface_render_method = old_method
-    return undo
+
+def _bake_copy(mat):
+    """The material drawing a flat emission of what it writes to the RVT (transparent when it writes none). Kept
+    between bakes, so its shader compiles once: rewiring the material itself recompiled a landscape's every stroke."""
+    name = "MP RVT · " + mat.name
+    sig = _signature(mat) if mat.node_tree is not None else ""
+    copy = bpy.data.materials.get(name)
+    if copy is not None and copy.get("mp_rvt_source") == mat.name and copy.get("mp_rvt_sig") == sig:
+        return copy
+    if copy is not None:
+        bpy.data.materials.remove(copy)
+    copy = mat.copy()
+    copy.name, copy["mp_rvt_source"], copy["mp_rvt_sig"] = name, mat.name, sig
+    tree = copy.node_tree
+    out = _output(copy) if tree is not None else None
+    if out is not None:
+        src = _source(copy)
+        em = tree.nodes.new("ShaderNodeEmission" if src is not None else "ShaderNodeBsdfTransparent")
+        em.label = "MP RVT bake"
+        if src is not None:
+            tree.links.new(src, em.inputs["Color"])
+        tree.links.new(em.outputs[0], out.inputs["Surface"])
+        copy.surface_render_method = 'DITHERED'
+    return copy
