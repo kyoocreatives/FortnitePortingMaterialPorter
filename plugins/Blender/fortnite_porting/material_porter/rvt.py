@@ -31,6 +31,9 @@ VERSION = 1
 TEXEL = 0.1                 # m: the finest texel (the game's RVT is far finer; the grass reads it at mip 0)
 MAX_SIZE = 4096             # px per side (bytes: 64 MB for a full image)
 SCATTER = "FP Scatter"      # node groups of scatter layers (scatter.group): not drawn into the RVT
+PACKED = "mp_rvt_packed"    # on the scene: when the bake its packed image holds was made
+IMAGE = {"packed": None}    # the PACKED the image's pixels are from
+UNDONE = []                 # fn(scene, packed) after undo or redo put the image back (the editor's Auto update)
 
 
 # ------------------------------------------------------------------ lookup
@@ -199,10 +202,11 @@ def _inside(a, b):
 def bake(target=None, texel=TEXEL, max_size=MAX_SIZE, scene=None, rect=None):
     """Draw what `target` (an object, a collection, a list; None: every visible writer, from scratch) writes to the
     RVT into the file's image; rect (x0, y0, x1, y1 m): only that area of the last bake, redrawn from what it baked
-    (a repainted stroke; outside the bounds, everything again). Returns {"objects", "bounds", "size", "texel",
-    "region", "ms"}."""
+    (a repainted stroke; outside the bounds, everything again). All but a stroke's pack the image, which undo reads
+    back. Returns {"objects", "bounds", "size", "texel", "region", "packed", "ms"}."""
     t0 = time.perf_counter()
     scene = scene or bpy.context.scene
+    stroke = rect is not None
     state = {} if target is None and rect is None else _state(scene)
     if rect is not None:
         if not state.get("bounds") or not _inside(rect, state["bounds"]):
@@ -250,18 +254,24 @@ def bake(target=None, texel=TEXEL, max_size=MAX_SIZE, scene=None, rect=None):
         buf = buf.reshape(size[1], size[0], 4)
     buf[j0:j1, i0:i1] = _encode(px)
     im.pixels.foreach_set(buf.ravel())
+    _watch_undo(scene)
     im.update()
-    if full:
+    packed = False
+    if full or not stroke:
         _pack(im)
+        packed = im.packed_file is not None
     else:
         # packing encodes the whole image (most of a stroke's re-bake): done before the file saves instead
         _pack_on_save()
+    if packed:
+        # undo reads the pixels back from the packed bake this stamp names
+        scene[PACKED] = IMAGE["packed"] = time.time()
     t = lookup_group()
     _aim(t, bounds)
     scene[KEY] = json.dumps({"bounds": bounds, "size": size, "objects": sorted(o.name for o in drawn)
                              if full else sorted(drawn_names)})
     return {"objects": len(drawn), "bounds": [round(v, 2) for v in bounds], "size": size, "texel": round(step, 4),
-            "region": [i0, j0, i1, j1], "ms": round((time.perf_counter() - t0) * 1000.0, 1)}
+            "region": [i0, j0, i1, j1], "packed": packed, "ms": round((time.perf_counter() - t0) * 1000.0, 1)}
 
 
 def _pack(im):
@@ -281,6 +291,42 @@ def _pack_before_save(*_):
 def _pack_on_save():
     if _pack_before_save not in bpy.app.handlers.save_pre:
         bpy.app.handlers.save_pre.append(_pack_before_save)
+
+
+@bpy.app.handlers.persistent
+def _undone(*_):
+    """Undo puts the scene's bake state back but not always the image's pixels (a partial re-bake leaves the image
+    unchanged for undo): read them again from the packed bake when the state names another one."""
+    scene = bpy.context.scene
+    want, state = scene.get(PACKED), _state(scene)
+    im = bpy.data.images.get(NAME)
+    if im is not None and (want != IMAGE["packed"] or (state.get("size") and list(im.size) != list(state["size"]))):
+        if im.packed_file is not None:
+            im.reload()
+        else:       # no bake: the empty image
+            im.scale(1, 1)
+            im.pixels[:] = (0.5, 0.5, 0.5, 0.0)
+    IMAGE["packed"] = want
+    for fn in UNDONE:
+        fn(scene, want)
+
+
+@bpy.app.handlers.persistent
+def _loaded(*_):
+    IMAGE["packed"] = bpy.context.scene.get(PACKED)
+
+
+def _watch_undo(scene):
+    """Undo handlers on from the first bake; the pixels until then are the loaded file's bake."""
+    if _undone in bpy.app.handlers.undo_post:
+        return
+    IMAGE["packed"] = scene.get(PACKED)
+    for name, fn in (("undo_post", _undone), ("redo_post", _undone), ("load_post", _loaded)):
+        handlers = getattr(bpy.app.handlers, name)
+        # one each, a reloaded module's replacing the old
+        for h in [h for h in handlers if getattr(h, "__module__", None) == __name__ and h.__name__ == fn.__name__]:
+            handlers.remove(h)
+        handlers.append(fn)
 
 
 def _encode(px):
