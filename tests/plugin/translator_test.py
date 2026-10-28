@@ -1510,6 +1510,29 @@ for entry, want_groups in (({}, 1), ({"landscape_layers": []}, 0)):
     check("map texture %s: recorded" % tag, len(getattr(env, "map_textures", {})), want_groups)
     check("map texture %s: the game's sample while unpainted" % tag, value(v), (0.75, 0.25, 0.5))
 
+
+# ... read inside a function, as a ground cover's layer colour lerps its biome tints (MF_Hera_Gravel_BiomeColor ->
+# MF_HeraBiomeMasks_Isolated -> MF_Hera_BiomeMasks): still one group, the game's sample while unpainted
+def _biome_mask(fg):
+    wp = fg.add("WorldPosition")
+    uv = fg.add("Saturate", Input=R(fg.add("Add", A=R(fg.add("Divide", A=R(wp, 0, "RG"), B=R(fg.add("Constant", R=1.0e6)))),
+                                           B=R(fg.add("Constant", R=0.5)))))
+    return fg.add("TextureSampleParameter2D", ParameterName="BiomeTexture", Coordinates=R(uv),
+                  Texture={"ObjectName": "Texture2D'T_0.75_0.25_0.5'"})
+
+
+function("F_BiomeMaskIn", _biome_mask)
+g = G()
+mix = g.add("LinearInterpolate", A=R(const3(g, (1.0, 0.0, 0.0))), B=R(const3(g, (0.0, 0.0, 1.0))),
+            Alpha=R(call(g, "F_BiomeMaskIn", {}), 0, "R"))
+tree = bpy.data.node_groups.new("_test", "ShaderNodeTree")
+env = MapEnv({})
+tr = Translator(tree, env)
+env.h[0] = tr
+v = tr.material_output(g.save("M_%d" % g.id, R(mix)), "EmissiveColor")
+check("map texture in a function: recorded once", len(getattr(env, "map_textures", {})), 1)
+check("map texture in a function: the biome tint lerps by the game's sample while unpainted", value(v), (0.25, 0.0, 0.75))
+
 check("no graph file written twice", REWRITTEN[0], 0)
 
 print("[translator_test] %d passed, %d failed" % (PASSES[0], len(FAILS)))
