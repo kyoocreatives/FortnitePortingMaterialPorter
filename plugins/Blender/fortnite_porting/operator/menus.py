@@ -13,6 +13,7 @@ class FPMP_MT_ExactSpecials(bpy.types.Menu):
         layout.operator("fpmp.remove_wrap", text="Remove Wrap from Selected")
         layout.operator("fpmp.road_from_curve")
         layout.operator("fpmp.restore_landscape")
+        layout.operator("fpmp.bake_rvt")
         layout.separator()
         layout.operator("fpmp.fix_materials", text="Fix FP Materials...").ask = True
         if fixer.islands_available():
@@ -31,6 +32,7 @@ class FPMP_MT_Object(bpy.types.Menu):
         layout.separator()
         layout.operator("fpmp.road_from_curve")
         layout.operator("fpmp.restore_landscape")
+        layout.operator("fpmp.bake_rvt")
         layout.operator("fpmp.fix_materials", text="Fix FP Materials...").ask = True
         layout.separator()
         layout.operator("fpmp.official_rig")

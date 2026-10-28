@@ -1667,6 +1667,89 @@ mat, node = foliage_built({"asset": {"ShadingModel": "MSM_DefaultLit"}})
 check("foliage: none on a lit one-sided material",
       float(any(it.name in foliage.INPUTS + (foliage.PANEL,) for it in node.node_tree.interface.items_tree)), 0.0)
 
+# rvt: RVT samples read the file's bake (material_porter/rvt.py), feature switches take Yes where it's baked
+def rvt_tests():
+    from fpmp_baseline.material_porter import rvt
+    from fpmp_baseline.material_porter.env import MaterialEnv
+
+    class RvtEnv(TestEnv):
+        writes_rvt, probe = False, None
+        runtime_virtual_texture = MaterialEnv.runtime_virtual_texture
+        virtual_texture_available = MaterialEnv.virtual_texture_available
+        virtual_texture_valid = MaterialEnv.virtual_texture_valid
+        _rvt = MaterialEnv._rvt
+
+        def once(self, key, make):
+            return make()
+
+    def rvt_run(g, out, **over):
+        tree = bpy.data.node_groups.new("_test", "ShaderNodeTree")
+        env = RvtEnv(**over)
+        tr = Translator(tree, env)
+        env.h[0] = tr
+        return value(tr.material_output(g.save("M_%d" % g.id, out), "EmissiveColor")), tr
+
+    def bake_one(colour):
+        # a 1 x 1 bake over (0, 0)..(10, 10) m: the evaluator reads pixel 0 wherever it's inside
+        im = rvt.image()
+        im.scale(1, 1)
+        im.pixels[:] = colour
+        bpy.context.scene[rvt.KEY] = json.dumps({"bounds": [0.0, 0.0, 10.0, 10.0], "size": [1, 1], "objects": []})
+        rvt._aim(rvt.lookup_group(), [0.0, 0.0, 10.0, 10.0])
+
+    def sample(g, pos):
+        return g.add("RuntimeVirtualTextureSample", WorldPosition=R(const3(g, pos)))
+
+    def switch(g):
+        return g.add("VirtualTextureFeatureSwitch", No=R(scalar(g, 3.0)), Yes=R(scalar(g, 7.0)))
+
+    bake_one((0.2, 0.4, 0.1, 1.0))
+    g = G()
+    got, _ = rvt_run(g, sample(g, (250.0, -250.0, 0.0)))
+    check("rvt: a sample reads the bake's Base Color", got, (0.2, 0.4, 0.1), tol=1.0 / 255)    # a byte image
+    g = G()
+    check("rvt: feature switch takes Yes where baked", rvt_run(g, switch(g), world=(250.0, -250.0, 0.0))[0], 7.0)
+    g = G()
+    check("rvt: ...and No outside the bake", rvt_run(g, switch(g), world=(5000.0, 5000.0, 0.0))[0], 3.0)
+    g = G()
+    got, _ = rvt_run(g, sample(g, (5000.0, 5000.0, 0.0)))
+    check("rvt: outside the bake, neutral grey", got, (0.5, 0.5, 0.5))
+
+    path = os.path.join(TMP, "rvt_saved.blend")
+    bpy.ops.wm.save_as_mainfile(filepath=path, copy=True)
+    bpy.ops.wm.open_mainfile(filepath=path)
+    check("rvt: a saved bake reloads", float(rvt.baked().get("bounds") == [0.0, 0.0, 10.0, 10.0]), 1.0)
+    g = G()
+    check("rvt: ...and reads again after reload",
+          rvt_run(g, switch(g), world=(250.0, -250.0, 0.0))[0], 7.0)
+
+    rvt.clear()
+    g = G()
+    check("rvt: no bake, the No branch", rvt_run(g, switch(g), world=(250.0, -250.0, 0.0))[0], 3.0)
+
+    # a landscape reads what it writes itself, never the bake
+    bake_one((0.2, 0.4, 0.1, 1.0))
+    g = G()
+    own = const3(g, (0.7, 0.6, 0.5))
+    g.add("RuntimeVirtualTextureOutput", BaseColor=R(own))
+    rd = sample(g, (250.0, -250.0, 0.0))
+    tree = bpy.data.node_groups.new("_test", "ShaderNodeTree")
+    env = RvtEnv()
+    tr = Translator(tree, env)
+    env.h[0] = tr
+    vals = tr.material_attributes(_with_base(g, rd))
+    check("rvt: a writer reads its own output", value(vals["BaseColor"]), (0.7, 0.6, 0.5))
+    check("rvt: ...without the bake's group", float(any(n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None
+                                                         and n.node_tree.name == rvt.NAME for n in tree.nodes)), 0.0)
+
+
+def _with_base(g, src):
+    """The graph saved with src on its BaseColor pin (a plain-pin material)."""
+    return g.save("M_%d" % g.id, src, pin="BaseColor")
+
+
+rvt_tests()
+
 check("no graph file written twice", REWRITTEN[0], 0)
 
 print("[translator_test] %d passed, %d failed" % (PASSES[0], len(FAILS)))

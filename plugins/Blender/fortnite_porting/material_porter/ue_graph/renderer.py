@@ -301,9 +301,11 @@ class RendererMixin:
                 # the Normal's pass reads its own copy: the main one may read PixelNormalWS (Hera's snow), a loop
                 own = {"_id": PIXEL_NORMAL} if self.section[:1] == [NORMAL_PASS] else {}
                 return self.input(rg, rp.get(pin), own, vals[min(out, 6)])
-            # the terrain's virtual texture under the object: none here - a
-            # neutral surface, its height far below (height blends stay off)
-            return self.stand_in("runtime virtual texture", vals[min(out, len(vals) - 1)])
+            # the terrain's virtual texture under the object: its baked Base Color (env), else a neutral surface, its
+            # height far below (height blends stay off)
+            pos = self.input(g, p.get("WorldPosition"), scope, None)
+            return self._hook("runtime_virtual_texture", lambda: self.stand_in("runtime virtual texture", vals[min(out, 6)]),
+                              out, pos)
         if t == "ParticleColor":
             rgb, a = self._hook("particle_color", lambda: (self.const((1.0, 1.0, 1.0), 3), self.const(1.0)))
             return self.rgba_out(rgb, a, out)

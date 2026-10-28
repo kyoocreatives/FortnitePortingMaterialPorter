@@ -22,7 +22,7 @@ KEY_PATH = "mp_path"      # game object the material translates
 KEY_SWITCHES = "mp_switches"      # the material's static switches as built, {name: on} (JSON): the panel's features
 KEY_MAPS = "mp_map_textures"      # map-wide textures found on a custom landscape, {parameter: {texture, rects}} (JSON)
 KEY_REV = "mp_rev"        # build revision that made it (older ones are rebuilt, not reused)
-BUILD_REVISION = 83     # bump when a builder change should rebuild existing materials
+BUILD_REVISION = 84     # bump when a builder change should rebuild existing materials
 KEY_REPLACES = "mp_replaces"
 KEY_FP = "mp_fp"          # function group fingerprint, for sharing groups
 KEY_VARIANT = "mp_variant"  # hash of a style's parameter values over the instance
@@ -536,6 +536,19 @@ def _with_alpha(tr, surface, alpha):
     return Val(mix.outputs[0], 3)
 
 
+def _rvt_output(tr):
+    """A material that writes the runtime virtual texture: its Base Color pin as the root's output rvt.SOCKET, shown
+    to rvt.bake() by an AOV (_material_node), which also keeps it from pruning."""
+    colour = tr.rvt_base_color()
+    if colour is None:
+        return
+    from .rvt import SOCKET
+    with tr.at("Output"):
+        tr.tree.interface.new_socket(SOCKET, in_out='OUTPUT', socket_type='NodeSocketColor')
+        out = next(n for n in tr.tree.nodes if n.bl_idname == "NodeGroupOutput")
+        tr.link(tr.as3(colour), out.inputs[SOCKET])
+
+
 def _material_node(mat, root, label, values, width):
     """The material's tree: the group node with the parameter values in its sockets, feeding the Material Output."""
     tree = mat.node_tree
@@ -554,6 +567,13 @@ def _material_node(mat, root, label, values, width):
         tree.links.new(node.outputs["Thickness"], out.inputs["Thickness"])
     if "Displacement" in node.outputs:
         tree.links.new(node.outputs["Displacement"], out.inputs["Displacement"])
+    from .rvt import AOV, SOCKET
+    if SOCKET in node.outputs:
+        aov = tree.nodes.new("ShaderNodeOutputAOV")
+        aov.aov_name = AOV
+        aov.location = (0.0, -200.0)
+        aov[SECTION_KEY] = ""
+        tree.links.new(node.outputs[SOCKET], aov.inputs["Color"])
     node.location = (-width - 60.0, 0.0)
     out.location = (0.0, 0.0)
     tree.nodes.active = node
@@ -1194,6 +1214,7 @@ def build_one(entry, app, objects=(), make_env=None):
         with tr.at("Output"):
             vals["EmissiveColor"] = tr.vmath('MAXIMUM', tr.as3(emissive), tr.const((0.0, 0.0, 0.0), 3), out_w=3)
     assemble(tr, mat, vals, settings(entry))
+    _rvt_output(tr)
     tr.placing.place()
     groups = [ft.tree for ft in tr.functions.values()]
     # Merge alike nodes translation made (a texture per pin read, a group node per output of one call) and

@@ -59,7 +59,7 @@ UE_DEFAULTS = {
 #   FeatureLevelSwitch  Inputs[4] = SM6 (DX12)
 #   ShadingPathSwitch   Inputs[0] = Deferred (serialized as "Inputs")
 # Virtual-texture and distance-field switches take "No", the branch Blender can
-# draw ("Yes" samples renderer-only data).
+# draw ("Yes" samples renderer-only data); a virtual-texture switch blends to "Yes" where an RVT is baked (env).
 COMPILE_SWITCHES = {
     "QualitySwitch": ("Inputs[3]", "Default"),
     "FeatureLevelSwitch": ("Inputs[4]", "Default"),
@@ -455,8 +455,8 @@ UNREAD_PINS = {
     "SceneDepthWithoutWater": {"Input"},
     "SceneTexture": {"Coordinates"}, "DistanceFieldApproxAO": {"BaseDistance", "Radius", "Normal", "Position"},
     "SkyAtmosphereLightIlluminance": {"WorldPosition"}, "SamplePhysicsVectorField": {"WorldPosition"},
-    "RuntimeVirtualTextureSampleParameter": {"WorldPosition", "Coordinates"},
-    "RuntimeVirtualTextureSample": {"WorldPosition", "Coordinates"},
+    "RuntimeVirtualTextureSampleParameter": {"Coordinates"},
+    "RuntimeVirtualTextureSample": {"Coordinates"},
 }
 
 

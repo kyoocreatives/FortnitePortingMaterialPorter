@@ -370,6 +370,26 @@ class FPMP_OT_RestoreLandscape(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FPMP_OT_BakeRVT(bpy.types.Operator):
+    """Bake what the selected landscapes (none selected: all) write to the game's runtime virtual texture, which
+    grass and rocks on them read for the ground's colour. Run it again after repainting"""
+    bl_idname = "fpmp.bake_rvt"
+    bl_label = "Bake Landscape Colour"
+    bl_options = {'REGISTER', 'UNDO'}
+
+    @classmethod
+    def poll(cls, context):
+        from ..material_porter import rvt
+        return any(rvt.writes(o) for o in context.scene.objects)
+
+    def execute(self, context):
+        from ..material_porter import rvt
+        picked = [o for o in context.selected_objects if rvt.writes(o)]
+        done = rvt.bake(picked or None)
+        self.report({'INFO'}, "Landscape colour: %d object(s) baked, %d x %d px" % (done["objects"], *done.get("size", (0, 0))))
+        return {'FINISHED'}
+
+
 class FPMP_OT_RoadFromCurve(bpy.types.Operator):
     """Run the selected road segment mesh along the active curve, the way Fortnite's road splines repeat one segment
     (select the segment, then the curve last)"""
@@ -520,7 +540,7 @@ def _set_animated(scene, on):
     material_time.set_animated(on, scene)
 
 
-classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_OT_MaterialAnimation, FPMP_OT_RoadFromCurve, FPMP_OT_RestoreLandscape, FPMP_PT_Effect, FPMP_PT_Exact, FPMP_OT_CreatureRig, FPMP_OT_OfficialRig, FPMP_OT_VehicleRig, FPMP_OT_LegoRig,
+classes = (FPMP_OT_ConvertExact, FPMP_OT_RemoveWrap, FPMP_OT_ReplayEffect, FPMP_OT_MaterialAnimation, FPMP_OT_BakeRVT, FPMP_OT_RoadFromCurve, FPMP_OT_RestoreLandscape, FPMP_PT_Effect, FPMP_PT_Exact, FPMP_OT_CreatureRig, FPMP_OT_OfficialRig, FPMP_OT_VehicleRig, FPMP_OT_LegoRig,
            FPMP_OT_AddShellFur, FPMP_OT_RemoveShellFur, FPMP_PT_ShellFur)
 
 

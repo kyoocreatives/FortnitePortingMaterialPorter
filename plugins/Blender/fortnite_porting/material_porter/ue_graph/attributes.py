@@ -46,6 +46,9 @@ class AttributesMixin:
             return self.passthrough(g, decl["Properties"].get("Input"), scope) if decl else {}
         if t in ("StaticSwitch", "StaticSwitchParameter"):
             return self.passthrough(g, p.get("A" if self.switch_value(g, x, scope) else "B"), scope)
+        if t == "VirtualTextureFeatureSwitch" and self.virtual_texture_blends(p):
+            no, yes = self.passthrough(g, p.get("No"), scope), self.passthrough(g, p.get("Yes"), scope)
+            return {a: s for a, s in no.items() if yes.get(a) == s}
         if t in COMPILE_SWITCHES:
             return self.passthrough(g, self.switch_pin(x), scope)
         if t == "FunctionInput" and p.get("InputType") == ATTRIBUTES_INPUT and scope.get("_fn") is not None:

@@ -462,6 +462,8 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         self.rvt_output = (g, next((x for x in g.o if T(x) == "RuntimeVirtualTextureOutput"), None))
         if self.rvt_output[1] is None:
             self.rvt_output = None
+        else:
+            self.env.writes_rvt = True     # (its functions' samples too: no baked lookup of itself)
         if linked(pins.get("MaterialAttributes")):
             v = self.input(g, pins["MaterialAttributes"], {}, None)
             attrs = v.s if v is not None and isinstance(v.s, Attrs) else Attrs()
@@ -488,6 +490,14 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             out[n] = self.input(g, pins[pin], {}, None) if pin else attribute_default(n)
         out.update(self.water_outputs(g))
         return out
+
+    def rvt_base_color(self):
+        """What the material writes to its runtime virtual texture's Base Color (None when it writes none); the same
+        nodes as its own read of it."""
+        if not getattr(self, "rvt_output", None):
+            return None
+        rg, rx = self.rvt_output
+        return self.input(rg, (rx.get("Properties") or {}).get("BaseColor"), {}, None)
 
     @contextlib.contextmanager
     def normal_pass(self):

@@ -234,6 +234,32 @@ class MaterialEnv:
         p = self.once("actor", make)
         return self.tr.vmath('SUBTRACT', p, self.camera_position(), out_w=3) if camera_relative else p
 
+    # a material that writes the RVT reads its own output instead (ue_graph.translator.material_attributes)
+    writes_rvt = False
+
+    def _rvt(self, position):
+        from .rvt import lookup_group
+        n = self.tr.node("ShaderNodeGroup", "Runtime Virtual Texture")
+        n.node_tree = lookup_group()
+        self.tr.link(self.tr.as3(position), n.inputs["Position"])
+        return n
+
+    def runtime_virtual_texture(self, out, position):
+        """A RuntimeVirtualTextureSample's output out at position (UE cm; None: the pixel's): Base Color from the
+        file's baked RVT (rvt.py); None for the outputs it doesn't bake (the translator's stand-ins)."""
+        if out != 0 or self.writes_rvt or self.probe is not None:
+            return None
+        return Val(self._rvt(position or self.world_position()).outputs["Base Color"], 3)
+
+    def virtual_texture_available(self):
+        return not self.writes_rvt and self.probe is None
+
+    def virtual_texture_valid(self):
+        """1 where the file's RVT is baked under the pixel: a VirtualTextureFeatureSwitch takes its PC branch there."""
+        if not self.virtual_texture_available():
+            return None
+        return self.once("rvt valid", lambda: Val(self._rvt(self.world_position()).outputs["Valid"], 1))
+
     def light_direction(self):
         """Towards the sun: the file's sun group (driven by the scene's sun lamp or a time of day)."""
         return world.sun(self.tr)
