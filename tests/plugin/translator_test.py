@@ -1840,6 +1840,10 @@ def ground_tests():
     ATTRIBUTES.update(ground.values("Off", "Whole blade", 1.0))
     OBJECT_INFO["Location"] = (2.5, 2.5, 0.0)
     check("ground: Off leaves base", bsdf_in(node, "Base Color"), base)
+    # a pale blade over the reference scales the ground by 2 at most (0.9 / 0.12 would be 7.5)
+    mat, node = foliage_built(grass_entry, colour=(0.9, 0.9, 0.9))
+    ATTRIBUTES.update(ground.values("On", "Whole blade", 1.0))
+    check("ground: a pale blade's scale clamps at 2", bsdf_in(node, "Base Color"), tuple(c * 2.0 for c in g), tol=1e-3)
     mat, node = foliage_built({"asset": {"ShadingModel": "MSM_DefaultLit"}})
     check("ground: none on a lit one-sided material",
           float(any(it.name == ground.REFERENCE for it in node.node_tree.interface.items_tree)), 0.0)

@@ -52,7 +52,8 @@ def blend(tr, base):
 
     lum = Val(tr.node("ShaderNodeRGBToBW", "base brightness").outputs[0], 1)
     tr.link(tr.as3(base), lum.s.node.inputs[0])
-    k = tr.math('DIVIDE', lum, tr.math('MAXIMUM', ref, tr.const(1e-3)))
+    # at most 2: a pale blade over a dark reference would multiply the ground by 5 or more
+    k = tr.math('MINIMUM', tr.math('DIVIDE', lum, tr.math('MAXIMUM', ref, tr.const(1e-3))), tr.const(2.0))
     whole = tr.vmath('SCALE', ground, k, out_w=3)
     h = Val(foliage.plant_height(tr), 1)
     tip = tr.lerp(whole, tr.as3(base), tr.math('POWER', h, tr.const(3.0)), label="root to tip")
