@@ -665,6 +665,15 @@ def _modifier(obj, layer):
     return None
 
 
+def _current(obj, layer):
+    """The layer's modifier, on the current group (an older file's is rebuilt first, so newer inputs exist)."""
+    group()
+    mod = _modifier(obj, layer)
+    if mod is None:
+        raise KeyError(layer)
+    return mod
+
+
 def _apply(obj, mod, values):
     for name, value in values.items():
         _set(mod, name, value)
@@ -711,17 +720,13 @@ def biomes(obj, layer):
 
 def set_biome(obj, layer, index):
     """The biome the layer's instances read (scatter_biomes): 1-based as biomes() lists them, 0 the world's."""
-    mod = _modifier(obj, layer)
-    if mod is None:
-        raise KeyError(layer)
+    mod = _current(obj, layer)
     _apply(obj, mod, {"Biome": int(index)})
 
 
 def set_ground(obj, layer, mode, style, strength):
     """The layer's Ground Blend (ground.MODES, ground.STYLES, strength 0..1), on its instances."""
-    mod = _modifier(obj, layer)
-    if mod is None:
-        raise KeyError(layer)
+    mod = _current(obj, layer)
     v = ground.values(mode, style, strength)
     _apply(obj, mod, {name: (int(v[attr]) if name == "Ground Style" else v[attr]) for name, attr in GROUND.items()})
     records = _records(obj)
@@ -770,9 +775,7 @@ def _source(obj, weight):
 def set_weight(obj, layer, weight):
     """The layer's source weight: None, {"attribute": name}, {"layer": landscape layer}, {"image": name, "channel": i}.
     An attribute name without the mp_ prefix is a grass mask's (mp_grass_<name>)."""
-    mod = _modifier(obj, layer)
-    if mod is None:
-        raise KeyError(layer)
+    mod = _current(obj, layer)
     _apply(obj, mod, _source(obj, weight))
     records = _records(obj)
     records[layer]["weight"] = weight
@@ -781,9 +784,7 @@ def set_weight(obj, layer, weight):
 
 def update_layer(obj, layer, settings):
     """Change a layer's settings (any subset of add_layer's; "label" renames it, "instance" swaps the object)."""
-    mod = _modifier(obj, layer)
-    if mod is None:
-        raise KeyError(layer)
+    mod = _current(obj, layer)
     values = inputs(settings)
     if settings.get("instance") is not None:
         values["Instance"] = settings["instance"]
