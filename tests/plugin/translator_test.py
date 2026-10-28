@@ -1553,6 +1553,33 @@ v = tr.material_output(g.save("M_%d" % g.id, R(mix)), "EmissiveColor")
 check("map texture in a function: recorded once", len(getattr(env, "map_textures", {})), 1)
 check("map texture in a function: the biome tint lerps by the game's sample while unpainted", value(v), (0.25, 0.0, 0.75))
 
+# biome names from the masks' named outputs (MF_HeraBiomeMasks_Isolated): each quarter split by one call, read
+# through a reroute; GoldenFall2 = R x G of quarter B, so G is Golden Fall 2 (a call read twice reads twice)
+from fpmp_baseline.material_porter.ue_graph import maptex  # noqa: E402
+from fpmp_baseline.material_porter.ue_graph.core import Graph  # noqa: E402
+
+g = G()
+split = {}
+for q in "ABCD":
+    fin = g.add("FunctionInput", Id="IN_" + q, InputName="TerrainMasks_Quad" + q)
+    split[q] = g.add("MaterialFunctionCall", FunctionInputs=[{"Input": R(g.add("Reroute", Input=R(fin)))}],
+                     MaterialFunction={"ObjectName": "MaterialFunction'BreakOutFloat4Components'"})
+outs = {"00_Chaparral": R(g.add("Saturate", Input=R(g.add("Add", A=R(split["A"], 0), B=R(scalar(g, 0.0)))))),
+        "01_RedWoods": R(split["A"], 1), "02_Archipelago": R(split["A"], 2),
+        "03_Desert": R(g.add("Multiply", A=R(split["A"], 3), B=R(g.add("OneMinus", Input=R(g.add(
+            "Max", A=R(split["B"], 2), B=R(split["B"], 3))))))),
+        "04_GoldenFall": R(split["B"], 0), "05_GoldenFall2": R(g.add("Multiply", A=R(split["B"], 0), B=R(split["B"], 1))),
+        "06_NarrowFlea": R(split["B"], 2), "07_AxisMandate": R(split["B"], 3), "08_IslandA": R(split["C"], 0),
+        "13_None": R(split["D"], 1)}
+for i, (name, src) in enumerate(outs.items()):
+    g.add("FunctionOutput", Id="OUT_%d" % i, OutputName=name, A=src)
+named = maptex._named(Graph(g.save("MF_BiomeNames_%d" % g.id)))
+got = [named.get(k) for k in (("A", 0), ("A", 1), ("A", 2), ("A", 3), ("B", 0), ("B", 1), ("B", 2), ("B", 3), ("C", 0),
+                               ("D", 1))]
+check("biome names: Hera's masks by quarter and channel %s" % got, float(got == [
+    "Chaparral", "Red Woods", "Archipelago", "Desert", "Golden Fall", "Golden Fall 2", "Narrow Flea", "Axis Mandate",
+    "Island A", None]), 1.0)
+
 # ------------------------------------------------------------ foliage base darkening (build.assemble + foliage.panel)
 from fpmp_baseline.material_porter import build, foliage  # noqa: E402
 

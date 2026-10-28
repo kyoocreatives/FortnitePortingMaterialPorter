@@ -138,7 +138,7 @@ def _named(g):
     for x in g.outputs.values():
         p = x.get("Properties") or {}
         name = _pretty(p.get("OutputName"))
-        read = {r for r in _reads(g, p.get("A"), quads, set()) if r[1] is not None}
+        read = {r for r in _reads(g, p.get("A"), quads, {}) if r[1] is not None}
         if name and read:
             outs.append((name, read))
     named = {}
@@ -155,12 +155,13 @@ def _named(g):
 def _pretty(name):
     name = re.sub(r"^\d+_", "", str(name or ""))
     name = re.sub(r"^Biome_", "", name).replace("_", " ")
-    name = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name).strip()
+    name = re.sub(r"(?<=[a-z])(?=[A-Z0-9])", " ", name).strip()
     return None if name.lower() in ("", "none") else name
 
 
 def _reads(g, ref, quads, seen):
-    """The (quarter, channel) pairs an expression reads; channel None for a whole quarter."""
+    """The (quarter, channel) pairs an expression reads; channel None for a whole quarter. `seen` keeps each read
+    (an expression read twice reads the same: Hera's GoldenFall2 multiplies two channels of one call)."""
     from .core import T
     from .translator import Translator
     if not isinstance(ref, dict) or ref.get("ExpressionName") in (None, "None"):
@@ -169,15 +170,16 @@ def _reads(g, ref, quads, seen):
     x = g.by.get(key)
     if x is None:
         return set()
+    memo = (key, ref.get("OutputIndex", 0)) + tuple(ref.get(k) for k in ("Mask", "MaskR", "MaskG", "MaskB", "MaskA"))
+    if memo in seen:
+        return seen[memo] or set()      # (None: a cycle)
+    seen[memo] = None
     t, p = T(x), x.get("Properties") or {}
     channels = [c for c, k in enumerate(("MaskR", "MaskG", "MaskB", "MaskA")) if ref.get(k)] if ref.get("Mask") else None
     if t == "FunctionInput":
         q = quads.get(p.get("Id"))
         found = {(q, None)} if q else set()
-    elif (key, ref.get("OutputIndex", 0)) in seen:
-        return set()
     else:
-        seen.add((key, ref.get("OutputIndex", 0)))
         if t == "NamedRerouteUsage":
             decl = Translator.declaration(g, p)
             found = _reads(g, (decl or {}).get("Properties", {}).get("Input"), quads, seen)
@@ -193,6 +195,7 @@ def _reads(g, ref, quads, seen):
             found = set().union(*[_reads(g, v, quads, seen) for v in p.values() if isinstance(v, dict)]) or set()
     if channels and len(channels) == 1:
         found = {(q, channels[0] if c is None else c) for q, c in found}
+    seen[memo] = found
     return found
 
 
