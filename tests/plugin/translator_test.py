@@ -1809,6 +1809,9 @@ def ground_tests():
     k = (0.2126 * base[0] + 0.7152 * base[1] + 0.0722 * base[2]) / 0.25
     whole = tuple(c * k for c in g)
     mat, node = foliage_built(grass_entry, colour=base)
+    # Hera Grass01 blades' mean brightness (land_ground scenario: 0.121 to 0.134)
+    check("ground: Ground Reference defaults to Hera grass' brightness", node.inputs[ground.REFERENCE].default_value,
+          0.12, tol=1e-6)
     node.inputs[ground.REFERENCE].default_value = 0.25
     OBJECT_INFO["Location"] = (2.5, 2.5, 0.0)        # the root over the bake
     TEXCOORD["Generated"] = (0.5, 0.5, 0.0)          # no part bounds: height 0 at the foot

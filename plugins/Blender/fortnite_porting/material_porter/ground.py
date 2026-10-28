@@ -17,7 +17,7 @@ MODES = ("Game", "On", "Off")
 STYLES = ("Whole blade", "Root to tip")
 PANEL = "Ground"
 REFERENCE = "Ground Reference"
-DEFAULTS = {REFERENCE: 0.25}
+DEFAULTS = {REFERENCE: 0.12}      # Hera Grass01 blades' mean brightness (land_ground scenario)
 CM = (100.0, -100.0, 100.0)     # Blender metres to UE centimetres (Y mirrored)
 
 
