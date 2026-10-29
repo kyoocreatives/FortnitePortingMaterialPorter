@@ -596,6 +596,50 @@ function("MF_Outer", lambda g: call(g, "MF_Pick", {"UseX": fn_input(g, "Flag", "
 check("static bool through two functions", expr(lambda g: call(g, "MF_Outer", {"Flag": g.add("StaticBool", Value=True)}))[0], 10.0)
 check("static bool preview default", expr(lambda g: call(g, "MF_Outer", {}))[0], 20.0)
 
+
+# an unwired input's preview is compiled inside the call: it reads the call's other inputs (the anime
+# shader's OverrideNormal_WS preview reads Normal_Map; built without them, Normal_WS was 0 and the cel
+# bands followed the camera)
+def _lit(g):
+    n = fn_input(g, "Normal_Map", "Vector3")
+    over = g.add("FunctionInput", Id="IN_OverrideNormal_WS", InputName="OverrideNormal_WS",
+                 InputType="EFunctionInputType::FunctionInput_Vector3", Preview=R(g.add("Normalize", VectorInput=R(n))),
+                 bUsePreviewValueAsDefault=True)
+    light = g.add("Custom", Code="return View.DirectionalLightDirection;", OutputType="ECustomMaterialOutputType::CMOT_Float3")
+    return g.add("DotProduct", A=R(light), B=R(over))
+
+
+function("MF_AnimeLit", _lit)
+
+
+def anime_ndotl(**over):
+    return expr(lambda g: call(g, "MF_AnimeLit", {"Normal_Map": vector(g, (0.0, 0.0, 2.0))}), **over)[0]
+
+
+check("anime: preview reads the call's inputs (N.L)", anime_ndotl(), 0.8)
+check("anime: N.L ignores the camera", anime_ndotl(camera=(1.0, 0.0, 0.0)), 0.8)
+check("anime: N.L follows the light", anime_ndotl(light=(0.0, 0.8, -0.6)), -0.6)
+
+# a map probe works a call out inline: a shared group built under it kept the probe's constants
+# (Alastor's face lines read DF 0.5 and covered his whole head)
+function("MF_Twice", lambda g: g.add("Multiply", A=R(fn_input(g, "X")), ConstB=2.0))
+_g = G()
+_out = call(_g, "MF_Twice", {"X": scalar(_g, 2.0)})
+_path = _g.save("M_probe", _out)
+_env = TestEnv()
+_tr = Translator(bpy.data.node_groups.new("_test", "ShaderNodeTree"), _env)
+_env.h[0] = _tr
+_env.probe = (0.0, 0.0, 0.0)
+check("probe: a call works out inline", value(_tr.material_output(_path, "EmissiveColor")), 4.0)
+check("probe: no shared group built under it", float(len(_tr.functions)), 0.0)
+_env.probe = None
+_env2 = TestEnv()
+_tr2 = Translator(bpy.data.node_groups.new("_test", "ShaderNodeTree"), _env2)
+_env2.h[0] = _tr2
+check("probe: after it, the group's input is a socket", value(_tr2.material_output(_path, "EmissiveColor")), 4.0)
+check("probe: ...named X", float(any(it.name == "X" for ft in _tr2.functions.values() for it in ft.tree.interface.items_tree
+                                     if it.item_type == 'SOCKET' and it.in_out == 'INPUT')), 1.0)
+
 # compile-time switches take the shipping branch
 check("QualitySwitch Epic", expr(lambda g: g.add("QualitySwitch", Default=R(g.add("Constant", R=1.0)),
                                                  **{"Inputs[3]": R(g.add("Constant", R=4.0))}))[0], 4.0)

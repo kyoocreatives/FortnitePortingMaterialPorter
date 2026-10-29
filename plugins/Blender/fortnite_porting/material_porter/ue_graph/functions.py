@@ -60,7 +60,10 @@ class FunctionsMixin:
         # (Flowmaps_3D takes its noise volume) is inlined into its caller
         takes_texture = any("Texture" in str((x.get("Properties") or {}).get("InputType", ""))
                             for x in fg.inputs.values())
-        if getattr(self.env, "nest_functions", False) and not takes_texture:
+        # a map probe works with the caller's constants (FunctionTree.ue_input): inline, or the shared
+        # group built first under it keeps them (Alastor's face lines read DF 0.5 and covered his head)
+        probing = getattr(self.env, "probe", None) is not None
+        if getattr(self.env, "nest_functions", False) and not takes_texture and not probing:
             return self.call_group(fname, fg, outs, out, ins, (id(x), g.path, scope.get("_id", 0)))
         FunctionsMixin._scope_id[0] += 1
         sub = dict(ins)
@@ -93,6 +96,14 @@ class FunctionsMixin:
                     todo.append(b)
         return False
 
+    @staticmethod
+    def preview_scope(ins, fname, sock, site):
+        """Where an unwired input's preview builds: UE compiles it inside the call, so the function's
+        other inputs it reads are the call's (the anime shader's normal preview reads Normal_Map)."""
+        scope = dict(ins)
+        scope["_id"] = ("preview", fname, sock, site)
+        return scope
+
     def fold_call(self, ft, fg, fo, name, w, ins, site):
         """A call whose output reads only inputs known when built (constants all the way): the
         function worked out inline, a value instead of a group node (a time of day's weights
@@ -115,8 +126,10 @@ class FunctionsMixin:
             v = lazy.get(self) if lazy is not None else None
             if v is None and sock in ft.previews:
                 # (a probe's own: the build's preview reads the real world position)
-                pid = ("preview", ft.fname, sock) + ((self.env.probe,) if probing else ())
-                v = self.input(fg, ft.previews[sock], {"_id": pid}, None)
+                scope = self.preview_scope(ins, ft.fname, sock, site)
+                if probing:
+                    scope["_id"] += (self.env.probe,)
+                v = self.input(fg, ft.previews[sock], scope, None)
             if v is None or not v.const or (kind == "ue_alpha" and not self.alpha(v).const):
                 return None
         sub = dict(ins)
@@ -224,7 +237,7 @@ class FunctionsMixin:
                 lazy = ins.get(key)
                 v = lazy.get(self) if lazy is not None else None
                 if v is None and sock in ft.previews:
-                    v = self.input(fg, ft.previews[sock], {"_id": ("preview", fname, sock)}, None)
+                    v = self.input(fg, ft.previews[sock], self.preview_scope(ins, fname, sock, site), None)
                 if v is not None and kind == "ue_alpha":
                     v = self.alpha(v)
                 elif kind == "ue":
