@@ -74,18 +74,19 @@ Public releases build with all three off.
 
 ## Releases
 
-A version has two parts, shown as `fpv-4.3.4/mpv-1.12.3`: the upstream FP version the fork is merged
+A version has two parts, shown as `fpv-4.3.5/mpv-1.12.3`: the upstream FP version the fork is merged
 with, and Material Porter's own semantic version (a fix bumps the last number; a bigger update bumps
 the middle one and resets the last).
 
-Pushing a tag `v<FP version>-mp.<MP version>` (`v4.3.4-mp.1.13.0`) runs
+Pushing a tag `v<FP version>-mp.<MP version>` (`v4.3.5-mp.1.14.0`) runs
 `.github/workflows/build-release.yml`: a single-file `FortnitePortingMP.exe` released with
 `RELEASE_NOTES.md` as its text. FP's updater sees `-mp.` as a dev build, so
 `MaterialPorter/ForkUpdates.cs` checks the fork's own releases instead.
 
-Apps from before this numbering only read a whole number after `mp.`, so a tag with a running counter
-in front (`v4.3.4-mp.154-1.13.0`) is what still gets them an update prompt. Both forms build the same
-version.
+Apps from before this numbering only read GitHub's latest release, and only a whole number after
+`mp.`. A bridge tag has one (`v4.3.5-mp.154-1.13.0`) and the workflow marks it latest; plain tags are
+not marked. So old apps keep being sent to the bridge, and the bridge, which reads the whole release
+list, prompts on to the newest. A new bridge tag moves "latest" forward.
 
 ## Merging upstream
 

@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace FortnitePorting.MaterialPorter;
@@ -13,6 +15,10 @@ public static partial class ForkVersion
     /// <summary>The Material Porter version, null for dev builds and the old mp.N numbering.</summary>
     public static Version? MaterialPorter(string version) =>
         Pattern().Match(version) is { Success: true } match ? new Version(match.Groups[2].Value) : null;
+
+    /// <summary>The tag with the highest Material Porter version, null when none has one.</summary>
+    public static string? Newest(IEnumerable<string> tags) =>
+        tags.Where(tag => MaterialPorter(tag) is not null).MaxBy(MaterialPorter);
 
     /// <summary>fpv-4.3.4/mpv-1.12.3, or the version as given when it has no Material Porter part.</summary>
     public static string Display(string version) =>

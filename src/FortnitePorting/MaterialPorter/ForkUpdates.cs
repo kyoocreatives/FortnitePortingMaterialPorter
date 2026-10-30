@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 using FortnitePorting.Models;
@@ -23,10 +24,13 @@ public static class ForkUpdates
         {
             using var client = new HttpClient();
             client.DefaultRequestHeaders.UserAgent.ParseAdd("FortnitePortingMP");
-            var release = JObject.Parse(await client.GetStringAsync($"https://api.github.com/repos/{Repository}/releases/latest"));
-            if (release.Value<string>("tag_name") is not { } tag || release.Value<string>("html_url") is not { } page) return;
+            // the whole list, not releases/latest: GitHub's "latest" stays on the bridge release, for apps from before this numbering
+            var releases = JArray.Parse(await client.GetStringAsync($"https://api.github.com/repos/{Repository}/releases?per_page=100"))
+                .Where(release => !release.Value<bool>("draft") && !release.Value<bool>("prerelease")).ToList();
             // an old mp.N tag has no Material Porter version: older than any build that can read this
-            if (ForkVersion.MaterialPorter(tag) is not { } latest || latest <= current) return;
+            if (ForkVersion.Newest(releases.Select(release => release.Value<string>("tag_name")!)) is not { } tag
+                || ForkVersion.MaterialPorter(tag)! <= current
+                || releases.First(release => release.Value<string>("tag_name") == tag).Value<string>("html_url") is not { } page) return;
             info.Dialog($"Update {ForkVersion.Display(tag)}", "A new version of FortnitePorting MP is out.", buttons: [
                 new DialogButton
                 {

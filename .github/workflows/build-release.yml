@@ -5,7 +5,8 @@ on:
   push:
     tags:
       # Material Porter fork: its releases (v4.3.4-mp.1.13.0, ...); "-mp." keeps FP's updater, which would install
-      # upstream FP over the fork, off. v4.3.4-mp.154-1.13.0 also prompts apps from before this numbering.
+      # upstream FP over the fork, off. A bridge tag (v4.3.5-mp.154-1.13.0) stays GitHub's "latest": apps from before
+      # this numbering only read that one, and it prompts them on to the newest release.
       - 'v*-mp.*'
 
 jobs:
@@ -44,6 +45,8 @@ jobs:
           [ "${VERSION%%-*}" = "$UPSTREAM" ] || { echo "tag says FP ${VERSION%%-*}, the csproj says $UPSTREAM"; exit 1; }
           echo "FP_VERSION=$VERSION" >> $GITHUB_ENV
           echo "MP_DISPLAY=fpv-${VERSION%%-*}/mpv-${VERSION#*-mp.}" >> $GITHUB_ENV
+          echo '${{ github.ref_name }}' | grep -qE -- '-mp\.[0-9]+-' && LATEST=true || LATEST=false
+          echo "MAKE_LATEST=$LATEST" >> $GITHUB_ENV
 
       - name: .NET Publish
         run: |
@@ -65,5 +68,6 @@ jobs:
           body_path: RELEASE_NOTES.md
           draft: false
           prerelease: false
+          make_latest: ${{ env.MAKE_LATEST }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
