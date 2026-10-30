@@ -364,7 +364,7 @@ public class AppService : IService
     
     public void Restart()
     {
-        Launch(AppDomain.CurrentDomain.FriendlyName, false);
+        MaterialPorter.Fork.Restart();     // MP: this exe; by name it could start another FP, or fail when renamed
         Shutdown();
     }
 

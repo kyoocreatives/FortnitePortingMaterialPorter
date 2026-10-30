@@ -71,6 +71,11 @@ public partial class MaterialPorterService
     private async Task<object?> TestRouteAsync(string route, NameValueCollection query)
     {
         if (OwnerRoutes != null && await OwnerRoutes(route, query) is { } owned) return owned;
+        if (route == "fork-restart")
+        {
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => AppServices.App.Restart());
+            return new { restarting = true };
+        }
         if (route == "fork-uefn-access")
         {
             if (query["save"] is { } save) UefnAccess.SaveForTest(save);

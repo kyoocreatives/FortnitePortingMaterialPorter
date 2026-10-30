@@ -19,6 +19,18 @@ public static partial class Fork
         OwnerStart(window);
     }
 
+    /// <summary>Starts this exe again; the new one waits for this one to quit instead of handing over to it and leaving.</summary>
+    public static void Restart() => System.Diagnostics.Process.Start(Environment.ProcessPath!, RestartArg);
+
+    private const string RestartArg = "--restart";
+
+    public static bool WaitAfterRestart(System.Threading.Mutex instance, string[] args)
+    {
+        if (Array.IndexOf(args, RestartArg) < 0) return false;
+        try { return instance.WaitOne(TimeSpan.FromSeconds(30)); }
+        catch (System.Threading.AbandonedMutexException) { return true; }     // it was killed: the mutex is ours anyway
+    }
+
     public static bool HandlePipe(string message)
     {
         if (message != ShowRequest) return false;

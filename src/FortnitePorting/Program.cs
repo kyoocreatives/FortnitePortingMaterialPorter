@@ -36,6 +36,7 @@ internal static class Program
         try
         {
             _programMutex = new Mutex(true, MaterialPorter.Fork.InstanceMutex, out var isNew);
+            isNew = isNew || MaterialPorter.Fork.WaitAfterRestart(_programMutex, args);     // MP
 
             if (isNew)
             {
