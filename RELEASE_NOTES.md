@@ -5,18 +5,17 @@ An unofficial fork of [FortnitePorting](https://github.com/h4lfheart/FortnitePor
 **Version numbers:** versions now read like `fpv-4.3.5/mpv-1.13.0`: the FortnitePorting version this fork is merged with, then the fork's own version. They replace `4.0.0-mp.N`.
 
 **This release**
-- Anime and toon skins: the game's own ink outlines (also on older toon skins like Lexa), sharp pupils.
-- Mesh pieces the game doesn't draw stay hidden (the black shape on Sung Jinwoo).
-- Works with the latest Fortnite update (version 5 mappings).
-- Official rig: a clearer side panel with a control picker, one-click IK/FK, stretch and local toggles, and a Shift+Q pie; widgets and colours match Epic's; hand and limb controls sit on their bones.
-- Extra hand controls: curl and spread every finger at once, and a held prop the fingers close on.
-- The Assets page's rig button applies the official rig when it's chosen in the settings; a Face Board button puts a face board on the selected armature.
-- Creature, LEGO and car rigs rebuilt on the official rig's standard.
-- Animations: filters by gender, body type and use (locomotion, swimming, skydiving...), an icon per tile, and faster listings.
-- Physics: skirts follow and collide with the legs (also when a clip starts mid-pose); fixes for Roxas's coat and Riku's hair.
-- Bake to Controls: fingertips stay on the hand on fast clips; baked IK plays the animation.
-- Islands: only the newest downloaded version of an island is mounted.
-- Fixes: square sprites on effects (curve atlases), a faster rig panel, Shift+Q no longer taken by FortRig on the official rig.
+- **Fortnite editor in Blender 5.2 and up:** a new editor type with Assets, Files, Maps, Rig and Landscape tabs. Browse and import without leaving Blender; the app runs hidden behind it. Quick import with Ctrl+Shift+F from any editor.
+- Landscape: paint layers and biomes, hide them in the material, update the material from the side panel, terrain imports faster.
+- Scatter: the game's own grass on landscapes and custom terrain, placed map foliage as instances, grass that follows the painted biomes and an optional blend with the ground colour.
+- Rework of the Fortnite Porting side panel: Rig, Landscape, Effect, Shell Fur and Materials panels.
+- Anime skins: the game's ink outlines, sharp pupils, cel bands that follow the sun; mesh pieces the game doesn't draw stay hidden.
+- Foliage: Base Darkening, and black grass on some maps fixed.
+- Maps: Hidden collection for hidden actors, Data Layers menu.
+- Effects: offset slider to shift an effect's timing.
+- Rigs: creature face controls, legs that end where the game's IK does, FK arms that follow the spine by default, Tasty rig to official rig.
+- Materials go onto selected meshes with the attributes they read; LEGO heads no longer import white; texture-capped materials no longer share full-size images.
+- Merged with FortnitePorting 4.3.5.
 
 **What it adds**
 - Exact materials, rebuilt from each material's Unreal graph. *Settings > Blender > Prefer FP Shaders for Characters* keeps FortnitePorting's shaders for character materials it has one for.
@@ -24,4 +23,4 @@ An unofficial fork of [FortnitePorting](https://github.com/h4lfheart/FortnitePor
 - Rocket Racing cars with their styles (tier, body colour, paint, decal, wheels).
 - LEGO outfits (cooked and recipe figures, with face styles), LEGO emotes with animated faces, LEGO props and building sets, LEGO wildlife (needs LEGO Fortnite's optional content installed).
 - Character rigs and physics: Fortnite's official body rig, face boards, deform correctives, dynamic bones, cloth and rigid bodies, with wind.
-- No online account: sign-in, chat and FortnitePorting's updater are off. New releases of this fork are announced in the app.
+- No FortnitePorting account: its sign-in, chat and updater are off. New releases of this fork are announced in the app.
