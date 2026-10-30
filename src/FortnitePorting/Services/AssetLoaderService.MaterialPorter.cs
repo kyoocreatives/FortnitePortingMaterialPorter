@@ -131,8 +131,8 @@ public partial class AssetLoaderService
                     HideRarity = true,
                     // cooked figures, and recipe figures (built from the shared Mutable object's body)
                     HidePredicate = (_, asset, _) => UEParse.Provider is not { } provider || !Figures.HasFigure(provider, asset),
-                    LowResIconHandler = asset => AssetLoader.GetLowResIcon(asset) ?? FigurePreview(asset, "SmallPreviewImage", "LargePreviewImage"),
-                    HighResIconHandler = asset => AssetLoader.GetHighResIcon(asset) ?? FigurePreview(asset, "LargePreviewImage", "SmallPreviewImage"),
+                    LowResIconHandler = asset => AssetLoader.GetLowResIconPath(asset) ?? FigurePreview(asset, "SmallPreviewImage", "LargePreviewImage")?.GetPathName(),
+                    HighResIconHandler = asset => AssetLoader.GetHighResIconPath(asset) ?? FigurePreview(asset, "LargePreviewImage", "SmallPreviewImage")?.GetPathName(),
                     DisplayNameHandler = asset => BaseCharacter(asset)?.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text ?? asset.Name,
                     DescriptionHandler = asset => BaseCharacter(asset)?.GetAnyOrDefault<FText?>("Description", "ItemDescription")?.Text.TrimEnd() ?? "",
                 },
@@ -141,8 +141,8 @@ public partial class AssetLoaderService
                 {
                     ClassNames = [Figures.EmoteClass],
                     HideRarity = true,
-                    LowResIconHandler = asset => BaseDance(asset) is { } dance ? AssetLoader.GetLowResIcon(dance) : null,
-                    HighResIconHandler = asset => BaseDance(asset) is { } dance ? AssetLoader.GetHighResIcon(dance) : null,
+                    LowResIconHandler = asset => BaseDance(asset) is { } dance ? AssetLoader.GetLowResIconPath(dance) : null,
+                    HighResIconHandler = asset => BaseDance(asset) is { } dance ? AssetLoader.GetHighResIconPath(dance) : null,
                     DisplayNameHandler = asset => BaseDance(asset)?.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text ?? asset.Name,
                     DescriptionHandler = asset => BaseDance(asset)?.GetAnyOrDefault<FText?>("Description", "ItemDescription")?.Text.TrimEnd() ?? "",
                 },
@@ -178,8 +178,8 @@ public partial class AssetLoaderService
                     ClassNames = [Figures.CreatureClass],
                     HideRarity = true,
                     HidePredicate = (_, asset, _) => !Figures.IsCreature(asset) || UEParse.Provider is not { } provider || !Figures.HasCreatureMesh(provider, asset),
-                    LowResIconHandler = asset => UEParse.Provider is { } provider ? Figures.CreatureIcon(provider, asset, large: false) : null,
-                    HighResIconHandler = asset => UEParse.Provider is { } provider ? Figures.CreatureIcon(provider, asset, large: true) : null,
+                    LowResIconHandler = asset => UEParse.Provider is { } provider ? Figures.CreatureIcon(provider, asset, large: false)?.GetPathName() : null,
+                    HighResIconHandler = asset => UEParse.Provider is { } provider ? Figures.CreatureIcon(provider, asset, large: true)?.GetPathName() : null,
                     DisplayNameHandler = asset => CreatureName(asset.Name),
                     DescriptionHandler = _ => "",
                 }

@@ -178,7 +178,7 @@ public partial class MaterialPorterService
                 window.WindowState = Avalonia.Controls.WindowState.Normal;
                 window.Width = 1600;
                 window.Height = int.TryParse(query["height"], out var tall) ? tall : 1100;
-                AppServices.Navigation.App.Open<Views.SettingsView>();
+                AppServices.AppWM.OpenSettings();
             });
             // the settings pane's own frame exists once its view has loaded
             await Task.Delay(TimeSpan.FromSeconds(1));
@@ -224,7 +224,7 @@ public partial class MaterialPorterService
                 window.Width = 1600;
                 window.Height = 1100;
                 foreach (var folder in shown) settings.UefnProjectFolders.Add(folder);
-                AppServices.Navigation.App.Open<Views.SettingsView>();
+                AppServices.AppWM.OpenSettings();
                 AppServices.Navigation.Settings.Open<Views.Settings.ApplicationSettingsView>();
             });
             await Task.Delay(TimeSpan.FromSeconds(3));

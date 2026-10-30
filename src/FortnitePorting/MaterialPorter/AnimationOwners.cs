@@ -39,7 +39,7 @@ public static class AnimationOwners
                 var name = item.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text is { Length: > 0 } shown ? shown : item.Name;
                 var source = Sources.First(s => s.Class == data.AssetClass.Text);
                 // the icon its own tab shows (a pickaxe's can be its weapon's)
-                var owner = new Animations.Owner(name, AppServices.AssetLoading.Get(source.Type).LowResIconHandler(item)?.GetPathName());
+                var owner = new Animations.Owner(name, AppServices.AssetLoading.Get(source.Type).LowResIconHandler(item));
                 if (source.ByFolder)
                 {
                     foreach (var montage in new[] { PathOf(item, "Animation"), PathOf(item, "AnimationFemaleOverride") })

@@ -95,7 +95,7 @@ public partial class AssetInfo
                     // an unreleased wrap is named "TBD": use its asset's name
                     var name = wrap.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text;
                     if (string.IsNullOrWhiteSpace(name) || name == "TBD") name = wrap.Name;
-                    wraps.Add((name, wrap.GetPathName(), Loading.AssetLoader.GetLowResIcon(wrap)?.GetPathName()));
+                    wraps.Add((name, wrap.GetPathName(), Loading.AssetLoader.GetLowResIconPath(wrap)));
                 }
                 catch (Exception e) { Exporting.MaterialPorter.Failures.Note("wraps", data.AssetName.Text, e); }
             }
@@ -195,7 +195,7 @@ public partial class AssetInfo
                     });
                     foreach (var (data, mod) in icons)
                     {
-                        if (Tile(Loading.AssetLoader.GetIcon(mod.Item)?.GetPathName()) is { } bitmap)
+                        if (Tile(Loading.AssetLoader.GetIconPath(mod.Item)) is { } bitmap)
                             await Dispatcher.UIThread.InvokeAsync(() => data.StyleDisplayImage = bitmap);
                     }
                 }

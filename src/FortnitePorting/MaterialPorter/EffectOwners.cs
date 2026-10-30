@@ -94,7 +94,7 @@ public static class EffectOwners
                 var name = item.GetAnyOrDefault<FText?>("DisplayName", "ItemName")?.Text is { Length: > 0 } shown ? shown : item.Name;
                 // the icon its own tab shows (a pickaxe's can be its weapon's, an outfit's its hero's)
                 var icon = AppServices.AssetLoading.Get(x.Source.Type).LowResIconHandler(item);
-                var owner = new Owner(name, icon?.GetPathName(), x.Source.Kind);
+                var owner = new Owner(name, icon, x.Source.Kind);
                 foreach (var system in systems.OfType<UObject>())
                     found.Add((Package(system.GetPathName()), owner));
             }

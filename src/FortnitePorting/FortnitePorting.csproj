@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
-        <Version>4.3.4-dev</Version> <!-- MP: the upstream version we're merged with -->
+        <Version>4.3.5-dev</Version> <!-- MP: the upstream version we're merged with -->
         <OutputType>WinExe</OutputType>
         <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
         <ApplicationManifest>Application/app.manifest</ApplicationManifest>
