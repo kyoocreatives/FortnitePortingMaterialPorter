@@ -72,11 +72,13 @@ public static partial class Fork
 #endif
     }
 
-    /// <summary>UEFN island export (downloaded islands, unlock by map code): with a key the owner gave (UefnAccess), or
-    /// always where the git-ignored Fork.local.props sets MPIslands.</summary>
+    /// <summary>UEFN island export (downloaded islands, unlock by map code, local projects): with the owner's Discord role
+    /// (UefnAccess), or always where the git-ignored Fork.local.props sets MPIslands.</summary>
 #if MP_ISLANDS
+    public const bool IslandsAlwaysOn = true;
     public static bool Islands => true;
 #else
+    public const bool IslandsAlwaysOn = false;
     public static bool Islands => UefnAccess.Granted;
 #endif
 

@@ -2,9 +2,22 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:settings="clr-namespace:FortnitePorting.ViewModels.Settings"
              xmlns:controls="clr-namespace:FortnitePorting.Controls.Settings"
+             xmlns:ext="clr-namespace:FortnitePorting.Extensions;assembly=FortnitePorting"
              xmlns:avalonia="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
              x:Class="FortnitePorting.Views.MaterialPorter.UefnProjectSettings"
              x:DataType="settings:ApplicationSettingsViewModel">
+    <StackPanel Spacing="{ext:Space 1}">
+    <controls:SettingsItem Title="Discord"
+                           Description="Sign in with your Discord account."
+                           IsVisible="{Binding ShowUefnSignIn}">
+        <controls:SettingsItem.Footer>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="{Binding UefnAccessStatus}" Opacity="0.7" VerticalAlignment="Center"/>
+                <Button Content="Sign in with Discord" Command="{Binding SignInUefn}" IsVisible="{Binding !UefnSignedIn}"/>
+                <Button Content="Sign Out" Command="{Binding SignOutUefn}" IsVisible="{Binding UefnSignedIn}"/>
+            </StackPanel>
+        </controls:SettingsItem.Footer>
+    </controls:SettingsItem>
     <controls:SettingsItem Title="UEFN Project Folders"
                            Description="Your Fortnite Projects folder and the projects UEFN lists are found by themselves; add folders that hold other UEFN projects here (found by their .uefnproject file). An island of yours then imports with exact materials, read from its project's own graphs."
                            IsVisible="{Binding ShowIslandSettings}">
@@ -33,4 +46,5 @@
             </StackPanel>
         </controls:SettingsItem.Footer>
     </controls:SettingsItem>
+    </StackPanel>
 </UserControl>

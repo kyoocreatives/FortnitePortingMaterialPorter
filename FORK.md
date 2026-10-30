@@ -68,10 +68,12 @@ Public releases build with all three off.
 ## UEFN access
 
 Islands by map code and local UEFN projects are in every build, off unless `Fork.Islands` is true. A public build turns it
-on with a key the owner gave: `uefn-access.key` in `%APPDATA%\FortnitePorting MP`, read once at start (`UefnAccess`). Updates
-don't replace that folder, so access stays. No key means no menu, row or map for any of it. The key is signed; only the
-public half is in this repo. A key's id in `UefnAccess.Revoked` takes it back with the next release. This keeps access out
-of ordinary use; it can't stop someone building the source with the check changed.
+on for people with a role on the owner's Discord server: they sign in with Discord (Settings > Application > UEFN Access,
+PKCE, no client secret; `UefnAccess`) and the app reads the role from Discord at each start. The sign-in is kept in
+`%APPDATA%\FortnitePorting MP`, which updates don't replace, so access stays. Removing the role ends it at their next start.
+Access needs internet at each start: if Discord can't be asked, it's off for that run and the sign-in is kept. Without
+access, the only thing that shows is a plain Discord sign-in row that doesn't say what it's for. This keeps access out of ordinary use; it can't stop someone building the source
+with the check changed.
 
 ## Where the code lives
 

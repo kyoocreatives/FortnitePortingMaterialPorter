@@ -71,7 +71,16 @@ public partial class MaterialPorterService
     private async Task<object?> TestRouteAsync(string route, NameValueCollection query)
     {
         if (OwnerRoutes != null && await OwnerRoutes(route, query) is { } owned) return owned;
-        if (route == "fork-uefn-key") return new { valid = UefnAccess.Check(query["key"] ?? ""), granted = UefnAccess.Granted };
+        if (route == "fork-uefn-access")
+        {
+            if (query["save"] is { } save) UefnAccess.SaveForTest(save);
+            if (query["clear"] == "1") UefnAccess.SignOut();
+            return new
+            {
+                granted = UefnAccess.Granted, user = UefnAccess.User, unreachable = UefnAccess.Unreachable,
+                withRole = UefnAccess.HasRole(JObject.Parse("{\"roles\":[\"" + (query["role"] ?? "") + "\"]}")),
+            };
+        }
         if (route == "fork-projects")
         {
             // UEFN projects found, which island is which, and what graphs came from where so far
