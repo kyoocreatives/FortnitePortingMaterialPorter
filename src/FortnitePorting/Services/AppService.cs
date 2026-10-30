@@ -70,7 +70,7 @@ public class AppService : IService
         Lifetime.Exit += OnAppExit;
         Lifetime.MainWindow = new AppWindow();
         MaterialPorter.Fork.Quiet(Lifetime.MainWindow);     // MP
-        MaterialPorter.Fork.Start(Lifetime.MainWindow, Lifetime.Args ?? []);     // MP: owner builds' extras (fpfork-private)
+        MaterialPorter.Fork.Start(Lifetime.MainWindow, Lifetime.Args ?? []);     // MP: the editor's engine
     }
     
     

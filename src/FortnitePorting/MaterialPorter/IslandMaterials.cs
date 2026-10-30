@@ -17,7 +17,7 @@ namespace FortnitePorting.MaterialPorter;
 /// <summary>UEFN island materials that an FP import brought in without textures, for the Blender plugin's Material Fixer.</summary>
 // FP exports only texture parameters, but island masters hard-code textures (listed only in the cooked
 // UMaterial's ReferencedTextures) or use plain colours (cooked defaults in CachedExpressionData).
-// Port of the fpisland tool; reads what the app has mounted (owner builds only).
+// Port of the fpisland tool; reads what the app has mounted (with UEFN access).
 public static class IslandMaterials
 {
     private static readonly Regex Island = new(@"(^|/)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/", RegexOptions.IgnoreCase);

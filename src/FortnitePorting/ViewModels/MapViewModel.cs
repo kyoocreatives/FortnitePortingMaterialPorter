@@ -153,7 +153,7 @@ public partial class MapViewModel(
                 }
             }
 
-            AddOwnerMaps();     // MP
+            AddProjectMaps();     // MP
 
             if (Maps.Count == 0)
             {

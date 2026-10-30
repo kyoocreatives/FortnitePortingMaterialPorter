@@ -31,7 +31,7 @@ public partial class SupabaseService : ObservableObject, IService
     public SupabaseService(APIService api)
     {
         Api = api;
-        // no accounts: UEFN export only in the owner's builds
+        // no accounts: UEFN export only with UEFN access
         Permissions = new UserPermissions { CanExportUEFN = MaterialPorter.Fork.Islands };
         if (Disabled) return;
         

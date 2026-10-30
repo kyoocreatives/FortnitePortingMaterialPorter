@@ -46,8 +46,6 @@ public static class Timing
 /// <summary>Exact materials: serves each material's description, graph and dependencies to FP's Blender plugin over the localhost bridge.</summary>
 public partial class MaterialPorterService : IService
 {
-    partial void OwnerRoute(string route, NameValueCollection query, ref Task<object?>? result);
-
     public static int Port => Fork.BridgePort;
 
     public static MaterialPorterService Instance => AppServices.Services.GetRequiredService<MaterialPorterService>();
@@ -110,7 +108,7 @@ public partial class MaterialPorterService : IService
 
     // ------------------------------------------------------------ islands
     /// <summary>Passes the user's UEFN project folders (Settings > Application) to the core, which reads island master graphs from the matching project.</summary>
-    // Owner builds only; the core also takes MATERIAL_PORTER_PROJECTS regardless of the settings.
+    // With UEFN access only; the core also takes MATERIAL_PORTER_PROJECTS regardless of the settings.
     public static void ApplyProjectFolders() =>
         IslandProjects.Roots = Fork.Islands
             ? AppSettings.Application.UefnProjectFolders.Concat(DetectedProjectRoots()).Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
@@ -319,13 +317,11 @@ public partial class MaterialPorterService : IService
     {
         // what this build does: the Material Fixer shows island recovery only where islands are
         if (route == "fork-caps") return new { islands = Fork.Islands };
-        Task<object?>? owned = null;
-        OwnerRoute(route, query, ref owned);     // owner builds: the FP Blender editor's routes (fpfork-private)
-        if (owned is not null) return await owned;
+        if (EditorRoute(route, query) is { } editor) return await editor;
         if (route.StartsWith("fork-island-"))
         {
-            // the Material Fixer's island texture recovery (IslandMaterials): owner builds only
-            if (!Fork.Islands) throw new InvalidOperationException("island texture recovery is only in the owner's builds");
+            // the Material Fixer's island texture recovery (IslandMaterials)
+            if (!Fork.Islands) throw new InvalidOperationException("island texture recovery needs UEFN access");
             var asked = query["path"] ?? throw new ArgumentException("path missing");
             return route switch
             {

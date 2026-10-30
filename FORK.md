@@ -19,7 +19,8 @@ Materials
 Maps
 - **Maps through the fork's map reader**: actors, instances, landscapes, splines, water, decals,
   lights (with shadow linking), placed effects, Neon City billboards, shadow proxies.
-- **UEFN islands by map code** and **older builds without an install** (owner builds only, see Flags).
+- **UEFN islands by map code** and **local UEFN projects** (with UEFN access, see below).
+- **Older builds without an install** (owner builds only, see Flags).
 - **Drawn map previews** for maps without a minimap.
 
 Assets
@@ -32,6 +33,11 @@ Assets
 - **Particle effects, played** (Assets > Gameplay > Effects): Niagara CPU emitters are replayed
   over the scene's frames; GPU and stateless emitters are approximated.
 - **Rocket Racing** cars and tracks; **LEGO** outfits, emotes, props and wildlife.
+
+Editor
+- **Fortnite editor** in stock Blender 5.2 and up (`operator/fortnite_editor/`, routes in
+  `MaterialPorter/Editor/`): a node editor of its own, GPU-drawn, with Assets, Files, Maps, Rig and Landscape tabs. The
+  app runs as its hidden engine (`Engine`, `--background`), started on the editor's first draw.
 
 App
 - **Status line and log** under the window, as in Material Porter's app.
@@ -53,16 +59,26 @@ Set in `Fork.local.props` (not committed) and read through `Fork`:
 
 | Flag | Build constant | What it turns on |
 |---|---|---|
-| `Fork.Islands` | `MP_ISLANDS` | UEFN islands by map code |
+| `Fork.Islands` | `MP_ISLANDS` | UEFN access always on |
 | `Fork.OlderBuilds` | `MP_OLDER_BUILDS` | builds downloaded from their manifest |
 | `Fork.TimeOfDayExport` | `MP_TIME_OF_DAY` | time of day export (code in the owner's private overlay) |
 
 Public releases build with all three off.
 
+## UEFN access
+
+Islands by map code and local UEFN projects are in every build, off unless `Fork.Islands` is true. A public build turns it
+on with a key the owner gave: `uefn-access.key` in `%APPDATA%\FortnitePorting MP`, read once at start (`UefnAccess`). Updates
+don't replace that folder, so access stays. No key means no menu, row or map for any of it. The key is signed; only the
+public half is in this repo. A key's id in `UefnAccess.Revoked` takes it back with the next release. This keeps access out
+of ordinary use; it can't stop someone building the source with the check changed.
+
 ## Where the code lives
 
 - Fork-only code: `src/FortnitePorting/MaterialPorter/`, `src/FortnitePorting.Exporting/MaterialPorter/`,
-  `src/FortnitePorting/Views/MaterialPorter/` and `plugins/Blender/fortnite_porting/material_porter/`.
+  `src/FortnitePorting/Views/MaterialPorter/`, `plugins/Blender/fortnite_porting/material_porter/` and
+  `plugins/Blender/fortnite_porting/operator/fortnite_editor/`.
+- Plugin checks: `tests/plugin/`, each run headless with `-- <plugin parent>`.
 - Upstream classes are extended through partial class files named `<Class>.MaterialPorter.cs`
   next to the original.
 - Where an upstream file has to call into the fork, the call is one line marked `// MP` (C#),

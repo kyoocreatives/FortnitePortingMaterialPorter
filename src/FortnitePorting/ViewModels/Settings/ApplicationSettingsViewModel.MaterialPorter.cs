@@ -32,7 +32,7 @@ namespace FortnitePorting.ViewModels.Settings;
 public partial class ApplicationSettingsViewModel
 {
     // folders holding the user's UEFN projects (.uefnproject): their islands import with exact materials from the
-    // projects' own graphs (owner builds only)
+    // projects' own graphs (with UEFN access)
     [ObservableProperty] private ObservableCollection<string> _uefnProjectFolders = [];
 
     [JsonIgnore] public bool ShowIslandSettings => MaterialPorter.Fork.Islands;

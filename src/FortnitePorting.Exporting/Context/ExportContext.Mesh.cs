@@ -41,7 +41,7 @@ public partial class ExportContext
     public T? Mesh<T>(USkeletalMesh? mesh) where T : ExportMesh, new()
     {
         if (mesh is null) return null;
-        T? owned = null; OwnerSkeletalMesh(mesh, ref owned); if (owned != null) return owned;     // MP
+        T? owned = null; UefnSkeletalMesh(mesh, ref owned); if (owned != null) return owned;     // MP
         var mpStarted = System.Diagnostics.Stopwatch.GetTimestamp();     // MP
 
         try
@@ -81,7 +81,7 @@ public partial class ExportContext
     public T? Mesh<T>(UStaticMesh? mesh) where T : ExportMesh, new()
     {
         if (mesh is null) return null;
-        T? owned = null; OwnerStaticMesh(mesh, ref owned); if (owned != null) return owned;     // MP
+        T? owned = null; UefnStaticMesh(mesh, ref owned); if (owned != null) return owned;     // MP
         var mpStarted = System.Diagnostics.Stopwatch.GetTimestamp();     // MP
 
         try

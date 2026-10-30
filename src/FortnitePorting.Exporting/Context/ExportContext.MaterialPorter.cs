@@ -371,12 +371,12 @@ public partial class ExportContext
         };
     }
 
-    // A placement whose mesh couldn't be exported: the owner's code may put something in its place.
+    // A placement whose mesh couldn't be exported: UEFN project code may put something in its place.
     partial void MissingMesh(MapMesh m, ref ExportMesh? empty);
 
-    // A mesh the owner's code exports itself (an uncooked one, which has no render data).
-    partial void OwnerStaticMesh<T>(UStaticMesh mesh, ref T? export) where T : ExportMesh, new();
-    partial void OwnerSkeletalMesh<T>(USkeletalMesh mesh, ref T? export) where T : ExportMesh, new();
+    // A mesh UEFN project code exports itself (an uncooked one, which has no render data).
+    partial void UefnStaticMesh<T>(UStaticMesh mesh, ref T? export) where T : ExportMesh, new();
+    partial void UefnSkeletalMesh<T>(USkeletalMesh mesh, ref T? export) where T : ExportMesh, new();
 
     /// <summary>One placement as FP's mesh record: the mesh (exported once), its transform and slot materials.</summary>
     private ExportMesh? Placement(MapMesh m)
@@ -394,7 +394,7 @@ public partial class ExportContext
         if (template is null)
         {
             ExportMesh? empty = null;
-            MissingMesh(m, ref empty);     // MP: the owner's placeholder (fpfork-private)
+            MissingMesh(m, ref empty);     // MP: a project mesh's placeholder
             return empty;
         }
 

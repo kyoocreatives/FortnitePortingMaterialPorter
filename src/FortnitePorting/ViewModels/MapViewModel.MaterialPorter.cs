@@ -8,19 +8,19 @@ using FortnitePorting.MaterialPorter;
 
 namespace FortnitePorting.ViewModels;
 
-/// <summary>A UEFN island opened by its map code (owner builds only, Fork.Islands).</summary>
+/// <summary>A UEFN island opened by its map code (with UEFN access, Fork.Islands).</summary>
 // The user's key tool gets the island's key from Epic (a sign-in page opens when it asks); the key is kept with
 // Material Porter's (never shown or logged), the island Fortnite downloaded is mounted, and the map list reloads.
 public partial class MapViewModel
 {
     public bool CanUnlockIslands => Fork.Islands;
 
-    // The owner's own maps (fpfork-private): listed with the others, and re-read on request.
-    partial void AddOwnerMaps();
-    partial void RefreshOwnerProjects();
+    // Local UEFN projects' maps: listed with the others, and re-read on request.
+    partial void AddProjectMaps();
+    partial void RefreshProjectList();
 
     [RelayCommand]
-    public void RefreshProjects() => RefreshOwnerProjects();
+    public void RefreshProjects() => RefreshProjectList();
 
     [ObservableProperty] private string _islandCode = string.Empty;
     [ObservableProperty] private string _islandStatus = string.Empty;

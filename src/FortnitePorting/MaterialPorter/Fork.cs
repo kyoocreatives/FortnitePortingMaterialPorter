@@ -9,23 +9,20 @@ public static partial class Fork
     /// <summary>Sent on the single-instance pipe by a plain second launch: the running app comes to the front.</summary>
     public const string ShowRequest = "fp-engine://show";
 
-    // owner builds (fpfork-private, App.props) add to these; without it they compile to nothing
-    static partial void OwnerStart(Avalonia.Controls.Window window, string[] args, ref bool done);
-    static partial void OwnerPipe(string message, ref bool handled);
+    // owner builds (App.props) add to these; without it they compile to nothing
+    static partial void OwnerStart(Avalonia.Controls.Window window);
     static partial void OwnerComposition(ref Avalonia.Win32CompositionMode[] modes);
 
     public static void Start(Avalonia.Controls.Window window, string[] args)
     {
-        var done = false;
-        OwnerStart(window, args, ref done);
+        Engine.Start(window, args);
+        OwnerStart(window);
     }
 
     public static bool HandlePipe(string message)
     {
-        var handled = false;
-        OwnerPipe(message, ref handled);
-        if (handled || message != ShowRequest) return handled;
-        Avalonia.Threading.Dispatcher.UIThread.Post(() => Application.AppServices.App.Lifetime.MainWindow?.Activate());
+        if (message != ShowRequest) return false;
+        Engine.Show();
         return true;
     }
 
@@ -75,11 +72,12 @@ public static partial class Fork
 #endif
     }
 
-    /// <summary>UEFN island export (downloaded islands, unlock by map code): owner builds only, set by the git-ignored Fork.local.props (MPIslands).</summary>
+    /// <summary>UEFN island export (downloaded islands, unlock by map code): with a key the owner gave (UefnAccess), or
+    /// always where the git-ignored Fork.local.props sets MPIslands.</summary>
 #if MP_ISLANDS
-    public const bool Islands = true;
+    public static bool Islands => true;
 #else
-    public const bool Islands = false;
+    public static bool Islands => UefnAccess.Granted;
 #endif
 
     /// <summary>Older-build download from a manifest (build picker, UEFN manifest, Unreal version detection): owner builds only, set by Fork.local.props (MPOlderBuilds).</summary>
