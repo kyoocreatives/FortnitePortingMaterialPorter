@@ -27,10 +27,10 @@ WEIGHTED = ("Weight Source", "Source Attribute", "Source Channel", "Source Image
 # store: the mode's land_store.MaskStore (base: the paint store it was made from); selected: the picked entry's key;
 # rows: entries() cached; counts: {key: instances}; types: the game's grass types [{name, path, varieties}];
 # loaded: what the store's layer was read from; synced: the first piece's values last copied; dots: placed positions;
-# pending: {type name: meshes still importing}
+# pending: {type name: meshes still importing}; before_hide: (group, keys showing when Hide All was pressed)
 SCATTER = {"store": None, "base": None, "selected": None, "rows": None, "counts": {}, "stale": True, "counted": 0.0,
            "types": None, "types_asked": 0.0, "open": {}, "section": None, "synced": None, "dots": None,
-           "pending": {}, "loaded": None}
+           "pending": {}, "loaded": None, "before_hide": None}
 
 
 def core():
@@ -672,6 +672,11 @@ def header(layout, context, narrow):
     """Scatter mode's header tools after the brush: the list's and the info column's essentials when they fold."""
     from . import tabs
     from .ui import blender as ui_blender
+    found = rows(context)
+    if found:
+        hide = any(not e["hidden"] for e in found)
+        layout.operator("fp.scatter_show_all", text="" if narrow else ("Hide All" if hide else "Show All"),
+                        icon='HIDE_OFF' if hide else 'HIDE_ON')
     folded = ui_blender.folded(context, tabs.current(context.space_data))
     if "side" in folded:
         from . import land_select
@@ -704,7 +709,8 @@ def _scene_changed(scene, depsgraph):
 @persistent
 def _reset(*_):
     """An undo or another file: objects are new, the store's gone with the paint store."""
-    SCATTER.update(store=None, base=None, rows=None, counts={}, stale=True, synced=None, dots=None, loaded=None)
+    SCATTER.update(store=None, base=None, rows=None, counts={}, stale=True, synced=None, dots=None, loaded=None,
+                   before_hide=None)
 
 
 HANDLERS = (("depsgraph_update_post", _scene_changed), ("undo_post", _reset), ("redo_post", _reset),

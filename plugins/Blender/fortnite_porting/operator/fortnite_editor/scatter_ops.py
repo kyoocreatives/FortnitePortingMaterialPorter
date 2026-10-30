@@ -422,6 +422,28 @@ class FP_OT_scatter_pick(bpy.types.Operator):
         return {'FINISHED'}
 
 
+def _set_shown(e, show):
+    if e["kind"] == "placed":
+        obj = bpy.data.objects.get(e["object"])
+        obj.hide_viewport = obj.hide_render = not show
+    else:
+        for _obj, mod in modifiers(e):
+            mod.show_viewport = mod.show_render = show
+
+
+def is_wind(e):
+    """Wind sprites come hidden: nothing to bring back unasked."""
+    mods = modifiers(e)
+    return bool(mods) and core().is_wind_sprite(core()._get(mods[0][1], "Instance"))
+
+
+def _to_bring_back(found, group):
+    """What Hide All hid here; with no memory of it (another file, an undo), everything but the wind sprites."""
+    before = SCATTER["before_hide"]
+    keys = before[1] if before is not None and before[0] == group else ()
+    return [e for e in found if e["key"] in keys] or [e for e in found if not is_wind(e)] or found
+
+
 class FP_OT_scatter_show(bpy.types.Operator):
     """Show or hide this layer in the viewport and renders"""
     bl_idname = "fp.scatter_show"
@@ -433,13 +455,30 @@ class FP_OT_scatter_show(bpy.types.Operator):
         e = _entry(context, self.key)
         if e is None:
             return {'CANCELLED'}
-        show = e["hidden"]
-        if e["kind"] == "placed":
-            obj = bpy.data.objects.get(e["object"])
-            obj.hide_viewport = obj.hide_render = not show
+        _set_shown(e, e["hidden"])
+        _changed()
+        return {'FINISHED'}
+
+
+class FP_OT_scatter_show_all(bpy.types.Operator):
+    """Hide every scattered layer here, or bring back the ones that were showing"""
+    bl_idname = "fp.scatter_show_all"
+    bl_label = "Hide or Show All Scatter Layers"
+    bl_options = {'INTERNAL', 'UNDO'}
+
+    def execute(self, context):
+        found = land_scatter.rows(context)
+        if not found:
+            return {'CANCELLED'}
+        group = shown_group(context)[0]
+        shown = [e for e in found if not e["hidden"]]
+        if shown:
+            SCATTER["before_hide"] = (group, {e["key"] for e in shown})
+            for e in shown:
+                _set_shown(e, False)
         else:
-            for obj, mod in modifiers(e):
-                mod.show_viewport = mod.show_render = show
+            for e in _to_bring_back(found, group):
+                _set_shown(e, True)
         _changed()
         return {'FINISHED'}
 
@@ -632,7 +671,7 @@ class FP_OT_scatter_erase(bpy.types.Operator):
 
 
 classes = (FP_OT_scatter_add_type, FP_OT_scatter_game_grass, FP_OT_scatter_output, FP_OT_scatter_add_object, FP_OT_scatter_masks,
-           FP_OT_scatter_pick, FP_OT_scatter_show, FP_OT_scatter_remove, FP_OT_scatter_set, FP_OT_scatter_shadow,
+           FP_OT_scatter_pick, FP_OT_scatter_show, FP_OT_scatter_show_all, FP_OT_scatter_remove, FP_OT_scatter_set, FP_OT_scatter_shadow,
            FP_OT_scatter_weight, FP_OT_scatter_stroke,
            FP_OT_scatter_erase)
 _keymaps = []

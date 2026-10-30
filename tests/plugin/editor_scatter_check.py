@@ -726,6 +726,43 @@ try:
           values_of(k1, "Random Rotation") == [False, False])
     check("a single pick: no batch info", not land_select.many() and land_select.entries() == [land_scatter.selected()])
 
+    # the header's Hide All / Show All: everything off, then back only what was showing
+    def showing():
+        return {e["key"] for e in land_scatter.rows() if not e["hidden"]}
+
+    def header_button():
+        from fpmp_baseline.operator.fortnite_editor import tabs
+        from fpmp_baseline.operator.fortnite_editor.ui import blender as ui_blender
+        pressed = []
+
+        class Layout:
+            def operator(self, idname, text="", icon='NONE'):
+                pressed.append((idname, text, icon))
+        saved = ui_blender.folded, tabs.current
+        ui_blender.folded, tabs.current = (lambda *_: ()), (lambda *_: None)
+        try:
+            land_scatter.header(Layout(), bpy.context, False)
+        finally:
+            ui_blender.folded, tabs.current = saved
+        return pressed
+
+    bpy.ops.fp.scatter_show(key=k3)
+    before = showing()
+    check("the header offers Hide All", header_button() == [("fp.scatter_show_all", "Hide All", 'HIDE_OFF')], header_button())
+    check("something shows before Hide All", k1 in before and pk in before and k3 not in before, before)
+    bpy.ops.fp.scatter_show_all()
+    check("Hide All hides layers and placed foliage", not showing() and bpy.data.objects["Placed"].hide_render and
+          not any(m.show_render for _o, m in mods_of(k1)), showing())
+    check("the header then offers Show All", header_button() == [("fp.scatter_show_all", "Show All", 'HIDE_ON')], header_button())
+    bpy.ops.fp.scatter_show_all()
+    check("Show All brings back only what was showing", showing() == before, showing())
+    bpy.ops.fp.scatter_show(key=k3)
+    bpy.ops.fp.scatter_show_all()
+    land_scatter.SCATTER["before_hide"] = None
+    bpy.ops.fp.scatter_show_all()
+    check("no memory: all back but wind sprites", showing() == {e["key"] for e in land_scatter.rows() if not scatter_ops.is_wind(e)},
+          showing())
+
     # a value typed in the section pop-up (the modifier's own input) re-evaluates both pieces at once: no
     # update_tag, no tick between (Python writes to mod.properties.inputs tag nothing by themselves)
     from types import SimpleNamespace
