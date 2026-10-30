@@ -14,6 +14,11 @@ namespace FortnitePorting.Models.Plugin;
 
 public partial class BlenderInstallation
 {
+    // the plugin version as shown; ExtensionVersion only has FP's part, which stays the same across fork releases
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ExtensionVersionString))]
+    [property: JsonIgnore]
+    private string _installedVersion = string.Empty;
+
     // whether Blender's copy of the plugin differs from this build's (a file missing or changed)
     public bool PluginDiffers()
     {

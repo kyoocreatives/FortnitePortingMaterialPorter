@@ -4,8 +4,8 @@ run-name: Release ${{ github.ref_name }}
 on:
   push:
     tags:
-      # Material Porter fork: its releases (v4.0.0-mp.1, ...); "-mp.N" keeps FP's updater, which would install
-      # upstream FP over the fork, off
+      # Material Porter fork: its releases (v4.3.4-mp.1.13.0, ...); "-mp." keeps FP's updater, which would install
+      # upstream FP over the fork, off. v4.3.4-mp.154-1.13.0 also prompts apps from before this numbering.
       - 'v*-mp.*'
 
 jobs:
@@ -38,7 +38,12 @@ jobs:
 
       - name: Get Version
         shell: bash
-        run: echo "FP_VERSION=$(echo '${{ github.ref_name }}' | sed 's/^v//')" >> $GITHUB_ENV
+        run: |
+          VERSION=$(echo '${{ github.ref_name }}' | sed -E 's/^v//; s/-mp\.[0-9]+-/-mp./')
+          UPSTREAM=$(sed -n 's:.*<Version>\([0-9.]*\)-dev</Version>.*:\1:p' src/FortnitePorting/FortnitePorting.csproj)
+          [ "${VERSION%%-*}" = "$UPSTREAM" ] || { echo "tag says FP ${VERSION%%-*}, the csproj says $UPSTREAM"; exit 1; }
+          echo "FP_VERSION=$VERSION" >> $GITHUB_ENV
+          echo "MP_DISPLAY=fpv-${VERSION%%-*}/mpv-${VERSION#*-mp.}" >> $GITHUB_ENV
 
       - name: .NET Publish
         run: |
@@ -55,7 +60,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "FortnitePorting MP ${{ github.ref_name }}"
+          name: "FortnitePorting MP ${{ env.MP_DISPLAY }}"
           files: ./Release/FortnitePortingMP.exe
           body_path: RELEASE_NOTES.md
           draft: false

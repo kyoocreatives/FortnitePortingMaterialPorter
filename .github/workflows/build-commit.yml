@@ -33,7 +33,7 @@ jobs:
       
       - name: Get Version
         shell: bash
-        run: echo "FP_VERSION=4.0.0-${GITHUB_SHA::7}" >> $GITHUB_ENV
+        run: echo "FP_VERSION=$(sed -n 's:.*<Version>\([0-9.]*\)-dev</Version>.*:\1:p' src/FortnitePorting/FortnitePorting.csproj)-${GITHUB_SHA::7}" >> $GITHUB_ENV
 
       - name: .NET Publish
         run: |

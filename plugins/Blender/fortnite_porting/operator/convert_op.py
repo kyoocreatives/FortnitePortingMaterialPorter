@@ -424,6 +424,11 @@ class FPMP_PT_Exact(bpy.types.Panel):
     bl_category = "Fortnite Porting"
     bl_order = 10
 
+    def draw_header_preset(self, context):
+        # the first panel of the tab: which plugin is loaded, for bug reports
+        from ..material_porter.version_label import version_label
+        self.layout.label(text=version_label())
+
     def draw(self, context):
         layout = self.layout
         # the label column of use_property_split (0.4), so the checkbox below lines up

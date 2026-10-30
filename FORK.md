@@ -74,9 +74,18 @@ Public releases build with all three off.
 
 ## Releases
 
-Pushing a tag `v<FP version>-mp.<N>` runs `.github/workflows/build-release.yml`: a single-file
-`FortnitePortingMP.exe` released with `RELEASE_NOTES.md` as its text. FP's updater sees `-mp.N`
-as a dev build, so `MaterialPorter/ForkUpdates.cs` checks the fork's own releases instead.
+A version has two parts, shown as `fpv-4.3.4/mpv-1.12.3`: the upstream FP version the fork is merged
+with, and Material Porter's own semantic version (a fix bumps the last number; a bigger update bumps
+the middle one and resets the last).
+
+Pushing a tag `v<FP version>-mp.<MP version>` (`v4.3.4-mp.1.13.0`) runs
+`.github/workflows/build-release.yml`: a single-file `FortnitePortingMP.exe` released with
+`RELEASE_NOTES.md` as its text. FP's updater sees `-mp.` as a dev build, so
+`MaterialPorter/ForkUpdates.cs` checks the fork's own releases instead.
+
+Apps from before this numbering only read a whole number after `mp.`, so a tag with a running counter
+in front (`v4.3.4-mp.154-1.13.0`) is what still gets them an update prompt. Both forms build the same
+version.
 
 ## Merging upstream
 
@@ -85,3 +94,6 @@ as a dev build, so `MaterialPorter/ForkUpdates.cs` checks the fork's own release
 
 Conflicts can only come from the marked lines in upstream files; the fork's own files and
 partial classes don't overlap upstream's.
+
+Then set the new upstream version in the csproj's `<Version>`, `blender_manifest.toml`, `bl_info` in
+the plugin's `__init__.py` and `FortnitePorting.uplugin`.

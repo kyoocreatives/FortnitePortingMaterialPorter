@@ -41,7 +41,7 @@ public partial class AppWindowModel(
     {
         "dev" => "dev-build",
         var hash when CommitShaMatch().IsMatch(hash) => hash,
-        _ => Globals.VersionString
+        _ => MaterialPorter.ForkVersion.Display(Globals.VersionString) // MP
     };
     [ObservableProperty] private int _unreadNewsCount;
     [ObservableProperty] private int _chatNotifications;

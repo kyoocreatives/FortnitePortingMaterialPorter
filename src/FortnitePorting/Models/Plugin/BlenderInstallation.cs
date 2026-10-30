@@ -21,7 +21,7 @@ public partial class BlenderInstallation(string blenderExecutablePath) : Observa
     private Version? _extensionVersion = null;
 
     [JsonIgnore]
-    public string ExtensionVersionString => ExtensionVersion is null ? string.Empty : $"v{ExtensionVersion}";
+    public string ExtensionVersionString => ExtensionVersion is null ? string.Empty : InstalledVersion; // MP
 
     [ObservableProperty, NotifyPropertyChangedFor(nameof(StatusBrush))]
     [property: JsonIgnore]
@@ -94,6 +94,7 @@ public partial class BlenderInstallation(string blenderExecutablePath) : Observa
         }
 
         var metaVersion = new FPVersion(meta.Version);
+        InstalledVersion = MaterialPorter.ForkVersion.Display(metaVersion.GetDisplayString()); // MP
         ExtensionVersion = new Version(metaVersion.Release, metaVersion.Major, metaVersion.Minor);
         Status = !Globals.IsDevBuild && !metaVersion.Equals(Globals.Version)
             ? EPluginStatusType.UpdateAvailable
