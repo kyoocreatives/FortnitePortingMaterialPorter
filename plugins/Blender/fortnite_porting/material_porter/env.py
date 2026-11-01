@@ -16,6 +16,7 @@ import re
 import bpy
 
 from . import landscape_layers, world
+from .ue_graph.core import section_name
 from .ue_graph import BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PART_BOUNDS_MIN, PIXEL_NORMAL, WATER_DEPTH_DEFAULT, Val
 
 # A vector parameter that names a colour gets a colour socket (a picker); any other (offset, direction, channel, size)
@@ -934,6 +935,10 @@ class MaterialEnv:
         self.tex_default.setdefault(name, default)
         return key
 
+    def _in_night_tint(self):
+        """Whether what's being built is inside the anime shader's MF_TODColorAdjustment (group or inlined)."""
+        return section_name("MF_TODColorAdjustment") in (self.tr.section or ())
+
     def collection(self, name, path=None):
         """A material parameter collection's value for `name`, through the file's group for that collection
         (a time of day makes it follow its hour where its day sequence keys the value)."""
@@ -948,6 +953,9 @@ class MaterialEnv:
                 # aside: it follows the scene's lamp). They are folded in as values so what reads them folds
                 # away too (a character's TODColor Adjustment, Scalar Time of Day).
                 if name not in world.LIVE and not world.has_day():
+                    # the anime skins' night tint stays live: the sky add-on's hour and lamp drive it
+                    if name in world.NIGHT_READS and self._in_night_tint():
+                        return world.night(self.tr, name)
                     return self.tr.const(default)
                 return world.collection(self.tr, path, name, default)
         self.note("collection %s has no %s: 0" % (path.split("/")[-1], name))

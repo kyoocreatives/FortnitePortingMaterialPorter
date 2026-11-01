@@ -142,6 +142,63 @@ def sun(tr, output="Direction"):
     return Val(n.outputs[output], 3)
 
 
+# ------------------------------------------------------------------ the anime skins' night tint
+NIGHT = "MP Anime Night"
+NIGHT_READS = ("TimeOfDay_0-1", "SunLightColor")
+# the sky add-on's scene properties: its switch and hour (no add-on: both read 0, and the switch keeps it noon)
+SKY_TOD_ON, SKY_TOD_HOUR = "fpv4_clouds_tod", "fpv4_clouds_time"
+
+
+def _scene_value(t, name, y):
+    a = t.nodes.new("ShaderNodeAttribute"); a.attribute_type = 'VIEW_LAYER'; a.attribute_name = '["%s"]' % name
+    a.location = (-900, y)
+    return a.outputs["Fac"]
+
+
+def night_group():
+    """The hour and sun hue for a file without its own time of day: noon (no tint) unless the sky add-on's is on."""
+    t = bpy.data.node_groups.get(NIGHT)
+    if t is not None:
+        return t
+    t = _new_group(NIGHT, outputs=(("TimeOfDay_0-1", 'NodeSocketFloat'), ("SunLightColor", 'NodeSocketColor')))
+    N, L = t.nodes, t.links
+    go = N.new("NodeGroupOutput"); go.location = (500, 0)
+
+    def math(op, a, b, y):
+        m = N.new("ShaderNodeMath"); m.operation = op; m.location = (-600, y)
+        for i, v in enumerate((a, b)):
+            if isinstance(v, (int, float)):
+                m.inputs[i].default_value = float(v)
+            else:
+                L.new(v, m.inputs[i])
+        return m.outputs[0]
+
+    day = math('DIVIDE', math('FLOORED_MODULO', _scene_value(t, SKY_TOD_HOUR, 200), 24.0, 200), 24.0, 200)
+    on = math('GREATER_THAN', _scene_value(t, SKY_TOD_ON, 50), 0.5, 50)
+    L.new(math('ADD', 0.5, math('MULTIPLY', on, math('SUBTRACT', day, 0.5, 100), 100), 100), go.inputs["TimeOfDay_0-1"])
+
+    # the game's rgb / intensity: the lamp's hue, whatever its strength (none at all: no tint)
+    g = N.new("ShaderNodeGroup"); g.node_tree = sun_group(); g.location = (-900, -200)
+    s = N.new("ShaderNodeSeparateColor"); s.location = (-700, -200)
+    L.new(g.outputs["Color"], s.inputs[0])
+    top = math('MAXIMUM', math('MAXIMUM', s.outputs[0], s.outputs[1], -200), s.outputs[2], -200)
+    c = N.new("ShaderNodeCombineColor"); c.location = (200, -200)
+    dark = math('LESS_THAN', top, 1e-4, -300)
+    for i in range(3):
+        L.new(math('ADD', math('DIVIDE', s.outputs[i], math('MAXIMUM', top, 1e-4, -400), -400), dark, -400), c.inputs[i])
+    L.new(c.outputs[0], go.inputs["SunLightColor"])
+    return t
+
+
+def night(tr, name):
+    """A night tint's collection parameter (Val), through the group."""
+    n = tr.node("ShaderNodeGroup", "%s (night)" % name)
+    n.node_tree = night_group()
+    if name == "SunLightColor":
+        return tr.with_alpha(Val(n.outputs[name], 3), tr.const(1.0))
+    return Val(n.outputs[name], 1)
+
+
 # ------------------------------------------------------------------ the view
 VIEW = "MP World View"
 # Tan of half the field of view across and up the render (sensor fit Auto uses the frame's larger side,
