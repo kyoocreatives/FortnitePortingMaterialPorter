@@ -118,6 +118,8 @@ public partial class MapViewModel(
                 Maps.Add(new WorldPartitionMap(mapInfo));
             }
 
+            await AddGameMapsAsync();     // MP
+
             foreach (var mapInfo in _settings.Application.LocalMapInfos.ToArray())
             {
                 if (!mapInfo.IsValid())

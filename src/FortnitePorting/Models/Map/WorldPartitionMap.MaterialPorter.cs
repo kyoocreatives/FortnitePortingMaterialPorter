@@ -53,6 +53,7 @@ public partial class WorldPartitionMap
     public bool DrawnPreview => _drawnPreview;
     private int _previewLevels;
     private CancellationTokenSource? _previewCancel;
+    public bool SnapCells;      // cells on the grid's true squares, not FP's hand-placed snapping
     private static readonly SemaphoreSlim Drawing = new(1, 1);     // one map drawn at a time; the others wait
 
     partial void OnMapBitmapChanged(Bitmap? value) => OnPropertyChanged(nameof(NoPreview));

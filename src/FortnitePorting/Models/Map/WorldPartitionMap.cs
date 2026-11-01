@@ -128,7 +128,7 @@ public partial class WorldPartitionMap : ObservableObject
                         position = bounds.GetCenter();
 
                         // please don't break other maps
-                        if (_drawnPreview) position = SnapCell(position);     // MP: a drawn map's own grid
+                        if (_drawnPreview || SnapCells) position = SnapCell(position);     // MP: a drawn map's own grid
                         else
                         {
                             position.X -= position.X % MapInfo.MinGridDistance;
