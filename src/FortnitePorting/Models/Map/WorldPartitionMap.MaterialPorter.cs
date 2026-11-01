@@ -65,6 +65,22 @@ public partial class WorldPartitionMap
     // Whether this map's picture is drawn (none, or another map's): before its cells are placed.
     private async Task<bool> NeedsDrawnPreviewAsync()
     {
+        // a past island's picture kept with the app (the game only ships the current one's). FP's offsets put the ground
+        // on it, but a cell draws at its corner: half a cell more puts cells and POIs on their ground, as GameMaps does.
+        var kept = new Uri($"avares://FortnitePorting/Assets/MaterialPorter/Maps/{MapInfo.MapPath.SubstringAfterLast('/')}.jpg");
+        if (AssetLoader.Exists(kept))
+        {
+            using (var stream = AssetLoader.Open(kept)) MapBitmap = new Bitmap(stream);
+            MaskBitmap = White();
+            if (!SnapCells)
+            {
+                SnapCells = true;
+                var half = (int) Math.Round(MapInfo.Scale * MapInfo.MinGridDistance / 2);
+                MapInfo.XOffset += half;
+                MapInfo.YOffset += half;
+            }
+            return false;
+        }
         if (MapBitmap is not null && !await MapPreview.IsAnotherMapsAsync(UEParse.Provider, MapInfo.MinimapPath, MapInfo.MapPath))
             return false;
         if (MapBitmap is not null)
