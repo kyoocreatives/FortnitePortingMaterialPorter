@@ -115,7 +115,10 @@ class Engine:
             return {}
 
     def _exe(self):
-        for path in (os.environ.get("FORTNITEPORTING_MP_EXE"), self.exe_hint, self._info().get("exe")):
+        recorded = self._info().get("exe")
+        # a build run from its staging folder recorded a path that its swap into the live folder removed
+        live = os.path.join(os.path.dirname(recorded).removesuffix("-staging"), os.path.basename(recorded)) if recorded else None
+        for path in (os.environ.get("FORTNITEPORTING_MP_EXE"), self.exe_hint, recorded, live):
             if path and os.path.isfile(path):
                 return path
         return None

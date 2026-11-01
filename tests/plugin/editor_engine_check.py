@@ -108,6 +108,16 @@ e.url = fake.url        # the launched engine starts answering
 check("ready once the launched engine answers", settle(e, lambda x: x.state == "ready"), e.state)
 check("launched only once", len(launched) == 1, launched)
 
+# --- the recorded staging folder was swapped away: the live folder beside it
+staged = os.path.join(tmp, "app-staging", "FortnitePortingMP.exe")
+live = os.path.join(tmp, "app", "FortnitePortingMP.exe")
+os.makedirs(os.path.dirname(live))
+open(live, "w").close()
+json.dump({"exe": staged, "port": 9}, open(info, "w"))
+check("swapped staging path finds the live exe", eng.Engine(dead, info_path=info, launcher=launcher)._exe() == live)
+os.remove(live)
+check("no live exe beside it either", eng.Engine(dead, info_path=info, launcher=launcher)._exe() is None)
+
 # --- no exe anywhere
 os.remove(info)
 launched.clear()
