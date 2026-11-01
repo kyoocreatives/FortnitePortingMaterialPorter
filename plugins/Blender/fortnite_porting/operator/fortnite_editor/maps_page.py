@@ -105,8 +105,8 @@ def _card(ui, r, got, wm):
     if title:
         paint.text_in(title, inner.cut_top(t.text + t.gap * 2), t.text2, t.caption)
     picked = "%d cells, %d picked" % (len(on_map(got)), len(MAPS["selected"]))
-    paint.text_in(picked + (" + terrain" if wm.fp_map_main else ""), inner.cut_top(t.caption + t.gap * 2), t.text3,
-                  t.caption)
+    paint.text_in(picked + (" + terrain" if wm.fp_map_main else " + their terrain" if wm.fp_map_tiles else ""),
+                  inner.cut_top(t.caption + t.gap * 2), t.text3, t.caption)
 
 
 def _picks(ui, r):
@@ -177,13 +177,15 @@ def _export(ui, r, states, wm):
         ui.button("map:cancel", r, "Cancel", "mdi_Cancel", _op("map_cancel"),
                   "Stop the export now (cells already in Blender stay)")
         return
-    ui.button("map:export", r, import_options.import_label(_export_text(len(MAPS["selected"]), wm.fp_map_main), "map"), "mdi_Download", _op("map_export"),
+    ui.button("map:export", r, import_options.import_label(_export_text(len(MAPS["selected"]), wm.fp_map_main, wm.fp_map_tiles), "map"), "mdi_Download", _op("map_export"),
               "Export the picked cells one by one: each lands in Blender as it finishes", enabled=can_export(wm),
               style="accent")
 
 
-def _export_text(cells, terrain):
+def _export_text(cells, terrain, tiles=False):
     text = "%d cell%s" % (cells, "" if cells == 1 else "s")
+    if tiles and cells:
+        return "Export " + text + " + terrain under"
     if terrain:
         return "Export terrain + " + text if cells else "Export terrain"
     return "Export " + text
@@ -277,6 +279,7 @@ def header(layout, context):
             layout.operator("fp.map_export", text="Export", icon='EXPORT')
     layout.row(align=True).prop(wm, "fp_map_flags", text="")      # icon toggles: each item's tooltip names it
     layout.prop(wm, "fp_map_main", text="", icon='WORLD_DATA')
+    layout.prop(wm, "fp_map_tiles", text="", icon='MESH_GRID')
     sub = layout.row()
     sub.ui_units_x = 7
     sub.prop(wm, "fp_map_filter", text="", icon='FILTER')

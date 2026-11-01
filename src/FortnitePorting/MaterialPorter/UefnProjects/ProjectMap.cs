@@ -138,7 +138,14 @@ public sealed class ProjectMap : WorldPartitionMap
             picked.ForEach(map => map.Status = EWorldPartitionGridMapStatus.Exporting);
             var world = await UEParse.Provider.SafeLoadPackageObjectAsync<UWorld>(MapInfo.MapPath);
             if (world is null) return;
-            var exported = await RunCellsAsync(picked.Select(map => CellOf(map.Path)), meta => Exporter.Export(world, EExportType.World, meta));
+            var cells = picked.Select(map => CellOf(map.Path)).ToList();
+            var exported = !TerrainUnderCells || await RunCellsAsync(cells, meta =>
+            {
+                meta.WorldFlags = EWorldFlags.Landscape;
+                meta.MPTerrainAreas = PickedAreas();
+                return Exporter.Export(world, EExportType.World, meta);
+            });
+            if (!TerrainOnly) exported &= await RunCellsAsync(cells, meta => Exporter.Export(world, EExportType.World, meta));
             picked.ForEach(map => map.Status = EWorldPartitionGridMapStatus.None);
             if (exported) ClearSelectedMaps();
         }

@@ -1,7 +1,8 @@
 """The Map tab's export queue: picked cells go to the engine one at a time, each lands in Blender as it finishes; Cancel
 drops the rest and stops the cell in flight. Pure: the tab's timer sends what next() gives."""
 
-TERRAIN = "terrain"     # the map's own level (Include Terrain): a step of its own, first
+TERRAIN = "terrain"     # the map's own level (Include Terrain) or the ground under the cells: a step of its own, first
+LANDSCAPE_ONLY = {"", "Landscape"}
 
 
 class Queue:
@@ -12,7 +13,11 @@ class Queue:
     def start(self, map_id, cells, options=None):
         """options: the export settings as Export was pressed (flags, filter, layers), kept for every cell."""
         self.options, self.cancelled = dict(options or {}), False
-        cells = ([TERRAIN] if self.options.get("main") else []) + list(cells)
+        cells = list(cells)
+        tiles = self.options.get("tiles")
+        if tiles and self.options.get("flags", "") in LANDSCAPE_ONLY:      # the cells' own levels have nothing to add
+            cells = []
+        cells = ([TERRAIN] if self.options.get("main") or tiles else []) + cells
         self.map_id, self.cells, self.total, self.current = map_id, cells, len(cells), None
         self.state = {cell: "queued" for cell in self.cells}
 

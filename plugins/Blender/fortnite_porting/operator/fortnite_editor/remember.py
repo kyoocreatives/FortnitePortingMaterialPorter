@@ -14,7 +14,7 @@ from .ui import blender as ui_blender
 
 KEEP = ("fp_browse_type", "fp_browse_sort", "fp_browse_tile", "fp_browse_names", "fp_browse_filters",
         "fp_files_kind", "fp_files_folder", "fp_land_radius", "fp_land_strength", "fp_land_falloff",
-        "fp_land_layer_only", "fp_land_mode", "fp_map_flags", "fp_map_main", "fp_rig_panes", "fp_rig_mirror", "fp_rig_face_part")
+        "fp_land_layer_only", "fp_land_mode", "fp_map_flags", "fp_map_main", "fp_map_tiles", "fp_rig_panes", "fp_rig_mirror", "fp_rig_face_part")
 CHECK = 1.0     # s between looks for a change
 MEM = {"applied": False, "saved": None, "looked": 0.0}
 

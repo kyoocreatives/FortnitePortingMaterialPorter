@@ -173,6 +173,7 @@ def export_options(wm):
     MAPS["run"] = uuid.uuid4().hex[:12]     # unique across Blenders: Cancel stops this export, no other client's
     return {"flags": ",".join(sorted(wm.fp_map_flags)), "filter": wm.fp_map_filter.strip(),
             "layers": ";".join(sorted(MAPS["layers"])), "main": wm.fp_map_main, "run": MAPS["run"],
+            "tiles": ";".join(str(c) for c in sorted(MAPS["selected"])) if wm.fp_map_tiles else "",
             "settings": import_options.query(wm, "map")}
 
 
@@ -187,7 +188,9 @@ def _send_next(e):
     query = {"id": queue.map_id, "cells": "" if terrain else str(cell), "flags": options.get("flags", ""),
              "filter": options.get("filter", ""), "layers": options.get("layers", ""), "run": options.get("run", "0"),
              "settings": options.get("settings", "")}
-    if terrain:
+    if terrain and options.get("tiles"):
+        query["terrain"] = options["tiles"]
+    elif terrain:
         query["main"] = "1"
     e.request("maps-export", lambda result, c=cell: _cell_done(c, result), timeout=1800, **query)
     tag_redraw()
@@ -197,6 +200,9 @@ def _cell_done(cell, result):
     queue = MAPS["queue"]
     if isinstance(result, dict) and result.get("cancelled"):
         queue.finished(cell, None)
+    elif cell == maps_export.TERRAIN and queue.options.get("tiles") and isinstance(result, dict) and not result.get("Exports"):
+        queue.finished(cell, False)
+        STATE["error"] = "No terrain under the picked cells"
     else:
         error = importing.land("cell %s" % cell, result)
         importing.undo_step()
@@ -312,6 +318,13 @@ def _draw_pois(view, got, region, scale):
         _text(poi["name"], x + r + 3 * scale, y - size / 3, (1, 1, 1, 1) if named else (0.85, 0.85, 0.85, 1), size)
 
 
+def _terrain_changed(wm, other):
+    """Whole terrain or the ground under the cells: one or the other."""
+    if wm.fp_map_main and wm.fp_map_tiles:
+        setattr(wm, other, False)
+    tag_redraw()
+
+
 def register():
     wm = bpy.types.WindowManager
     wm.fp_map_id = bpy.props.StringProperty()
@@ -321,8 +334,11 @@ def register():
                                              items=[(k, label, "Export the cells' %s" % label.lower(), icon, 1 << i)
                                                     for i, (k, label, icon) in enumerate(FLAGS)])
     wm.fp_map_filter = bpy.props.StringProperty(name="Actor Filter", description="Only actors whose name holds this (empty: all)")
-    wm.fp_map_main = bpy.props.BoolProperty(name="Include Terrain", update=lambda self, context: tag_redraw(),
+    wm.fp_map_main = bpy.props.BoolProperty(name="Include Terrain", update=lambda self, context: _terrain_changed(self, "fp_map_tiles"),
                                             description="The map's own level (its terrain), exported first, also with no cell picked")
+    wm.fp_map_tiles = bpy.props.BoolProperty(name="Terrain Under Cells", update=lambda self, context: _terrain_changed(self, "fp_map_main"),
+                                             description="Picked cells bring only the terrain under them, first. "
+                                                         "Pieces already in the scene are skipped")
     from . import maps_ops, maps_page
     maps_page.register()
     tabs.register_tab(tabs.Tab("map", "Map", 'WORLD', header=maps_page.header, draw=draw, tick=tick, nav_icon="mdi_Map",
@@ -335,5 +351,5 @@ def unregister():
     tabs.unregister_tab("map")
     _free_picture()
     maps_page.unregister()
-    for p in ("fp_map_id", "fp_map_search", "fp_map_flags", "fp_map_filter", "fp_map_main"):
+    for p in ("fp_map_id", "fp_map_search", "fp_map_flags", "fp_map_filter", "fp_map_main", "fp_map_tiles"):
         delattr(bpy.types.WindowManager, p)

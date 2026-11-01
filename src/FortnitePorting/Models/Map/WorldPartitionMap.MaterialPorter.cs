@@ -10,7 +10,9 @@ using Avalonia.Platform;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CUE4Parse.UE4.Objects.Core.Math;
+using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.Utils;
+using FortnitePorting.Exporting.MaterialPorter;
 using FortnitePorting.MaterialPorter;
 using Serilog;
 
@@ -77,6 +79,53 @@ public partial class WorldPartitionMap
     {
         double size = MapInfo.MinGridDistance;
         return new FVector((float) (Math.Floor(center.X / size) * size), (float) (Math.Floor(center.Y / size) * size), 0);
+    }
+
+    /// <summary>Terrain Under Cells: picked cells bring the landscape pieces under them, from wherever those are kept.</summary>
+    [ObservableProperty] private bool _terrainUnderCells;
+
+    // one or the other: the whole terrain already holds what's under the cells
+    partial void OnTerrainUnderCellsChanged(bool value) { if (value) IncludeMainLevel = false; }
+    partial void OnIncludeMainLevelChanged(bool value) { if (value) TerrainUnderCells = false; }
+
+    /// <summary>Terrain Under Cells with no other flag on: the cells' own levels have nothing to add.</summary>
+    protected bool TerrainOnly => TerrainUnderCells && !(WorldFlagsActors || WorldFlagsHLODs || WorldFlagsLights || WorldFlagsDecals || WorldFlagsEffects);
+
+    protected List<TerrainArea> PickedAreas() => Grids.Where(g => g.IsSelected).Select(g => g.Area).ToList();
+
+    /// <summary>The worlds that hold terrain for these levels: the map's own, and those with a landscape piece of their own.</summary>
+    public async Task<List<UWorld>> TerrainWorldsAsync(IEnumerable<string> levels)
+    {
+        var worlds = new List<UWorld>();
+        if (await UEParse.Provider.SafeLoadPackageObjectAsync<UWorld>(MapInfo.MapPath) is { } own) worlds.Add(own);
+        foreach (var path in levels)
+        {
+            if (await UEParse.Provider.SafeLoadPackageObjectAsync<UWorld>(path) is not { } world
+                || await world.PersistentLevel.LoadAsync<ULevel>() is not { } level) continue;
+            if (level.Actors.Any(a => a?.ResolvedObject?.Class?.Name.Text is "LandscapeStreamingProxy" or "LandscapeProxy")) worlds.Add(world);
+        }
+        return worlds;
+    }
+
+    // The terrain under the picked cells, before the cells: its flags and areas for this step only.
+    private async Task<bool> ExportCellTerrain()
+    {
+        if (!TerrainUnderCells || _exportMeta is not { } meta) return true;
+        var flags = meta.WorldFlags;
+        meta.WorldFlags = EWorldFlags.Landscape;
+        meta.MPTerrainAreas = PickedAreas();
+        try
+        {
+            var done = true;
+            foreach (var world in await TerrainWorldsAsync(SelectedMaps.Select(m => m.Path)))
+                done &= await Exporter.Export(world, EExportType.World, meta);
+            return done;
+        }
+        finally
+        {
+            meta.WorldFlags = flags;
+            meta.MPTerrainAreas = null;
+        }
     }
 
     // The levels to read: the map, its streamed cells (an island's beside it).
@@ -188,6 +237,9 @@ public partial class WorldPartitionMap
 
 public partial class WorldPartitionGrid
 {
+    /// <summary>The ground under the cell's square on the page: a cell sits at its corner.</summary>
+    public TerrainArea Area => new(OriginalPosition.X, OriginalPosition.Y, OriginalPosition.X + MapInfo.MinGridDistance, OriginalPosition.Y + MapInfo.MinGridDistance);
+
     /// <summary>Places the cells again over a drawn map (its scale and offsets just changed).</summary>
     public void Place(FVector position, int cellSize)
     {

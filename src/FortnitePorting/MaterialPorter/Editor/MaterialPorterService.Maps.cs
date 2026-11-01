@@ -18,6 +18,7 @@ using CUE4Parse.Utils;
 using FortnitePorting.Application;
 using FortnitePorting.Exporting;
 using FortnitePorting.Exporting.Models;
+using FortnitePorting.Exporting.Types;
 using FortnitePorting.Models.Map;
 using FortnitePorting.Services;
 using FortnitePorting.Shared.Extensions;
@@ -32,6 +33,7 @@ namespace FortnitePorting.MaterialPorter;
 //   maps-export?id=&cells=0;4&flags=Actors,..&filter=&layers=&main=1   the export payload, or {cancelled: true}
 //                                                    (main=1: the map's own level too; with no cells, alone;
 //                                                    settings=Name:Value;: Blender export settings for this export)
+//   maps-export?id=&terrain=0;4                      only the landscape pieces under these cells (no Exports: none there)
 //   maps-cancel?run=                                 cancels the map exports in flight, and that run's cells still on their way
 //   maps-images?id=&kinds=minimap,height,normal,weight   {files:[{kind, path}]}
 public partial class MaterialPorterService
@@ -131,7 +133,7 @@ public partial class MaterialPorterService
                 cells = map.Grids.Select((c, i) =>
                 {
                     var (x, y) = Pixel(c.OffsetMargin.Left, c.OffsetMargin.Top);
-                    return new { id = i, x, y, size = c.CellSize, levels = c.Maps.Count };
+                    return new { id = i, x, y, size = c.CellSize, levels = c.Maps.Count, area = new[] { c.Area.MinX, c.Area.MinY, c.Area.MaxX, c.Area.MaxY } };
                 }).ToList(),
                 layers = map.MPLayers.Select(l => l.Name).ToList(),
                 pois,
@@ -217,15 +219,21 @@ public partial class MaterialPorterService
     private static async Task<object?> MapsExportAsync(NameValueCollection query, ExportDataMeta meta, ViewModels.BaseExportSettings settings)
     {
         var map = await FindMap(query["id"] ?? throw new ArgumentException("id missing"));
-        var picked = (query["cells"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToList();
-        var levels = await OnUI(() => picked.Where(i => i >= 0 && i < map.Grids.Count).Select(i => map.Grids[i])
-            .SelectMany(g => g.Maps).Select(m => m.Path).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
+        var terrain = query["terrain"] is not null;       // only the ground under these cells, as the page's Terrain Under Cells
+        var picked = (query["terrain"] ?? query["cells"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse).ToList();
+        var grids = await OnUI(() => picked.Where(i => i >= 0 && i < map.Grids.Count).Select(i => map.Grids[i]).ToList());
+        var levels = await OnUI(() => grids.SelectMany(g => g.Maps).Select(m => m.Path).Distinct(StringComparer.OrdinalIgnoreCase).ToList());
         var main = query["main"] == "1";       // the map's own level (its terrain), as the page's Include Terrain
-        if (levels.Count == 0 && !main) throw new ArgumentException("no such cells");
+        if (grids.Count == 0 && (terrain || !main) || levels.Count == 0 && !main && !terrain) throw new ArgumentException("no such cells");
 
         meta.WorldFlags = 0;
         foreach (var flag in (query["flags"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries))
             meta.WorldFlags |= Enum.Parse<EWorldFlags>(flag.Trim(), true);
+        if (terrain)
+        {
+            meta.WorldFlags = EWorldFlags.Landscape;
+            meta.MPTerrainAreas = grids.Select(g => g.Area).ToList();
+        }
         meta.ActorFilter = string.IsNullOrWhiteSpace(query["filter"]) ? null : query["filter"]!.Trim();
         var provider = AppServices.UEParse.Provider!;
         var worlds = new List<UWorld>();
@@ -233,6 +241,7 @@ public partial class MaterialPorterService
         if (levels.Count > 0)
             ProjectMapCells(map, meta, levels, (query["layers"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries), ref handled);
         if (handled) worlds.Add(await provider.LoadPackageObjectAsync<UWorld>(map.MapInfo.MapPath));
+        else if (terrain) worlds = await map.TerrainWorldsAsync(levels);
         else
         {
             if (main) levels.Insert(0, map.MapInfo.MapPath);
@@ -248,6 +257,7 @@ public partial class MaterialPorterService
             var session = new ExportSession(meta);
             var data = await Task.Run(() => session.RunAsync(() => worlds.Select(w => session.CreateExport(w.Name, w, EExportType.World, []))));
             if (meta.CancellationToken.IsCancellationRequested) return new { cancelled = true };
+            if (terrain && data.Exports.OfType<MeshExport>().All(e => e.Meshes.Count == 0)) return new { Exports = Array.Empty<object>() };
             return ExportPayload(data, settings);
         }
         finally

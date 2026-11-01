@@ -139,7 +139,8 @@ class MeshImportContext(LightImportMixin):     # MP: spot and rect lights
         path = mesh.get("Path")
         name = mesh.get("Name")
         part_type = EFortCustomPartType(mesh.get("Type"))
-        
+
+        if mp.tile_placed(self, mesh): return None     # MP
         if mesh.get("IsEmpty"):
             empty_object = mp.make_empty(self, mesh, name)     # MP: an effect's sprite or ribbon
 

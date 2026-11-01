@@ -277,9 +277,10 @@ public partial class WorldPartitionMap : ObservableObject
 
             SelectedMaps.ForEach(map => map.Status = EWorldPartitionGridMapStatus.Waiting);
             
-            var exportedProperly = true;
+            var exportedProperly = await ExportCellTerrain();     // MP
             foreach (var map in SelectedMaps.ToArray())
             {
+                if (TerrainOnly) { map.Status = EWorldPartitionGridMapStatus.Finished; continue; }     // MP
                 map.Status = EWorldPartitionGridMapStatus.Exporting;
                 
                 var world = await UEParse.Provider.SafeLoadPackageObjectAsync<UWorld>(map.Path);

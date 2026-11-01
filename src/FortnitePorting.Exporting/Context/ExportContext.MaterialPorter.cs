@@ -163,6 +163,7 @@ public partial class ExportContext
             if (ActorFilter is { } only && !actor.Name.Contains(only, StringComparison.OrdinalIgnoreCase)) continue;
             if (actor is ALandscapeProxy proxy)
             {
+                if (!InTerrainAreas(proxy)) continue;
                 // FP names a weight layer after its LayerInfo asset; exact materials ask by LayerName
                 var names = LandscapeLayerNames(proxy);
                 foreach (var landscape in Actor(actor, loadTemplate: false).Where(x => x is not null))
@@ -187,6 +188,20 @@ public partial class ExportContext
     }
 
     static bool IsTerrain(string type) => type.Contains("Landscape", StringComparison.Ordinal) || type == "FortMainHLOD";
+
+    /// <summary>Whether a landscape piece touches the ground asked for (MPTerrainAreas), by its own extent: the mesh starts at its actor.</summary>
+    private bool InTerrainAreas(ALandscapeProxy proxy)
+    {
+        if (Meta.MPTerrainAreas is not { } areas) return true;
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        foreach (var component in proxy.LandscapeComponents ?? [])
+            component.Load<ULandscapeComponent>()?.GetComponentExtent(ref minX, ref minY, ref maxX, ref maxY);
+        if (minX > maxX) return false;
+        var at = proxy.GetAbsoluteTransformFromRootComponent();
+        var piece = new TerrainArea(at.Translation.X, at.Translation.Y,
+            at.Translation.X + (maxX - minX) * at.Scale3D.X, at.Translation.Y + (maxY - minY) * at.Scale3D.Y);
+        return areas.Any(piece.Overlaps);
+    }
 
     /// <summary>The level's terrain and HLOD actors, or those of the packages read in its place (MPLevels: an editor
     /// map's actors, each in its own package, found by class without reading the others).</summary>

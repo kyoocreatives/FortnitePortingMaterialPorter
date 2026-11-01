@@ -235,7 +235,7 @@ class FP_OT_map_clear(bpy.types.Operator):
 
 
 class FP_OT_map_export(bpy.types.Operator):
-    """Export the terrain (Include Terrain) and the picked cells one by one with these flags; each lands in Blender as it finishes"""
+    """Export the terrain (Include Terrain, or Terrain Under Cells) and the picked cells one by one with these flags; each lands in Blender as it finishes"""
     bl_idname = "fp.map_export"
     bl_label = "Export Cells"
 

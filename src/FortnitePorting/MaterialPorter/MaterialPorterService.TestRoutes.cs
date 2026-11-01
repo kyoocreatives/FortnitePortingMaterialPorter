@@ -363,6 +363,29 @@ public partial class MaterialPorterService
                 return new { file, Popup = popup?.Child is not null, items, sub, map.WorldFlagsActors, map.WorldFlagsInstancedFoliage, map.WorldFlagsLandscape, map.WorldFlagsHLODs, map.WorldFlagsLights, map.WorldFlagsDecals, map.WorldFlagsEffects, map.WorldFlagsHidden };
             });
         }
+        if (route == "fork-map-terrain")
+        {
+            // The Map page's Export with Terrain Under Cells and no other flag, to the assets folder: these cells (name=, cells=0;4).
+            var maps = AppServices.MapVM;
+            var map = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                maps.Maps.First(m => m.MapInfo.Name.Equals(query["name"], StringComparison.OrdinalIgnoreCase)));
+            var excludes = await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                map.IncludeMainLevel = true;
+                map.TerrainUnderCells = true;
+                var off = !map.IncludeMainLevel;
+                map.WorldFlagsActors = map.WorldFlagsHLODs = map.WorldFlagsLights = map.WorldFlagsDecals = map.WorldFlagsEffects = false;
+                foreach (var cell in (query["cells"] ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries).Select(int.Parse))
+                {
+                    map.Grids[cell].IsSelected = true;
+                    foreach (var level in map.Grids[cell].Maps) map.SelectedMaps.Add(level);
+                }
+                maps.ExportLocation = EExportLocation.AssetsFolder;
+                return off;
+            });
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => map.Export());
+            return new { excludes, left = map.SelectedMaps.Count };
+        }
         if (route == "fork-map-preview")
         {
             // The Map page on a map (name=; none: the list), its drawn preview awaited (wait= seconds, 600), rendered to path=.

@@ -377,6 +377,15 @@ def finish_empty(ctx, mesh, empty_object, imported_children):
         sky.finish(ctx, mesh, empty_object, imported_children)
 
 
+def tile_placed(ctx, mesh):
+    """A landscape piece already in the scene (placement.after_import marks them): exported again, it isn't added twice."""
+    if mesh.get("MPLayerNames") is None:
+        return False
+    if (placed := getattr(ctx, "mp_tiles", None)) is None:
+        placed = ctx.mp_tiles = {o["mp_tile"] for o in bpy.context.scene.objects if "mp_tile" in o}
+    return mesh.get("Path") in placed
+
+
 def after_model(ctx, mesh, imported_object, imported_mesh):
     # a spline mesh's bend, custom data, white vertex colours
     from .placement import after_import

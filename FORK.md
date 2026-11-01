@@ -19,6 +19,8 @@ Materials
 Maps
 - **Maps through the fork's map reader**: actors, instances, landscapes, splines, water, decals,
   lights (with shadow linking), placed effects, Neon City billboards, shadow proxies.
+- **Terrain Under Cells** (Map page and the editor's Map tab): picked cells bring only the landscape tiles under them.
+  Tiles line up across exports; one already in the scene isn't added again.
 - **UEFN islands by map code** and **local UEFN projects** (with UEFN access, see below).
 - **Older builds without an install** (owner builds only, see Flags).
 - **Drawn map previews** for maps without a minimap.
