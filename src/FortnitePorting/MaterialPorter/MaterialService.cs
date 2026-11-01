@@ -1,5 +1,10 @@
 #nullable disable
+using global::CUE4Parse.UE4.Assets;
+using global::CUE4Parse.UE4.Assets.Exports;
 using global::CUE4Parse.UE4.Assets.Exports.Texture;
+using global::CUE4Parse.UE4.Assets.Objects;
+using global::CUE4Parse.UE4.Objects.Engine;
+using global::CUE4Parse.UE4.Objects.UObject;
 using global::CUE4Parse_Conversion.Options;
 using global::CUE4Parse_Conversion.Textures;
 using Newtonsoft.Json;
@@ -774,9 +779,72 @@ public sealed class MaterialService
 
     DayValues day;
 
-    // The season's day sequence (newest DS_BR_Ch<n>S<n>) evaluated at TimeOfDay: its parameter collection track and
-    // its sky mesh's material tracks. The sequence is one day long (playback range 24 in-game hours); channel keys
-    // are cubic, linear or constant, held before the first and after the last.
+    (object Provider, List<IPackage> Packages) daySequences;
+
+    // The season's day sequences, lowest bias first (a higher one wins a track both key): what the current island plays,
+    // else the newest DS_BR_Ch<n>S<n> for a build whose map data doesn't say.
+    async Task<List<IPackage>> DaySequencesAsync()
+    {
+        if (daySequences.Provider == game.Provider) return daySequences.Packages;
+        var packages = await IslandSequencesAsync();
+        if (packages == null || packages.Count == 0)
+        {
+            var key = game.Provider.Files.Keys
+                .Select(k => (Key: k, M: System.Text.RegularExpressions.Regex.Match(System.IO.Path.GetFileName(k), @"^DS_BR_Ch(\d+)S(\d+)\.uasset$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)))
+                .Where(x => x.M.Success)
+                .OrderByDescending(x => int.Parse(x.M.Groups[1].Value)).ThenByDescending(x => int.Parse(x.M.Groups[2].Value))
+                .Select(x => x.Key).FirstOrDefault();
+            packages = key != null ? [await game.Provider.LoadPackageAsync(key)] : [];
+        }
+        daySequences = (game.Provider, packages);
+        return packages;
+    }
+
+    // Battle Royale's map (the one map UI data under the Apollo minimap material names) -> its world settings'
+    // WorldTimeOfDayManager -> the nearest class's DaySequenceCollections -> their sequences without a condition
+    // (the rest are scalability's). Null when the build's data doesn't lead there.
+    async Task<List<IPackage>> IslandSequencesAsync()
+    {
+        try
+        {
+            var maps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var file in game.Provider.Files.Keys.Where(f => f.Contains("/Content/UI/IngameMap/", StringComparison.OrdinalIgnoreCase)
+                                                                     && f.EndsWith("MapUIData.uasset", StringComparison.OrdinalIgnoreCase)).ToList())
+            {
+                var data = (await game.Provider.LoadPackageAsync(file)).GetExports().FirstOrDefault(e => e.ExportType == "FortMapUIData");
+                if (data != null && data.TryGetValue(out string map, "MapPath") && data.TryGetValue(out FSoftObjectPath material, "MapMaterial")
+                    && material.AssetPathName.Text.Contains("Apollo", StringComparison.OrdinalIgnoreCase))
+                    maps.Add(map);
+            }
+            if (maps.Count != 1) return null;
+            var world = (await game.Provider.LoadPackageAsync(maps.Single())).GetExports().FirstOrDefault(e => e.ExportType.EndsWith("WorldSettings"));
+            if (world == null || !world.TryGetValue(out FSoftObjectPath manager, "WorldTimeOfDayManager")) return null;
+            var sequences = new List<(int Bias, IPackage Package)>();
+            for (var cls = await manager.LoadAsync() as UBlueprintGeneratedClass; cls != null; cls = cls.SuperStruct?.Load<UStruct>() as UBlueprintGeneratedClass)
+            {
+                if (cls.ClassDefaultObject is not { } cdoRef || !cdoRef.TryLoad(out var cdo) || cdo == null) continue;
+                if (!cdo.TryGetValue(out UObject[] collections, "DaySequenceCollections")) continue;
+                foreach (var collection in collections.Where(c => c != null))
+                    foreach (var entry in collection.GetOrDefault("DaySequences", Array.Empty<FStructFallback>()))
+                    {
+                        if (entry.GetOrDefault<FStructFallback>("Conditions")?.GetOrDefault<UScriptMap>("Conditions") is { Properties.Count: > 0 }) continue;
+                        if (entry.TryGetValue(out UObject sequence, "Sequence") && sequence?.Owner is { } package)
+                            sequences.Add((entry.GetOrDefault("BiasOffset", 0), package));
+                    }
+                break;
+            }
+            return sequences.OrderBy(s => s.Bias).Select(s => s.Package).ToList();
+        }
+        catch (Exception e)
+        {
+            Serilog.Log.Warning("[Material Porter] time of day: the island's day sequences didn't read ({Error})", e.Message);
+            return null;
+        }
+    }
+
+    // The season's day sequences evaluated at TimeOfDay: their parameter collection tracks and their sky mesh's
+    // material tracks. A sequence is one day long (playback range 24 in-game hours); channel keys are cubic, linear
+    // or constant, held before the first and after the last.
     async Task<DayValues> DayValuesAsync()
     {
         if (day != null && day.Hour == TimeOfDay) return day;
@@ -784,14 +852,9 @@ public sealed class MaterialService
         var sw = System.Diagnostics.Stopwatch.StartNew();
         try
         {
-            var key = game.Provider.Files.Keys
-                .Select(k => (Key: k, M: System.Text.RegularExpressions.Regex.Match(System.IO.Path.GetFileName(k), @"^DS_BR_Ch(\d+)S(\d+)\.uasset$", System.Text.RegularExpressions.RegexOptions.IgnoreCase)))
-                .Where(x => x.M.Success)
-                .OrderByDescending(x => int.Parse(x.M.Groups[1].Value)).ThenByDescending(x => int.Parse(x.M.Groups[2].Value))
-                .Select(x => x.Key).FirstOrDefault();
-            if (key != null)
+            var packages = await DaySequencesAsync();
+            foreach (var pkg in packages)
             {
-                var pkg = await game.Provider.LoadPackageAsync(key);
                 // by export index: a sequence's names repeat (each track's section is "..._0")
                 var exports = pkg.GetExports().Select(e => JObject.Parse(JsonConvert.SerializeObject(e, Ser))).ToList();
                 var movie = exports.FirstOrDefault(e => (string)e["Type"] == "MovieScene")?["Properties"];
@@ -823,11 +886,13 @@ public sealed class MaterialService
                         }
                     }
                 }
-                Timing.Log($"time of day {TimeOfDay:0.#} h from {System.IO.Path.GetFileNameWithoutExtension(key)}: {values.Collections.Sum(c => c.Value.Scalars.Count + c.Value.Vectors.Count)} collection and " +
-                           $"{values.Slots.Sum(c => c.Value.Scalars.Count + c.Value.Vectors.Count)} sky values", sw);
             }
+            if (packages.Count > 0)
+                Serilog.Log.Information("[Material Porter] time of day {Hour:0.#} h from {Sequences}: {Collection} collection and {Sky} sky values ({Ms:0} ms)", TimeOfDay,
+                    string.Join(", ", packages.Select(p => p.Name.Split('/').Last())), values.Collections.Sum(c => c.Value.Scalars.Count + c.Value.Vectors.Count),
+                    values.Slots.Sum(c => c.Value.Scalars.Count + c.Value.Vectors.Count), sw.Elapsed.TotalMilliseconds);
         }
-        catch (Exception e) { Timing.Log("time of day: the day sequence didn't read (" + e.Message + ")", sw); }
+        catch (Exception e) { Serilog.Log.Warning("[Material Porter] time of day: the day sequence didn't read ({Error})", e.Message); }
         return day = values;
     }
 
