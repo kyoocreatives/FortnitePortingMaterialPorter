@@ -2,9 +2,10 @@
 from the engine (settings-blender); they become a property group once, each change is sent back
 (settings-blender-set) and saved by the app, so the app and the engine agree."""
 import bpy
+from bpy.app.handlers import persistent
 
 from . import import_options
-from .state import STATE, client, tag_redraw
+from .state import STATE, client, settings_read, tag_redraw
 
 _cls = None
 _syncing = [False]
@@ -28,6 +29,7 @@ class Sender:
         self.in_flight.discard(name)
         if isinstance(result, Exception):
             STATE["error"] = "Setting %s: %s" % (name, result)
+            STATE["settings"] = None        # Blender now shows a value the app doesn't have
         if name in self.pending:
             self.send(name, self.pending.pop(name))
         tag_redraw()
@@ -38,7 +40,7 @@ _sender = Sender(lambda name, value, done: client().request("settings-blender-se
 
 def _updated(name):
     def update(self, context):
-        if _syncing[0]:
+        if _syncing[0] or not settings_read():      # never saves a value that wasn't read
             return
         value = getattr(self, name)
         _sender.send(name, str(value).lower() if isinstance(value, bool) else str(value))
@@ -117,10 +119,10 @@ def _panel(ui, col):
                         "Blender's Side Bar Arrows (all editors)",
                         kit_fields.write(apps, "show_regions_visibility_toggle", not apps.show_regions_visibility_toggle))
     col.separator()
-    got = STATE.get("settings")
-    if not isinstance(got, list):
+    if not settings_read():
         col.label("Waiting for FP...", ui.t.text3)
         return
+    got = STATE["settings"]
     target = context.window_manager.fp_export_settings
     kinds = {f["name"]: f["type"] for f in got}
     for section, names in sections(got):
@@ -135,15 +137,24 @@ def open_settings(context, anchor, side="below"):
     return popups.open_panel(context, anchor, _panel, "settings", "Export Options", width=360, side=side)
 
 
+@persistent
+def _loaded(*_):
+    STATE["settings"] = None        # a file load brings its own window manager: the values are the defaults again
+
+
 def register():
     from .ui import blender as ub
     import_options.register()
     ub.OPENERS["settings"] = open_settings
+    if _loaded not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_loaded)
 
 
 def unregister():
     global _cls
     from .ui import blender as ub
+    if _loaded in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_loaded)
     ub.OPENERS.pop("settings", None)
     import_options.unregister()
     if _cls is not None:

@@ -77,6 +77,11 @@ def reset_client():
     STATE["engine"] = None
 
 
+def settings_read():
+    """The Export Options hold the app's values (a file load or a refused edit asks for them again)."""
+    return isinstance(STATE["settings"], list)
+
+
 APP_FILTERS = ("Favorites", "Hidden Items")      # FP's own filters, from the items' flags (the others come with the tab)
 
 

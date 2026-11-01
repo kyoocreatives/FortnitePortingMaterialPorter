@@ -1,5 +1,6 @@
 """The editor's import options, headless: the settings= query they make, a batch keeping the ones set when it
-started, the Files and Maps exports, Reset, the Import button's text, and the texture cap in the material shape key.
+started, the Files and Maps exports, Reset, the Import button's text, the texture cap in the material shape key, and
+the Export Options read again after a file load.
 
     python plugin_test.py tests/plugin/editor_import_options_check.py --name import_options
 """
@@ -85,7 +86,7 @@ check("files-export carries them", engine.calls[-1][0] == "files-export" and "Ta
 engine.calls[-1][2](RuntimeError("done"))
 
 # --- Maps: the export's options snapshot
-wm_ns = type("WM", (), {"fp_map_flags": {"Actors"}, "fp_map_filter": "", "fp_map_main": False,
+wm_ns = type("WM", (), {"fp_map_flags": {"Actors"}, "fp_map_filter": "", "fp_map_main": False, "fp_map_tiles": False,
                         "fp_import_options": o})()
 opts = maps_tab.export_options(wm_ns)
 check("a map export snapshots them", opts["settings"].startswith("TargetLOD:5;MaxTextureSize:Size1024"), opts)
@@ -142,6 +143,53 @@ check("Export Options by section, in the engine's order", settings_tab.sections(
 check("header buttons open it", ub.OPENERS.get("settings") is settings_tab.open_settings)
 check("no legacy Export Options popover", not hasattr(bpy.types, "FP_PT_fortnite_settings"))
 check("no legacy Import Options popover", not hasattr(bpy.types, "FP_PT_fortnite_import_options"))
+
+# --- a file load wipes the window manager's values: nothing shown or saved until the app's are read again
+REAL = [dict(f) for f in FIELDS]
+next(f for f in REAL if f["name"] == "RigType")["value"] = "Official"
+next(f for f in REAL if f["name"] == "PreferFPShaders")["value"] = True
+
+
+class SettingsEngine:
+    state = "ready"
+
+    def __init__(self):
+        self.sets, self.fail = [], False
+
+    def request(self, route, done, **query):
+        if route == "settings-blender":
+            done([dict(f) for f in REAL])
+        else:
+            self.sets.append((query["name"], query["value"]))
+            done(RuntimeError("no engine") if self.fail else {})
+
+
+engine = st.STATE["engine"] = SettingsEngine()
+st.STATE["settings"] = None
+settings_tab.ask()
+got = bpy.context.window_manager.fp_export_settings
+check("read: the app's values", got.RigType == "Official" and got.PreferFPShaders and st.settings_read(), got.RigType)
+
+bpy.ops.wm.read_homefile(use_factory_startup=True)
+got = bpy.context.window_manager.fp_export_settings
+print("[editor_import_options_check] after load: RigType=%s, read=%s" % (got.RigType, st.settings_read()))
+check("a load: values not shown as read", not st.settings_read())
+got.RigType = "Tasty"
+check("a load: an edit before the read isn't saved", engine.sets == [], engine.sets)
+settings_tab.ask()
+got = bpy.context.window_manager.fp_export_settings
+check("a load: read again", st.settings_read() and got.RigType == "Official" and got.PreferFPShaders, got.RigType)
+check("a load: reading saves nothing", engine.sets == [], engine.sets)
+
+got.ExportMaterials = False
+check("read: an edit is saved", engine.sets == [("ExportMaterials", "false")], engine.sets)
+engine.fail = True
+got.TargetLOD = 3
+check("an edit the app refused: read again", not st.settings_read())
+engine.fail = False
+settings_tab.ask()
+check("an edit the app refused: its value back", bpy.context.window_manager.fp_export_settings.TargetLOD == 0)
+st.STATE["engine"] = None
 
 import_options.unregister()
 print("[editor_import_options_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))

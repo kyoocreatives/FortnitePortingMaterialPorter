@@ -5,7 +5,7 @@ They stay set until Reset, never saved: imports come in runs (a set of props at 
 them while they are set, so they can't go unnoticed."""
 import bpy
 
-from .state import tag_redraw
+from .state import settings_read, tag_redraw
 from .ui import paint
 
 # (setting, short form for the Import button: value -> text); MaxTextureSize goes as MapTextureSize too (maps, prefabs)
@@ -136,7 +136,7 @@ def _value(ui, col, r, row):
 def _panel(ui, col):
     from .ui import fields
     wm = bpy.context.window_manager
-    if getattr(wm, "fp_import_options", None) is None or getattr(wm, "fp_export_settings", None) is None:
+    if not settings_read() or getattr(wm, "fp_import_options", None) is None:
         col.label("Waiting for FP...", ui.t.text3)
         return
     t = ui.t
