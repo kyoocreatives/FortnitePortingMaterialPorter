@@ -36,8 +36,16 @@ public partial class ExportContext
     /// <summary>Tests: only actors whose name holds this (null: all).</summary>
     public static string? MaterialPorterActorFilter;
 
-    /// <summary>Only actors whose name holds this (the Map page's filter, else the tests'; null: all).</summary>
+    /// <summary>The Map page's filter, else the tests' (null: all).</summary>
     string? ActorFilter => Meta.ActorFilter ?? MaterialPorterActorFilter;
+
+    string[]? _filterTerms;
+    string[] FilterTerms => _filterTerms ??= (ActorFilter ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+    /// <summary>Whether any of the filter's comma-separated terms is in the actor's name or the mesh's (no terms: all).</summary>
+    bool PassesFilter(string actor, string? meshPath = null) => FilterTerms.Length == 0 || FilterTerms.Any(term =>
+        actor.Contains(term, StringComparison.OrdinalIgnoreCase)
+        || meshPath is not null && Path.GetFileName(meshPath).Contains(term, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The largest textures are exported at for this export's type (0: full size).</summary>
     public int TextureCap;
@@ -120,7 +128,7 @@ public partial class ExportContext
                     tracks.Select(t => t.Actor).Distinct().Count());
 
             var placed = (actors ? reader.Placed.Concat(tracks) : [])
-                .Where(m => ActorFilter is null || m.Actor.Contains(ActorFilter, StringComparison.OrdinalIgnoreCase))
+                .Where(m => PassesFilter(m.Actor, m.Mesh))
                 .OrderBy(m => m.Actor, StringComparer.Ordinal).ThenBy(m => m.Mesh, StringComparer.Ordinal).ToList();
             var done = 0;
             var groups = placed.Where(m => m.Group != null).GroupBy(m => m.Group).ToDictionary(g => g.Key, g => g.ToList());
@@ -131,13 +139,13 @@ public partial class ExportContext
                 if (m.Group is null) meshes.AddIfNotNull(Placement(m));
                 else if (groups.Remove(m.Group, out var members)) meshes.AddRange(InstanceGroup(members));
             }
-            var lights = reader.Lights.Where(l => ActorFilter is null || l.Actor.Contains(ActorFilter, StringComparison.OrdinalIgnoreCase))
+            var lights = reader.Lights.Where(l => PassesFilter(l.Actor))
                 .OrderBy(l => l.Actor, StringComparer.Ordinal).ThenBy(l => l.Name, StringComparer.Ordinal)
                 .ThenBy(l => l.World.M41).ThenBy(l => l.World.M42).ThenBy(l => l.World.M43);
             if (withLights)
                 foreach (var l in lights) MaterialPorterLights.Add(Light(l));
 
-            var decals = reader.Decals.Where(d => ActorFilter is null || d.Actor.Contains(ActorFilter, StringComparison.OrdinalIgnoreCase))
+            var decals = reader.Decals.Where(d => PassesFilter(d.Actor))
                 .OrderBy(d => d.Actor, StringComparer.Ordinal).ThenBy(d => d.Name, StringComparer.Ordinal)
                 .ThenBy(d => d.World.M41).ThenBy(d => d.World.M42).ThenBy(d => d.World.M43);
             if (withDecals)
@@ -146,7 +154,7 @@ public partial class ExportContext
                     if (CancellationToken.IsCancellationRequested) break;
                     MaterialPorterDecals.AddIfNotNull(Decal(d));
                 }
-            var effects = reader.Effects.Where(e => ActorFilter is null || e.Actor.Contains(ActorFilter, StringComparison.OrdinalIgnoreCase))
+            var effects = reader.Effects.Where(e => PassesFilter(e.Actor))
                 .OrderBy(e => e.Actor, StringComparer.Ordinal).ThenBy(e => e.Name, StringComparer.Ordinal)
                 .ThenBy(e => e.World.M41).ThenBy(e => e.World.M42).ThenBy(e => e.World.M43);
             if (withEffects)
@@ -160,7 +168,7 @@ public partial class ExportContext
         foreach (var actor in TerrainActors(level))
         {
             if (CancellationToken.IsCancellationRequested) break;
-            if (ActorFilter is { } only && !actor.Name.Contains(only, StringComparison.OrdinalIgnoreCase)) continue;
+            if (!PassesFilter(actor.Name)) continue;
             if (actor is ALandscapeProxy proxy)
             {
                 if (!InTerrainAreas(proxy)) continue;

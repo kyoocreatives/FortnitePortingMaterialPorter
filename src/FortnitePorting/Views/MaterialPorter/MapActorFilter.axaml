@@ -3,6 +3,6 @@
              xmlns:viewModels="clr-namespace:FortnitePorting.ViewModels"
              x:Class="FortnitePorting.Views.MaterialPorter.MapActorFilter"
              x:DataType="viewModels:MapViewModel">
-    <TextBox Text="{Binding SelectedMap.ActorFilter}" Watermark="Only actors named... (e.g. Spline: roads)"
-             ToolTip.Tip="Export only actors whose name contains this. Spline: a map's roads; Landscape: its terrain and roads. Empty: everything."/>
+    <TextBox Text="{Binding SelectedMap.ActorFilter}" Watermark="Only actors or meshes named... (e.g. Tree, Rock)"
+             ToolTip.Tip="Export only actors or meshes whose name contains one of these terms, separated by commas. Spline: a map's roads; Landscape: its terrain and roads. Empty: everything."/>
 </UserControl>

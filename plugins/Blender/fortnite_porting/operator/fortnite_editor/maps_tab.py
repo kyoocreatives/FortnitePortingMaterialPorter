@@ -333,7 +333,7 @@ def register():
     wm.fp_map_flags = bpy.props.EnumProperty(name="Export", options={'ENUM_FLAG'}, default=DEFAULT_FLAGS,
                                              items=[(k, label, "Export the cells' %s" % label.lower(), icon, 1 << i)
                                                     for i, (k, label, icon) in enumerate(FLAGS)])
-    wm.fp_map_filter = bpy.props.StringProperty(name="Actor Filter", description="Only actors whose name holds this (empty: all)")
+    wm.fp_map_filter = bpy.props.StringProperty(name="Filter", description="Only actors or meshes whose name holds one of these comma-separated terms (empty: all)")
     wm.fp_map_main = bpy.props.BoolProperty(name="Include Terrain", update=lambda self, context: _terrain_changed(self, "fp_map_tiles"),
                                             description="The map's own level (its terrain), exported first, also with no cell picked")
     wm.fp_map_tiles = bpy.props.BoolProperty(name="Terrain Under Cells", update=lambda self, context: _terrain_changed(self, "fp_map_main"),
