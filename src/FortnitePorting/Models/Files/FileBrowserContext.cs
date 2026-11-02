@@ -549,6 +549,7 @@ public partial class FileBrowserContext : ObservableObject
 
     partial void OnUseFlatViewChanged(bool value)
     {
+        if (value) _ = AppServices.Files.EnsureFlatView();     // MP
         if (!value && !_suppressFileViewVfsRefresh)
             ScheduleVfsSelectionChanged();
     }

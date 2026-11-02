@@ -438,6 +438,32 @@ public partial class MaterialPorterService
             });
             return new { reloading = true };
         }
+        if (route == "fork-files-shot")
+        {
+            // The Files page (flat=1: its flat view, search= typed there), rendered to path= after wait= seconds;
+            // answers how many items the flat view has and lists.
+            var window = AppServices.App.Lifetime.MainWindow!;
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                window.WindowState = Avalonia.Controls.WindowState.Normal;
+                window.Width = 1600;
+                window.Height = 950;
+                AppServices.Navigation.App.Open<Views.FilesView>();
+            });
+            await Task.Delay(2000);
+            var context = AppServices.Services.GetRequiredService<ViewModels.FilesViewModel>().Context;
+            await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                context.UseFlatView = query["flat"] == "1";
+                if (query["search"] is { } search) context.FlatSearchFilter = context.FlatSearchText = search;
+            });
+            await Task.Delay(TimeSpan.FromSeconds(double.TryParse(query["wait"], System.Globalization.CultureInfo.InvariantCulture, out var settle) ? settle : 8));
+            return await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (query["path"] is { } file) SaveShot(window, file);
+                return new { flatItems = AppServices.Files.FlatViewAssetCache.Count, listed = context.FlatViewCollection.Count, context.UseFlatView };
+            });
+        }
         if (route == "fork-mem")
         {
             // the process's memory and the managed heap (gc=1: after a full compacting collection, what stays alive)

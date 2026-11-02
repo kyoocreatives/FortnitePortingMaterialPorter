@@ -49,7 +49,7 @@ public partial class MaterialPorterService
         if (AppServices.Files.IsLoading) return new { loading = true };
         var kind = query["type"];
         var limit = int.TryParse(query["limit"], out var most) && most > 0 ? most : 600;
-        var matches = AppServices.Files.FlatViewAssetCache.Items
+        var matches = AppServices.Files.ListedFiles()
             .Where(f => words.All(w => f.Path.Contains(w, StringComparison.OrdinalIgnoreCase)))
             .Select(f => Item(f.Path, f.VfsName))
             .Where(i => string.IsNullOrEmpty(kind) || i.kind == kind)

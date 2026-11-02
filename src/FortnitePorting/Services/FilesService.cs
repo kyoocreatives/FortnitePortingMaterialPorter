@@ -53,7 +53,6 @@ public partial class FilesService : ObservableObject, IService, IResettable
         var totalFiles = UEParse.Provider.Files.Count;
         TaskService.RunDispatcher(() => TotalFiles = totalFiles);
 
-        var flatItems = new List<FlatItem>(totalFiles);
         var processed = 0;
         var lastReported = 0;
 
@@ -68,7 +67,7 @@ public partial class FilesService : ObservableObject, IService, IResettable
                 if (file is VfsEntry vfsEntry)
                     sourceVfsName = vfsEntry.Vfs.Name;
 
-                flatItems.Add(new FlatItem(path, sourceVfsName));
+                // MP: the flat view's items are made when it is first shown (EnsureFlatView)
 
                 var parts = path.Split("/", StringSplitOptions.RemoveEmptyEntries);
 
@@ -102,8 +101,6 @@ public partial class FilesService : ObservableObject, IService, IResettable
                 TaskService.RunDispatcher(() => LoadedFiles = report);
             }
         }
-
-        FlatViewAssetCache.Edit(updater => updater.AddOrUpdate(flatItems));
     }
 
     private bool IsValidFilePath(string path)
