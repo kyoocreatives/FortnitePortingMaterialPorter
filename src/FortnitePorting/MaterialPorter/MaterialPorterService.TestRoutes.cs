@@ -438,6 +438,27 @@ public partial class MaterialPorterService
             });
             return new { reloading = true };
         }
+        if (route == "fork-mem")
+        {
+            // the process's memory and the managed heap (gc=1: after a full compacting collection, what stays alive)
+            if (query["gc"] == "1")
+            {
+                System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+                GC.WaitForPendingFinalizers();
+                GC.Collect(GC.MaxGeneration, GCCollectionMode.Forced, true, true);
+            }
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            var info = GC.GetGCMemoryInfo();
+            const double mb = 1 << 20;
+            return new
+            {
+                workingSetMB = process.WorkingSet64 / mb, privateMB = process.PrivateMemorySize64 / mb, peakWorkingSetMB = process.PeakWorkingSet64 / mb,
+                managedMB = GC.GetTotalMemory(false) / mb, heapMB = info.HeapSizeBytes / mb, fragmentedMB = info.FragmentedBytes / mb,
+                committedMB = info.TotalCommittedBytes / mb, generations = info.GenerationInfo.ToArray().Select(g => g.SizeAfterBytes / mb),
+                collections = Enumerable.Range(0, GC.MaxGeneration + 1).Select(GC.CollectionCount),
+            };
+        }
         if (route == "fork-status")
         {
             // the status line and the newest log lines, as the window shows them
