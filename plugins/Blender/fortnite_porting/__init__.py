@@ -45,7 +45,10 @@ def server_data_handler():
             Log.error(f"An unhandled error occurred:")
             traceback.print_exc()
 
-            display_popup(error_message, "An unhandled error occurred", "ERROR")
+            try:     # MP: Blender drops a timer that raises, and every later export would queue unimported
+                display_popup(error_message, "An unhandled error occurred", "ERROR")
+            except Exception:
+                traceback.print_exc()
 
     return 0.01
 
