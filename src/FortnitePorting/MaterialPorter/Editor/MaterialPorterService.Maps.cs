@@ -28,7 +28,7 @@ namespace FortnitePorting.MaterialPorter;
 // The Map page as data, for the Fortnite editor's Map tab. Pixels are in the map's picture (x right, y down), as the
 // page lays its cells over it. Nothing blocks on a load: a map still loading answers {loading: true, status}.
 //   maps-list                                        {loading, maps:[{id, name, kind: br|feature|project, minimap}]}
-//   maps-open?id=                                    {id, image, width, height, cells:[{id, x, y, size, levels}],
+//   maps-open?id=                                    {id, image, width, height, cells:[{id, x, y, size, levels, names}],
 //                                                    layers:[names], pois:[{name, kind: poi|landmark, x, y}]}
 //   maps-export?id=&cells=0;4&flags=Actors,..&filter=&layers=&main=1   the export payload, or {cancelled: true}
 //                                                    (main=1: the map's own level too; with no cells, alone;
@@ -133,7 +133,8 @@ public partial class MaterialPorterService
                 cells = map.Grids.Select((c, i) =>
                 {
                     var (x, y) = Pixel(c.OffsetMargin.Left, c.OffsetMargin.Top);
-                    return new { id = i, x, y, size = c.CellSize, levels = c.Maps.Count, area = new[] { c.Area.MinX, c.Area.MinY, c.Area.MaxX, c.Area.MaxY } };
+                    return new { id = i, x, y, size = c.CellSize, levels = c.Maps.Count, names = c.Maps.Select(m => m.Name).ToList(),
+                        area = new[] { c.Area.MinX, c.Area.MinY, c.Area.MaxX, c.Area.MaxY } };
                 }).ToList(),
                 layers = map.MPLayers.Select(l => l.Name).ToList(),
                 pois,
