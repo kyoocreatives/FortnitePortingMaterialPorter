@@ -91,8 +91,8 @@ RIGGED_APART = (EExportType.WILDLIFE, EExportType.LEGO_WILDLIFE, EExportType.SID
 
 
 def _alive(o, kind='ARMATURE'):
-    try:        # a part's armature (or mesh) merged into the body's is gone
-        return o is not None and o.name in bpy.data.objects and o.type == kind
+    try:        # a part's armature (or mesh) merged into the body's is gone: its removed object raises
+        return o is not None and o.type == kind     # (a name lookup in bpy.data.objects cost 160 µs, 4 s on a map)
     except ReferenceError:
         return False
 
