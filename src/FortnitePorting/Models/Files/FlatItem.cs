@@ -31,7 +31,7 @@ public partial class FlatItem : ObservableObject
         ? DisplayName
         : Path.SubstringAfterLast("/").SubstringBefore(".");
 
-    private readonly SemaphoreSlim _previewLock = new(1, 1);
+    private SemaphoreSlim? _previewLock;     // MP: made on first preview (one per game file held 180 MB)
     private bool _previewLoaded;
 
     public FlatItem(string path, string vfsName = "")
@@ -44,7 +44,7 @@ public partial class FlatItem : ObservableObject
     {
         if (_previewLoaded) return;
 
-        await _previewLock.WaitAsync();
+        await LazyInitializer.EnsureInitialized(ref _previewLock, () => new SemaphoreSlim(1, 1)).WaitAsync();     // MP
         try
         {
             if (_previewLoaded) return;
@@ -60,7 +60,7 @@ public partial class FlatItem : ObservableObject
         }
         finally
         {
-            _previewLock.Release();
+            _previewLock!.Release();
         }
     }
 

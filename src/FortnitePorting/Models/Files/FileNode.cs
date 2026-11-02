@@ -1,18 +1,24 @@
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 
 namespace FortnitePorting.Models.Files;
 
 public class FileNode
 {
+    // MP: files share their (empty) children and their one-container set: 2 M files each held their own (~500 MB)
+    private static readonly Dictionary<string, FileNode> NoChildren = new();
+    private static readonly ConcurrentDictionary<string, HashSet<string>> FileVfsNames = new();
+    private Dictionary<string, FileNode>? _children;
+
     public string Name { get; }
     public string Path { get; }
     public string VfsName { get; }
-    public HashSet<string> VfsNames { get; } = new();
+    public HashSet<string> VfsNames { get; private set; }
     public ENodeType Type { get; }
     public int FileChildCount { get; set; }
     public int FolderChildCount { get; set; }
 
-    public Dictionary<string, FileNode> Children { get; } = new();
+    public Dictionary<string, FileNode> Children => _children ?? NoChildren;
 
     public FileNode(string name, string path, ENodeType type, string vfsName = "")
     {
@@ -20,19 +26,21 @@ public class FileNode
         Path = path;
         Type = type;
         VfsName = vfsName;
-        if (!string.IsNullOrEmpty(vfsName))
-            VfsNames.Add(vfsName);
+        VfsNames = type is ENodeType.File
+            ? FileVfsNames.GetOrAdd(vfsName, v => string.IsNullOrEmpty(v) ? [] : [v])
+            : string.IsNullOrEmpty(vfsName) ? [] : [vfsName];
     }
 
     public void AddVfsName(string vfsName)
     {
-        if (!string.IsNullOrEmpty(vfsName))
-            VfsNames.Add(vfsName);
+        if (string.IsNullOrEmpty(vfsName) || VfsNames.Contains(vfsName)) return;
+        if (Type is ENodeType.File) VfsNames = new HashSet<string>(VfsNames);     // a shared set is never changed
+        VfsNames.Add(vfsName);
     }
 
     public void AddChild(string name, FileNode child)
     {
-        Children[name] = child;
+        (_children ??= new())[name] = child;
 
         if (child.Type is ENodeType.Folder)
             FolderChildCount++;
@@ -45,8 +53,8 @@ public class FileNode
 
     public void Clear()
     {
-        Children.Clear();
-        VfsNames.Clear();
+        _children?.Clear();
+        VfsNames = [];
         FileChildCount = 0;
         FolderChildCount = 0;
     }

@@ -19,6 +19,9 @@
         <VlcWindowsArm64Enabled>false</VlcWindowsArm64Enabled>
     </PropertyGroup>
 
+    <!-- MP: the GC compacts sooner and gives memory back: map exports peaked ~1.7 GB lower (~10% slower) -->
+    <ItemGroup><RuntimeHostConfigurationOption Include="System.GC.ConserveMemory" Value="7" /></ItemGroup>
+
     <!-- MP: UEFN island export only where the git-ignored Fork.local.props sets MPIslands -->
     <Import Project="Fork.local.props" Condition="Exists('Fork.local.props')" />
     <PropertyGroup Condition="'$(MPIslands)' == 'true'">
