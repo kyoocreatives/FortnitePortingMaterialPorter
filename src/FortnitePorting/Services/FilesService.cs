@@ -68,30 +68,7 @@ public partial class FilesService : ObservableObject, IService, IResettable
                     sourceVfsName = vfsEntry.Vfs.Name;
 
                 // MP: the flat view's items are made when it is first shown (EnsureFlatView)
-
-                var parts = path.Split("/", StringSplitOptions.RemoveEmptyEntries);
-
-                var parentNode = RootFileNode;
-                RootFileNode.AddVfsName(sourceVfsName);
-                for (var i = 0; i < parts.Length; i++)
-                {
-                    var part = parts[i];
-                    if (!parentNode.TryGetChild(part, out var childNode))
-                    {
-                        var isFile = i == parts.Length - 1;
-                        var nodePath = isFile
-                            ? path
-                            : string.Concat(path.AsSpan(0, path.IndexOf(part, StringComparison.Ordinal)), part);
-                        childNode = new FileNode(part, nodePath, isFile ? ENodeType.File : ENodeType.Folder, sourceVfsName);
-                        parentNode.AddChild(part, childNode);
-                    }
-                    else
-                    {
-                        childNode.AddVfsName(sourceVfsName);
-                    }
-
-                    parentNode = childNode;
-                }
+                AddToTree(path, sourceVfsName);     // MP
             }
 
             if (processed - lastReported >= ProgressBatchSize || processed == totalFiles)
@@ -105,7 +82,7 @@ public partial class FilesService : ObservableObject, IService, IResettable
 
     private bool IsValidFilePath(string path)
     {
-        var isValidExtension = path.EndsWith(".uasset") || path.EndsWith(".umap") || path.EndsWith(".ufont");
+        var isValidExtension = path.EndsWith(".uasset", StringComparison.Ordinal) || path.EndsWith(".umap", StringComparison.Ordinal) || path.EndsWith(".ufont", StringComparison.Ordinal);     // MP: ordinal (culture compares were seconds over 4 M files)
         var isVerse = path.Contains("/_Verse/");
         return isValidExtension && !isVerse;
     }

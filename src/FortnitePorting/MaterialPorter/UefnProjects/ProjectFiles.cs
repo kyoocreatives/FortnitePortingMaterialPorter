@@ -21,6 +21,9 @@ public static class ProjectFiles
     public static IReadOnlyList<MountedProject> Mounted { get; private set; } = [];
     public static IReadOnlyList<string> Skipped { get; private set; } = [];
 
+    // the project files each provider was given, by this app's registrations
+    static readonly System.Runtime.CompilerServices.ConditionalWeakTable<FileProviderDictionary, HashSet<string>> Registered = new();
+
     /// <summary>Where project map indexes are kept (ProjectMapIndex).</summary>
     public static string MapCacheDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MaterialPorter", "cache", "project-maps");
 
@@ -57,8 +60,11 @@ public static class ProjectFiles
             mounted.Add(project);
         }
         // only files the provider hasn't got yet: another layer of the same keys would list them twice (a changed file is
-        // read from disk anyway; a deleted one stays until restart)
-        var fresh = added.Where(kv => !files.ContainsKey(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+        // read from disk anyway; a deleted one stays until restart). Only an earlier registration can hold them (the game's
+        // mounts are skipped above); asking the provider looked in every container's layer (3.6 s for 140 k files).
+        var earlier = Registered.GetValue(files, _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        var fresh = added.Where(kv => !earlier.Contains(kv.Key)).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.OrdinalIgnoreCase);
+        earlier.UnionWith(fresh.Keys);
         if (fresh.Count > 0) files.AddFiles(fresh, long.MaxValue - 1);
         foreach (var project in mounted)
             provider.VirtualPaths.TryAdd(project.Mount, ProjectPaths.Prefix(project.Mount).TrimEnd('/'));
