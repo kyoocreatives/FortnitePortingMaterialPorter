@@ -158,6 +158,8 @@ public sealed class MaterialService
             var scan = p + "|" + ext;
             if (mountScans.TryGetValue(scan, out var seen) && seen.Files == provider.Files.Count) return seen.Key;
             var parts = p.Trim('/').Split('/');
+            // a mount FixPath knows was tried above (an island's missing .o.uasset walked 4 M keys, ~150 ms each)
+            if (provider.VirtualPaths.ContainsKey(parts[0])) return null;
             var tail = "/" + string.Join('/', parts.Skip(1)) + ext;
             var hit = provider.Files.Keys.FirstOrDefault(k => k.EndsWith(tail, StringComparison.OrdinalIgnoreCase)
                                                              && k.Contains("/" + parts[0] + "/", StringComparison.OrdinalIgnoreCase));
@@ -252,7 +254,8 @@ public sealed class MaterialService
     public async Task<MaterialInfo> DescribeAsync(string path)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var info = await Locked(() => ChainAsync(path));
+        // the chain only reads packages: Blender's parallel prefetch of an import's materials runs these side by side
+        var info = await ChainAsync(path);
         await Locked(async () => { SkyValues(info, await DayValuesAsync()); return true; });
         if (info.Master != null && EditorKey(info.Master) == null)
         {

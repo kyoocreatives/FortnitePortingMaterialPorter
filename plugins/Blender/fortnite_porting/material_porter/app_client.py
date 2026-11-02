@@ -3,6 +3,7 @@ import hashlib
 import http.client
 import json
 import os
+import threading
 import time
 import urllib.parse
 
@@ -13,6 +14,9 @@ class AppError(RuntimeError):
 
 CONNECT_TIMEOUT = 3.0     # seconds
 READ_TIMEOUT = 120.0      # a first texture may stream from Epic's CDN
+PREFETCH_WORKERS = 6
+
+_local = threading.local()     # a prefetch thread's own connection
 
 
 def fetch_dir():
@@ -32,6 +36,15 @@ class AppClient:
         self._conn = None
         self.max_texture = 0        # texture size cap in pixels (0: full size)
         self.waits = {}             # route: (requests, seconds), for the import's log (progress.py)
+        self._pending = {}          # (route, path): a prefetch's future
+        self._pool = None
+        self._down = []             # non-empty once a prefetch found the app not answering
+
+    def close(self):
+        """Stops prefetching (a new import has its own client)."""
+        if self._pool is not None:
+            self._pool.shutdown(wait=False, cancel_futures=True)
+            self._pool = None
 
     def _fetch(self, route, path):
         """(status, body) of GET /route?path=..., over one kept-alive connection."""
@@ -69,8 +82,42 @@ class AppClient:
                 if attempt:
                     raise
 
+    def prefetch(self, route, paths):
+        """Asks for these answers in the background, a few at a time (each on its own connection); get() waits for
+        one still on its way. A map's first import spent most of its time asking for materials one by one."""
+        paths = [p for p in dict.fromkeys(paths) if p and (route, p) not in self.memo and (route, p) not in self._pending]
+        if not paths:
+            return
+        if self._pool is None:
+            import concurrent.futures
+            self._pool = concurrent.futures.ThreadPoolExecutor(PREFETCH_WORKERS, thread_name_prefix="mp-prefetch")
+        url, down = self.url, self._down
+
+        def one(path):
+            if down:
+                return None
+            client = getattr(_local, "client", None)
+            if client is None or client.url != url:
+                client = _local.client = AppClient(url)
+            try:
+                return client._request(route, path)
+            except (http.client.HTTPException, OSError):
+                down.append(True)       # the app isn't answering: the rest aren't asked
+                return None      # get() asks again and reports it
+
+        for p in paths:
+            self._pending[(route, p)] = self._pool.submit(one, p)
+
     def get(self, route, path):
         key = (route, path)
+        pending = self._pending.pop(key, None)
+        if pending is not None and key not in self.memo:
+            t0 = time.perf_counter()
+            answer = pending.result()
+            n, s = self.waits.get(route, (0, 0.0))
+            self.waits[route] = (n + 1, s + time.perf_counter() - t0)
+            if answer is not None:
+                self._store(key, route, path, *answer)
         if key not in self.memo:
             try:
                 status, body = self._fetch(route, path)
@@ -78,18 +125,21 @@ class AppClient:
                 raise AppError("the Material Porter app isn't answering at %s (%s)" % (self.url, e))
             except http.client.HTTPException as e:
                 raise AppError("the Material Porter app's answer broke off (%s)" % e)
-            if status == 200:
-                self.memo[key] = json.loads(body.decode("utf-8"))
-            else:
-                try:
-                    msg = json.loads(body.decode("utf-8")).get("error", str(status))
-                except Exception:
-                    msg = "HTTP %d" % status
-                self.memo[key] = AppError("%s %s: %s" % (route, path, msg))
+            self._store(key, route, path, status, body)
         v = self.memo[key]
         if isinstance(v, AppError):
             raise v
         return v
+
+    def _store(self, key, route, path, status, body):
+        if status == 200:
+            self.memo[key] = json.loads(body.decode("utf-8"))
+        else:
+            try:
+                msg = json.loads(body.decode("utf-8")).get("error", str(status))
+            except Exception:
+                msg = "HTTP %d" % status
+            self.memo[key] = AppError("%s %s: %s" % (route, path, msg))
 
     def local(self, path):
         """Path Blender can open for a file the app exported: the app's path, else a copy fetched over the bridge."""

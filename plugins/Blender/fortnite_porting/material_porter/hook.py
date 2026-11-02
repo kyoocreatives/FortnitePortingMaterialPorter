@@ -33,15 +33,24 @@ def _session(context):
     """State of the current import, reset when a new import (context) starts."""
     if _job["key"] is not context:
         build.begin_session()
+        if _job["app"] is not None:
+            _job["app"].close()
         _job.update(key=context, app=AppClient(URL), down=False, built={}, shapes={}, notes=[])
-        # texture size cap (Max / Map Texture Size settings), sent to the app with each texture request
-        options = getattr(context, "options", None) or {}
-        setting = "MapTextureSize" if getattr(context, "type", None) in (EExportType.WORLD, EExportType.PREFAB) else "MaxTextureSize"
-        try:
-            _job["app"].max_texture = int(options.get(setting) or 0)
-        except (TypeError, ValueError):
-            pass
+    # texture size cap (Max / Map Texture Size settings), sent to the app with each texture request; read each time, as
+    # the session can start (material prefetch) before the import's options are set
+    options = getattr(context, "options", None) or {}
+    setting = "MapTextureSize" if getattr(context, "type", None) in (EExportType.WORLD, EExportType.PREFAB) else "MaxTextureSize"
+    try:
+        _job["app"].max_texture = int(options.get(setting) or 0)
+    except (TypeError, ValueError):
+        pass
     return _job
+
+
+def prefetch_materials(context, paths):
+    """Asks the app for the import's materials in the background while meshes import (progress.export_begin)."""
+    if bpy.app.version >= (5, 0, 0) and os.environ.get("MATERIAL_PORTER_PREFETCH") != "0":     # 0: off, for timing
+        _session(context)["app"].prefetch("material", paths)
 
 
 def texture_cap(context):

@@ -64,6 +64,8 @@ def export_begin(ctx, data):
     overrides = data.get("OverrideMaterials") or []
     paths = {m.get("Path") for mesh in meshes for m in final_materials(mesh, overrides).values()}
     stage("%s: %s, %s" % (data.get("Name"), _plural(len(meshes), "mesh", "meshes"), _plural(len(paths), "material")))
+    from . import hook
+    hook.prefetch_materials(ctx, sorted(p for p in paths if p))
 
 
 def mesh_line(ctx, path, obj, t0):

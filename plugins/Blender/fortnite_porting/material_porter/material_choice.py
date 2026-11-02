@@ -25,10 +25,17 @@ def has_fp_shader(material_data):
     return any(material_data.get("Textures") or [], lambda t: (t.get("Name") or "").casefold() in diffuse)
 
 
+_toon = {}      # FP's mappings match on parameter names only: answers by those names (a map asks for every slot)
+
+
 def is_toon(material_data):
     """Whether FP picks its toon shader (the last matching mapping). Such materials get FP's outline whoever builds them."""
-    mappings = find_all_matching_mappings(material_data)
-    return bool(mappings) and mappings[-1].node_name == "FPv4 Base Toon"
+    key = tuple(tuple(sorted(str(p.get("Name")) for p in material_data.get(kind) or []))
+                for kind in ("Textures", "Scalars", "Vectors", "Switches", "ComponentMasks"))
+    if key not in _toon:
+        mappings = find_all_matching_mappings(material_data)
+        _toon[key] = bool(mappings) and mappings[-1].node_name == "FPv4 Base Toon"
+    return _toon[key]
 
 
 def is_outline_shell(material_data):
