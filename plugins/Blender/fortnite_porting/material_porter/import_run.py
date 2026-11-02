@@ -1,4 +1,5 @@
-"""Wraps one FP import: status log start/end, pruning, unused data cleanup, rest positions on skinned meshes."""
+"""Wraps one FP import: status log start/end, pruning, unused data cleanup once imports go quiet, rest positions on
+skinned meshes."""
 import time
 from contextlib import contextmanager
 
@@ -21,10 +22,31 @@ def _landscape_layers(value, out=None):
     return out
 
 
+DROP_DELAY = 10.0
+
+
+def _drop_when_idle():
+    """Timer: drops unused appended data once no export waits. Dropping after every import made each of a map's
+    cells append FP's shader library again (about 20 s each, even for empty cells)."""
+    from ..server import Server
+    if Server.instance is not None and Server.instance.queue:
+        return DROP_DELAY
+    from .blend_data import drop_unused_blend_data
+    dropped = drop_unused_blend_data()
+    if dropped:
+        print("[material_porter] %d unused datablocks dropped" % dropped)
+    return None
+
+
+def _schedule_drop():
+    if bpy.app.timers.is_registered(_drop_when_idle):
+        bpy.app.timers.unregister(_drop_when_idle)
+    bpy.app.timers.register(_drop_when_idle, first_interval=DROP_DELAY)
+
+
 @contextmanager
 def import_run(exports):
     from . import progress, status
-    from .blend_data import drop_unused_blend_data
     from .build import pruning
 
     from . import landscape_layers
@@ -39,10 +61,10 @@ def import_run(exports):
             yield
             t1 = time.perf_counter()
             progress.stage("Pruning node groups")
-        dropped = drop_unused_blend_data()
+        _schedule_drop()
         prune, bundle = pruned.seconds
-        progress.item("%d nodes pruned (%s), attributes bundled (%s), %d unused datablocks dropped" % (
-            pruned.gone, progress.seconds(prune), progress.seconds(bundle), dropped), t1)
+        progress.item("%d nodes pruned (%s), attributes bundled (%s)" % (
+            pruned.gone, progress.seconds(prune), progress.seconds(bundle)), t1)
     except Exception as e:
         failed = e
         raise
