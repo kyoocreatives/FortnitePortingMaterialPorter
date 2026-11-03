@@ -4,10 +4,15 @@ Custom properties only: the trees are the same with or without them."""
 import json
 import re
 
+import bpy
+
 KEY_UI = "mp_ui"                # root group: {input identifier: [UE name, kind P / V / A, master's default]} (JSON)
 KEY_GAME = "mp_game"            # material: {input identifier: value} as the build left it (JSON)
 KEY_MASTER = "mp_master"        # material: the parent shader's (master material's) name
 KEY_FEATURES = "mp_features"    # material: [Outline, SSS, Emissive, Glass, Hair] it has
+# material: {parameter name: value} the user set (the Materials tab), put back after every build; never part of a
+# reuse key (a material edited is still the same game material)
+KEY_OVERRIDES = "mp_overrides"
 
 FEATURES = ("Outline", "SSS", "Emissive", "Glass", "Hair")
 GLASS_MODELS = ("MSM_ThinTranslucent",)
@@ -76,6 +81,75 @@ def snapshot(mat):
         return
     mat[KEY_GAME] = json.dumps({s.identifier: _plain(s.default_value) for s in node.inputs
                                 if not s.is_linked and hasattr(s, "default_value")})
+
+
+def input_names(node):
+    """{input identifier: its parameter's name} of a root group node (the UE name, "(A)" for a vector's alpha; a
+    fork input its own name). Overrides go by these: a rebuild can number the sockets differently."""
+    try:
+        ui = json.loads(node.node_tree.get(KEY_UI) or "{}")
+    except ValueError:
+        ui = {}
+    out = {}
+    for s in node.inputs:
+        ue = ui.get(s.identifier)
+        out[s.identifier] = ue[0] + (" (A)" if ue[1] == "A" else "") if ue else s.name
+    return out
+
+
+def overrides(mat):
+    try:
+        return json.loads(mat.get(KEY_OVERRIDES) or "{}")
+    except ValueError:
+        return {}
+
+
+def set_override(mat, name, value):
+    """The user's value for a parameter (None: back to the game's)."""
+    have = overrides(mat)
+    if value is None:
+        have.pop(name, None)
+    else:
+        have[name] = _plain(value)
+    if have:
+        mat[KEY_OVERRIDES] = json.dumps(have)
+    elif KEY_OVERRIDES in mat:
+        del mat[KEY_OVERRIDES]
+
+
+def carry_overrides(mat):
+    """A material built again (a new revision, a rebuild) takes the edits of the one it replaces: same game path and
+    variant."""
+    if KEY_OVERRIDES in mat:
+        return
+    path, variant = mat.get("mp_path"), mat.get("mp_variant", "")
+    old = next((m for m in bpy.data.materials if m != mat and KEY_OVERRIDES in m and m.get("mp_path") == path
+                and m.get("mp_variant", "") == variant), None)
+    if old is not None:
+        mat[KEY_OVERRIDES] = old[KEY_OVERRIDES]
+
+
+def apply_overrides(mat):
+    """The user's values back on the group node (after the build and the import's own values)."""
+    have = overrides(mat)
+    node = root_node(mat) if have else None
+    if node is None:
+        return 0
+    names, n = input_names(node), 0
+    for s in node.inputs:
+        v = have.get(names[s.identifier])
+        if v is None or s.is_linked or not hasattr(s, "default_value"):
+            continue
+        try:
+            if isinstance(v, list):
+                size = len(tuple(s.default_value))
+                s.default_value = tuple(v[:size]) + tuple(s.default_value)[len(v):size]
+            else:
+                s.default_value = type(s.default_value)(v)
+            n += 1
+        except (TypeError, ValueError):     # the input changed type since: the game's value stands
+            pass
+    return n
 
 
 def features(mat):

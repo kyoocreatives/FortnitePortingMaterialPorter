@@ -1,9 +1,11 @@
 """The Materials tab's writes: a parameter set on every ticked material's socket (or scaled from where each was,
-relative), reset to the game's value, copied and pasted. A drag is one gesture: its writes start from the values the
+relative), reset to the game's value, copied and pasted. Each material keeps the user's values (mp_overrides, put
+back after a rebuild). A drag is one gesture: its writes start from the values the
 press saw and make one undo step when the mouse lets go (the tab's tick). Sockets only, never the trees."""
 import bpy
 
 from . import mat_data
+from ...material_porter import params
 
 # key: the parameter being dragged; start: its sockets' values at the press; name: for the undo step
 GESTURE = {"key": None, "start": None, "name": "", "factor": 1.0}
@@ -19,6 +21,12 @@ def _put(sock, v):
     elif sock.bl_idname == "NodeSocketBool":
         v = bool(v)
     sock.default_value = v
+
+
+def _write(m, p, sock, v):
+    """A socket set by the user: its material keeps the value (put back after a rebuild)."""
+    _put(sock, v)
+    params.set_override(m, p.name, mat_data.value(sock))
 
 
 def _scaled(v, k):
@@ -45,7 +53,7 @@ def drag(p, comp=None, relative=False):
                 new = s0[:comp] + (float(v),) + s0[comp + 1:]
             else:
                 new = v
-            _put(s, new)
+            _write(m, p, s, new)
     return run
 
 
@@ -60,8 +68,8 @@ def typed(p, comp=None, relative=False):
 def set_value(p, v):
     """An action: every socket to v (a colour, a checkbox), one undo step."""
     def run(context):
-        for _m, s in p.sockets:
-            _put(s, v)
+        for m, s in p.sockets:
+            _write(m, p, s, v)
         undo("Set " + p.name)
     return run
 
@@ -98,13 +106,14 @@ def resettable(p):
     return any(g is not None and not mat_data.same(v, g) for v, g in zip(p.values(), p.game))
 
 
-def reset(params, message="Reset to game"):
-    """An action: each socket back to the value the build gave it."""
+def reset(ps, message="Reset to game"):
+    """An action: each socket back to the value the build gave it, the user's value dropped."""
     def run(context):
-        for p in params:
-            for (_m, s), g in zip(p.sockets, p.game):
+        for p in ps:
+            for (m, s), g in zip(p.sockets, p.game):
                 if g is not None:
                     _put(s, g)
+                    params.set_override(m, p.name, None)
         undo(message)
     return run
 
@@ -125,8 +134,8 @@ def paste(sections):
         for _title, ps in sections:
             for p in ps:
                 if p.key in CLIP:
-                    for _m, s in p.sockets:
-                        _put(s, CLIP[p.key])
+                    for m, s in p.sockets:
+                        _write(m, p, s, CLIP[p.key])
                     n += 1
         undo("Paste %d parameters" % n)
     return run

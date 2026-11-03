@@ -202,8 +202,10 @@ def _pick_colour(p, r):
         first = p.sockets[0][1]
 
         def all_follow(context):
-            for _m, s in p.sockets[1:]:
-                s.default_value = first.default_value
+            for m, s in p.sockets:
+                if s != first:
+                    s.default_value = first.default_value
+                mat_data.params.set_override(m, p.name, mat_data.value(s))
         all_follow(context)
         colorpick.open_for(context, r, first, "default_value", on_change=all_follow, title=p.name)
     return run

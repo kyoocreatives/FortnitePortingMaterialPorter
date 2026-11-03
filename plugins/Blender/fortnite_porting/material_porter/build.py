@@ -1488,7 +1488,8 @@ def build_like(src, entry, app):
         if key in src:
             mat[key] = src[key]
     mat["mp_copied_from"] = src.name
-    mat.pop(params.KEY_GAME, None)      # src's values: the hook takes this one's
+    for key in (params.KEY_GAME, params.KEY_OVERRIDES):       # src's own: the hook takes this one's
+        mat.pop(key, None)
     if entry.get("variant"):
         mat[KEY_VARIANT] = entry["variant"]
     elif KEY_VARIANT in mat:

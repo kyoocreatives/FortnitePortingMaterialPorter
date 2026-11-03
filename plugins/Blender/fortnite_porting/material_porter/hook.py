@@ -458,6 +458,8 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         params.add_feature(mat, "Outline")
     if params.KEY_GAME not in mat:      # a new build: what Reset to game goes back to
         params.snapshot(mat)
+        params.carry_overrides(mat)
+    params.apply_overrides(mat)         # last: over the import's own subsurface values
     # LEGO face: rig placement of the character accents per mouth pose (face_anim.py)
     if rig := material_data.get("MPFaceRig"):
         mat["mp_face_rig"] = rig

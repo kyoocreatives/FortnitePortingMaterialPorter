@@ -173,11 +173,12 @@ def gather(mats):
         if node is None:
             continue
         ui, game, panels = _json(node.node_tree, params.KEY_UI), _json(m, params.KEY_GAME), _panels(node.node_tree)
+        names = params.input_names(node)
         for sock in node.inputs:
             if sock.bl_idname not in SOCKETS or sock.is_linked or not sock.enabled:
                 continue
             ue = ui.get(sock.identifier)
-            name = ue[0] + (" (A)" if ue[1] == "A" else "") if ue else sock.name
+            name = names[sock.identifier]
             kind = kind_of(sock)
             key = (name, kind)
             p = found.get(key)
