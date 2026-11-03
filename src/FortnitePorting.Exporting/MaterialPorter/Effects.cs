@@ -396,10 +396,9 @@ public static class Effects
         var curve = system.Owner!.GetExports().FirstOrDefault(e => e.Name == inner[^1] && (inner.Length < 2 || e.Outer?.Name.Text == inner[^2]));
         if (curve is null || !curve.GetOrDefault("bExposeCurve", false)
             || curve.GetOrDefault<global::CUE4Parse.UE4.Assets.Exports.Texture.UTexture?>("ExposedTexture") is not { } texture
-            || global::CUE4Parse_Conversion.Textures.TextureDecoder.Decode(texture, global::CUE4Parse.UE4.Assets.Exports.Texture.ETexturePlatform.DesktopMobile) is not { } decoded)
+            || global::CUE4Parse_Conversion.Textures.TextureDecoder.Decode(texture, global::FortnitePorting.Shared.Options.SharedExportOptions.Default) is not { } decoded)
             return null;
-        var data = global::CUE4Parse_Conversion.Textures.TextureEncoder.Encode(decoded,
-            global::CUE4Parse_Conversion.Options.ETextureFormat.Png, true, out var ext);
+        var data = global::CUE4Parse_Conversion.Textures.TextureEncoder.Encode(decoded, global::FortnitePorting.Shared.Options.SharedExportOptions.Default, out var ext);
         // linear: the curve's own values (HDR where they exceed 1)
         var name = "Curve_" + Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(data))[..12] + "_Lin";
         var file = System.IO.Path.Combine(dir, name + "." + ext.Trim('.').ToLowerInvariant());

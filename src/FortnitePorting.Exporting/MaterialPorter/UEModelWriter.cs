@@ -51,7 +51,7 @@ public static class UEModelWriter
 
     public static void Write(string file, string objectName, USkeletalMesh mesh, IList<string> notes = null)
     {
-        using var dto = new SkeletalMeshDto(mesh, EMeshQuality.Highest, ENaniteMeshFormat.NoNanite, false);
+        using var dto = new SkeletalMeshDto(mesh, global::FortnitePorting.Shared.Options.SharedExportOptions.Default);
         var morphs = Morphs(mesh, notes);
         Save(file, objectName, o =>
         {
@@ -217,7 +217,7 @@ public static class UEModelWriter
 
     public static void Write(string file, string objectName, UStaticMesh mesh)
     {
-        using var dto = new StaticMeshDto(mesh, EMeshQuality.Highest, ENaniteMeshFormat.NoNanite, null);
+        using var dto = new StaticMeshDto(mesh, global::FortnitePorting.Shared.Options.SharedExportOptions.Default);
         Save(file, objectName, o => Lods<MeshVertex>(o, dto.LODs, dto.Materials, null));
     }
 

@@ -10,6 +10,7 @@ using global::CUE4Parse_Conversion.Textures;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using FortnitePorting.CUE4Parse.Extensions;
+using FortnitePorting.Shared.Options;
 
 namespace FortnitePorting.MaterialPorter;
 
@@ -640,7 +641,7 @@ public sealed class MaterialService
         try
         {
             var tLoad = sw.Elapsed.TotalMilliseconds;
-            var ct = (cap > 0 ? TextureDecoder.Decode(tex, cap, ETexturePlatform.DesktopMobile) : tex.Decode(ETexturePlatform.DesktopMobile))
+            var ct = (cap > 0 ? TextureDecoder.Decode(tex, cap, SharedExportOptions.Default) : tex.Decode(SharedExportOptions.Default))
                      ?? throw new InvalidDataException("Could not decode " + path);
             var tDecode = sw.Elapsed.TotalMilliseconds;
             if (raw && tex.IsNormalMap) NormalPacking.RedToAlpha(ct);     // Blender reads every normal map's X from alpha

@@ -49,7 +49,7 @@ public static class MeshDescriptions
 
     /// <summary>A skeletal mesh's slots: (imported slot name, else slot name; material path).</summary>
     public static List<(string Name, string Path)> Slots(USkeletalMesh mesh) =>
-        (mesh.SkeletalMaterials ?? []).Select(m => ((m.ImportedMaterialSlotName ?? m.MaterialSlotName).Text,
+        (mesh.SkeletalMaterials ?? []).Select(m => ((m.ImportedMaterialSlotName ?? m.MaterialSlotName)?.Text ?? "",
             m.MaterialInterface?.ResolvedObject is { } o ? o.GetPathName() : "")).ToList();
 
     /// <summary>A bone of a skeletal mesh description: its name, parent and pose (relative to its parent).</summary>

@@ -58,7 +58,7 @@ class MeshImportContext(LightImportMixin):     # MP: spot and rect lights
                 
         if self.type in [EExportType.OUTFIT]:
             for imported_mesh in self.imported_meshes:
-                self.parent_deform_bones(imported_mesh["Skeleton"], ["dfrm_", "deform_"])
+                self.parent_deform_bones(imported_mesh["Skeleton"], ["dfrm_", "deform_", "rt_"])
                 self.parent_bones(imported_mesh["Skeleton"], extra_deform_mappings)
             
         mp.before_merge(self)     # MP
