@@ -62,5 +62,22 @@ check("FP's own outline gives way to the game's", ([m.type for m in part.modifie
 outlines.apply(context, [part])
 check("applying again adds no second outline", len([m for m in part.modifiers if m.name == outlines.MODIFIER]), 1)
 
+# a style swapping the overlay for M_VertexCrunch (TacticalRecon's Gradient): no outline, nor FP's shell
+coat = bpy.data.materials.new("coat")
+styled = cube("styled", coat)
+styled.data.materials.append(fp_outline)
+styled.modifiers.new("Outline", 'SOLIDIFY').material_offset = 1
+built = []
+ctx = SimpleNamespace(override_materials=[{"MaterialNameToSwap": "MI_Coat_InvHull", "Material": {"Name": "M_VertexCrunch"}}],
+                      import_material=lambda slot, data, meta: built.append(data.get("Name")))
+outlines.prepare(ctx, styled, {"Name": "MI_Coat_InvHull"}, {})
+outlines.apply(ctx, [styled])
+check("a crunched overlay builds nothing", (built, [m.name for m in styled.data.materials if m]), ([], ["coat"]))
+check("...and drops FP's shell", [m.type for m in styled.modifiers], [])
+# a style swapping it for another hull builds that one
+ctx.override_materials = [{"MaterialNameToSwap": "MI_Coat_InvHull", "Material": {"Name": "MI_Coat_Brink_InvHull"}}]
+outlines.prepare(ctx, cube("brink", bpy.data.materials.new("brink")), {"Name": "MI_Coat_InvHull"}, {})
+check("a swapped overlay builds the style's hull", built, ["MI_Coat_Brink_InvHull"])
+
 print("[outline_check] %d passed, %d failed" % (PASSES[0], len(FAILS)))
 sys.exit(1 if FAILS else 0)

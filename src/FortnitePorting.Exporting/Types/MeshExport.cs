@@ -681,7 +681,8 @@ public partial class MeshExport : BaseExport
 
         var variantParameters = style.GetOrDefault("VariantMaterialParams", Array.Empty<FStructFallback>());
         foreach (var parameters in variantParameters) OverrideParameters.AddRangeIfNotNull(Context.OverrideParameters(parameters));
-        
+        OverrideParameters.AddIfNotNull(Context.CosmeticPropertyParameters(style));     // MP
+
         var variantMeshes = style.GetOrDefault("VariantMeshes", Array.Empty<FStructFallback>());
         foreach (var mesh in variantMeshes)
         {

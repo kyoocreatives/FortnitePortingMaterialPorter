@@ -10,6 +10,8 @@ join keeps the slots but not the modifiers: the modifier goes on after it.
 """
 import bpy
 
+from ..processing.material.names import vertex_crunch_names
+
 KEY = "mp_outlines"         # on the context: [{"bases": [materials], "outline": material}]
 MODIFIER = "MP Outline"
 FP_OUTLINE, FP_MATERIAL = "Outline", "M_FP_Outline"     # FortnitePorting's own toon outline (a Solidify shell)
@@ -19,7 +21,14 @@ def prepare(context, mesh_object, overlay, meta):
     """A part's overlay material at import: built into a new slot of the part (no face uses it), kept for apply."""
     if not overlay or mesh_object is None:
         return
+    # a style may swap the outline: TacticalRecon's Gradient swaps every hull for M_VertexCrunch (none drawn)
+    for swap in getattr(context, "override_materials", None) or []:
+        if swap.get("MaterialNameToSwap") == overlay.get("Name") and swap.get("Material"):
+            overlay = swap["Material"]
     bases = [m for m in mesh_object.data.materials if m is not None]
+    if overlay.get("Name") in vertex_crunch_names:
+        remember(context, bases, None)      # nor FP's own shell
+        return
     # a slot as the mesh's own arrive: holding a material of the game's name, which the build replaces
     mesh_object.data.materials.append(bpy.data.materials.get(overlay.get("Name")) or bpy.data.materials.new(overlay.get("Name") or "Overlay"))
     slot = mesh_object.material_slots[len(mesh_object.data.materials) - 1]
@@ -48,6 +57,9 @@ def apply(context, objects):
         if not mine:
             continue
         _drop_fp_outline(o)
+        mine = [p for p in mine if p["outline"] is not None]
+        if not mine:
+            continue
         for p in mine:
             if p["outline"] not in o.data.materials[:]:
                 o.data.materials.append(p["outline"])
