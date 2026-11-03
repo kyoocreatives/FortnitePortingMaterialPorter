@@ -279,6 +279,22 @@ def _jump(m):
     return run
 
 
+def _two_tone(mats, on):
+    """Rebuild the ticked anime materials on (off) the game's two-tone rim master; the ticks follow the new ones."""
+    def run(context):
+        from ...material_porter import twotone
+        mat_edit.end()
+        done, failed = twotone.switch(mats, on)
+        STATE["ticked"] = {done.get(n, n) for n in STATE["ticked"]}
+        from . import logbook
+        if done:
+            mat_edit.undo("Two-tone rim " + ("on" if on else "off"))
+            logbook.write("Two-tone rim %s on %d material(s)" % ("on" if on else "off", len(done)))
+        if failed:
+            logbook.write("Not rebuilt (is the app open?): " + ", ".join(mat_data.short(n) for n in failed[:4]), "warning")
+    return run
+
+
 def _toggle_relative(context):
     mat_edit.end()
     STATE["relative"] = not STATE["relative"]
@@ -287,7 +303,13 @@ def _toggle_relative(context):
 def _toolbar(ui, r, mats, sections):
     t = ui.t
     all_params = [p for _s, ps in sections for p in ps]
-    buttons = (("mat:nodes", "Node Editor", _jump(mats[0]), "%s's group node in the Shader Editor" % mat_data.short(mats[0].name)),
+    from ...material_porter import twotone
+    anime = [m for m in mats if twotone.is_anime(m)]
+    rim_on = bool(anime) and all(m.get(twotone.KEY) for m in anime)
+    buttons = (("mat:twotone", "Two-Tone Rim", _two_tone(anime, not rim_on) if anime else None,
+                "Rebuild the ticked anime materials on the game's two-tone rim master (Sabotage's blue/orange rim), "
+                "keeping their values; again to go back" if anime else "Tick anime cel materials"),
+               ("mat:nodes", "Node Editor", _jump(mats[0]), "%s's group node in the Shader Editor" % mat_data.short(mats[0].name)),
                ("mat:reset", "Reset to Game", mat_edit.reset(all_params) if any(map(mat_edit.resettable, all_params)) else None,
                 "Every parameter of the ticked materials back to the game's value"),
                ("mat:paste", "Paste", mat_edit.paste(sections) if mat_edit.CLIP else None,
@@ -298,7 +320,7 @@ def _toolbar(ui, r, mats, sections):
     for id, text, action, tip in buttons:
         cell = r.cut_right(paint.measure(text, t.text) + 2 * t.pad + 2 * t.pad)
         ui.button(id, cell, text, action=action, tip=tip, enabled=action is not None,
-                  style="accent" if id == "mat:relative" and STATE["relative"] else "control")
+                  style="accent" if id == "mat:relative" and STATE["relative"] or id == "mat:twotone" and rim_on else "control")
         r.cut_right(t.gap)
     title = mat_data.short(mats[0].name) if len(mats) == 1 else "%d materials" % len(mats)
     paint.text_in(paint.fit(title, t.title, r.w - t.pad), r, t.text1, t.title)

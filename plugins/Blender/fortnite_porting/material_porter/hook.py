@@ -362,6 +362,12 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         for kind, values in overlay.items():
             entry[kind] = dict(entry.get(kind) or {}, **values)
         entry["variant"] = _digest(json.dumps(overlay, sort_keys=True))
+    # Two-tone rim (twotone.py): built on the two-tone master with the material's own values
+    if material_data.get("MPTwoTone"):
+        from . import twotone
+        master = job["app"].get("material", twotone.MASTER)
+        entry["master"], entry["graph"] = master["master"], master["graph"]
+        entry["variant"] = _digest("%s twotone" % entry.get("variant", ""))
     # textures capped smaller (Max / Map Texture Size): a material of its own, never shared with full-size ones
     if cap := texture_cap(context):
         entry["variant"] = _digest("%s cap%d" % (entry.get("variant", ""), cap))
@@ -456,6 +462,9 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
                         n.inputs[name].default_value = v
     if material_data.get("MPOutline"):
         params.add_feature(mat, "Outline")
+    if material_data.get("MPTwoTone"):
+        mat["mp_twotone"] = 1
+        params.add_feature(mat, "Two-Tone Rim")
     if params.KEY_GAME not in mat:      # a new build: what Reset to game goes back to
         params.snapshot(mat)
         params.carry_overrides(mat)
