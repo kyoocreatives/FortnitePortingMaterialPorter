@@ -8,7 +8,7 @@ import types
 
 import bpy
 
-from . import build, hook, params
+from . import build, hook, outlines, params
 
 MASTER = "/Game/Global/Materials/Character_Parent_2023/Anime_Parent_2023/TwotoneRim/M_AnimeShader_Body_TwotoneRimLight"
 ANIME = "M_AnimeShader_2023"
@@ -42,5 +42,6 @@ def switch(mats, on):
         params.apply_overrides(new)     # the user's edits: a new variant doesn't find them by itself
         for _o, s in users:
             s.material = new
+        outlines.retarget(mat, new)
         done[mat.name] = new.name
     return done, failed

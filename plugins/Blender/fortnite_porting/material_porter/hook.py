@@ -368,6 +368,9 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
         master = job["app"].get("material", twotone.MASTER)
         entry["master"], entry["graph"] = master["master"], master["graph"]
         entry["variant"] = _digest("%s twotone" % entry.get("variant", ""))
+        # the rim draws where the FX map's red allows; a skin without one (the master's black) takes its constant
+        if "FX_Map" not in (entry.get("textures") or {}):
+            entry["scalars"] = dict(entry.get("scalars") or {}, UseFXMap=0.0)
     # textures capped smaller (Max / Map Texture Size): a material of its own, never shared with full-size ones
     if cap := texture_cap(context):
         entry["variant"] = _digest("%s cap%d" % (entry.get("variant", ""), cap))

@@ -66,6 +66,16 @@ def apply(context, objects):
         o.modifiers.new(MODIFIER, 'NODES').node_group = _group(o.name, mine)
 
 
+def retarget(old, new):
+    """A material rebuilt into another one (wrap, two-tone rim): the outline modifiers pick its faces by material."""
+    for t in bpy.data.node_groups:
+        if t.bl_idname == 'GeometryNodeTree' and t.name.startswith(MODIFIER):
+            for n in t.nodes:
+                sock = n.inputs.get("Material")
+                if sock is not None and sock.default_value == old:
+                    sock.default_value = new
+
+
 def _drop_fp_outline(o):
     """FortnitePorting outlines its toon materials itself (a uniform shell over the whole mesh): the game's own
     replaces it."""

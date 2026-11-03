@@ -8,7 +8,7 @@ Wrap), and take the old one's slots. FP's own (non-exact) materials are left alo
 """
 import json
 
-from . import build, hook
+from . import build, hook, outlines
 
 
 def targets(context):
@@ -58,6 +58,8 @@ def lay(job_context, objects, wrap):
                     if key in mat and key not in new:
                         new[key] = mat[key]
                 rebuilt[mat.name] = new
+                if new is not mat:
+                    outlines.retarget(mat, new)
             if new is not mat:
                 slot.material = new
                 touched.add(o.name)
