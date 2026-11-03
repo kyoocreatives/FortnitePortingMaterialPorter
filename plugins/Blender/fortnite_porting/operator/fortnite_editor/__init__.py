@@ -9,7 +9,7 @@ import time
 import bpy
 
 from . import (asset_tab, browse_ops, logbook, remember, status_bar, cosmetics_page, files_tab, grid_draw, grid_ops, host, land_ops, land_tab, maps_ops, maps_tab, scatter_ops,
-               rig_ops, rig_tab, settings_tab, setup_page, tabs, textures, tool_tabs, workspaces)
+               mat_tab, rig_ops, rig_tab, settings_tab, setup_page, tabs, textures, tool_tabs, workspaces)
 from .ui import blender as ui_blender
 from .state import STATE, active_filters, client, icon_failed, icon_wanted, reset_client, save_prefs, selected, tag_redraw
 
@@ -271,7 +271,7 @@ def _header(layout, context):
 
 classes = (FP_OT_browse_tab, FP_OT_engine_show, FP_OT_engine_locate, FP_OT_browse_refresh, FP_OT_editor_tab)
 from . import quick_search  # noqa: E402  (Ctrl+Shift+F over any editor)
-modules = (grid_ops, browse_ops, asset_tab, files_tab, maps_tab, maps_ops, rig_tab, rig_ops, land_tab, land_ops, scatter_ops, settings_tab, tool_tabs, workspaces, quick_search)
+modules = (grid_ops, browse_ops, asset_tab, files_tab, maps_tab, maps_ops, rig_tab, rig_ops, land_tab, land_ops, scatter_ops, mat_tab, settings_tab, tool_tabs, workspaces, quick_search)
 
 
 def _redraw_on_change(self, context):

@@ -9,13 +9,14 @@ SIDEBAR = "Fortnite"     # the one sidebar category: its panels poll on the main
 
 class Tab:
     def __init__(self, id, label, icon, header=None, draw=None, tick=None, nav_icon=None, group="export", side=None,
-                 info=None, hover=None, has_info=None, has_side=None):
+                 info=None, hover=None, has_info=None, has_side=None, view=None):
         self.id, self.label, self.icon = id, label, icon
         self.nav_icon = nav_icon    # its icon in the shell's nav (icons/<name>.png)
         self.group = group          # the nav's group: export or tools
         self.header = header        # header(layout, context): the tab's tools in the editor's header
         self.draw = draw            # draw(): its view, a POST_PIXEL drawing in the region (host.inset: the well)
         self.side = side            # side(ui, rect): its list column (ui.kit widgets), None: no column
+        self.view = view            # view(ui, rect): widgets in the well, over draw()'s view
         self.info = info            # info(ui, rect): its info column, None: no column
         self.has_info = has_info    # has_info(context) -> bool: the info column folds when it has nothing to show
         self.has_side = has_side    # has_side(context) -> bool: the same for the list column

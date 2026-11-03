@@ -79,6 +79,9 @@ def draw(ui, tabs_list, current, width, height, actions, left=0, right=0, frame=
     paint.rect(Rect(panel.x, panel.top, panel.w, height - panel.top), t.app)
     paint.rect(panel, t.app, corners=corners(t, cols), invert=True)
     ui.frame.well = well
+    if getattr(current, "view", None) is not None:
+        ui.clip = None
+        current.view(ui, well)
     _nav(ui, cols["nav"], cols["wide"], tabs_list, current, actions)
     if cols["side"] is not None:
         ui.clip, ui.compact = None, cols["compact"]
