@@ -9,7 +9,7 @@ import time
 
 import bpy
 
-from . import foliage, ground, layout
+from . import foliage, ground, layout, params
 from .app_client import AppClient
 from . import world
 from .env import MaterialEnv, fit_socket, match_names
@@ -1279,6 +1279,7 @@ def build_one(entry, app, objects=(), make_env=None):
             scatter_biomes.refresh()
     if entry.get("variant"):
         mat[KEY_VARIANT] = entry["variant"]
+    params.tag_build(mat, root, env, entry, settings(entry), vals, TRANSLUCENT)
     if env.reusable:
         _record_shape(mat, root, env, entry)
     notes = list(env.notes) + sorted(set(w for w in tr.warnings + [w for ft in tr.functions.values()
@@ -1487,6 +1488,7 @@ def build_like(src, entry, app):
         if key in src:
             mat[key] = src[key]
     mat["mp_copied_from"] = src.name
+    mat.pop(params.KEY_GAME, None)      # src's values: the hook takes this one's
     if entry.get("variant"):
         mat[KEY_VARIANT] = entry["variant"]
     elif KEY_VARIANT in mat:

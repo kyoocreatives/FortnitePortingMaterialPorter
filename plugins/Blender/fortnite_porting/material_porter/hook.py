@@ -14,7 +14,7 @@ from collections import namedtuple
 
 import bpy
 
-from . import build, fallback
+from . import build, fallback, params
 from .app_client import AppClient, AppError
 from ..logger import Log
 from ..processing.enums import EExportType, ExportCategory
@@ -454,6 +454,10 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
                 for name, v in values.items():
                     if name in n.inputs:
                         n.inputs[name].default_value = v
+    if material_data.get("MPOutline"):
+        params.add_feature(mat, "Outline")
+    if params.KEY_GAME not in mat:      # a new build: what Reset to game goes back to
+        params.snapshot(mat)
     # LEGO face: rig placement of the character accents per mouth pose (face_anim.py)
     if rig := material_data.get("MPFaceRig"):
         mat["mp_face_rig"] = rig
