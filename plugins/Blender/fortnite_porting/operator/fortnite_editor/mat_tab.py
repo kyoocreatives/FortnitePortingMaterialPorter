@@ -228,12 +228,12 @@ def _value_field(ui, p, r):
 
 def _param_row(ui, p, r, count):
     t = ui.t
-    label = r.cut_left(r.w * 0.42)
-    mark = r.cut_left(t.row)
     back = r.cut_right(t.row)
     r.cut_right(t.gap)
+    label = r.cut_left(max(r.w - 320 * t.s, r.w * 0.45))       # a field Blender's width, the name the rest
+    mark = r.cut_left(t.row)
     if p.differs:
-        paint.text_in("≠", mark, t.accent, t.title, "center")
+        paint.text_in("≠", mark, t.accent[:3] + (1.0,), t.title * 1.4, "center")
         ui.frame.add(Hit("mat:d:" + p.name, mark, ui.clip, "button", None, None,
                          "The ticked materials differ: the field shows the first, a change sets them all"))
     tip = p.name if p.master is None else "%s · parent shader's default %s" % (p.name, _short_value(p.master))
@@ -277,15 +277,26 @@ def _jump(m):
     return run
 
 
+def _toggle_relative(context):
+    mat_edit.end()
+    STATE["relative"] = not STATE["relative"]
+
+
 def _toolbar(ui, r, mats, sections):
     t = ui.t
     all_params = [p for _s, ps in sections for p in ps]
     buttons = (("mat:nodes", "Node Editor", _jump(mats[0]), "%s's group node in the Shader Editor" % mat_data.short(mats[0].name)),
                ("mat:reset", "Reset to Game", mat_edit.reset(all_params) if any(map(mat_edit.resettable, all_params)) else None,
-                "Every parameter of the ticked materials back to the game's value"))
+                "Every parameter of the ticked materials back to the game's value"),
+               ("mat:paste", "Paste", mat_edit.paste(sections) if mat_edit.CLIP else None,
+                "The copied values onto the ticked materials' parameters of the same names"),
+               ("mat:copy", "Copy", mat_edit.copy(sections), "%s's values" % mat_data.short(mats[0].name)),
+               ("mat:relative", "Relative", _toggle_relative, "Drags and typed values scale each material's own "
+                "value (× factor) instead of setting one value"))
     for id, text, action, tip in buttons:
         cell = r.cut_right(paint.measure(text, t.text) + 2 * t.pad + 2 * t.pad)
-        ui.button(id, cell, text, action=action, tip=tip, enabled=action is not None)
+        ui.button(id, cell, text, action=action, tip=tip, enabled=action is not None,
+                  style="accent" if id == "mat:relative" and STATE["relative"] else "control")
         r.cut_right(t.gap)
     title = mat_data.short(mats[0].name) if len(mats) == 1 else "%d materials" % len(mats)
     paint.text_in(paint.fit(title, t.title, r.w - t.pad), r, t.text1, t.title)
@@ -306,12 +317,12 @@ def view(ui, well):
     lines = sum(1 + (len(ps) if STATE["folds"].get("s:" + s, True) else 0) for s, ps in sections)
     offset = ui.scroll("mat:params", inner, lines * t.row_pitch)
     y = inner.top + offset
-    width = min(inner.w - ui.bar_room, 900 * t.s)
+    width = min(inner.w - ui.bar_room - t.pad, 760 * t.s)     # clear of the scroll bar
     for title, ps in sections:
         is_open = STATE["folds"].get("s:" + title, True)
         y -= t.row_pitch
         if inner.y - t.row_pitch < y < inner.top:
-            ui.group("mat:s:" + title, Rect(inner.x, y, width, t.row), "%s  (%d)" % (title, len(ps)), is_open,
+            ui.group("mat:s:" + title, Rect(inner.x, y, width, t.row), title, is_open,
                      _fold("s:" + title))
         if not is_open:
             continue
