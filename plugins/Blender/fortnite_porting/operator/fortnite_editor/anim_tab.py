@@ -1,8 +1,6 @@
 """The editor's Animation tab: a library of animations (the file's actions, the game's emotes, idles and locomotion)
-in the list column, each played on a body in the live preview when clicked or hovered; the info column picks the
+in the list column, each played on a body in the live preview when clicked; the info column picks the
 body, how it plays, and applies exactly what plays to the user's character (body, face, props, sound: NLA strips)."""
-import time
-
 import bpy
 
 from . import anim_hand, anim_lib, anim_play, host, preview, tabs
@@ -11,8 +9,7 @@ from .ui import blender as ui_blender
 from .ui.rect import Rect
 
 ID = "animation"
-HOVER_DELAY = 0.6       # s over a row before it plays
-STATE = {"source": "emotes", "picked": None, "hover": None}
+STATE = {"source": "emotes", "picked": None}
 
 
 def redraw_all():
@@ -227,7 +224,7 @@ def info(ui, r):
     picked = anim_play.STATE["item"]
     if not picked:
         r.cut_top(t.big)
-        paint.text_in("Click or hover an animation in the list", r.cut_top(t.row), t.text3, t.caption)
+        paint.text_in("Click an animation in the list", r.cut_top(t.row), t.text3, t.caption)
     else:
         r.cut_top(t.big)
         paint.text_in(paint.fit(picked[1]["name"].strip(), t.title, r.w), r.cut_top(t.title + 2 * t.gap), t.text1, t.title)
@@ -248,7 +245,7 @@ def _searched(self, context):
 
 
 def tick():
-    """A row the mouse rests on plays (after HOVER_DELAY, one export at a time)."""
+    """The body shows with the tab."""
     area = next((a for a in host.editor_areas() if host.tab_id(a.spaces.active) == ID), None)
     if area is None:
         return
@@ -256,17 +253,6 @@ def tick():
     if anim_play.body_missing() and bpy.context.mode == 'OBJECT' and not st["busy"] and not st["error"] and \
             (st["body"] != anim_play.SELECTED or anim_play.selected_character() is not None):
         anim_play.ensure_body(anim_play.replay)     # the body shows with the tab (and again after a drop)
-    store = ui_blender.store(area)
-    hot = store.hot or ""
-    if not hot.startswith("anim:item:") or anim_play.STATE["busy"] or time.time() - store.tip_since < HOVER_DELAY:
-        return
-    rows = STATE.get("rows") or []
-    i = int(hot.rsplit(":", 1)[1])
-    if i < len(rows) and _key(*rows[i]) != STATE["hover"] and bpy.context.mode == 'OBJECT':
-        STATE["hover"] = _key(*rows[i])
-        if _key(*rows[i]) != STATE["picked"]:
-            STATE["picked"] = _key(*rows[i])        # what plays is what Apply applies
-            anim_play.play(*rows[i])
 
 
 def register():

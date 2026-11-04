@@ -382,6 +382,8 @@ def import_payload(payload, arm, scene=None, options=None):
         ctx.scale = 0.01 if ctx.options.get("ScaleDown") else 1
         ctx.meshes, ctx.mesh_indices, ctx.metadata_cache, ctx.imported_meshes = [], {}, {}, []
         ctx.override_materials, ctx.override_parameters, ctx.override_morph_targets = [], [], []
+        # props on sockets import meshes, which read these
+        ctx.full_vertex_crunch_materials, ctx.partial_vertex_crunch_materials, ctx.add_toon_outline = [], {}, False
         if scene is None:
             ctx.import_anim_data(export, override_skeleton=arm)
             continue
