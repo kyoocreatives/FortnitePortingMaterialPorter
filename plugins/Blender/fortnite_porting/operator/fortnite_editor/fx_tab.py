@@ -74,8 +74,10 @@ def _bar(ui, r):
     t = ui.t
     for id, label in fx_play.TOOLS:
         cell = r.cut_left(paint.measure(label, t.text) + 2 * t.pad + t.pad)
-        tip = {"view": "Drag orbits, Shift+drag pans", "move": "Drag moves the effect (while it plays: keyed)",
-               "rotate": "Drag turns it about Z", "scale": "Drag scales it"}[id]
+        tip = {"view": "Drag orbits, Shift+drag pans, wheel zooms",
+               "move": "Drag moves the effect: paused, places it; playing, records the motion (trails follow)",
+               "rotate": "Drag turns it about Z (paused: places, playing: records)",
+               "scale": "Drag scales it (paused: places, playing: records)"}[id]
         ui.button("fx:tool:" + id, cell, label, action=_set_tool(id), selected=fx_play.TOOL["id"] == id, tip=tip)
         r.cut_left(t.gap)
     r.cut_left(t.pad)

@@ -15,11 +15,32 @@ MOUSE = {'MOUSEMOVE', 'INBETWEEN_MOUSEMOVE', 'LEFTMOUSE', 'RIGHTMOUSE', 'MIDDLEM
 
 
 def _area():
-    """The editor area whose pop-ups are open."""
+    """The editor area whose pop-ups are open, or whose field (in a tab, not a pop-up) has the keys."""
     for a in host.editor_areas():
-        if blender.STACKS.get(a.as_pointer()):
+        if blender.STACKS.get(a.as_pointer()) or blender.store(a).focus is not None:
             return a
     return None
+
+
+def _field_only(context, area, region, st, frame, ev, x, y, inside):
+    """A tab's field has the keys, no pop-up open: keys type into it, a click elsewhere keeps the text (and goes on)."""
+    kind, value = ev.type, ev.value
+    if kind == 'WINDOW_DEACTIVATE' or (kind in ('LEFTMOUSE', 'RIGHTMOUSE') and value == 'PRESS'):
+        hit = frame.at(x, y) if frame is not None and inside else None
+        if kind != 'LEFTMOUSE' or hit is None or hit.id != st.focus:
+            with context.temp_override(area=area, region=region):
+                popup.commit(st)
+            area.tag_redraw()
+        return "pass"
+    if kind in MOUSE or value not in ('PRESS', 'REPEAT'):
+        return "pass"
+    wm = context.window_manager
+    clip = [wm.clipboard]
+    out = popup.key(popup.Stack(), st, popup.Key(kind, ev.unicode or "", ev.ctrl or ev.oskey, ev.shift, clip))
+    with context.temp_override(area=area, region=region):
+        _run(context, out)
+    area.tag_redraw()
+    return "eat"
 
 
 def _run(context, effects):
@@ -40,10 +61,12 @@ def handle(context, area, ev):
     region = blender._window_region(area)
     key = area.as_pointer()
     stack, st, frame = blender.STACKS.get(key), blender.store(area), blender.FRAMES.get(key)
-    if not stack or region is None:
+    if region is None:
         return "pass"
     x, y = ev.mouse_x - region.x, ev.mouse_y - region.y
     inside = 0 <= x < region.width and 0 <= y < region.height
+    if not stack:
+        return _field_only(context, area, region, st, frame, ev, x, y, inside) if st.focus is not None else "pass"
     kind, value = ev.type, ev.value
     out = []
     if kind == 'WINDOW_DEACTIVATE':

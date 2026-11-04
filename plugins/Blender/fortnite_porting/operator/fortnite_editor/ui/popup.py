@@ -224,8 +224,8 @@ def _move(p, ev):
 
 def key(stack, store, ev):
     p = stack.top
-    if p is None:
-        return []
+    if p is None:       # a tab's field (no pop-up open): only the field hears keys
+        return (_field_key(stack, store, ev) or [("redraw",)]) if getattr(store, "focus", None) is not None else []
     if getattr(store, "focus", None) is not None:
         out = _field_key(stack, store, ev)
         if out is not None:

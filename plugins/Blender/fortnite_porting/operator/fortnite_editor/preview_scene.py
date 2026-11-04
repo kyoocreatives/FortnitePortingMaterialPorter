@@ -82,7 +82,7 @@ def add(objects):
         for slot in ob.material_slots:
             if slot.material is not None and slot.material.get(TAG) == 2:
                 _show_diffuse(slot.material)
-    STATE["dirty"] = True
+    changed()
 
 
 def _show_diffuse(mat):
@@ -117,7 +117,7 @@ def clear():
     gone = _tagged((2,))
     if gone:
         bpy.data.batch_remove(gone)
-    STATE["dirty"] = True
+    changed()
 
 
 def drop():
@@ -129,6 +129,15 @@ def drop():
     if gone:
         bpy.data.batch_remove([idb for idb in gone if idb.name])
     STATE["dirty"] = True
+
+
+def changed():
+    """Content was added, removed or replayed: evaluated now, so no draw meets objects whose data is gone."""
+    STATE["dirty"] = True
+    scene = get()
+    graph = scene.view_layers[0].depsgraph if scene is not None else None
+    if graph is not None:
+        graph.update()
 
 
 def step(frame):

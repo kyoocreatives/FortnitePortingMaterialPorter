@@ -220,6 +220,7 @@ def _drop_extras():
     old = [bpy.data.objects.get(n) for n in STATE.get("extras", ())]
     bpy.data.batch_remove([o for o in old if o is not None and o.get(preview_scene.TAG) == 2])
     STATE["extras"] = []
+    preview_scene.changed()
 
 
 def _extras(payload):
@@ -239,7 +240,7 @@ def _extras(payload):
             STATE["extras"] = [o.name for o in preview_library.append(key, body=armature())]
             if STATE["mirror"]:
                 _mirror_children(armature())
-            preview_scene.STATE["dirty"] = True
+            preview_scene.changed()
         preview.redraw()
     preview_library.build_on(key, payload, MANNEQUIN, built)
 
@@ -328,7 +329,7 @@ def _range_from(arm):
         preview.set_range(int(min(s.frame_start for s in strips)), int(round(end)))
         for v in preview.VIEWS.values():
             v.framed = False        # fit the camera to the new motion
-    preview_scene.STATE["dirty"] = True
+    preview_scene.changed()
     if STATE["mirror"]:
         _mirror(arm)
 
@@ -339,7 +340,7 @@ def _mirror(arm):
     t = preview.PLAY
     for ob in [arm] + [c for c in arm.children if c.type == 'ARMATURE']:
         anim_mirror.mirror_track(ob, t["start"], t["end"])
-    preview_scene.STATE["dirty"] = True
+    preview_scene.changed()
 
 
 def _mirror_children(arm):

@@ -93,6 +93,8 @@ def show(root):
     copy["Start Frame"], copy["Loop"] = 1, True
     preview.set_range(1, LOOP_FRAMES)
     bake()
+    for v in preview.VIEWS.values():
+        v.framed = False        # fit on the effect it shows; later replays (moves) keep the camera
 
 
 def _size(root):
@@ -107,6 +109,16 @@ def bake():
     if copy is None:
         return
     scene = preview_scene.get()
+    _sync_matrices(scene)
+    hold = carrier()
+    # no recorded motion: replayed standing free where the carrier puts it (the plugin's plain path; a parent would
+    # send it down the moving one), then put back under the carrier
+    still = hold is not None and hold.animation_data is None
+    if still:
+        local = copy.matrix_basis.copy()
+        world = copy.matrix_world.copy()
+        copy.parent = None
+        copy.matrix_world = world
     t0 = time.perf_counter()
     lines = []
     try:
@@ -115,15 +127,30 @@ def bake():
                 lines.append(line)
     except Exception as e:      # the replay failed: shown in the tab
         STATE["error"] = "Replay failed: %s" % e
+    finally:
+        if still:
+            copy.parent = hold
+            copy.matrix_parent_inverse.identity()
+            copy.matrix_basis = local
     made = [o for o in scene.collection.all_objects if o.get("mp_effect") == "Particles" and not o.get(preview_scene.TAG)]
     preview_scene.track(made)
     STATE["baked_s"] = time.perf_counter() - t0
     STATE["log"] = lines[-1] if lines else ""
     apply_visibility()
-    preview_scene.STATE["dirty"] = True
-    for v in preview.VIEWS.values():
-        v.framed = False
+    preview_scene.changed()
     preview.redraw()
+
+
+def _sync_matrices(scene):
+    """The replay reads matrix_world, which only the active scene's evaluation writes back: set it from the hidden
+    scene's evaluation, parents first."""
+    preview_scene.changed()
+    graph = scene.view_layers[0].depsgraph
+
+    def depth(ob):
+        return 0 if ob.parent is None else 1 + depth(ob.parent)
+    for ob in sorted(preview_scene.content(), key=depth):
+        ob.matrix_world = ob.evaluated_get(graph).matrix_world.copy()
 
 
 # ------------------------------------------------------------------ emitters shown
@@ -145,7 +172,7 @@ def apply_visibility():
         name = _emitter_of(ob)
         hidden = name in STATE["muted"] or (STATE["solo"] is not None and name != STATE["solo"])
         ob.hide_viewport = ob.hide_render = hidden
-    preview_scene.STATE["dirty"] = True
+    preview_scene.changed()
 
 
 def toggle_mute(name):
@@ -161,28 +188,40 @@ def toggle_solo(name):
 # ------------------------------------------------------------------ move, rotate, scale
 
 def tool(context, dx, dy, cam, height, fresh):
-    """A drag in the preview with a tool on: the carrier follows, keyed at the playhead while it plays."""
+    """A drag in the preview with a tool on. Paused: places the effect (its recorded motion dropped); playing: keys
+    the carrier at the playhead. Its drawn particles follow at once; the replay after the drag makes them trail."""
     hold = carrier()
     if hold is None or TOOL["id"] == "view":
         return
+    playing = preview.PLAY["on"]
     if fresh:
+        if not playing and hold.animation_data is not None:
+            hold.animation_data_clear()
         STATE["grab"] = hold.matrix_basis.copy()
+        # world-space particles (an effect that moves leaves them unparented): moved by hand until the replay
+        STATE["loose"] = {o.name: o.matrix_world.copy() for o in preview_scene.content()
+                          if o.get("mp_effect") == "Particles" and o.parent is None}
     start = STATE["grab"]
     loc, rot, scale = start.decompose()
     if TOOL["id"] == "move":
         unit = cam.dist * 2 * math.tan(cam.fov / 2) / max(height, 1)
         loc = loc + cam.view_matrix().inverted().to_3x3() @ Vector((dx * unit, dy * unit, 0))
     elif TOOL["id"] == "rotate":
-        rot = (Matrix.Rotation(dx * 0.01, 4, 'Z').to_quaternion() @ rot)
+        rot = Matrix.Rotation(dx * 0.01, 4, 'Z').to_quaternion() @ rot
     elif TOOL["id"] == "scale":
         scale = scale * (1.01 ** dx)
     hold.matrix_basis = Matrix.LocRotScale(loc, rot, scale)
-    if preview.PLAY["on"]:
+    delta = hold.matrix_basis @ start.inverted()
+    for name, was in STATE["loose"].items():
+        ob = bpy.data.objects.get(name)
+        if ob is not None:
+            ob.matrix_world = delta @ was
+    if playing:
         f = preview.PLAY["frame"]
         for path in ("location", "rotation_euler", "scale"):
             hold.keyframe_insert(path, frame=f)
-        STATE["moved"] = True       # replayed once the drag ends
-    preview_scene.STATE["dirty"] = True
+    STATE["moved"] = True       # replayed once the drag ends
+    preview_scene.changed()
 
 
 def reset_motion():
@@ -203,7 +242,7 @@ def set_background(rgb):
     node = world.node_tree.nodes.get("Background") if world.node_tree else None
     if node is not None:
         node.inputs["Color"].default_value = (*rgb, 1.0)
-    preview_scene.STATE["dirty"] = True
+    preview_scene.changed()
 
 
 # ------------------------------------------------------------------ user parameters

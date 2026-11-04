@@ -43,6 +43,7 @@ def show(arm):
     old = bpy.data.objects.get(STATE["copy"]) if STATE["copy"] else None
     if old is not None and old.get(preview_scene.TAG) == 2:
         bpy.data.objects.remove(old)
+        preview_scene.changed()
     STATE["copy"] = None
     item = bpy.data.objects.get(STATE["item"]) if STATE["item"] else None
     if item is None or arm is None:

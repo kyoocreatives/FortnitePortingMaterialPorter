@@ -174,6 +174,13 @@ def open(context, p):
     return p
 
 
+def listen(context):
+    """The modal that hears keys, for a field in a tab that just took them (no pop-up started it)."""
+    if not MODAL["on"] and context.area is not None:
+        with context.temp_override(window=context.window, area=context.area, region=_window_region(context.area)):
+            bpy.ops.fp.popup('INVOKE_DEFAULT')
+
+
 def close_all():
     for st in STACKS.values():
         st.close_all()

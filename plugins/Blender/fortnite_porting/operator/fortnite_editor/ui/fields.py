@@ -74,6 +74,11 @@ def dropdown(ui, id, r, text, action, icon=None, enabled=True, tip=""):
         ui.frame.add(Hit(id, r, ui.clip, "button", action, None, tip))
 
 
+def _listen(context):
+    from . import blender     # (it imports this module)
+    blender.listen(context)
+
+
 def _focused(ui, id, current):
     """The field's Text when it has the keys (made from `current` when Tab just gave it them), else None."""
     store = ui.store
@@ -121,6 +126,7 @@ def text_box(ui, id, r, value, on_set, placeholder="", icon=None, live=False):
 
     def click(context):
         popup.focus(ui.store, id, Text(value))
+        _listen(context)
     ui.frame.add(Hit(id, r, ui.clip, "button", click, None, ""))
 
 
@@ -175,6 +181,7 @@ def number(ui, id, r, value, on_set, integer=False, lo=None, hi=None, step=None,
             _dragged.discard(id)
             return
         popup.focus(ui.store, id, Text(fmt % value))
+        _listen(context)
     ui.frame.add(Hit(id, r, ui.clip, "button", click, None, "Drag, or click to type", None, drag))
 
 
