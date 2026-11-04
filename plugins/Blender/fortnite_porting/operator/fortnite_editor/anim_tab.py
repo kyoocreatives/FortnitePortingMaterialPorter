@@ -5,7 +5,7 @@ import time
 
 import bpy
 
-from . import anim_lib, anim_play, host, preview, tabs
+from . import anim_hand, anim_lib, anim_play, host, preview, tabs
 from .ui import fields, paint
 from .ui import blender as ui_blender
 from .ui.rect import Rect
@@ -155,6 +155,14 @@ def _toggle_materials(context):
     STATE["materials"] = not STATE.get("materials")
 
 
+def _set_hand(value):
+    def run(context):
+        anim_hand.STATE["item"] = value or None
+        anim_hand.show(anim_play.armature())
+        preview.redraw()
+    return run
+
+
 def _set_loop(context):
     preview.PLAY["loop"] = not preview.PLAY["loop"]
 
@@ -181,6 +189,13 @@ def info(ui, r):
                     tip="The body the preview plays on")
     r.cut_top(t.gap)
     row = r.cut_top(t.row)
+    paint.text_in("In Hand", row.cut_left(label_w), t.text2, t.text)
+    held = anim_hand.STATE["item"]
+    choices = [("", "Nothing")] + [(o.name, o.name) for o in anim_hand.candidates(anim_play.selected_character())]
+    fields.dropdown(ui, "anim:hand", row, held or "Nothing", _menu("anim:hand", choices, held or "", _set_hand),
+                    tip="An item from the scene held on the hand socket (applied: a Child Of constraint on it)")
+    r.cut_top(t.gap)
+    row = r.cut_top(t.row)
     paint.text_in("Speed", row.cut_left(label_w), t.text2, t.text)
     fields.number(ui, "anim:speed", row, preview.PLAY["speed"], _set_speed, lo=0.05, hi=4.0, step=0.05,
                   fmt="%.2f")
@@ -189,6 +204,12 @@ def info(ui, r):
     row.cut_left(label_w)
     fields.checkbox(ui, "anim:loop", row, preview.PLAY["loop"], "Loop", _set_loop,
                     tip="Play it again from the start (applied: the strips repeat)")
+    r.cut_top(t.gap)
+    row = r.cut_top(t.row)
+    row.cut_left(label_w)
+    fields.checkbox(ui, "anim:mirror", row, anim_play.STATE["mirror"], "Mirror",
+                    lambda context: anim_play.set_mirror(not anim_play.STATE["mirror"]),
+                    tip="Left and right swapped (applied: the mirrored keys)")
     r.cut_top(t.gap)
     row = r.cut_top(t.row)
     row.cut_left(label_w)

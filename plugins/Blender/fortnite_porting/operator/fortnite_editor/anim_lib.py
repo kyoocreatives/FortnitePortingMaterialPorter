@@ -5,9 +5,11 @@ import bpy
 from . import preview_scene
 from .state import client
 
-# id, label, browse type (None: the file's actions), the USE filter its items carry
-SOURCES = (("scene", "In Scene", None, None), ("emotes", "Emotes", "Emote", None),
-           ("idles", "Lobby & Idles", "Animation", "Lobby"), ("locomotion", "Locomotion", "Animation", "Locomotion"))
+# id, label, browse type (None: the file's actions), the USE filter its items carry, filters they must not carry
+SOURCES = (("scene", "In Scene", None, None, ()), ("emotes", "Emotes", "Emote", None, ()),
+           # the Lobby use takes pickaxes' lobby intros too: not idles
+           ("idles", "Lobby & Idles", "Animation", "Lobby", ("Pickaxes",)),
+           ("locomotion", "Locomotion", "Animation", "Locomotion", ()))
 LISTS = {}      # browse type -> {"items": [...], "loaded", "total", "finished", "error"}
 _asked = set()
 
@@ -25,7 +27,7 @@ def _armature_action(action):
 
 def items(id, search=""):
     """[(kind, item)] of the source, filtered by the search's words; kind None: an action in the file."""
-    _id, _label, kind, use = source(id)
+    _id, _label, kind, use, without = source(id)
     words = search.lower().split()
     if kind is None:
         found = [(None, {"name": a.name, "action": a.name,
@@ -36,7 +38,8 @@ def items(id, search=""):
         if listing is None or not listing.get("finished"):
             fetch(kind)
             return []
-        found = [(kind, it) for it in listing["items"] if use is None or use in it.get("filters", ())]
+        found = [(kind, it) for it in listing["items"] if (use is None or use in it.get("filters", ()))
+                 and not any(f in it.get("filters", ()) for f in without)]
     return [f for f in found if all(w in f[1]["name"].lower() for w in words)]
 
 

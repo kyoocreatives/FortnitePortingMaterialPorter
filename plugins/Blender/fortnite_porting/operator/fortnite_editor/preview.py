@@ -37,21 +37,33 @@ class Camera:
         return Matrix(((f / aspect, 0, 0, 0), (0, f, 0, 0),
                        (0, 0, (far + near) / (near - far), 2 * far * near / (near - far)), (0, 0, -1, 0)))
 
-    def frame(self, objects, graph):
-        """Fit the objects' evaluated bounds."""
+    def frame(self, objects, graph, frames=None):
+        """Fit the objects' evaluated bounds (over `frames` of the preview scene: a moving body stays in view)."""
         lo, hi = Vector((1e9,) * 3), Vector((-1e9,) * 3)
-        for ob in objects:
-            ev = ob.evaluated_get(graph) if graph is not None else ob
-            if ob.type not in {'MESH', 'CURVE', 'POINTCLOUD', 'CURVES', 'VOLUME'}:
-                continue
-            for corner in ev.bound_box:
-                p = ev.matrix_world @ Vector(corner)
+        if frames:
+            for f in frames:
+                preview_scene.step(float(f))
+                for p in _bounds(objects, preview_scene.get().view_layers[0].depsgraph):
+                    lo, hi = Vector(map(min, lo, p)), Vector(map(max, hi, p))
+            preview_scene.step(PLAY["frame"])
+        else:
+            for p in _bounds(objects, graph):
                 lo, hi = Vector(map(min, lo, p)), Vector(map(max, hi, p))
         if lo.x > hi.x:
             return
         self.target = (lo + hi) / 2
         radius = max((hi - lo).length / 2, 0.1)
         self.dist = radius / math.sin(self.fov / 2) * 1.05
+
+
+def _bounds(objects, graph):
+    """The corners of the objects' evaluated bounds, in world space."""
+    for ob in objects:
+        ev = ob.evaluated_get(graph) if graph is not None else ob
+        if ob.type not in {'MESH', 'CURVE', 'POINTCLOUD', 'CURVES', 'VOLUME'} or ob.hide_render:
+            continue
+        for corner in ev.bound_box:
+            yield ev.matrix_world @ Vector(corner)
 
 
 class View:
@@ -69,6 +81,7 @@ class View:
 
 
 VIEWS = {}      # owner (a tab id) -> View
+ON_STEP = []    # fn(frame before, frame now, playing, wrapped): what follows the playhead (sound)
 PLAY = {"on": True, "speed": 1.0, "start": 1, "end": 60, "loop": True, "frame": 1.0, "last": 0.0}
 
 
@@ -207,12 +220,16 @@ def _tick():
         return 0.25         # shown but not drawn (another window covers it): idle
     scene = preview_scene.ensure()      # (a save dropped it: back empty, the tab adds its content again)
     dt, PLAY["last"] = min(now - PLAY["last"], 0.25) if PLAY["last"] else 0.0, now
+    before, wrapped = PLAY["frame"], False
     if PLAY["on"]:
         span = PLAY["end"] - PLAY["start"] + 1
         f = PLAY["frame"] + dt * scene.render.fps * PLAY["speed"]
         if f >= PLAY["end"] + 1:
             f = PLAY["start"] + (f - PLAY["start"]) % span if PLAY["loop"] else float(PLAY["end"])
+            wrapped = True
         PLAY["frame"] = f
+    for fn in ON_STEP:
+        fn(before, PLAY["frame"], PLAY["on"], wrapped)
     for o in showing:
         v = VIEWS[o]
         engine = SHADING[v.engine]
@@ -226,7 +243,9 @@ def _tick():
     for o in showing:
         v = VIEWS[o]
         if not v.framed and preview_scene.content():
-            v.camera.frame(preview_scene.content(), graph)
+            span = PLAY["end"] - PLAY["start"]
+            frames = [PLAY["start"] + span * i / 7 for i in range(8)] if span > 1 else None
+            v.camera.frame(preview_scene.content(), graph, frames)
             v.framed = True
     redraw()
     # on a fixed beat: the tick and the redraw it asks for don't add to the interval
@@ -242,6 +261,8 @@ def _start_timer():
 
 def _drop():
     """No tab shows a preview: free the buffers, drop the scene."""
+    for fn in ON_STEP:
+        fn(PLAY["frame"], PLAY["frame"], False, False)
     for v in VIEWS.values():
         v.free()
     VIEWS.clear()

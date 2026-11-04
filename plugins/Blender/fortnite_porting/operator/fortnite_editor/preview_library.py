@@ -51,10 +51,27 @@ def _finish(key, error):
         fn(error)
 
 
+def build_on(key, payload, base_key, done):
+    """done(error or None) once `key`'s library holds what `payload`'s animation brings onto the `base_key` body."""
+    if ready(key):
+        done(None)
+        return
+    if key in JOBS:
+        JOBS[key].append(done)
+        return
+    JOBS[key] = [done]
+    ERRORS.pop(key, None)
+    _run(key, payload, [path(base_key)])
+
+
 def _exported(key, result):
     if isinstance(result, Exception) or not result.get("Exports"):
         _finish(key, "export failed: %s" % (result if isinstance(result, Exception) else "nothing exported"))
         return
+    _run(key, result, [])
+
+
+def _run(key, result, extra):
     work = tempfile.mkdtemp(prefix="fp_preview_")
     payload = os.path.join(work, "payload.json")
     with open(payload, "w", encoding="utf-8") as f:
@@ -66,7 +83,7 @@ def _exported(key, result):
     script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "preview_library_build.py")
     out = path(key) + ".part"
     cmd = [bpy.app.binary_path, "-b", "--factory-startup", "--python", script, "--",
-           os.path.dirname(root), os.path.basename(root), payload, out]
+           os.path.dirname(root), os.path.basename(root), payload, out] + extra
     log = open(os.path.join(work, "build.log"), "w", encoding="utf-8", errors="replace")
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     proc = subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, creationflags=flags)
@@ -85,8 +102,9 @@ def _exported(key, result):
     bpy.app.timers.register(wait, first_interval=0.5)
 
 
-def append(key):
-    """The library's objects appended into the preview scene (tracked as its content): [objects]."""
+def append(key, body=None):
+    """The library's objects appended into the preview scene (tracked as its content): [objects]. With `body` (an
+    armature), what pointed at the library's base body points at it instead, and the base is left out."""
     before = {k: set(getattr(bpy.data, k)) for k in preview_scene.KINDS}
     with bpy.data.libraries.load(path(key), link=False) as (_src, dst):
         dst.collections = [COLLECTION]
@@ -99,5 +117,12 @@ def append(key):
             owner.objects.unlink(ob)
     if holder is not None:
         bpy.data.collections.remove(holder)
+    if body is not None:
+        bases = [idb for idb in made if isinstance(idb, bpy.types.Object) and idb.get("mp_base")]
+        for ob in bases:
+            if ob.type == 'ARMATURE':
+                ob.user_remap(body)
+        bpy.data.batch_remove([ob for ob in bases if ob.name])
+        objects = [ob for ob in objects if ob.name and not ob.get("mp_base")]
     preview_scene.add(objects)
     return objects

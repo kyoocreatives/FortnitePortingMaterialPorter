@@ -8,15 +8,17 @@ import bpy
 from . import preview, preview_library, preview_scene
 from .state import client
 
-BASE = "FortniteGame/Content/Characters/Player/%s/Medium/Base/%s.uasset"
-BODIES = (("mannequin", "Mannequin", BASE % ("Male", "SK_M_MALE_Base"), "Male"),
-          ("female", "Female Base", BASE % ("Female", "SK_M_Female_Base_Skeleton"), "Female"))
+MANNEQUIN = "creative_mannequin"     # (a cache key: a new body gets a new key)
+BODIES = ((MANNEQUIN, "Mannequin", "FortniteGame/Plugins/GameFeatures/BRCosmetics/Content/Athena/Items/Cosmetics/"
+           "Characters/CID_Creative_Mannequin_M_Default.uasset", "Male"),
+          ("female", "Female Base", "FortniteGame/Content/Characters/Player/Female/Medium/Base/"
+           "SK_M_Female_Base_Skeleton.uasset", "Female"))
 SELECTED = "selected"
 # the preview's own export: no sounds (it plays no audio), sections looped, the timeline left alone
 PREVIEW_SETTINGS = "ImportSounds:false;LoopAnimation:true;UpdateTimelineLength:false"
-LIBRARY_SETTINGS = "RigType:Default"
+LIBRARY_SETTINGS = "RigType:Default;ImportLobbyPoses:false"
 
-STATE = {"body": "mannequin", "armature": None, "item": None, "payload": None, "busy": None, "error": None,
+STATE = {"mirror": False, "body": MANNEQUIN, "armature": None, "item": None, "payload": None, "busy": None, "error": None,
          "loaded_body": None, "made": 0}
 
 
@@ -89,7 +91,9 @@ def ensure_body(done=None):
 
 
 def _copy_selected():
-    """Copies of the user's character (armature and its meshes) sharing its data: posing a copy changes only the copy."""
+    """Copies of the user's character: the armature sharing its data (posing a copy changes only the copy), its meshes
+    with their own data and materials (the import animates shape keys and face materials). Props and the master
+    skeleton an earlier apply left are not copied: the preview brings its own."""
     src = selected_character()
     if src is None:
         STATE["error"] = "Select a character (its armature or a mesh of it) to preview on it"
@@ -97,17 +101,25 @@ def _copy_selected():
     arm = src.copy()
     arm.animation_data_clear()
     copies = [arm]
+    made = []
     for child in src.children_recursive:
-        if child.type not in {'MESH', 'EMPTY'}:
+        if child.type not in {'MESH', 'EMPTY'} or any(c.type == 'CHILD_OF' for c in child.constraints):
             continue
         c = child.copy()
+        if c.type == 'MESH':
+            c.data = child.data.copy()
+            made.append(c.data)
+            for slot in c.material_slots:
+                if slot.material is not None:
+                    slot.material = slot.material.copy()
+                    made.append(slot.material)
         if c.parent == src:
             c.parent = arm
         for mod in c.modifiers:
             if mod.type == 'ARMATURE' and mod.object == src:
                 mod.object = arm
         copies.append(c)
-    preview_scene.track(copies)
+    preview_scene.track(copies + made)
     preview_scene.add(copies)
     return copies
 
@@ -117,6 +129,9 @@ def _place(objects):
     STATE.update(armature=arm.name if arm else None, loaded_body=STATE["body"], made=preview_scene.STATE["made"])
     if arm is not None:
         arm.location = (0, 0, 0)
+    from . import anim_hand
+    anim_hand.STATE["copy"] = None      # (the scene was cleared with the body)
+    anim_hand.show(arm)
     for v in preview.VIEWS.values():
         v.framed = False
 
@@ -185,12 +200,108 @@ def replay():
     arm, payload = armature(), STATE["payload"]
     if arm is None or payload is None:
         return
+    # props and effects import meshes (the importer's modes): a background Blender builds them onto the mannequin
+    brings = [e for e in payload["Exports"] if e.get("Props") or e.get("MPEffects")]
+    body_only = dict(payload, Exports=[dict(e, Props=[], MPEffects=[]) for e in payload["Exports"]])
+    _drop_extras()
     try:
-        import_payload(payload, arm, preview_scene.ensure())
+        import_payload(body_only, arm, preview_scene.ensure())
     except Exception as e:      # the plugin's import failed: shown in the tab
         STATE["error"] = "Import failed: %s" % e
     _range_from(arm)
+    _sounds(payload)
+    if brings:
+        _extras(payload)
     preview.redraw()
+
+
+def _drop_extras():
+    """The props, master skeleton and effects an earlier animation brought."""
+    old = [bpy.data.objects.get(n) for n in STATE.get("extras", ())]
+    bpy.data.batch_remove([o for o in old if o is not None and o.get(preview_scene.TAG) == 2])
+    STATE["extras"] = []
+
+
+def _extras(payload):
+    import hashlib
+    kind, item = STATE["item"]
+    key = "anim_" + hashlib.md5(("%s|%s" % (item["path"], STATE.get("style"))).encode()).hexdigest()[:16]
+    if not preview_library.ready(key):
+        STATE["busy"] = "Importing its props once"
+    preview.redraw()
+
+    def built(error):
+        STATE["busy"] = None
+        if error:
+            STATE["error"] = "Props: %s" % error
+        elif STATE["item"] == (kind, item) and armature() is not None:
+            _drop_extras()
+            STATE["extras"] = [o.name for o in preview_library.append(key, body=armature())]
+            if STATE["mirror"]:
+                _mirror_children(armature())
+            preview_scene.STATE["dirty"] = True
+        preview.redraw()
+    preview_library.build_on(key, payload, MANNEQUIN, built)
+
+
+# ------------------------------------------------------------------ sound
+
+SOUND = {"on": True, "list": [], "handles": []}      # list: [(frame, file)]
+
+
+def _sounds(payload):
+    import os
+    from ...processing.enums import ESoundFormat
+    meta = payload["MetaData"]
+    ext = ESoundFormat((meta.get("Settings") or {}).get("SoundFormat", 0)).name.lower()
+    found = []
+    for export in payload["Exports"]:
+        for s in export.get("Sounds") or ():
+            rel = s["Path"].lstrip("/").split(".")[0]
+            file = os.path.join(meta["AssetsRoot"], rel + "." + ext)
+            if os.path.isfile(file):
+                found.append((s.get("Time", 0.0) * preview_scene.get().render.fps, file))
+    _stop()
+    SOUND["list"] = found
+
+
+def _stop():
+    for h in SOUND["handles"]:
+        h.stop()
+    SOUND["handles"] = []
+
+
+def _on_step(before, now, playing, wrapped):
+    """The sounds whose start the playhead just passed start; a pause, a scrub or the loop's end stops them."""
+    if not playing or not SOUND["on"] or not SOUND["list"]:
+        _stop()
+        return
+    if wrapped or now < before:
+        _stop()
+        before = preview.PLAY["start"] - 1e-3
+    import aud
+    device = aud.Device()
+    fps = preview_scene.get().render.fps if preview_scene.get() else 30
+    for frame, file in SOUND["list"]:
+        if before < frame <= now:
+            sound = aud.Sound(file)
+            if abs(preview.PLAY["speed"] - 1.0) > 1e-3:
+                sound = sound.pitch(preview.PLAY["speed"])
+            handle = device.play(sound)
+            handle.position = (now - frame) / fps / preview.PLAY["speed"]
+            SOUND["handles"].append(handle)
+    SOUND["handles"] = [h for h in SOUND["handles"] if h.status]
+
+
+def register():
+    if _on_step not in preview.ON_STEP:
+        preview.ON_STEP.append(_on_step)
+
+
+def unregister():
+    _stop()
+    if _on_step in preview.ON_STEP:
+        preview.ON_STEP.remove(_on_step)
 
 
 def _play_action(name):
@@ -215,7 +326,31 @@ def _range_from(arm):
         # a looped strip repeats 999 times: one pass of each is the preview's range
         end = max(s.frame_start + (s.action_frame_end - s.action_frame_start) * s.scale for s in strips)
         preview.set_range(int(min(s.frame_start for s in strips)), int(round(end)))
+        for v in preview.VIEWS.values():
+            v.framed = False        # fit the camera to the new motion
     preview_scene.STATE["dirty"] = True
+    if STATE["mirror"]:
+        _mirror(arm)
+
+
+def _mirror(arm):
+    """Each armature playing in the preview (the body, the master skeleton props follow) plays its mirror."""
+    from . import anim_mirror
+    t = preview.PLAY
+    for ob in [arm] + [c for c in arm.children if c.type == 'ARMATURE']:
+        anim_mirror.mirror_track(ob, t["start"], t["end"])
+    preview_scene.STATE["dirty"] = True
+
+
+def _mirror_children(arm):
+    from . import anim_mirror
+    for ob in (c for c in arm.children if c.type == 'ARMATURE'):
+        anim_mirror.mirror_track(ob, preview.PLAY["start"], preview.PLAY["end"])
+
+
+def set_mirror(on):
+    STATE["mirror"] = on
+    replay()
 
 
 @contextlib.contextmanager
@@ -276,6 +411,8 @@ def apply(context):
     if kind_item is None:
         return "Nothing plays"
     loop, speed = preview.PLAY["loop"], preview.PLAY["speed"]
+    layer = context.view_layer
+    active, picked = layer.objects.active, [o for o in layer.objects if o.select_get()]
     if kind_item[0] is None:
         action = bpy.data.actions.get(kind_item[1]["action"])
         if action is None:
@@ -291,10 +428,46 @@ def apply(context):
     else:
         import_payload(STATE["payload"], target, None,
                        {"ImportSounds": True, "LoopAnimation": loop, "UpdateTimelineLength": True})
+    if STATE["mirror"]:
+        _apply_mirror(target, loop)
+    from . import anim_hand
+    anim_hand.apply(target)
     if abs(speed - 1.0) > 1e-3:
         _retime(target, speed)
+    for o in layer.objects:     # the import leaves its props active and selected: the user's pick back
+        o.select_set(o in picked)
+    layer.objects.active = active
     bpy.ops.ed.undo_push(message="Apply %s" % kind_item[1]["name"])
     return None
+
+
+def _apply_mirror(target, loop):
+    """The preview's mirrored bakes onto the character (its master skeleton's onto its master skeleton)."""
+    arm = armature()
+    if arm is None:
+        return
+    pairs = [(arm, target)] + [(c, next((t for t in target.children if t.type == 'ARMATURE' and
+                                          t.name.split(".")[0] == c.name.split(".")[0]), None))
+                               for c in arm.children if c.type == 'ARMATURE']
+    for src, dst in pairs:
+        ad = src.animation_data
+        baked = ad.nla_tracks[0].strips[0].action if ad and ad.nla_tracks and ad.nla_tracks[0].strips else None
+        if dst is None or baked is None:
+            continue
+        action = baked.copy()
+        action.name = baked.name.replace(src.name, dst.name)
+        if preview_scene.TAG in action:
+            del action[preview_scene.TAG]       # the user's now: not removed with the preview
+        dad = dst.animation_data or dst.animation_data_create()
+        for track in list(dad.nla_tracks):
+            dad.nla_tracks.remove(track)
+        dad.action = None
+        for pb in dst.pose.bones:
+            pb.rotation_mode = 'QUATERNION'
+        track = dad.nla_tracks.new()
+        track.name = "Sections"
+        strip = track.strips.new(action.name, int(preview.PLAY["start"]), action)
+        strip.repeat = 999.0 if loop else 1.0
 
 
 def _retime(target, speed):
