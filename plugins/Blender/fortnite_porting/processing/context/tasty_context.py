@@ -102,6 +102,7 @@ class TastyImportContext:
 
 
     def create_tasty_rig(self, target_skeleton, master_skeleton_mesh):
+        if master_skeleton_mesh is None: from ...logger import Log; return Log.warn("%s: no master skeletal mesh in the export, Tasty rig left out" % target_skeleton.name)  # MP
         target_skeleton.data["is_tasty"] = True
         armature_data = target_skeleton.data
         is_metahuman = any(armature_data.bones, lambda bone: bone.name == "FACIAL_C_FacialRoot")
