@@ -79,7 +79,24 @@ def add(objects):
     for ob in objects:
         if scene.collection.objects.get(ob.name) is None:
             scene.collection.objects.link(ob)
+        for slot in ob.material_slots:
+            if slot.material is not None and slot.material.get(TAG) == 2:
+                _show_diffuse(slot.material)
     STATE["dirty"] = True
+
+
+def _show_diffuse(mat):
+    """Workbench's Texture colour draws the active image node: make it the diffuse (game textures end in _D)."""
+    images = [n for n in mat.node_tree.nodes if n.type == 'TEX_IMAGE' and n.image is not None] if mat.node_tree else []
+    if not images:
+        return
+
+    def name(n):
+        return (n.label or n.image.name).rsplit(".", 1)[0].upper()
+    pick = next((n for n in images if name(n).endswith("_D")), None) or next(
+        (n for n in images if n.image.colorspace_settings.name == 'sRGB' and "_FX" not in name(n)), None)
+    if pick is not None:
+        mat.node_tree.nodes.active = pick
 
 
 def content():
