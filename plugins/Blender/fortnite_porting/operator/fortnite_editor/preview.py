@@ -60,7 +60,7 @@ def _bounds(objects, graph):
     """The corners of the objects' evaluated bounds, in world space."""
     for ob in objects:
         ev = ob.evaluated_get(graph) if graph is not None else ob
-        if ob.type not in {'MESH', 'CURVE', 'POINTCLOUD', 'CURVES', 'VOLUME'} or ob.hide_render:
+        if ob.type not in {'MESH', 'CURVE', 'POINTCLOUD', 'CURVES', 'VOLUME'} or ob.hide_render or ob.hide_viewport:
             continue
         for corner in ev.bound_box:
             yield ev.matrix_world @ Vector(corner)
@@ -146,8 +146,9 @@ def _render(v, w, h):
 
 # ------------------------------------------------------------------ the widget
 
-def draw(ui, r, owner, empty=""):
-    """The preview in `r` of the well, with its input. Call from the tab's view(ui, well)."""
+def draw(ui, r, owner, empty="", tool=None):
+    """The preview in `r` of the well, with its input. Call from the tab's view(ui, well). `tool`:
+    fn(context, dx, dy, camera, height, new press) a drag calls instead of orbiting."""
     t = ui.t
     v = view_for(owner)
     v.drawn = time.time()
@@ -166,15 +167,22 @@ def draw(ui, r, owner, empty=""):
         STATS["draws"] += 1
         STATS["draw_ms"] = (time.perf_counter() - t0) * 1000
         paint.rect(r, (0, 0, 0, 0), t.r_card, image=v.offscreen.texture_color)
-    _input(ui, r, v)
+    _input(ui, r, v, tool)
 
 
-def _input(ui, r, v):
+def _input(ui, r, v, tool=None):
     from .ui.blender import HELD
     cam, store, sid = v.camera, ui.store, "preview:" + v.owner
 
     def drag(context, dx, dy):
-        if cam.held is None or cam.held[4] != store.press_at:      # a new press
+        fresh = cam.held is None or cam.held[4] != store.press_at
+        if tool is not None:
+            if fresh:
+                cam.held = (cam.yaw, cam.elev, cam.target.copy(), False, store.press_at)
+            tool(context, dx, dy, cam, r.h, fresh)
+            redraw()
+            return
+        if fresh:      # a new press
             cam.held = (cam.yaw, cam.elev, cam.target.copy(), HELD.get("shift"), store.press_at)
         yaw, elev, target, panning, _at = cam.held
         if panning:
