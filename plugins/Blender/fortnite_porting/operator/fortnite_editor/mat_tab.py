@@ -279,19 +279,46 @@ def _jump(m):
     return run
 
 
-def _two_tone(mats, on):
-    """Rebuild the ticked anime materials on (off) the game's two-tone rim master; the ticks follow the new ones."""
+def rebuild_on(mats, path):
+    """Rebuild the materials on the game material at `path` (None: their own); the ticks follow the new ones."""
     def run(context):
-        from ...material_porter import twotone
-        mat_edit.end()
-        done, failed = twotone.switch(mats, on)
-        STATE["ticked"] = {done.get(n, n) for n in STATE["ticked"]}
+        from ...material_porter import rebase
         from . import logbook
+        mat_edit.end()
+        done, failed = rebase.rebuild(mats, path)
+        STATE["ticked"] = {done.get(n, n) for n in STATE["ticked"]}
+        what = path.rsplit("/", 1)[-1].split(".")[0] if path else "their own shader"
         if done:
-            mat_edit.undo("Two-tone rim " + ("on" if on else "off"))
-            logbook.write("Two-tone rim %s on %d material(s)" % ("on" if on else "off", len(done)))
+            mat_edit.undo("Rebuild on " + what)
+            logbook.write("%d material(s) rebuilt on %s" % (len(done), what))
         if failed:
             logbook.write("Not rebuilt (is the app open?): " + ", ".join(mat_data.short(n) for n in failed[:4]), "warning")
+    return run
+
+
+def _rebuild_items(mats):
+    """Back to their own, the two-tone rim master, and every other game material in the file."""
+    from ...material_porter import build, rebase
+    ticked = {m.get(build.KEY_PATH) for m in mats}
+    items = []
+    if any(rebase.current(m) for m in mats):
+        items.append({"label": "Their Own Shader", "icon": "mdi_Restore", "action": rebuild_on(mats, None)})
+    items += [{"header": "Shaders"},
+              {"label": "Two-Tone Rim (anime, Sabotage's blue/orange rim)", "action": rebuild_on(mats, rebase.TWO_TONE)},
+              {"header": "Materials in this file"}]
+    seen = {}
+    for m in bpy.data.materials:
+        path = m.get(build.KEY_PATH)
+        if path and path not in ticked and path not in seen:
+            seen[path] = "%s  ·  %s" % (mat_data.short(m.get("OriginalName") or m.name), m.get("mp_master", ""))
+    items += [{"label": label, "action": rebuild_on(mats, path)} for path, label in sorted(seen.items(), key=lambda kv: kv[1].lower())]
+    return items
+
+
+def _open_rebuild(mats, cell):
+    def run(context):
+        from .ui import popups
+        popups.open_list(context, cell, lambda: _rebuild_items(mats), "mat:rebuild", "Search materials", width=360)
     return run
 
 
@@ -303,12 +330,11 @@ def _toggle_relative(context):
 def _toolbar(ui, r, mats, sections):
     t = ui.t
     all_params = [p for _s, ps in sections for p in ps]
-    from ...material_porter import twotone
-    anime = [m for m in mats if twotone.is_anime(m)]
-    rim_on = bool(anime) and all(m.get(twotone.KEY) for m in anime)
-    buttons = (("mat:twotone", "Two-Tone Rim", _two_tone(anime, not rim_on) if anime else None,
-                "Rebuild the ticked anime materials on the game's two-tone rim master (Sabotage's blue/orange rim), "
-                "keeping their values; again to go back" if anime else "Tick anime cel materials"),
+    from ...material_porter import rebase
+    rebased = {rebase.current(m) for m in mats} - {None}
+    buttons = (("mat:rebuild", "Rebuild On…", True,
+                "Rebuild the ticked materials on another game material's shader, keeping their values and edits"
+                + ("\nNow on " + ", ".join(p.rsplit("/", 1)[-1] for p in sorted(rebased)) if rebased else "")),
                ("mat:nodes", "Node Editor", _jump(mats[0]), "%s's group node in the Shader Editor" % mat_data.short(mats[0].name)),
                ("mat:reset", "Reset to Game", mat_edit.reset(all_params) if any(map(mat_edit.resettable, all_params)) else None,
                 "Every parameter of the ticked materials back to the game's value"),
@@ -319,8 +345,10 @@ def _toolbar(ui, r, mats, sections):
                 "value (× factor) instead of setting one value"))
     for id, text, action, tip in buttons:
         cell = r.cut_right(paint.measure(text, t.text) + 2 * t.pad + 2 * t.pad)
+        if id == "mat:rebuild":
+            action = _open_rebuild(mats, cell)
         ui.button(id, cell, text, action=action, tip=tip, enabled=action is not None,
-                  style="accent" if id == "mat:relative" and STATE["relative"] or id == "mat:twotone" and rim_on else "control")
+                  style="accent" if id == "mat:relative" and STATE["relative"] or id == "mat:rebuild" and rebased else "control")
         r.cut_right(t.gap)
     title = mat_data.short(mats[0].name) if len(mats) == 1 else "%d materials" % len(mats)
     paint.text_in(paint.fit(title, t.title, r.w - t.pad), r, t.text1, t.title)

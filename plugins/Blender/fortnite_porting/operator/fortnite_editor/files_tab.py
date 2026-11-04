@@ -359,11 +359,28 @@ def _export_row(ui, r):
                               ("info:properties", "mdi_CodeJson", "files_properties", "Properties (as text)")):
         ui.button(id, r.cut_right(r.h), icon=icon, action=_op(op), tip=tip)
         r.cut_right(t.gap)
+    picked = FILES["selected"][-1] if FILES["selected"] else None
+    info = FILES["info"].get(picked)
+    if isinstance(info, dict) and info["kind"] == "Material":
+        ui.button("info:rebuild", r.cut_right(r.h), icon="mdi_Brush", action=_rebuild_on(_object_path(picked)),
+                  tip="Rebuild On: the Materials tab's ticked materials on this material's shader, keeping their values")
+        r.cut_right(t.gap)
     import_options.button(ui, r.cut_right(r.h), "info:import_options", "files")
     r.cut_right(t.gap)
     busy = STATE["busy"]
     ui.button("info:import", r, busy or import_options.import_label("Import", "files"), "mdi_Download", _op("files_import"),
               "Import into this scene (or double-click the row)", enabled=not busy, style="accent")
+
+
+def _rebuild_on(path):
+    def run(context):
+        from . import logbook, mat_tab
+        mats = mat_tab.ticked(context)
+        if not mats:
+            logbook.write("Tick materials in the Materials tab first", "warning")
+            return
+        mat_tab.rebuild_on(mats, path)(context)
+    return run
 
 
 def _op(name):
