@@ -7,6 +7,7 @@ import time
 
 import bpy
 import gpu
+from bpy.app.handlers import persistent
 from mathutils import Matrix, Vector
 
 from . import host, preview_raster, preview_scene
@@ -170,11 +171,11 @@ def _input(ui, r, v):
         else:
             cam.yaw = yaw - dx * 0.01
             cam.elev = min(max(elev - dy * 0.01, 0.0), 1.4)     # never under the floor (it hides everything)
-        _redraw()
+        redraw()
 
     def refit(context):
         v.framed = False
-        _redraw()
+        redraw()
     # the wheel scrolls an offset of its own (from mid-range, so it goes both ways): its change zooms
     store.scroll.setdefault(sid, 1e6)
     ui.frame.add(Hit(sid, r, ui.clip, "button", None, refit, "", (sid, 2e6), drag))
@@ -184,7 +185,7 @@ def _input(ui, r, v):
     v.notch = notch
 
 
-def _redraw():
+def redraw():
     for area in host.editor_areas():
         if host.tab_id(area.spaces.active) in VIEWS:
             area.tag_redraw()
@@ -227,7 +228,7 @@ def _tick():
         if not v.framed and preview_scene.content():
             v.camera.frame(preview_scene.content(), graph)
             v.framed = True
-    _redraw()
+    redraw()
     # on a fixed beat: the tick and the redraw it asks for don't add to the interval
     due = PLAY.get("due", now) + 1.0 / FPS
     PLAY["due"] = due if due > now else now + 1.0 / FPS
@@ -248,14 +249,28 @@ def _drop():
     preview_scene.drop()
 
 
-def register():
-    preview_scene.register()
-
-
-def unregister():
-    if bpy.app.timers.is_registered(_tick):
-        bpy.app.timers.unregister(_tick)
+def _free_views(*_):
     for v in VIEWS.values():
         v.free()
     VIEWS.clear()
+
+
+@persistent
+def _before_exit(*_):
+    # an Eevee buffer freed after Blender freed its images (Python's own cleanup at quit) crashes it
+    _free_views()
+
+
+def register():
+    preview_scene.register()
+    if _before_exit not in bpy.app.handlers.exit_pre:
+        bpy.app.handlers.exit_pre.append(_before_exit)
+
+
+def unregister():
+    if _before_exit in bpy.app.handlers.exit_pre:
+        bpy.app.handlers.exit_pre.remove(_before_exit)
+    if bpy.app.timers.is_registered(_tick):
+        bpy.app.timers.unregister(_tick)
+    _free_views()
     preview_scene.unregister()
