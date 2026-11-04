@@ -9,7 +9,9 @@ SCENE = ".MP Preview"       # a leading dot keeps it out of Blender's scene menu
 TAG = "mp_preview"          # 1: the scene's own (world, sun, floor), 2: content
 KINDS = ("objects", "meshes", "armatures", "actions", "materials", "images", "node_groups", "collections", "lights",
          "cameras", "curves", "textures", "shape_keys", "worlds")
-STATE = {"frame": 1.0, "dirty": True, "made": 0}       # made: counts scenes made (a tab re-adds its content)
+STATE = {"frame": 1.0, "dirty": True, "made": 0, "stale": False}
+# stale: the file changed outside the preview (an import, an undo) and its scene isn't evaluated since: a draw now
+# could meet data that is gone       # made: counts scenes made (a tab re-adds its content)
 
 
 def get():
@@ -138,6 +140,7 @@ def changed():
     graph = scene.view_layers[0].depsgraph if scene is not None else None
     if graph is not None:
         graph.update()
+    STATE["stale"] = False
 
 
 def step(frame):
@@ -151,7 +154,7 @@ def step(frame):
     graph = scene.view_layers[0].depsgraph
     if graph is not None:
         graph.update()
-    STATE.update(frame=frame, dirty=False)
+    STATE.update(frame=frame, dirty=False, stale=False)
     return True
 
 
@@ -163,11 +166,19 @@ def _before_save(*_):
 
 @persistent
 def _changed(*_):
-    STATE["dirty"] = True       # undo, redo or another file: the scene may be gone or older
+    STATE.update(dirty=True, stale=True)        # undo, redo or another file: the scene may be gone or older
+
+
+@persistent
+def _elsewhere(scene, _graph=None):
+    # the user's scene evaluated (an import, an edit): evaluated here too before anything draws the preview
+    if scene is not None and scene.name != SCENE and get() is not None:
+        changed()
 
 
 _HANDLERS = ((bpy.app.handlers.save_pre, _before_save), (bpy.app.handlers.undo_post, _changed),
-             (bpy.app.handlers.redo_post, _changed), (bpy.app.handlers.load_post, _changed))
+             (bpy.app.handlers.redo_post, _changed), (bpy.app.handlers.load_post, _changed),
+             (bpy.app.handlers.depsgraph_update_post, _elsewhere))
 
 
 def register():

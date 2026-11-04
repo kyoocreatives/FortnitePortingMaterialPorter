@@ -61,15 +61,20 @@ def carrier():
 
 # ------------------------------------------------------------------ show one
 
-def show(root):
-    """Copy `root`'s effect into the preview and replay it there."""
-    STATE.update(root=root.name, error=None, muted=set(), solo=None, moved=False)
-    preview_scene.clear()
+def show(root, game=None):
+    """Copy `root`'s effect (the user's) into the preview and replay it there. With `game` (a listing item), `root`
+    is already the preview's own: a game effect appended from its library."""
+    STATE.update(root=root.name if game is None else None, game=game, error=None, muted=set(), solo=None, moved=False)
+    if game is None:
+        preview_scene.clear()
     scene = preview_scene.ensure()
     made = {}
     for ob in [root] + list(root.children_recursive):
         if ob.get("mp_effect") == "Particles":
             continue        # the scene's own replay: the preview makes its own
+        if game is not None:
+            made[ob] = ob
+            continue
         c = ob.copy()
         c.animation_data_clear()
         made[ob] = c
@@ -86,7 +91,7 @@ def show(root):
     copy.parent, copy.parent_type = hold, 'OBJECT'
     copy.matrix_parent_inverse.identity()
     copy.matrix_basis = Matrix.Scale(_size(root), 4)       # its own scale only: placed at the carrier
-    preview_scene.track([hold] + list(made.values()))
+    preview_scene.track([hold] + ([] if game is not None else list(made.values())))     # (appended: tracked)
     preview_scene.add([hold] + list(made.values()))
     STATE.update(copy=copy.name, carrier=hold.name)
     scene.frame_start, scene.frame_end = 1, LOOP_FRAMES
@@ -151,6 +156,55 @@ def _sync_matrices(scene):
         return 0 if ob.parent is None else 1 + depth(ob.parent)
     for ob in sorted(preview_scene.content(), key=depth):
         ob.matrix_world = ob.evaluated_get(graph).matrix_world.copy()
+
+
+def show_game(item):
+    """A game effect the scene doesn't have: exported, imported once into its library by a background Blender,
+    appended into the preview and replayed looping there."""
+    import hashlib
+    from . import preview_library
+    from .state import client
+    STATE.update(game=item, root=None, error=None, busy="Exporting %s" % item["name"])
+    preview.redraw()
+    key = "fx_" + hashlib.md5(item["path"].encode()).hexdigest()[:16]
+
+    def appended(error):
+        STATE["busy"] = None
+        if STATE.get("game") is not item:
+            return      # another one was picked meanwhile
+        if error:
+            STATE["error"] = "%s: %s" % (item["name"], error)
+        else:
+            preview_scene.clear()
+            objects = preview_library.append(key)
+            root = next((o for o in objects if o.get("mp_effect") == "System"), None)
+            if root is None:
+                STATE["error"] = "%s: nothing replayable came in" % item["name"]
+            else:
+                show(root, game=item)
+        preview.redraw()
+
+    if preview_library.ready(key):
+        appended(None)
+        return
+
+    def exported(result):
+        if STATE.get("game") is not item:
+            return
+        if isinstance(result, Exception) or not result.get("Exports"):
+            appended("export failed: %s" % (result if isinstance(result, Exception) else "nothing exported"))
+            return
+        STATE["busy"] = "Importing %s once (later previews start at once)" % item["name"]
+        preview.redraw()
+        preview_library.build_on(key, result, None, appended)
+    client().request("browse-export", exported, timeout=600, type="Effect", path=item["path"])
+
+
+def shown_root():
+    """The effect the info column speaks of: the user's (In Scene) or the preview's own copy of a game effect."""
+    if STATE.get("game") is not None:
+        return copy_root()
+    return bpy.data.objects.get(STATE["root"]) if STATE["root"] else None
 
 
 # ------------------------------------------------------------------ emitters shown

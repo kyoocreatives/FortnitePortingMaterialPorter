@@ -4,16 +4,15 @@ info column mutes or solos its emitters, opens their materials in the Materials 
 by their game names, on the preview or on every instance in the scene."""
 import bpy
 
-from . import fx_play, host, mat_tab, preview, tabs
+from . import fx_play, host, lib_list, mat_tab, preview, tabs
 from .ui import fields, paint
 from .ui import blender as ui_blender
-from .ui.frame import Hit
 from .ui.rect import Rect
 
 ID = "effects"
 BACKGROUNDS = (("dark", "Dark", (0.05, 0.05, 0.055)), ("grey", "Grey", (0.22, 0.22, 0.23)),
                ("light", "Light", (0.75, 0.75, 0.76)))
-STATE = {"background": "dark", "everywhere": False, "folds": {}}
+STATE = {"background": "dark", "everywhere": False, "folds": {}, "source": "scene", "lists": {}}
 
 
 def _fold(key):
@@ -31,11 +30,80 @@ def _pick(root):
     return run
 
 
+SOURCES = (("scene", "In Scene"), ("game", "Game Effects"))
+
+
+def _list_state(source):
+    return STATE["lists"].setdefault(source, {"sort": "name", "tags": set()})
+
+
+def _list_changed(context):
+    ui_blender.store(context.area).scroll["fx:list"] = 0.0
+
+
+def _set_source(value):
+    def run(context):
+        STATE["source"] = value
+        _list_changed(context)
+    return run
+
+
+def _pick_game(item):
+    def run(context):
+        if context.mode != 'OBJECT':
+            fx_play.STATE["error"] = "Previews play in Object Mode"
+            return
+        fx_play.show_game(item)
+    return run
+
+
 def side(ui, r):
     t = ui.t
-    groups = fx_play.roots()
+    row = r.cut_top(t.row)
+    r.cut_top(t.gap)
+    fields.dropdown(ui, "fx:source", row, dict(SOURCES)[STATE["source"]],
+                    _menu("fx:source", SOURCES, STATE["source"], _set_source),
+                    tip="The scene's effects, or the game's (preview them, then import)")
+    search = bpy.context.window_manager.fp_fx_search
+    if STATE["source"] == "game":
+        _game_list(ui, r, search)
+    else:
+        _scene_list(ui, r, search)
+
+
+def _game_list(ui, r, search):
+    t = ui.t
+    state = _list_state("game")
+    row = r.cut_top(t.row)
+    r.cut_top(t.pad)
+    lib_list.controls(ui, row, "fx", ("name", "folder"), lib_list.tag_titles(lib_list.LISTS.get("Effect")), state,
+                      _list_changed)
+    items = lib_list.listing("Effect")
+    found = lib_list.apply("fx:game", [("Effect", it) for it in items] if items else [], search, state) if items else []
+    if not found:
+        paint.text_in(lib_list.status("Effect"), r.cut_top(t.row).pad(t.pad, 0), t.text3, t.text)
+        return
+    shown = fx_play.STATE.get("game")
+    offset = ui.scroll("fx:list", r, len(found) * t.row_pitch)
+    first = max(0, int(offset // t.row_pitch))
+    for i in range(first, min(len(found), first + int(r.h // t.row_pitch) + 2)):
+        item = found[i][1]
+        y = r.top + offset - (i + 1) * t.row_pitch
+        cell = Rect(r.x, y + (t.row_pitch - t.row) / 2, r.w - ui.bar_room, t.row)
+        ui.row("fx:game:%d" % i, cell, item["name"], "Effect", selected=shown is not None and shown["path"] == item["path"],
+               action=_pick_game(item), tip=item.get("description") or item["path"])
+    ui.end_scroll()
+
+
+def _scene_list(ui, r, search):
+    t = ui.t
+    r.cut_top(t.pad)
+    words = search.lower().split()
+    groups = [(o, [x for x in rs if all(w in x.name.lower() for w in words)]) for o, rs in fx_play.roots()]
+    groups = [(o, rs) for o, rs in groups if rs]
     if not groups:
-        paint.text_in("No replayable effects in this scene", r.cut_top(t.row).pad(t.pad, 0), t.text3, t.text)
+        text = "Nothing matches" if words else "No replayable effects in this scene: Game Effects has the game's"
+        paint.text_in(text, r.cut_top(t.row).pad(t.pad, 0), t.text3, t.text)
         return
     rows = []
     for owner, rs in groups:
@@ -191,27 +259,23 @@ def _freeze(root_name, every=False):
 
 def info(ui, r):
     t = ui.t
-    root = bpy.data.objects.get(fx_play.STATE["root"]) if fx_play.STATE["root"] else None
+    root, game = fx_play.shown_root(), fx_play.STATE.get("game")
     if root is None or fx_play.copy_root() is None:
         paint.text_in("Click an effect in the list", r.cut_top(t.row), t.text3, t.caption)
         return
     label_w = 72 * t.s
-    paint.text_in(paint.fit(root.name, t.title, r.w), r.cut_top(t.title + 2 * t.gap), t.text1, t.title)
+    name = game["name"] if game is not None else root.name
+    paint.text_in(paint.fit(name, t.title, r.w), r.cut_top(t.title + 2 * t.gap), t.text1, t.title)
     took = "replayed in %.1f s" % fx_play.STATE["baked_s"]
     paint.text_in(took, r.cut_top(t.caption + 2 * t.gap), t.text3, t.caption)
     r.cut_top(t.pad)
-    from ...material_porter.effect_replay import freeze
-    scene = bpy.context.scene
-    held = freeze.frozen(root, scene)
-    row = r.cut_top(t.row)
-    half = row.cut_left((row.w - t.gap) / 2)
-    row.cut_left(t.gap)
-    ui.button("fx:freeze", half, "Unfreeze (frame %d)" % held if held is not None else
-              "Freeze at Frame %d" % scene.frame_current, action=_freeze(root.name),
-              selected=held is not None, tip="In the scene: hold this effect on the current frame for stills (the "
-              "timeline no longer moves it); again: it plays")
-    ui.button("fx:freeze_all", row, "Freeze All", action=_freeze("", True),
-              tip="Every replayed effect in the scene held on the current frame (again: they play)")
+    if game is not None:
+        imp = r.cut_bottom(t.action)
+        ui.button("fx:import", imp, "Import into Scene", style="accent", action=_import(game),
+                  tip="The effect into the scene the usual way (it plays over the scene's frames)")
+        r.cut_bottom(t.pad)
+    else:
+        _freeze_row(ui, r.cut_top(t.row), root)
     r.cut_top(t.pad)
     row = r.cut_top(t.row)
     paint.text_in("Background", row.cut_left(label_w), t.text2, t.text)
@@ -221,6 +285,33 @@ def info(ui, r):
     row = r.cut_top(t.row)
     paint.text_in("Time Scale", row.cut_left(label_w), t.text2, t.text)
     fields.number(ui, "fx:speed", row, preview.PLAY["speed"], _speed, lo=0.05, hi=4.0, step=0.05, fmt="%.2f")
+    _emitters_and_params(ui, r, root, game, label_w)
+
+
+def _freeze_row(ui, row, root):
+    t = ui.t
+    from ...material_porter.effect_replay import freeze
+    scene = bpy.context.scene
+    held = freeze.frozen(root, scene)
+    half = row.cut_left((row.w - t.gap) / 2)
+    row.cut_left(t.gap)
+    ui.button("fx:freeze", half, "Unfreeze (frame %d)" % held if held is not None else
+              "Freeze at Frame %d" % scene.frame_current, action=_freeze(root.name),
+              selected=held is not None, tip="In the scene: hold this effect on the current frame for stills (the "
+              "timeline no longer moves it); again: it plays")
+    ui.button("fx:freeze_all", row, "Freeze All", action=_freeze("", True),
+              tip="Every replayed effect in the scene held on the current frame (again: they play)")
+
+
+def _import(item):
+    def run(context):
+        from . import importing
+        importing.start("Effect", item, {})
+    return run
+
+
+def _emitters_and_params(ui, r, root, game, label_w):
+    t = ui.t
     r.cut_top(t.big)
     paint.text_in("Emitters", r.cut_top(t.row), t.text3, t.caption)
     for name, mats in fx_play.emitters(root):
@@ -242,10 +333,13 @@ def info(ui, r):
     if params:
         r.cut_top(t.big)
         head = r.cut_top(t.row)
-        count = len(fx_play.instances(root))
-        fields.checkbox(ui, "fx:everywhere", head, STATE["everywhere"], "Parameters: all %d in scene" % count,
-                        lambda context: STATE.update(everywhere=not STATE["everywhere"]),
-                        tip="Edits go to every instance of this effect in the scene (replayed there), not just here")
+        if game is None:
+            count = len(fx_play.instances(root))
+            fields.checkbox(ui, "fx:everywhere", head, STATE["everywhere"], "Parameters: all %d in scene" % count,
+                            lambda context: STATE.update(everywhere=not STATE["everywhere"]),
+                            tip="Edits go to every instance of this effect in the scene (replayed there), not just here")
+        else:
+            paint.text_in("Parameters", head, t.text3, t.caption)
         for name, value in params:
             row = r.cut_top(t.row)
             r.cut_top(t.gap)
@@ -271,12 +365,22 @@ def tick():
         fx_play.STATE["moved"] = False
 
 
+def header(layout, context):
+    row = layout.row(align=True)
+    row.ui_units_x = 10
+    row.prop(context.window_manager, "fp_fx_search", text="", icon='VIEWZOOM')
+
+
 def register():
+    bpy.types.WindowManager.fp_fx_search = bpy.props.StringProperty(
+        name="Search", description="Effects whose name has these words", options={'TEXTEDIT_UPDATE'},
+        update=lambda self, context: preview.redraw())
     bpy.utils.register_class(FP_OT_effect_freeze)
-    tabs.register_tab(tabs.Tab(ID, "Effects", 'PARTICLES', nav_icon="Effect", group="tools", tick=tick, side=side,
-                               view=view, info=info))
+    tabs.register_tab(tabs.Tab(ID, "Effects", 'PARTICLES', header=header, nav_icon="Effect", group="tools",
+                               tick=tick, side=side, view=view, info=info))
 
 
 def unregister():
     tabs.unregister_tab(ID)
     bpy.utils.unregister_class(FP_OT_effect_freeze)
+    del bpy.types.WindowManager.fp_fx_search

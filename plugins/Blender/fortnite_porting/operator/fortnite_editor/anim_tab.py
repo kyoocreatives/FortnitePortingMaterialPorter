@@ -9,7 +9,7 @@ from .ui import blender as ui_blender
 from .ui.rect import Rect
 
 ID = "animation"
-STATE = {"source": "emotes", "picked": None}
+STATE = {"source": "emotes", "picked": None, "lists": {}}      # lists: source -> {"sort", "tags"}
 
 
 def redraw_all():
@@ -31,6 +31,15 @@ def _menu(id, choices, current, pick):
                  for value, label in choices]
         popups.open_menu(context, hit.rect if hit is not None else Rect(0, 0, 0, 0), items, id, search=False)
     return run
+
+
+def _list_state(source):
+    return STATE["lists"].setdefault(source, {"sort": "name", "tags": set()})
+
+
+def _list_changed(context):
+    ui_blender.store(context.area).scroll["anim:list"] = 0.0
+    redraw_all()
 
 
 def _set_source(value):
@@ -58,7 +67,15 @@ def side(ui, r):
     r.cut_top(t.pad)
     fields.dropdown(ui, "anim:source", row, anim_lib.source(STATE["source"])[1],
                     _menu("anim:source", choices, STATE["source"], _set_source), tip="What the list shows")
-    found = anim_lib.items(STATE["source"], bpy.context.window_manager.fp_anim_search)
+    src = STATE["source"]
+    state = _list_state(src)
+    if state["sort"] not in anim_lib.sorts(src):
+        state["sort"] = "name"
+    row = r.cut_top(t.row)
+    r.cut_top(t.pad)
+    from . import lib_list
+    lib_list.controls(ui, row, "anim", anim_lib.sorts(src), anim_lib.tags(src), state, _list_changed)
+    found = lib_list.apply("anim:" + src, anim_lib.items(src), bpy.context.window_manager.fp_anim_search, state)
     if not found:
         paint.text_in(anim_lib.status(STATE["source"]), r.cut_top(t.row).pad(t.pad, 0), t.text3, t.text)
         return

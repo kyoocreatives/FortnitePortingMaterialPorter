@@ -16,7 +16,7 @@ from .ui.frame import Hit
 
 FPS = 30.0
 SHADING = {"EEVEE": 'BLENDER_EEVEE', "WORKBENCH": 'BLENDER_WORKBENCH'}
-STATS = {"draws": 0, "draw_ms": 0.0, "step_ms": 0.0, "steps": 0, "path": ""}       # read by the checks
+STATS = {"stale": 0, "draws": 0, "draw_ms": 0.0, "step_ms": 0.0, "steps": 0, "path": ""}       # read by the checks
 
 
 class Camera:
@@ -72,7 +72,7 @@ class View:
     def __init__(self, owner):
         self.owner, self.camera = owner, Camera()
         self.offscreen, self.size, self.drawn, self.framed = None, (0, 0), 0.0, False
-        self.engine, self.notch = "EEVEE", None
+        self.engine, self.notch, self.drawn_once = "EEVEE", None, False
 
     def free(self):
         if self.offscreen is not None:
@@ -161,11 +161,16 @@ def draw(ui, r, owner, empty="", tool=None):
     w, h = max(int(r.w), 16), max(int(r.h), 16)
     if v.offscreen is None or v.size != (w, h):
         v.free()
-        v.offscreen, v.size = gpu.types.GPUOffScreen(w, h), (w, h)
+        v.offscreen, v.size, v.drawn_once = gpu.types.GPUOffScreen(w, h), (w, h), False
     t0 = time.perf_counter()
-    if _render(v, w, h):
+    if preview_scene.STATE["stale"]:     # the last picture until the timer evaluates the scene again
+        STATS["stale"] += 1
+        if v.drawn_once:
+            paint.rect(r, (0, 0, 0, 0), t.r_card, image=v.offscreen.texture_color)
+    elif _render(v, w, h):
         STATS["draws"] += 1
         STATS["draw_ms"] = (time.perf_counter() - t0) * 1000
+        v.drawn_once = True
         paint.rect(r, (0, 0, 0, 0), t.r_card, image=v.offscreen.texture_color)
     _input(ui, r, v, tool)
 
@@ -227,6 +232,8 @@ def _tick():
     if not any(now - VIEWS[o].drawn < 1.0 for o in showing):
         return 0.25         # shown but not drawn (another window covers it): idle
     scene = preview_scene.ensure()      # (a save dropped it: back empty, the tab adds its content again)
+    if preview_scene.STATE["stale"]:
+        preview_scene.changed()
     dt, PLAY["last"] = min(now - PLAY["last"], 0.25) if PLAY["last"] else 0.0, now
     before, wrapped = PLAY["frame"], False
     if PLAY["on"]:
@@ -290,13 +297,24 @@ def _before_exit(*_):
     _free_views()
 
 
+def _imported(_label, _new, _message):
+    if preview_scene.get() is not None:
+        preview_scene.changed()     # an import may have replaced data the preview draws
+
+
 def register():
+    from . import importing
     preview_scene.register()
+    if _imported not in importing.AFTER:
+        importing.AFTER.append(_imported)
     if _before_exit not in bpy.app.handlers.exit_pre:
         bpy.app.handlers.exit_pre.append(_before_exit)
 
 
 def unregister():
+    from . import importing
+    if _imported in importing.AFTER:
+        importing.AFTER.remove(_imported)
     if _before_exit in bpy.app.handlers.exit_pre:
         bpy.app.handlers.exit_pre.remove(_before_exit)
     if bpy.app.timers.is_registered(_tick):

@@ -52,7 +52,8 @@ def _finish(key, error):
 
 
 def build_on(key, payload, base_key, done):
-    """done(error or None) once `key`'s library holds what `payload`'s animation brings onto the `base_key` body."""
+    """done(error or None) once `key`'s library holds what `payload` imports (an animation: onto the `base_key`
+    body; base_key None: on its own, as an effect)."""
     if ready(key):
         done(None)
         return
@@ -61,7 +62,7 @@ def build_on(key, payload, base_key, done):
         return
     JOBS[key] = [done]
     ERRORS.pop(key, None)
-    _run(key, payload, [path(base_key)])
+    _run(key, payload, [path(base_key)] if base_key else [])
 
 
 def _exported(key, result):
