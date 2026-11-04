@@ -171,9 +171,10 @@ def _changed(*_):
 
 @persistent
 def _elsewhere(scene, _graph=None):
-    # the user's scene evaluated (an import, an edit): evaluated here too before anything draws the preview
+    # the user's scene evaluated (an import, an edit): the preview's timer evaluates it once before the next draw
+    # (evaluating here, on every update of an import, froze Blender)
     if scene is not None and scene.name != SCENE and get() is not None:
-        changed()
+        STATE.update(dirty=True, stale=True)
 
 
 _HANDLERS = ((bpy.app.handlers.save_pre, _before_save), (bpy.app.handlers.undo_post, _changed),
