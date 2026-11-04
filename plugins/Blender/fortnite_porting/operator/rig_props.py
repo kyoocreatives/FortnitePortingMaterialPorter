@@ -3,7 +3,7 @@ functions its operator calls (the operators stay, for the pie, keymaps, scripts 
 can't be written). Not animatable: the state they stand for isn't a single value."""
 import bpy
 
-from ..processing.context import deform_rig, dynamics_bake, dynamics_live, official_rig, rig_kit
+from ..processing.context import deform_rig, dynamics_bake, dynamics_live, limb_twist, official_rig, rig_kit
 
 
 def _data(obj, key):
@@ -46,6 +46,24 @@ def _get_correctives(self):
 def _set_correctives(self, value):
     if _data(self, deform_rig.MARK):
         deform_rig.set_on(self, value)
+
+
+def _get_twist(self):
+    return _data(self, official_rig.MARK) and limb_twist.is_on(self)
+
+
+def _set_twist(self, value):
+    if _data(self, official_rig.MARK):
+        limb_twist.set_on(self, value)
+
+
+def _get_volume(self):
+    return self.type == 'ARMATURE' and limb_twist.volume(self)
+
+
+def _set_volume(self, value):
+    if self.type == 'ARMATURE':
+        limb_twist.set_volume(self, value)
 
 
 def _get_dynamics(self):
@@ -92,6 +110,14 @@ PROPS = {
     "fpmp_correctives": bpy.props.BoolProperty(
         name="Correctives", get=_get_correctives, set=_set_correctives, options=set(),
         description="Fortnite's deform correctives follow the pose (off: they stay at rest)"),
+    "fpmp_limb_twist": bpy.props.BoolProperty(
+        name="Twist", get=_get_twist, set=_set_twist, options=set(),
+        description="The forearm, upper arm, thigh and calf twist bones share their limb's twist, as in game "
+                    "(off: they stay at rest and turned wrists pinch)"),
+    "fpmp_preserve_volume": bpy.props.BoolProperty(
+        name="Preserve Volume", get=_get_volume, set=_set_volume, options=set(),
+        description="The body keeps its volume at bent and twisted joints (dual quaternion skinning; the game "
+                    "skins linearly)"),
     "fpmp_dynamics": bpy.props.BoolProperty(
         name="Dynamics", get=_get_dynamics, set=_set_dynamics, options=set(),
         description="Play the simulated dynamic bones and cloth (off: the animation's own)"),

@@ -3,7 +3,7 @@ reset the controls, the rig's switches; the official rig's picker, IK / FK, held
 (and a Shift+Q pie: rig_pie). The switches are Object properties (rig_props), their operators on override characters."""
 import bpy
 
-from ..processing.context import deform_rig, dynamics_bake, face_board, official_rig, rig_kit, rig_style
+from ..processing.context import deform_rig, dynamics_bake, face_board, limb_twist, official_rig, rig_kit, rig_style
 from . import rig_props
 
 OFFICIAL = official_rig.MARK
@@ -303,6 +303,40 @@ class FPMP_OT_DeformRigOn(_RigOp, bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FPMP_OT_LimbTwistOn(_RigOp, bpy.types.Operator):
+    bl_idname = "fpmp.limb_twist_on"
+    bl_label = "Twist On/Off"
+    bl_description = "The limbs' twist bones share their limb's twist, or stay at rest"
+    bl_options = {'REGISTER', 'UNDO'}
+    pose_only = True
+    on: bpy.props.BoolProperty(default=True)
+
+    @staticmethod
+    def kind(obj):
+        return bool(obj.data.get(official_rig.MARK))
+
+    def execute(self, context):
+        limb_twist.set_on(_rig(context), self.on)
+        return {'FINISHED'}
+
+
+class FPMP_OT_PreserveVolume(_RigOp, bpy.types.Operator):
+    bl_idname = "fpmp.preserve_volume"
+    bl_label = "Preserve Volume"
+    bl_description = "The body keeps its volume at bent and twisted joints (dual quaternion skinning)"
+    bl_options = {'REGISTER', 'UNDO'}
+    pose_only = True
+    on: bpy.props.BoolProperty(default=True)
+
+    @staticmethod
+    def kind(obj):
+        return bool(obj.data.get(official_rig.MARK))
+
+    def execute(self, context):
+        limb_twist.set_volume(_rig(context), self.on)
+        return {'FINISHED'}
+
+
 class FPMP_OT_DynamicsBake(_DynamicsOp, bpy.types.Operator):
     bl_idname = "fpmp.dynamics_bake"
     bl_label = "Simulate Dynamics"
@@ -467,12 +501,17 @@ def _split(layout):
 
 
 def _switches(layout, obj):
-    """The skeleton's own switches, whatever rig sits on it: correctives and the face board."""
+    """The skeleton's own switches, whatever rig sits on it: correctives, the face board, the official rig's twist and
+    volume."""
     has_correctives, has_board = bool(obj.data.get(deform_rig.MARK)), face_board.has_board(obj)
-    if has_correctives or has_board:
+    official = bool(obj.data.get(official_rig.MARK))
+    if has_correctives or has_board or official:
         col = _split(layout).column(heading="Drive", align=True)     # Blender's checkbox group: heading, boxes beside it
         if has_correctives:
             _switch(col, obj, "fpmp_correctives", FPMP_OT_DeformRigOn.bl_idname, "on", "Correctives")
+        if official:
+            _switch(col, obj, "fpmp_limb_twist", FPMP_OT_LimbTwistOn.bl_idname, "on", "Twist")
+            _switch(col, obj, "fpmp_preserve_volume", FPMP_OT_PreserveVolume.bl_idname, "on", "Preserve Volume")
         if has_board:
             col.prop(obj, "fpmp_face_board", text="Face")
 
@@ -593,7 +632,7 @@ class FPMP_PT_RigSimulation(_RigSub, bpy.types.Panel):
 
 
 classes = (FPMP_OT_RigSelectControls, FPMP_OT_RigResetPose, FPMP_OT_RigPick, FPMP_OT_KitRigOn, FPMP_OT_KitBake,
-           FPMP_OT_KitSwitch, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn,
+           FPMP_OT_KitSwitch, FPMP_OT_OfficialRigOn, FPMP_OT_DeformRigOn, FPMP_OT_LimbTwistOn, FPMP_OT_PreserveVolume,
            FPMP_OT_DynamicsBake, FPMP_OT_DynamicsOn, FPMP_OT_DynamicsLive, FPMP_OT_DynamicsState, FPMP_OT_OfficialRigSwitch,
            FPMP_OT_OfficialRigSetting, FPMP_OT_OfficialRigBodyControls, FPMP_OT_OfficialRigBake,
            FPMP_OT_ConvertTastyToOfficial, FPMP_PT_CreatureRig,

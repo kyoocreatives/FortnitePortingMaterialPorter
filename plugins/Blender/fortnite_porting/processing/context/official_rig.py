@@ -11,7 +11,7 @@ import re
 import bpy
 from mathutils import Matrix, Quaternion, Vector
 
-from . import official_proxies, rig_shapes, rig_style
+from . import limb_twist, official_proxies, rig_shapes, rig_style
 
 DATA = os.path.join(os.path.dirname(__file__), "official_rig.json")
 MARK, ON = "fpmp_official_rig", "fpmp_official_rig_on"
@@ -255,6 +255,8 @@ def create(obj, data=None):
     for chain in _chains(data, names):      # Epic's defaults: legs in IK, the rest FK (FK where IK couldn't be built)
         ready = _ik_ready(obj, chain["limb"]) if chain.get("limb") else True
         set_switch(obj, chain["switch"], ik=ready and defaults.get(chain["switch"], 0.0) >= 0.5, match=False)
+    limb_twist.build(obj)
+    limb_twist.set_volume(obj, True)
     obj.show_in_front = True
     obj.data[MARK] = True
     obj.data[ON] = True
