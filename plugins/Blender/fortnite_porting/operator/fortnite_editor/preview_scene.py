@@ -140,7 +140,7 @@ def changed():
     graph = scene.view_layers[0].depsgraph if scene is not None else None
     if graph is not None:
         graph.update()
-    STATE["stale"] = False
+    STATE.update(stale=False, sig=_signature())
 
 
 def step(frame):
@@ -169,12 +169,24 @@ def _changed(*_):
     STATE.update(dirty=True, stale=True)        # undo, redo or another file: the scene may be gone or older
 
 
+_COUNTED = ("objects", "meshes", "materials", "images", "node_groups", "actions", "armatures", "textures")
+
+
+def _signature():
+    """How many of each kind of data the file holds: an import or a removal changes it, an edit or playback not."""
+    return tuple(len(getattr(bpy.data, k)) for k in _COUNTED)
+
+
 @persistent
 def _elsewhere(scene, _graph=None):
-    # the user's scene evaluated (an import, an edit): the preview's timer evaluates it once before the next draw
-    # (evaluating here, on every update of an import, froze Blender)
-    if scene is not None and scene.name != SCENE and get() is not None:
-        STATE.update(dirty=True, stale=True)
+    # the user's scene evaluated after data came or went (an import): the preview's timer evaluates it once before
+    # the next draw. Evaluating here, on every update of an import, froze Blender; marking every update stale left
+    # the preview undrawn while the user's scene updates each frame
+    if scene is None or scene.name == SCENE or get() is None:
+        return
+    sig = _signature()
+    if sig != STATE.get("sig"):
+        STATE.update(dirty=True, stale=True, sig=sig)
 
 
 _HANDLERS = ((bpy.app.handlers.save_pre, _before_save), (bpy.app.handlers.undo_post, _changed),
