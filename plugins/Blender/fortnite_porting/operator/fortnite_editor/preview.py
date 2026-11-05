@@ -250,6 +250,7 @@ def _tick():
         engine = SHADING[v.engine]
         if scene.render.engine != engine:
             scene.render.engine = engine
+    preview_scene.effects_shown(scene.render.engine != 'BLENDER_WORKBENCH')
     t0 = time.perf_counter()
     if preview_scene.step(PLAY["frame"]):
         STATS["steps"] += 1

@@ -106,6 +106,27 @@ def content():
     return [ob for ob in scene.collection.all_objects if ob.get(TAG) != 1] if scene else []
 
 
+_OFF = "mp_preview_fx_off"      # on an effect object Workbench hides: shown again with the materials
+
+
+def effects_shown(on):
+    """Effect objects (sprites, ribbons, flares, particles) in the preview only when it draws materials: Workbench
+    draws their cards opaque, over the body. Only what this hid comes back (a muted emitter stays muted)."""
+    flipped = False
+    for ob in content():
+        if "mp_effect" not in ob or ob.type == 'EMPTY':
+            continue
+        if not on and not ob.hide_viewport:
+            ob.hide_viewport = ob.hide_render = True
+            ob[_OFF] = flipped = True
+        elif on and ob.get(_OFF):
+            ob.hide_viewport = ob.hide_render = False
+            del ob[_OFF]
+            flipped = True
+    if flipped:
+        STATE["dirty"] = True
+
+
 def _tagged(levels):
     return [idb for kind in KINDS for idb in getattr(bpy.data, kind) if idb.get(TAG) in levels]
 
