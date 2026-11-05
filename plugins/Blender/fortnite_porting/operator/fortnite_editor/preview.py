@@ -219,8 +219,10 @@ def redraw():
 
 # ------------------------------------------------------------------ the timer
 
-def set_range(start, end):
-    PLAY.update(start=start, end=max(end, start), frame=float(start))
+def set_range(start, end, loop_start=None):
+    """Play [start, end]; looping goes back to `loop_start` (an emote's loop section after its intro), else start."""
+    loop_start = start if loop_start is None else min(max(loop_start, start), end)
+    PLAY.update(start=start, end=max(end, start), frame=float(start), loop_start=loop_start)
 
 
 def _tick():
@@ -237,10 +239,11 @@ def _tick():
     dt, PLAY["last"] = min(now - PLAY["last"], 0.25) if PLAY["last"] else 0.0, now
     before, wrapped = PLAY["frame"], False
     if PLAY["on"]:
-        span = PLAY["end"] - PLAY["start"] + 1
+        back = PLAY.get("loop_start", PLAY["start"])
+        span = PLAY["end"] - back + 1
         f = PLAY["frame"] + dt * scene.render.fps * PLAY["speed"]
         if f >= PLAY["end"] + 1:
-            f = PLAY["start"] + (f - PLAY["start"]) % span if PLAY["loop"] else float(PLAY["end"])
+            f = back + (f - back) % span if PLAY["loop"] else float(PLAY["end"])
             wrapped = True
         PLAY["frame"] = f
     for fn in ON_STEP:

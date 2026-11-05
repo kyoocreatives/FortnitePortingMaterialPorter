@@ -215,6 +215,21 @@ def replay():
     preview.redraw()
 
 
+def _loop_props(names):
+    """A prop's own animation that plays once (its single section) repeats with the emote's loop, as the body does,
+    instead of standing still after its first pass."""
+    if preview.PLAY.get("loop_start", preview.PLAY["start"]) == preview.PLAY["start"]:
+        return      # nothing loops after an intro
+    for ob in filter(None, map(bpy.data.objects.get, names)):
+        ad = ob.animation_data
+        if ob.type == 'ARMATURE' and ob.name.startswith("Master_Skeleton") or ad is None:
+            continue        # (the master skeleton plays the body's sections)
+        for track in ad.nla_tracks:
+            for strip in track.strips:
+                if strip.repeat <= 1:
+                    strip.repeat = 999.0
+
+
 def _drop_extras():
     """The props, master skeleton and effects an earlier animation brought."""
     old = [bpy.data.objects.get(n) for n in STATE.get("extras", ())]
@@ -238,6 +253,7 @@ def _extras(payload):
         elif STATE["item"] == (kind, item) and armature() is not None:
             _drop_extras()
             STATE["extras"] = [o.name for o in preview_library.append(key, body=armature())]
+            _loop_props(STATE["extras"])
             if STATE["mirror"]:
                 _mirror_children(armature())
             preview_scene.changed()
@@ -279,7 +295,7 @@ def _on_step(before, now, playing, wrapped):
         return
     if wrapped or now < before:
         _stop()
-        before = preview.PLAY["start"] - 1e-3
+        before = preview.PLAY.get("loop_start", preview.PLAY["start"]) - 1.5     # (a section starts at a rounded frame)
     import aud
     device = aud.Device()
     fps = preview_scene.get().render.fps if preview_scene.get() else 30
@@ -326,7 +342,9 @@ def _range_from(arm):
     if strips:
         # a looped strip repeats 999 times: one pass of each is the preview's range
         end = max(s.frame_start + (s.action_frame_end - s.action_frame_start) * s.scale for s in strips)
-        preview.set_range(int(min(s.frame_start for s in strips)), int(round(end)))
+        looped = [s.frame_start for s in strips if s.repeat > 1]       # the loop section: where looping goes back to
+        preview.set_range(int(min(s.frame_start for s in strips)), int(round(end)),
+                          int(min(looped)) if looped else None)
         for v in preview.VIEWS.values():
             v.framed = False        # fit the camera to the new motion
     preview_scene.changed()
