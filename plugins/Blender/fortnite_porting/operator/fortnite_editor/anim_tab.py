@@ -28,7 +28,7 @@ def _menu(id, choices, current, pick):
         frame = ui_blender.FRAMES.get(context.area.as_pointer())
         hit = frame.find(id) if frame is not None else None
         items = [{"label": label, "check": value == current, "action": pick(value), "id": value}
-                 for value, label in choices]
+                 for value, label in (choices() if callable(choices) else choices)]
         popups.open_menu(context, hit.rect if hit is not None else Rect(0, 0, 0, 0), items, id, search=False)
     return run
 
@@ -148,7 +148,7 @@ def view(ui, well):
     inner.cut_bottom(t.pad)
     v = preview.view_for(ID)
     v.engine = "EEVEE" if STATE.get("materials") else "WORKBENCH"     # Workbench: light, no noisy shadows
-    preview.draw(ui, inner, ID, "Pick an animation to play it here")
+    preview.draw(ui, inner, ID, "Pick an animation to play it here", shows=anim_play.armature() is not None)
     note = anim_play.STATE["error"] or anim_play.STATE["busy"]
     if note:
         line = Rect(inner.x + t.big, inner.top - t.big - t.row, inner.w - 2 * t.big, t.row)
@@ -205,7 +205,8 @@ def info(ui, r):
     row = r.cut_top(t.row)
     paint.text_in("In Hand", row.cut_left(label_w), t.text2, t.text)
     held = anim_hand.STATE["item"]
-    choices = [("", "Nothing")] + [(o.name, o.name) for o in anim_hand.candidates(anim_play.selected_character())]
+    # listed when the menu opens: walking the user's scene on every draw cost a second per frame in a big scene
+    choices = lambda: [("", "Nothing")] + [(o.name, o.name) for o in anim_hand.candidates(anim_play.selected_character())]
     fields.dropdown(ui, "anim:hand", row, held or "Nothing", _menu("anim:hand", choices, held or "", _set_hand),
                     tip="An item from the scene held on the hand socket (applied: a Child Of constraint on it)")
     r.cut_top(t.gap)

@@ -146,16 +146,17 @@ def _render(v, w, h):
 
 # ------------------------------------------------------------------ the widget
 
-def draw(ui, r, owner, empty="", tool=None):
+def draw(ui, r, owner, empty="", tool=None, shows=True):
     """The preview in `r` of the well, with its input. Call from the tab's view(ui, well). `tool`:
-    fn(context, dx, dy, camera, height, new press) a drag calls instead of orbiting."""
+    fn(context, dx, dy, camera, height, new press) a drag calls instead of orbiting. `shows`: the scene holds the
+    tab's own content (not what another preview tab left)."""
     t = ui.t
     v = view_for(owner)
     v.drawn = time.time()
     _start_timer()
     paint.rect(r, t.card, t.r_card)
     scene = preview_scene.get()
-    if scene is None or not preview_scene.content():
+    if scene is None or not shows or not preview_scene.content():
         paint.text_in(empty or "Nothing to preview", r, t.text3, t.title, "center")
         return
     w, h = max(int(r.w), 16), max(int(r.h), 16)

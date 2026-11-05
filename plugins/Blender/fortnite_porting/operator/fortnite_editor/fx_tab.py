@@ -171,7 +171,7 @@ def view(ui, well):
     v = preview.view_for(ID)
     v.engine = "EEVEE"      # the effects' materials need it
     tool = fx_play.tool if fx_play.TOOL["id"] != "view" else None
-    preview.draw(ui, inner, ID, "Pick an effect to play it here", tool=tool)
+    preview.draw(ui, inner, ID, "Pick an effect to play it here", tool=tool, shows=fx_play.copy_root() is not None)
     note = fx_play.STATE["error"] or fx_play.STATE["busy"]
     if note:
         line = Rect(inner.x + t.big, inner.top - t.big - t.row, inner.w - 2 * t.big, t.row)

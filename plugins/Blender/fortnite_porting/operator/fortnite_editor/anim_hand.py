@@ -14,14 +14,9 @@ def candidates(character):
     """Objects of the user's scene that can be held: top-level meshes and armatures that aren't the character."""
     if bpy.context.scene.get(preview_scene.TAG):
         return []
-    out = []
-    for ob in bpy.context.scene.objects:
-        if ob.type not in {'MESH', 'ARMATURE'} or ob.parent is not None or ob.get(preview_scene.TAG):
-            continue
-        if character is not None and (ob == character or ob in character.children_recursive):
-            continue
-        out.append(ob)
-    return out
+    own = {character, *character.children_recursive} if character is not None else set()
+    return [ob for ob in bpy.context.scene.objects if ob.type in {'MESH', 'ARMATURE'} and ob.parent is None
+            and not ob.get(preview_scene.TAG) and ob not in own]
 
 
 def socket(arm, item):
