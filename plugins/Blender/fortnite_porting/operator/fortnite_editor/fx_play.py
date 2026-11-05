@@ -220,7 +220,8 @@ def apply_visibility():
     scene = preview_scene.get()
     if scene is None:
         return
-    for ob in scene.collection.all_objects:
+    # a list first: hiding an object rebuilds the collection's object cache, which a live all_objects walk reads (crash)
+    for ob in list(scene.collection.all_objects):
         if ob.get("mp_effect") != "Particles":
             continue
         name = _emitter_of(ob)

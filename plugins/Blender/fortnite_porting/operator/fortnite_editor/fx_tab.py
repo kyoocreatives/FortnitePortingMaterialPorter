@@ -12,7 +12,7 @@ from .ui.rect import Rect
 ID = "effects"
 BACKGROUNDS = (("dark", "Dark", (0.05, 0.05, 0.055)), ("grey", "Grey", (0.22, 0.22, 0.23)),
                ("light", "Light", (0.75, 0.75, 0.76)))
-STATE = {"background": "dark", "everywhere": False, "folds": {}, "source": "scene", "lists": {}}
+STATE = {"background": "dark", "everywhere": False, "folds": {}, "source": None, "lists": {}}
 
 
 def _fold(key):
@@ -59,6 +59,8 @@ def _pick_game(item):
 
 def side(ui, r):
     t = ui.t
+    if STATE["source"] is None:     # the scene's effects when it has some, the game's otherwise
+        STATE["source"] = "scene" if fx_play.roots() else "game"
     row = r.cut_top(t.row)
     r.cut_top(t.gap)
     fields.dropdown(ui, "fx:source", row, dict(SOURCES)[STATE["source"]],
