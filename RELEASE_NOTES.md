@@ -5,14 +5,12 @@ An unofficial fork of [FortnitePorting](https://github.com/h4lfheart/FortnitePor
 **Version numbers:** versions now read like `fpv-4.3.5/mpv-1.13.0`: the FortnitePorting version this fork is merged with, then the fork's own version. They replace `4.0.0-mp.N`.
 
 **This release**
-- **Animation tab** in the Fortnite editor: emotes, lobby idles and locomotion play on a mannequin (or your character) in a live 3D preview, with props, sound, mirror and item in hand, sorting and tags. Apply puts what plays onto your character as NLA strips.
-- **Effects tab:** browse the game's effects with search, sorting and tags, preview them looping live, move, rotate and scale them while they play, and import them. Effects in the scene can be frozen at a frame.
-- **Materials tab:** built materials grouped and edited across the ticked ones, relative edits, copy and paste, and edits kept through re-imports. Rebuild On puts a material on any game material's shader, with Two-Tone Rim (the anime two-tone rim light) as a preset.
-- Official rig: the forearm, upper arm, thigh and calf twist bones follow their limb's twist, and Preserve Volume is on by default (both switchable in the Rig panel).
-- Anime outlines on parts without overlay data and across style swaps; anime skins take the night tint from the sky's hour.
-- Maps: terrain under picked map cells, cell lists name their levels, comma-separated map filters, new season islands listed, the day sequence taken from the current island.
-- Faster start and material lookups, less memory, and fixes for a project map freeze and a landscape crash on game version 43.00.
-- Merged with FortnitePorting 4.3.6 (rig fix for `rt_` deform bones).
+Fixes for 1.13.12 (its new Animation and Effects tabs, Materials tab and rig twist are in that release's notes):
+- Importing with the Fortnite editor open no longer freezes Blender.
+- The Animation tab no longer slows down in heavy scenes.
+- Animation preview: effects are hidden without materials (they covered the character), and emotes loop back to their loop section with their props.
+- Effects tab: no crash after playing an effect; it opens on Game Effects when the scene has none.
+- Tasty rig: outfits without a master skeleton (Aura) import again, without the Tasty rig.
 
 **What it adds**
 - Exact materials, rebuilt from each material's Unreal graph. *Settings > Blender > Prefer FP Shaders for Characters* keeps FortnitePorting's shaders for character materials it has one for.
