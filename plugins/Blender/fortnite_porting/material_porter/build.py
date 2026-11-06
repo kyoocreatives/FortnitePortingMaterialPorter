@@ -1392,7 +1392,7 @@ def build_like(src, entry, app):
     textures = match_names(entry)["textures"]
     try:
         defaults = json.loads(src.get("mp_tex_defaults", "{}"))
-        params = json.loads(root1["mp_params"])
+        declared = json.loads(root1["mp_params"])
     except (ValueError, KeyError):
         return None
     # a colour socket would clamp a negative value of this instance's, so build anew
@@ -1400,7 +1400,7 @@ def build_like(src, entry, app):
               if it.item_type == 'SOCKET' and it.in_out == 'INPUT' and it.socket_type == 'NodeSocketColor'}
     vectors = entry.get("vectors") or {}
     if any(kind == "V" and ident in colour and any(float(x) < 0.0 for x in tuple(vectors.get(name) or ())[:3])
-           for ident, kind, name, _default in params):
+           for ident, kind, name, _default in declared):
         return None
     ambiguous = object()
 
@@ -1474,7 +1474,7 @@ def build_like(src, entry, app):
     ground.reset(node)
     scalars, vectors = entry.get("scalars") or {}, entry.get("vectors") or {}
     by_id = {s.identifier: s for s in node.inputs}
-    for ident, kind, name, default in params:
+    for ident, kind, name, default in declared:
         sock = by_id.get(ident)
         if sock is None:
             continue
