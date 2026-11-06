@@ -29,6 +29,7 @@ from .core import (
     load_graph,
 )
 from .edits import holds
+from . import twins
 from .statics import StaticsMixin
 from .attributes import AttributesMixin
 from .maths import MathsMixin
@@ -51,6 +52,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         self.rvt_reads = parent.rvt_reads if parent else []
         # material functions become shared node groups (env.nest_functions)
         self.functions = parent.functions if parent else {}
+        self.twins = parent.twins if parent else None     # twins.Session while build_one builds
         # Material Attributes a function's group passes in and out: CARRIED, plus what this
         # material's build reads besides (a moving one's World Position Offset)
         self.carried = parent.carried if parent else CARRIED
@@ -436,6 +438,8 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         g = self.graphs.get(path)
         if g is None:
             g = self.graphs[path] = load_graph(path)
+        if self.function is not None:
+            twins.graph_read(self, path)
         return g
 
     def material_output(self, path, prop):
@@ -448,11 +452,15 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         pass-throughs or constants)."""
         import bpy
         while True:
-            dead = [k for k, ft in self.functions.items() if ft.tree.users == 0]
+            # a reused group's users here are this material's nodes (its twin had no others)
+            here = twins.users_here(self) if any(ft.reused for ft in self.functions.values()) else {}
+            dead = [k for k, ft in self.functions.items()
+                    if (here.get(ft.tree.as_pointer(), 0) if ft.reused else ft.tree.users) == 0]
             if not dead:
                 return
             # one pass over the file for all of them (a removal each walked every datablock)
-            bpy.data.batch_remove([self.functions.pop(k).tree for k in dead])
+            gone = [self.functions.pop(k) for k in dead]
+            bpy.data.batch_remove([ft.placeholder if ft.reused else ft.tree for ft in gone])
 
     def material_attributes(self, path, names=CARRIED):
         """A material's attributes Blender has a slot for, {name: Val}: from its

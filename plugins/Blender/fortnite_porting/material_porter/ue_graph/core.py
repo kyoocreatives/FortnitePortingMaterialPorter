@@ -664,6 +664,9 @@ class FunctionTree:
     (`statics`, input id -> bool; `label` names the variant).
     """
     PREFIX = "FPv4 Sky - "
+    # twins: what the body asked the env (Facts) and its key; a reused group's base, name holder
+    facts = key = base = placeholder = None
+    reused = False
 
     def __init__(self, parent, fname, fg, statics=None, label=None):
         import bpy
@@ -684,6 +687,7 @@ class FunctionTree:
         self.go = self.tree.nodes.new("NodeGroupOutput")
         self.gi[SECTION_KEY] = self.go[SECTION_KEY] = self.tr.section[0]
         self.kind = {}          # input socket name -> ("ue", input id) | ("env", name)
+        self.items = {}         # ue input socket name -> its interface item
         self.ue_names = {}      # UE input id -> socket name
         self.previews = {}      # socket name -> preview expression ref, for callers that leave it
         self.outs = {}          # output id -> (socket name, width); width "attrs" for Material Attributes
@@ -702,7 +706,7 @@ class FunctionTree:
                 return name
             name = socket_name("%s %d" % (base, i))
             i += 1
-        self.tree.interface.new_socket(name, in_out='INPUT', socket_type=SOCKET_OF_WIDTH[width])
+        self.items[name] = self.tree.interface.new_socket(name, in_out='INPUT', socket_type=SOCKET_OF_WIDTH[width])
         self.kind[name] = kind
         return name
 
@@ -725,8 +729,7 @@ class FunctionTree:
             w = INPUT_WIDTH.get(p.get("InputType"), 3)
             name = self._new_input(p.get("InputName") or "Input", w, ("ue", fid))
             self.ue_names[fid] = name
-            item = next(it for it in self.tree.interface.items_tree
-                        if it.item_type == 'SOCKET' and it.in_out == 'INPUT' and it.name == name)
+            item = self.items[name]
             v = p.get("PreviewValue", {})
             dflt = (v.get("X", 0.0), v.get("Y", 0.0), v.get("Z", 0.0))
             if p.get("bUsePreviewValueAsDefault"):
@@ -749,15 +752,13 @@ class FunctionTree:
         # the socket's name may be cut (socket_name); the env gets its key back whole
         name = socket_name(key)
         if name not in self.kind:
-            self.tree.interface.new_socket(name, in_out='INPUT', socket_type=socket_type)
-            item = next(it for it in self.tree.interface.items_tree
-                        if it.item_type == 'SOCKET' and it.in_out == 'INPUT' and it.name == name)
+            # (each interface edit updates the group and its users: the description comes with the socket)
+            item = self.tree.interface.new_socket(name, description=description, in_out='INPUT', socket_type=socket_type)
             if default is not None:
                 try:
                     item.default_value = default
                 except Exception:
                     pass
-            item.description = description
             self.kind[name] = ("env", key)
         return Val(self.gi.outputs[name], WIDTH_OF_SOCKET.get(socket_type, 3))
 
