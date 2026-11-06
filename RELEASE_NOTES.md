@@ -5,12 +5,12 @@ An unofficial fork of [FortnitePorting](https://github.com/h4lfheart/FortnitePor
 **Version numbers:** versions now read like `fpv-4.3.5/mpv-1.13.0`: the FortnitePorting version this fork is merged with, then the fork's own version. They replace `4.0.0-mp.N`.
 
 **This release**
-Fixes for 1.13.12 (its new Animation and Effects tabs, Materials tab and rig twist are in that release's notes):
-- Importing with the Fortnite editor open no longer freezes Blender.
-- The Animation tab no longer slows down in heavy scenes.
-- Animation preview: effects are hidden without materials (they covered the character), and emotes loop back to their loop section with their props.
-- Effects tab: no crash after playing an effect; it opens on Game Effects when the scene has none.
-- Tasty rig: outfits without a master skeleton (Aura) import again, without the Tasty rig.
+Faster imports and fixes:
+- Maps and characters import much faster: material builds reuse what earlier materials built, landscape layers settle in a few builds, and effects replay faster.
+- Face poses bake to shape keys in a fraction of a second instead of many seconds.
+- Map exports no longer save their textures again every time.
+- Material copies (same material, other values) are reused again instead of rebuilt.
+- Tasty rig: fixed a crash on import.
 
 **What it adds**
 - Exact materials, rebuilt from each material's Unreal graph. *Settings > Blender > Prefer FP Shaders for Characters* keeps FortnitePorting's shaders for character materials it has one for.
