@@ -190,6 +190,8 @@ class FunctionsMixin:
         def fresh():
             n = self.node("ShaderNodeGroup", section_name(fname))
             n.node_tree = ft.tree
+            if ft.reused:
+                twins.own_values(n, ft)
             return n, set()
 
         # One node per call, whichever outputs are read: UE compiles each output on its own, and

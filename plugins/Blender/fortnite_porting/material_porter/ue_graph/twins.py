@@ -9,7 +9,8 @@ import hashlib
 
 import bpy
 
-from .core import MADE, SECTION_KEY, SpecialInputs, Val, WIDTH_OF_SOCKET, load_graph
+from .edits import holds
+from .core import MADE, SECTION_KEY, group_deps, socket_name, SpecialInputs, Val, WIDTH_OF_SOCKET, load_graph
 
 # env methods a body may ask that can be asked again of another material's env: plain arguments, and side effects
 # that material's own build would have (parameter bookkeeping, images, notes)
@@ -162,10 +163,16 @@ class _GI:
 
 
 class _Stub:
-    """The function a checked answer is built for: parameters become markers, not sockets."""
+    """The function a checked answer is built for: parameters become markers, not sockets, and their values
+    (a group node takes its unlinked inputs from the group it is made for: the twin had this material's)."""
     textures = {}
 
+    def __init__(self):
+        self.defaults = {}
+
     def env_input(self, key, socket_type, default=None, description=""):
+        if default is not None:
+            self.defaults.setdefault(socket_name(key), default)
         return Val(_GI(("env", key)), WIDTH_OF_SOCKET.get(socket_type, 3))
 
     def texture_input(self, *a):
@@ -337,10 +344,19 @@ def _alive(tr, c):
     return tree.get(s.fp_key) == c.fp and s.known().get(c.fp) == tree and _stamp(tree) == c.stamp
 
 
-def _valid(tr, st, c, picked):
+def _valid(tr, st, c, picked, defaults):
     if not _alive(tr, c):
         return False
     picked[c.key] = c
+    outer, st.function = st.function, _Stub()
+    defaults[c.key] = st.function.defaults
+    try:
+        return _answers(tr, st, c, picked, defaults)
+    finally:
+        st.function = outer
+
+
+def _answers(tr, st, c, picked, defaults):
     for f in c.facts:
         kind = f[0]
         if kind == "nested":
@@ -352,7 +368,7 @@ def _valid(tr, st, c, picked):
             elif key in picked:
                 if picked[key] is not inner:
                     return False
-            elif not _valid(tr, st, inner, picked):
+            elif not _valid(tr, st, inner, picked, defaults):
                 return False
         elif kind == "graph":
             if f[1] not in tr.graphs:
@@ -362,6 +378,19 @@ def _valid(tr, st, c, picked):
         elif _ask(tr, st, f) != f[-1]:
             return False
     return True
+
+
+def own_values(node, ft):
+    """A reused group's node: this material's parameter values on its unlinked inputs, as on its twin's."""
+    for name, v in ft.defaults.items():
+        sock = node.inputs.get(name)
+        if sock is None:
+            continue
+        try:
+            if not holds(sock.default_value, v):
+                sock.default_value = v
+        except (TypeError, ValueError):
+            pass
 
 
 class _Light:
@@ -382,13 +411,13 @@ def find(tr, key, label):
     st = _scratch(tr)
     try:
         for c in reversed(found):
-            picked = {}
-            if _valid(tr, st, c, picked):
+            picked, defaults = {}, {}
+            if _valid(tr, st, c, picked, defaults):
                 # one reused group per tree: users_here counts a tree's users, the twins had their own
                 trees = [ft.tree.as_pointer() for ft in tr.functions.values() if ft.reused]
                 trees += [p.tree.as_pointer() for p in picked.values()]
                 if len(trees) == len(set(trees)):
-                    return _adopt(tr, picked, label)
+                    return _adopt(tr, picked, defaults, label)
         return None
     finally:
         env = real(tr.env)
@@ -401,7 +430,7 @@ def find(tr, key, label):
         st.tree.nodes.clear()
 
 
-def _adopt(tr, picked, label):
+def _adopt(tr, picked, defaults, label):
     """Put the picked groups in the material's functions, each with an empty group of the name its own build
     would have had (holding the name until share_groups drops it, as the twin did)."""
     env = real(tr.env)
@@ -410,7 +439,7 @@ def _adopt(tr, picked, label):
     for c in picked.values():
         own = label if top is None else tr.variant_label(c.fname, c.fg, c.statics)
         ft = copy.copy(c)
-        ft.base, ft.reused = c, True
+        ft.base, ft.reused, ft.defaults = c, True, defaults[c.key]
         ft.placeholder = bpy.data.node_groups.new(prefix + own, "ShaderNodeTree")
         ft.tr = _Light(tr.graphs, c.warnings)
         ft.site = None
@@ -446,7 +475,7 @@ def prepare(tr):
                     ft.reached(it.name)
         except Unknown:
             continue
-        out.append([ft, facts, ft.tree.name, len(ft.tree.interface.items_tree)])
+        out.append([ft, facts, ft.tree.name, len(ft.tree.interface.items_tree), group_deps(ft.tree, {})])
     return out
 
 
@@ -468,10 +497,11 @@ def register(tr, prepared, gone):
     """After sharing: keep each recorded group (or the twin it went to) for later materials."""
     s = tr.twins
     entries = {}
-    for ft, facts, name, _n in prepared:
+    for ft, facts, name, _n, deps in prepared:
         final = gone.get(name) or ft.tree
         fp = final.get(s.fp_key)
-        if fp is None:
+        # what callers see of it unchanged by merging: a twin's callers built and merged against the unmerged twin
+        if fp is None or group_deps(final, {}) != deps:
             continue
         c = copy.copy(ft)
         c.tree, c.gi, c.go, c.tr, c.site = final, None, None, None, None
