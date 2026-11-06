@@ -18,4 +18,5 @@ class PoseImportContext:
                                 override_skeleton=override_skeleton,
                                 root_bone="neck_01")
 
-        UEFormatImport(options).import_file(pose_path)
+        from ...material_porter import pose_bake     # MP: poses baked without an operator per pose
+        pose_bake.import_file(pose_path, options)     # MP
