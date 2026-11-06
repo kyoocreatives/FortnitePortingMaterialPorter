@@ -10,6 +10,7 @@ using CUE4Parse.UE4.Assets.Exports.Component.Landscape;
 using CUE4Parse.UE4.Assets.Exports.Material;
 using CUE4Parse.UE4.Assets.Exports.SkeletalMesh;
 using CUE4Parse.UE4.Assets.Exports.StaticMesh;
+using CUE4Parse.UE4.Assets.Exports.Texture;
 using CUE4Parse.UE4.Objects.Core.Math;
 using CUE4Parse.UE4.Objects.Engine;
 using CUE4Parse.UE4.Assets.Objects;
@@ -49,6 +50,38 @@ public partial class ExportContext
 
     /// <summary>The largest textures are exported at for this export's type (0: full size).</summary>
     public int TextureCap;
+
+    private readonly HashSet<string> _mpTexturesQueued = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Whether a texture's file needs writing: missing, or smaller than the mip this export's cap picks
+    /// (FP compared against the full mip, so every capped texture was encoded again). Once per path per export.</summary>
+    private bool MaterialPorterTextureNeedsExport(UTexture texture, string path)
+    {
+        lock (_mpTexturesQueued)
+            if (_mpTexturesQueued.Contains(path)) return false;
+        bool needed;
+        try
+        {
+            if (!File.Exists(path)) needed = true;
+            else
+            {
+                var mip = TextureCap > 0 && texture is not UTextureCube ? texture.GetMipByMaxSize(TextureCap) : texture.GetFirstMip();
+                if (mip is null) needed = true;
+                else
+                {
+                    using var file = File.OpenRead(path);
+                    using var image = System.Drawing.Image.FromStream(file, useEmbeddedColorManagement: false, validateImageData: false);
+                    needed = mip.SizeX > image.PhysicalDimension.Width && mip.SizeY > image.PhysicalDimension.Height;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            needed = true;
+        }
+        if (!needed) return false;
+        lock (_mpTexturesQueued) return _mpTexturesQueued.Add(path);
+    }
 
     /// <summary>This export's steps, as the status log shows them.</summary>
     ExportTrace MPTrace => ExportTrace.Of(Meta);

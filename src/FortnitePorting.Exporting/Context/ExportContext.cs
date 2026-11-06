@@ -99,7 +99,7 @@ public partial class ExportContext
         
         var shouldExport = asset switch
         {
-            UTexture texture => IsTextureHigherResolutionThanExisting(texture, path),
+            UTexture texture => MaterialPorterTextureNeedsExport(texture, path),     // MP: against the capped mip, once per export
             UAnimSequence animSequence when animSequence.IsValidAdditive() => true,
             ALandscapeProxy => true,
             UStaticMesh or USkeletalMesh when NeedsNaniteFile(asset, path) => true,
