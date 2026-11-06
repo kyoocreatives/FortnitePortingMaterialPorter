@@ -11,6 +11,7 @@ from .core import (
     section_name,
     socket_name,
 )
+from . import twins
 
 
 class FunctionsMixin:
@@ -27,7 +28,7 @@ class FunctionsMixin:
             # an env that only takes the name (names can repeat across folders)
             path = self.env.function(fname)
         if path:
-            self.env.__dict__.setdefault("function_paths", {})[path] = mf.get("ObjectPath", "")
+            twins.function_path(self, path, mf.get("ObjectPath", ""))
         return (fname, self.graph(path)) if path else None
 
     @staticmethod
@@ -152,7 +153,14 @@ class FunctionsMixin:
         ft = self.functions.get(key)
         new = ft is None
         if new:
-            ft = self.functions[key] = FunctionTree(self, fname, fg, statics, self.variant_label(fname, fg, statics))
+            label = self.variant_label(fname, fg, statics)
+            # an earlier material's group this env would build again (twins): no twin to build and share away
+            ft = twins.find(self, key, label)
+            new = ft is None
+            if new:
+                ft = self.functions[key] = FunctionTree(self, fname, fg, statics, label)
+                twins.record(self, ft, key)
+        twins.used(self, key, ft)
         # the call building its outputs: map textures probed in the body read its inputs (FunctionTree.ue_input)
         site_was, ft.site = ft.site, (self, ins)
         try:
@@ -165,7 +173,10 @@ class FunctionsMixin:
                     try:
                         ft.output(each)
                     except RuntimeError as e:       # (an output UE would compile on its own: a loop here)
+                        twins.fail(ft)
                         self.warnings.append("%s: output %s left out (%s)" % (fname, (each.get("Properties") or {}).get("OutputName"), e))
+            elif ft.facts is not None and ft.outs.get(fo["Properties"].get("Id")) is None:
+                twins.fail(ft)      # (an output built after the rest: not the group a twin's build makes)
             name, w = ft.output(fo)
         finally:
             ft.site = site_was

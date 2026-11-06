@@ -165,7 +165,7 @@ class StaticsMixin:
                 for f, v in sorted(statics.items(), key=lambda kv: str(kv[0])) if v != dflt.get(f)]
         label = "%s [%s]" % (base, " ".join(diff)) if diff else base
         prefix = getattr(self.env, "function_prefix", FunctionTree.PREFIX)
-        taken = {ft.tree.name for ft in self.functions.values()}
+        taken = {(ft.placeholder or ft.tree).name for ft in self.functions.values()}
         if not statics or not diff:
             # a plain function whose name another function already has
             n = 2

@@ -16,6 +16,7 @@ from .env import MaterialEnv, fit_socket, match_names
 from .nodelib import SECTION_KEY
 from .ue_graph import BOUNDS_CENTRE, BOUNDS_MAX, BOUNDS_MIN, PART_BOUNDS_MAX, PART_BOUNDS_MIN, HEAD_SOCKET, CARRIED, SHADING_MODELS, Translator, Val, merge_duplicates
 from .ue_graph.edits import Placing, holds
+from .ue_graph import twins
 
 PREFIX = "MP "            # prefix of built materials: "MP MI_Foo"
 KEY_PATH = "mp_path"      # game object the material translates
@@ -699,6 +700,7 @@ def begin_session():
     _KNOWN = None
     from . import env
     env._LOADED.clear()
+    twins.clear()
 
 
 def _known():
@@ -715,9 +717,10 @@ def _alive(g, fp):
         return False
 
 
-def share_groups(trees, owners=()):
+def share_groups(trees, owners=(), twins_of=None, drop=()):
     """Replace groups identical to one an earlier build made with that one (in these trees and the owners',
-    the only places a new group is used). Returns (how many were replaced, the ones kept)."""
+    the only places a new group is used). Returns (how many were replaced, the ones kept). twins_of gets
+    {replaced group's name: its twin}; `drop` goes in the same removal (ue_graph.twins' name holders)."""
     memo = {}
     known = _known()
     # innermost first: an outer group's fingerprint includes its inner groups
@@ -751,14 +754,16 @@ def share_groups(trees, owners=()):
             for n in users:
                 if n.node_tree == t:
                     n.node_tree = twin
+            if twins_of is not None:
+                twins_of[t.name] = twin
             gone.append(t)
             shared += 1
         else:
             t[KEY_FP] = fp
             known[fp] = t
             kept.append(t)
-    if gone:
-        bpy.data.batch_remove(gone)
+    if gone or drop:
+        bpy.data.batch_remove(gone + list(drop))
     return shared, kept
 
 
@@ -1211,6 +1216,8 @@ def build_one(entry, app, objects=(), make_env=None):
     env.root = root
     env.foliage = settings(entry)["foliage"]
     tr = Translator(root, env)
+    if type(env) is MaterialEnv:
+        tr.twins = twins.Session(_known, KEY_FP)
     tr.placing = Placing()
     env.h[0] = tr
     # a particle's material also moves its vertices (World Position Offset: a zero-width lightning strip
@@ -1227,7 +1234,8 @@ def build_one(entry, app, objects=(), make_env=None):
     assemble(tr, mat, vals, settings(entry))
     _rvt_output(tr, entry, vals)
     tr.placing.place()
-    groups = [ft.tree for ft in tr.functions.values()]
+    recorded = twins.prepare(tr)
+    groups = [ft.tree for ft in tr.functions.values() if not ft.reused]
     # Merge alike nodes translation made (a texture per pin read, a group node per output of one call) and
     # drop nodes reaching no output. Runs before sharing, so twins compare folded groups, and before the
     # parameters are settled (a parameter only a dropped node read goes with it).
@@ -1236,13 +1244,17 @@ def build_one(entry, app, objects=(), make_env=None):
         merge_duplicates(t, memo)
     for t in groups:
         drop_unread_inputs(t)
+    recorded = twins.inputs_kept(recorded)
     values = env.finish_parameters()
     _subsurface_panel(root)
     foliage.panel(root)
     ground.panel(root)
     # twins of earlier materials' groups go first: laying out a group about to be thrown away
     # was half of all layout time
-    shared, kept = share_groups(groups, owners=[root])
+    reused = sum(ft.reused for ft in tr.functions.values())
+    twins_of = {}
+    shared, kept = share_groups(groups, owners=[root], twins_of=twins_of, drop=twins.held(tr))
+    shared += reused
     if LAZY_LAYOUT:
         for t in kept + [root]:
             t[KEY_LAYOUT] = 1
@@ -1253,6 +1265,8 @@ def build_one(entry, app, objects=(), make_env=None):
                 layout.arrange(t)
             except Exception as e:     # cosmetic: never lose a build to layout
                 env.note("layout of %s: %s" % (t.name, e))
+    if recorded:
+        twins.register(tr, recorded, twins_of)
     node = _material_node(mat, root, entry["name"], values, env.node_width())
     if _texture_zones(mat, node, env):
         if LAZY_LAYOUT:
