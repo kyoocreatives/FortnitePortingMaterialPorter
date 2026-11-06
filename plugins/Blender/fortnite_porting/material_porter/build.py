@@ -776,8 +776,8 @@ def _outputs_cover(twin, t, users):
 _OUTPUT_NODES = ("ShaderNodeOutputMaterial", "ShaderNodeOutputWorld", "ShaderNodeOutputLight", "ShaderNodeOutputAOV")
 
 
-def _live_outputs():
-    """{group: output identifiers a live node reads}, over the file: from every material, world and light output
+def _live_outputs(owners):
+    """{group: output identifiers a live node reads}: from the owners' (materials, worlds, lights) outputs
     through the group nodes they reach (a group node that is read at all reads all its inputs)."""
     used, live = {}, {}
 
@@ -806,7 +806,7 @@ def _live_outputs():
             for l in links:
                 stack.append((l.from_node, l.from_socket.identifier))
         return grew
-    for owner in list(bpy.data.materials) + list(bpy.data.worlds) + list(bpy.data.lights):
+    for owner in owners:
         tree = getattr(owner, "node_tree", None)
         if tree is not None:
             walk(tree, [(n, None) for n in tree.nodes if n.bl_idname in _OUTPUT_NODES])
@@ -854,12 +854,17 @@ def prune_groups(names):
 
     Each group was built whole, so a later material's call shares it unless that call reads a dropped output
     (share_groups then keeps that call's own copy)."""
+    from .bundles import in_scope, scope
     made = [g for g in (bpy.data.node_groups.get(n) for n in names) if g is not None]
     groups = [g for g in made if KEY_FP in g]
     roots = [g for g in made if KEY_FP not in g and bpy.data.materials.get(g.name) is not None]
+    # only trees that reach these groups can read or hold them
+    near = scope(made)
+    owners = in_scope(list(bpy.data.materials) + list(bpy.data.worlds) + list(bpy.data.lights), near)
+    trees = in_scope(list(bpy.data.node_groups), near) + [m.node_tree for m in in_scope(bpy.data.materials, near)]
     gone, touched = 0, set()
     for _ in range(16):
-        used = _live_outputs()
+        used = _live_outputs(owners)
         changed = False
         for g in groups:
             if g.users == 0:
@@ -887,7 +892,7 @@ def prune_groups(names):
             break
     # groups that only pass inputs on, or wrap one node, are replaced by that node (or the wire)
     for _ in range(8):
-        k = _inline_trivial([g for g in groups if g.users], touched)
+        k = _inline_trivial([g for g in groups if g.users], touched, trees)
         if not k:
             break
         gone += k
@@ -899,8 +904,8 @@ def prune_groups(names):
             t.interface.remove(it)
         if drop:
             _drop_empty_panels(t)
-            for m in bpy.data.materials:
-                if m.node_tree is not None and any(n.bl_idname == "ShaderNodeGroup" and n.node_tree == t for n in m.node_tree.nodes):
+            for m in owners:
+                if isinstance(m, bpy.types.Material) and any(n.bl_idname == "ShaderNodeGroup" and n.node_tree == t for n in m.node_tree.nodes):
                     gone += _drop_dead(m.node_tree, kinds=_ZONE_NODES)
             touched.add(t.name)
     unused = [g for g in groups if g.users == 0]
@@ -949,14 +954,14 @@ def _through(sock):
     return None
 
 
-def _inline_trivial(groups, touched):
+def _inline_trivial(groups, touched, trees):
     """Replace instances of a group that only passes inputs on (its work folded away) or holds one plain node
     (UE's Break Out Float3 Components: one Separate XYZ; a wrapper of one call) with the wire, or a copy of that node
     in the caller, where every value passed on keeps its type. Returns how many group nodes went."""
     from .ue_graph import _socket_value
     gone = 0
     users = {}
-    for t in list(bpy.data.node_groups) + [m.node_tree for m in bpy.data.materials if m.node_tree is not None]:
+    for t in trees:
         for n in t.nodes:
             if n.bl_idname == "ShaderNodeGroup" and n.node_tree is not None:
                 users.setdefault(n.node_tree.name, []).append((t, n))
