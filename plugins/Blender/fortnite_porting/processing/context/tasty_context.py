@@ -1158,7 +1158,7 @@ class TastyImportContext:
     
                 continue
     
-            if any(prefix in pose_bone.name for prefix in ("deform_", "dfrm_", "rt_")) and has_vertex_group:     # MP: same prefixes the import parents as deform
+            if ("deform_" in pose_bone.name or pose_bone.name.startswith(("dfrm_", "rt_"))) and has_vertex_group:     # MP: the prefixes the import parents as deform (utils' any shadows the builtin)
                 deform_collection.assign(pose_bone)
     
                 pose_bone.custom_shape = bpy.data.objects.get("CTRL_Deform")
