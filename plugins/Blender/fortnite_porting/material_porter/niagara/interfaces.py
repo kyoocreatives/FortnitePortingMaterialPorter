@@ -41,7 +41,8 @@ class Curve:
             raise Unsupported("Curve.%s" % name)
 
         def sample(count, inputs):
-            x = np.clip(np.nan_to_num((vm.fl(inputs[-1]) - self.start) * self.scale * self.last), F(0), self.last)
+            # fmax/fmin drop NaN: nan_to_num then clip, in two calls
+            x = np.fmin(np.fmax((vm.fl(inputs[-1]) - self.start) * self.scale * self.last, F(0)), self.last)
             a = np.trunc(x)
             b = np.where(a < self.last, a + F(1), a)
             t = (x - a)[..., None]
@@ -96,7 +97,7 @@ class Array:
                     if self.default is not None and len(self.default) == outputs:
                         return [np.full(count, v, kind) for v in self.default]
                     return [np.zeros(count, kind)] * outputs
-                index = np.clip(np.broadcast_to(vm.it(args[-1]), (count,)), 0, len(table) - 1)
+                index = np.clip(vm.spread(vm.it(args[-1]), count), 0, len(table) - 1)
                 return [table[index, i] for i in range(outputs)]
             return get
         if name in ("Add", "SetArrayElem", "Resize", "Clear", "RemoveLastElem", "Reset"):
@@ -120,12 +121,12 @@ class Array:
                 width = self.width_of(args, name)
                 skip_at = inputs - width - (2 if name == "SetArrayElem" else 1)
                 table = self.rows
-                skip = np.broadcast_to(vm.it(args[skip_at]), (count,)) != 0
+                skip = vm.spread(vm.it(args[skip_at]), count) != 0
                 new = np.stack([np.broadcast_to(v, (count,)) for v in values(args, width)], axis=1)
                 if name == "Add":
                     self.rows = np.concatenate([table, new[~skip].astype(table.dtype)])
                 else:
-                    index = np.broadcast_to(vm.it(args[skip_at + 1]), (count,))
+                    index = vm.spread(vm.it(args[skip_at + 1]), count)
                     ok = ~skip & (index >= 0) & (index < len(table))
                     table[index[ok]] = new[ok]
                 return []
@@ -167,7 +168,7 @@ class ParticleRead:
                 rows = e.attribute(attribute) if e else None
                 if rows is None or not rows.shape[1]:
                     return nothing(count)
-                index = np.broadcast_to(vm.it(args[-1]), (count,))
+                index = vm.spread(vm.it(args[-1]), count)
                 valid = (index >= 0) & (index < rows.shape[1])
                 safe = np.clip(index, 0, rows.shape[1] - 1)
                 return ([np.where(valid, I(-1), I(0))] + [np.where(valid, row[safe], row.dtype.type(0)) for row in rows])[:outputs]
@@ -179,7 +180,7 @@ class ParticleRead:
                 if rows is None or ids is None or not rows.shape[1]:
                     return nothing(count)
                 order = np.argsort(ids[0], kind="stable")
-                wanted = np.broadcast_to(vm.it(args[-2]), (count,))
+                wanted = vm.spread(vm.it(args[-2]), count)
                 at = np.clip(np.searchsorted(ids[0][order], wanted), 0, len(order) - 1)
                 safe = order[at]
                 valid = ids[0][safe] == wanted
@@ -219,7 +220,7 @@ class RendererInfo:
             rows = np.concatenate([boxes, boxes[:, 3:] - boxes[:, :3]], axis=1)
 
             def bounds(count, args):
-                index = np.clip(np.broadcast_to(vm.it(args[-1]), (count,)), 0, len(rows) - 1)
+                index = np.clip(vm.spread(vm.it(args[-1]), count), 0, len(rows) - 1)
                 return [rows[index, i] for i in range(9)]
             return bounds
         raise Unsupported("%s.%s" % (self.kind.replace("NiagaraDataInterface", ""), name))
@@ -312,7 +313,7 @@ class Skeleton:
         if outputs == 1:
             # index of a filtered bone or socket: bones first, then sockets
             first = len(self.bones) if name == "GetFilteredSocket" else 0
-            return lambda count, args: [(first + np.broadcast_to(vm.it(args[-1]), (count,))).astype(I)]
+            return lambda count, args: [(first + vm.spread(vm.it(args[-1]), count)).astype(I)]
         if outputs in (10, 13):
             interpolated = name.endswith("Interpolated")
             world = self.reader or "WS" in name
@@ -322,11 +323,11 @@ class Skeleton:
             def transform(count, args):
                 now, before = self.tables()
                 at = -2 if interpolated or takes_flag else -1
-                index = np.broadcast_to(vm.it(args[at]), (count,)) + (len(self.bones) if sockets_only else 0)
+                index = vm.spread(vm.it(args[at]), count) + (len(self.bones) if sockets_only else 0)
                 index = np.clip(index, 0, len(now[0]) - 1)
                 pick = 2 if world or (takes_flag and np.any(vm.it(args[-1]) != 0)) else 0
                 p1, q1, p0, q0 = now[pick][index], now[pick + 1][index], before[pick][index], before[pick + 1][index]
-                t = np.broadcast_to(vm.fl(args[-1]), (count,))[:, None].astype(np.float64) if interpolated else 1.0
+                t = vm.spread(vm.fl(args[-1]), count)[:, None].astype(np.float64) if interpolated else 1.0
                 position = p0 + (p1 - p0) * t
                 q0 = np.where(np.sum(q0 * q1, axis=1, keepdims=True) < 0, -q0, q0)
                 rotation = q0 + (q1 - q0) * t
@@ -380,7 +381,7 @@ class VectorField:
         size = self.size
 
         def sample(count, args):
-            position = np.stack([np.broadcast_to(vm.fl(a), (count,)) for a in args[-3:]], axis=1)
+            position = np.stack([vm.spread(vm.fl(a), count) for a in args[-3:]], axis=1)
             with np.errstate(all="ignore"):
                 p = np.nan_to_num((position - self.low) / self.span * size.astype(F) - F(0.5))
             first = np.floor(p)
@@ -426,7 +427,7 @@ class Distribution:
             def entry(count, args):
                 if not len(self.probability):
                     return [np.zeros(count, F), np.zeros(count, I)]
-                index = np.clip(np.broadcast_to(vm.it(args[-1]), (count,)), 0, len(self.probability) - 1)
+                index = np.clip(vm.spread(vm.it(args[-1]), count), 0, len(self.probability) - 1)
                 return [self.probability[index], self.alias[index]]
             return entry
         raise Unsupported("ArrayDistribution.%s" % name)
@@ -486,7 +487,7 @@ INTERFACES["NiagaraDataInterfaceArrayDistributionInt"] = Distribution
 
 def _matrix_to_quaternion(count, args):
     """The engine's FQuat(FMatrix): a rotation matrix (16 floats, rows first) to a quaternion."""
-    m = np.stack([np.broadcast_to(vm.fl(a), (count,)) for a in args[-16:]], axis=1).astype(np.float64).reshape(count, 4, 4)
+    m = np.stack([vm.spread(vm.fl(a), count) for a in args[-16:]], axis=1).astype(np.float64).reshape(count, 4, 4)
     q = np.zeros((count, 4))
     trace = m[:, 0, 0] + m[:, 1, 1] + m[:, 2, 2]
     with np.errstate(all="ignore"):
