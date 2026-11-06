@@ -1181,11 +1181,13 @@ def _switches(tr, entry):
     found, set_by = {}, entry.get("switches") or {}
     for t in [tr] + [ft.tr for ft in tr.functions.values()]:
         for g in t.graphs.values():
-            for x in g.o:
-                p = x.get("Properties") or {}
-                if T(x) in ("StaticSwitchParameter", "StaticBoolParameter") and p.get("ParameterName"):
-                    name = p["ParameterName"]
-                    found[name] = bool(set_by.get(name, p.get("DefaultValue", False)))
+            if (declared := getattr(g, "mp_switches", None)) is None:     # graphs are shared: scanned once
+                declared = g.mp_switches = [
+                    (p["ParameterName"], p.get("DefaultValue", False)) for x in g.o
+                    if T(x) in ("StaticSwitchParameter", "StaticBoolParameter")
+                    and (p := x.get("Properties") or {}).get("ParameterName")]
+            for name, default in declared:
+                found[name] = bool(set_by.get(name, default))
     return dict(sorted(found.items()))
 
 
@@ -1199,6 +1201,8 @@ def build_one(entry, app, objects=(), make_env=None):
         from .fallback import build_fallback
         return build_fallback(entry, app, objects, MaterialEnv, settings,
                               (PREFIX, KEY_PATH, KEY_REV, BUILD_REVISION, KEY_VARIANT))
+    from .ue_graph import core
+    core._DEPS.clear()      # groups may have been pruned since the last material
     mat = bpy.data.materials.new(PREFIX + entry["name"])
     tree = mat.node_tree
     tree.nodes.clear()

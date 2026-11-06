@@ -291,6 +291,39 @@ def _lightest_layer(obj, layers):
     return min(layers, key=lambda n: weight(obj, n))
 
 
+def _drop_layers(job, entry, base, obj, limit, samplers, attributes):
+    """The fewest least-painted layers left out for the material to fit Eevee's limits (at least one layer kept), as
+    dropping them one by one would end, found in a few builds: leaving a layer out never adds samplers or attributes,
+    so a guess from the overshoot, then a binary search. Returns the material built for them."""
+    from .landscape_layers import weight
+    layers = list(entry["landscape_layers"])
+    order = sorted(layers, key=lambda n: weight(obj, n))       # lightest first; stable as min() picked
+    n, built = len(layers), {}
+
+    def build_without(k):
+        if k not in built:
+            gone = set(order[:k])
+            _set_layers(entry, base, obj, [l for l in layers if l not in gone])
+            m = _material(job, entry, obj)
+            fit = not (limit and _samplers(m) > limit) and _mesh_attributes(m) <= ATTRIBUTE_LIMIT
+            built[k] = (m, fit)
+        return built[k][1]
+
+    over = max((samplers - limit) / max(samplers / n, 1) if limit and samplers > limit else 0,
+               (attributes - ATTRIBUTE_LIMIT) / max(attributes / n, 1) if attributes > ATTRIBUTE_LIMIT else 0)
+    guess = min(max(int(-(-over // 1)), 1), n - 1)
+    lo, hi = (1, guess) if build_without(guess) else (guess + 1, n - 1)
+    while lo < hi:      # the fewest that fit in [lo, hi] (n - 1 when none does)
+        mid = (lo + hi) // 2
+        if build_without(mid):
+            hi = mid
+        else:
+            lo = mid + 1
+    build_without(lo)
+    _set_layers(entry, base, obj, [l for l in layers if l not in set(order[:lo])])
+    return built[lo][0]
+
+
 def _set_layers(entry, base, obj, layers):
     """Build for these layers of a landscape proxy, read from the channels the mesh keeps them in."""
     from . import landscape_layers
@@ -433,13 +466,11 @@ def build_exact(context, material_data, texture_data=None, override_parameters=N
                 _set_layers(entry, landscape_base, obj, layers)
                 mat = _material(job, entry, obj)
                 continue
-            lightest = _lightest_layer(obj, entry["landscape_layers"])
-            layers = [l for l in entry["landscape_layers"] if l != lightest]
-            _log("%s: %s - its least painted layer left out" % (entry["name"], (
+            _log("%s: %s - its least painted layers left out" % (entry["name"], (
                 "%d image samplers over Eevee's %d on OpenGL" % (samplers, limit)) if limit and samplers > limit else
                 "%d mesh attributes over Eevee's %d" % (attributes, ATTRIBUTE_LIMIT)))
-            _set_layers(entry, landscape_base, obj, layers)
-            mat = _material(job, entry, obj)
+            mat = _drop_layers(job, entry, landscape_base, obj, limit, samplers, attributes)
+            break
     except Exception as e:
         at = traceback.extract_tb(e.__traceback__)[-1]
         _failed(context, material_data.get("Name"), "%s: %s, at %s:%d" % (

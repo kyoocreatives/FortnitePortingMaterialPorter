@@ -898,10 +898,18 @@ class SpecialInputs(list):
         return (x.get(self.tr) for x in list.__iter__(self))
 
 
+_DEPS = {}      # tree pointer -> ((name, node and link counts), group_deps): cleared per material (build_one)
+
+
 def group_deps(tree, memo):
     """{output socket identifier: {input socket identifiers it reads}} of a node group."""
     if tree.name in memo:
         return memo[tree.name]
+    stamp = (len(tree.nodes), len(tree.links))
+    cached = _DEPS.get(tree.as_pointer())
+    if cached is not None and cached[0] == (tree.name, stamp):     # unchanged since: callers pass a fresh memo
+        memo[tree.name] = cached[1]
+        return cached[1]
     memo[tree.name] = {}        # a group inside itself can't be; guard anyway
     feeds, order, indeg = {}, [], {}
     nodes = {n.name: n for n in tree.nodes}
@@ -940,6 +948,7 @@ def group_deps(tree, memo):
     go = next((n for n in tree.nodes if n.bl_idname == "NodeGroupOutput" and n.is_active_output), None) \
         or next((n for n in tree.nodes if n.bl_idname == "NodeGroupOutput"), None)
     memo[tree.name] = dict(reads.get(go.name, {})) if go is not None else {}
+    _DEPS[tree.as_pointer()] = ((tree.name, stamp), memo[tree.name])
     return memo[tree.name]
 
 
