@@ -89,8 +89,8 @@ with the check changed.
   `# MP` (Python) or `<!-- MP -->` (XAML). Larger UI additions are fork UserControls placed there.
 - `patches/CUE4Parse/`: whole files laid over the `external/CUE4Parse` submodule (which the fork
   can't push to). Both workflows copy them in after checkout. They read UE 5.6 splines and the mixed
-  5.3/5.4 layouts of Fortnite 28.00 builds. After updating the submodule, drop the ones upstream
-  now handles.
+  5.3/5.4 layouts of Fortnite 28.00 builds, and 43.00's (UE 6.0) Mutable programs and meshes. After
+  updating the submodule, drop the ones upstream now handles.
 
 ## Releases
 

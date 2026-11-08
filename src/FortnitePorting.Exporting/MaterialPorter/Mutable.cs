@@ -60,6 +60,23 @@ public sealed class MutableProgram
     string[] componentNames = Array.Empty<string>();
     readonly Dictionary<uint, string> passthrough = new();
 
+    static readonly byte[] Identity = Enumerable.Range(0, 256).Select(i => (byte)i).ToArray();
+
+    // UE 6.0 code -> 5.8 code for the ranges read off 43.00 programs; codes in between that 5.8 lacks map to 255
+    static readonly byte[] Ue6Ops = BuildUe6Ops();
+    static byte[] BuildUe6Ops()
+    {
+        var map = Enumerable.Repeat((byte)255, 256).ToArray();
+        void Shift(int from, int to, int by) { for (var c = from; c <= to; c++) map[c + by] = (byte)c; }
+        Shift(0, 6, 0);      // bool
+        Shift(8, 29, 1);     // int, scalar, colour
+        Shift(30, 105, 2);   // string .. image, mesh, LOD, skeletal mesh cond/switch/new
+        Shift(107, 107, 1);  // skeletal mesh merge
+        Shift(115, 122, 4);  // skeletal mesh object convert, instance
+        Shift(123, 148, 5);  // layout, material
+        return map;
+    }
+
     public IReadOnlyList<Param> Parameters => parameters;
     public bool Has(string name) => index.ContainsKey(name);
     public Param Get(string name) => index.TryGetValue(name, out var i) ? parameters[i] : null;
@@ -86,6 +103,11 @@ public sealed class MutableProgram
             strings = (string[])Member(program, "ConstantStrings") ?? Array.Empty<string>(),
             lists = (uint[][])Member(program, "ConstantUInt32Lists") ?? Array.Empty<uint[]>(),
         };
+        if (provider.Versions.Game >= global::CUE4Parse.UE4.Versions.EGame.GAME_UE6_0)
+        {
+            p.opMap = Ue6Ops;
+            p.lodsArg = 17; // skeletal mesh new gained an int32 list before its LODs
+        }
         var states = Json(Member(program, "States"));
         p.root = (uint)states[0]!["Root"]!;
         foreach (var d in Json(Member(program, "Parameters")))
@@ -114,6 +136,19 @@ public sealed class MutableProgram
         Get(param) is { } par && name != null && par.Values.TryGetValue(name, out var v) ? v : null;
 
     // ------------------------------------------------------------ evaluation
+    // the op table below is 5.8's; UE 6.0 (Fortnite 43.00) inserted ops, so its codes are mapped back
+    byte[] opMap = Identity;
+    int lodsArg = 13;
+    byte Op(int o) => opMap[code[o]];
+    // UE 6.0's material parameter op takes an object (166) made from the parameter (170) instead of its index
+    uint MaterialParam(int o)
+    {
+        if (opMap == Identity) return U(o + 1);
+        var a = Off(U(o + 1));
+        if (code[a] == 166) a = Off(U(a + 1));
+        return code[a] == 170 ? U(a + 1) : throw new NotSupportedException($"Mutable material parameter source op {code[a]} at {a}");
+    }
+
     uint U(int o) => BitConverter.ToUInt32(code, o);
     int I(int o) => BitConverter.ToInt32(code, o);
     float F(int o) => BitConverter.ToSingle(code, o);
@@ -160,10 +195,10 @@ public sealed class MutableProgram
                 var materials = List(U(o + 1));
                 var nameIds = List(U(o + 5));
                 var ids = List(U(o + 9));
-                var lods = List(U(o + 13));
+                var lods = List(U(o + lodsArg));
                 if (lods.Length == 0) continue;
                 var at = Off(lods[Math.Min(lod, lods.Length - 1)]);
-                if (code[at] != 102) continue;
+                if (Op(at) != 102) continue;
                 foreach (var r in List(U(at + 1)))
                 {
                     if (run.SurfaceMesh(r, 0, 0) is not { } s) continue;
@@ -217,7 +252,7 @@ public sealed class MutableProgram
         {
             if (r == 0 || depth > 64) return;
             var o = Off(r);
-            switch (p.code[o])
+            switch (p.Op(o))
             {
                 case 103: SurfaceOps(Num(p.U(o + 1)) != 0 ? p.U(o + 5) : p.U(o + 9), ops, depth + 1); return;
                 case 104: Switch<object>(o, x => { SurfaceOps(x, ops, depth + 1); return null; }); return;
@@ -232,7 +267,7 @@ public sealed class MutableProgram
         {
             if (r == 0 || depth > 64) return null;
             var o = Off(r);
-            return p.code[o] switch
+            return p.Op(o) switch
             {
                 70 => ((int)p.U(o + 1), id),
                 73 => SurfaceMesh(Num(p.U(o + 1)) != 0 ? p.U(o + 5) : p.U(o + 9), id, depth + 1),
@@ -246,7 +281,7 @@ public sealed class MutableProgram
         public int Num(uint r)
         {
             var o = Off(r);
-            switch (p.code[o])
+            switch (p.Op(o))
             {
                 case 8: return Param(p.U(o + 1)) switch { int i => i, double d => (int)d, _ => 0 };
                 case 3: return Num(p.U(o + 1)) == p.I(o + 5) ? 1 : 0;
@@ -261,7 +296,7 @@ public sealed class MutableProgram
         {
             if (r == 0) return null;
             var o = Off(r);
-            switch (p.code[o])
+            switch (p.Op(o))
             {
                 case 11: return p.F(o + 1);
                 case 12: return Param(p.U(o + 1)) switch { double d => d, int i => i, _ => null };
@@ -275,7 +310,7 @@ public sealed class MutableProgram
         {
             if (r == 0) return null;
             var o = Off(r);
-            switch (p.code[o])
+            switch (p.Op(o))
             {
                 case 19: return new double[] { p.F(o + 1), p.F(o + 5), p.F(o + 9), p.F(o + 13) };
                 case 20: return Param(p.U(o + 1)) as double[];
@@ -290,13 +325,13 @@ public sealed class MutableProgram
         {
             if (r == 0) return null;
             var o = Off(r);
-            switch (p.code[o])
+            switch (p.Op(o))
             {
                 case 130:
                     return new Surface { Name = surface, Asset = p.passthrough.GetValueOrDefault(p.U(o + 5)) };
                 case 131:
                 {
-                    var par = p.parameters[(int)p.U(o + 1)].Name;
+                    var par = p.parameters[(int)p.MaterialParam(o)].Name;
                     return new Surface { Name = surface, MaterialParam = par, Asset = values.GetValueOrDefault(par) as string };
                 }
                 case 132: return Material(Num(p.U(o + 1)) != 0 ? p.U(o + 5) : p.U(o + 9), surface);
@@ -335,7 +370,7 @@ public sealed class MutableProgram
         {
             if (r == 0 || depth > 200) return;
             var o = Off(r);
-            switch (p.code[o])
+            switch (p.Op(o))
             {
                 case 116: Instance(Num(p.U(o + 1)) != 0 ? p.U(o + 5) : p.U(o + 9), list, depth + 1); return;
                 case 117: Switch<object>(o, x => { Instance(x, list, depth + 1); return null; }); return;
@@ -354,7 +389,7 @@ public sealed class MutableProgram
                 {
                     Instance(p.U(o + 1), list, depth + 1);
                     var k = p.U(o + 9);
-                    var name = p.code[o] == 121 ? p.names.GetValueOrDefault(k) : k < p.strings.Length ? p.strings[k] : null;
+                    var name = p.Op(o) == 121 ? p.names.GetValueOrDefault(k) : k < p.strings.Length ? p.strings[k] : null;
                     try
                     {
                         if (Material(p.U(o + 5), name) is { } s) list.Add(s);
