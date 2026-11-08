@@ -82,6 +82,7 @@ class Evaluator(StaticsMixin, FunctionsMixin):
         self.graphs, self.cache, self.section = {}, {}, []
         self.warnings, self.unknown, self.stand_ins = [], {}, set()
         self._stack = []
+        self.function = None        # FunctionsMixin's twins hooks read it; values never record a body
 
     # plumbing ue_graph's mixins use
     def _hook(self, name, fallback, *args):

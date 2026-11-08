@@ -7,6 +7,7 @@ the translator folds what's constant): coordinates that stay in [0, 1] at the ma
 the texture (a quad of Hera's four); unclamped ones spanning over a kilometre cover it all. The rectangles are recorded
 (env.map_textures); where the mesh has a painted map of its own (entry["biome_maps"]: parameter -> image) the sample
 reads that image across the mesh instead, over the same rectangle, through the weightmaps' UV map."""
+import math
 import re
 import zlib
 
@@ -68,16 +69,14 @@ def record(env, param, texture, found, g):
 
 
 def finish(textures):
-    """Each texture's corners turned into rectangles: from each corner to the next corner along each axis (Hera's
-    four quads start at 0 and 0.5), the last to 1."""
+    """Each texture's corners turned into rectangles: the quads, as wide as the corners lie apart along each axis,
+    holding them (Hera's four quads at 0 and 0.5); a lone corner reads on to 1."""
     for entry in textures.values():
         corners = entry.pop("corners", [])
+        us, vs = sorted({c[0] for c in corners}), sorted({c[1] for c in corners})
         for axis_u, axis_v in corners:
-            us = sorted({c[0] for c in corners} | {1.0})
-            vs = sorted({c[1] for c in corners} | {1.0})
-            u1 = next(u for u in us if u > axis_u)
-            v1 = next(v for v in vs if v > axis_v)
-            rect = [axis_u, axis_v, round(u1, 6), round(v1, 6)]
+            (u0, u1), (v0, v1) = _quad(axis_u, us), _quad(axis_v, vs)
+            rect = [u0, v0, u1, v1]
             if rect not in entry["rects"]:
                 entry["rects"].append(rect)
         # a read over several rectangles (Helios's whole map besides its quads) is painted through them
@@ -85,6 +84,17 @@ def finish(textures):
         entry["rects"] = sorted((r for r in rects if not any(o != r and _inside(o, r) for o in rects)),
                                 key=lambda r: (r[1], r[0]))
     return textures
+
+
+def _quad(c, starts):
+    """(start, end) along one axis of the quad holding `c`, quads tiling from 0. The world's origin may sit anywhere
+    in it: Hera's at its start, 43.00's MF_Hera_BiomeMasks (Delilah) centres the map, at a quarter."""
+    gaps = [b - a for a, b in zip(starts, starts[1:]) if b - a > 1e-6]
+    if not gaps:
+        return c, 1.0
+    w = min(gaps)
+    lo = math.floor(c / w + 1e-6) * w
+    return round(lo, 6), round(min(lo + w, 1.0), 6)
 
 
 def _inside(a, b):
@@ -200,12 +210,13 @@ def _reads(g, ref, quads, seen):
 
 
 def rect_of(found, rects):
-    """The rectangle a probed sample reads among its texture's: its own (clamped), else the one starting at its
+    """The rectangle a probed sample reads among its texture's: its own (clamped), else the one holding its
     corner."""
     kind, value = found[:2]
     if kind == "rect":
         return value
-    return next((r for r in rects or () if abs(r[0] - value[0]) < 1e-4 and abs(r[1] - value[1]) < 1e-4), None)
+    return next((r for r in rects or () if r[0] - 1e-4 <= value[0] < r[2] - 1e-4 and r[1] - 1e-4 <= value[1] < r[3] - 1e-4),
+                None)
 
 
 def hide_key(image, rect, channel):
