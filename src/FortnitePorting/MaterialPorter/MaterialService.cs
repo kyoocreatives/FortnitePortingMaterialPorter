@@ -596,7 +596,9 @@ public sealed class MaterialService
             if (File.Exists(meta))
             {
                 var rec = JsonConvert.DeserializeObject<CachedTexture>(await File.ReadAllTextAsync(meta));
-                if (rec?.Version == TextureCacheVersion && rec.Texture != null && File.Exists(rec.Texture.File) && rec.Texture.Width >= full)
+                // a non-BC5 normal map once copied raw lacks X in alpha: made again
+                var unpacked = tex.IsNormalMap && rec?.Texture?.File?.EndsWith(".dds") == true && rec.Texture.Format != "PF_BC5";
+                if (rec?.Version == TextureCacheVersion && rec.Texture != null && File.Exists(rec.Texture.File) && rec.Texture.Width >= full && !unpacked)
                 {
                     Timing.Log($"texture {Bridge.ShortName(path)} (cached)", sw);
                     return Sampling(rec.Texture, tex);
@@ -605,8 +607,10 @@ public sealed class MaterialService
         }
         catch { /* a broken record: export again */ }
 
-        // the mip's own data, when Blender reads its format: no decode or encode
-        if (raw && tex is UTexture2D t2 && t2.PlatformData is { } pd && pd.VTData == null && RawFormats.TryGetValue(pd.PixelFormat ?? "", out var dxgi))
+        // the mip's own data, when Blender reads its format: no decode or encode. Normal maps only as BC5, the one
+        // raw format repacked with X in alpha (UEFN project ones arrive as BGRA8 decoded from their source)
+        if (raw && tex is UTexture2D t2 && t2.PlatformData is { } pd && pd.VTData == null && RawFormats.TryGetValue(pd.PixelFormat ?? "", out var dxgi)
+            && (!tex.IsNormalMap || dxgi == 83))
         {
             try
             {
@@ -615,7 +619,7 @@ public sealed class MaterialService
                 {
                     var file = stem + ".dds";
                     // a BC5 normal map as DXT5 (X in alpha): kept compressed on the GPU, with its mips
-                    var packNormal = tex.IsNormalMap && dxgi == 83;
+                    var packNormal = tex.IsNormalMap;
                     if (packNormal) dxgi = 77;
                     // the smaller mips after it, while each exists and is half the one before
                     var chain = new List<byte[]> { packNormal ? NormalPacking.Bc5ToDxt5(bytes) : bytes };
