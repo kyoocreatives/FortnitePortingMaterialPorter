@@ -169,6 +169,17 @@ check("UV laid again over the same square", np.isclose(uv.min(), uv0.min(), atol
       (uv.min(), uv.max(), uv0.min(), uv0.max()))
 check("vertex count recorded", d[tp.FRAME]["n"] == 65 * 65)
 
+# a generator scaled the terrain in place (same vertex count, its UV left as it was): written through the UV again
+co = xs(d)
+d.data.vertices.foreach_set("co", (co * np.array([1.5, 1.5, 1.0], np.float32)).ravel())
+tp.write_layers(d, {"Grass": np.ones(len(d.data.vertices), np.float32)})
+a = np.array(d[tp.FRAME]["affine"]).reshape(2, 3)
+corners = np.empty(len(d.data.loops), np.int32)
+d.data.loops.foreach_get("vertex_index", corners)
+xy = xs(d)[corners, :2]
+check("frame follows a moved terrain's UV", np.allclose(xy @ a[:, :2].T + a[:, 2], uv.reshape(-1, 2), atol=1e-4))
+tp.flush()
+
 # --- scatter layers follow the weights
 bpy.ops.mesh.primitive_cube_add(size=0.2, location=(0, 0, -50))
 blade = bpy.context.object

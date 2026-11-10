@@ -143,22 +143,29 @@ def _corners(me):
 
 
 def _affine(obj):
-    """The 2x3 map from local XY to UV map mp_weights, kept on the object (worked out from the UV the first time, again
-    when the weightmap set changed); None without the UV map."""
+    """The 2x3 map from local XY to UV map mp_weights, kept on the object. Worked out from the UV the first time, again
+    when the weightmap set changed or the UV no longer fits it (a generator moved the vertices or laid the UV again:
+    weights are written through the map the material reads them through). None without the UV map."""
     me = obj.data
     group = obj.get(weightmaps.SET) or ""
     frame = obj.get(FRAME)
+    kept = None
     if frame is not None and frame.get("set") == group:
-        return np.array(frame["affine"], np.float64).reshape(2, 3)
+        kept = np.array(frame["affine"], np.float64).reshape(2, 3)
     uv_layer = me.uv_layers.get(weightmaps.UV)
     if uv_layer is None or not len(me.loops):
-        return None
+        return kept
     uv = np.empty(len(me.loops) * 2, np.float32)
     uv_layer.data.foreach_get("uv", uv)
     pick = np.unique(np.linspace(0, len(me.loops) - 1, min(len(me.loops), 4096)).astype(np.int64))
     xy = _local(me)[_corners(me)[pick], :2]
-    a = np.linalg.lstsq(np.column_stack([xy, np.ones(len(xy))]), uv.reshape(-1, 2)[pick].astype(np.float64),
-                        rcond=None)[0].T
+    uv = uv.reshape(-1, 2)[pick].astype(np.float64)
+    A = np.column_stack([xy, np.ones(len(xy))])
+    if kept is not None and np.abs(A @ kept.T - uv).max() < 1e-4:
+        return kept
+    a = np.linalg.lstsq(A, uv, rcond=None)[0].T
+    if kept is not None and (np.abs(A @ a.T - uv).max() > 1e-3 or abs(np.linalg.det(a[:, :2])) < 1e-12):
+        return kept     # a UV that isn't a top projection (a rebuilt mesh's empty one): laid again from the frame
     obj[FRAME] = {"set": group, "affine": [float(v) for v in a.ravel()], "n": len(me.vertices)}
     return a
 
