@@ -80,9 +80,14 @@ def register():
     convert_op.register()
     # MP: the FP Material Fixer (unlinked textures, UEFN islands' missing ones)
     material_fixer.register()
+    # MP: terrain provider API for add-ons that generate terrain (bpy.app.driver_namespace["fp_terrain_api"])
+    from .material_porter import terrain_provider
+    terrain_provider.register()
 
 
 def unregister():
+    from .material_porter import terrain_provider
+    terrain_provider.unregister()
     server.shutdown()
 
     bpy.app.handlers.load_post.remove(scene_load_handler)

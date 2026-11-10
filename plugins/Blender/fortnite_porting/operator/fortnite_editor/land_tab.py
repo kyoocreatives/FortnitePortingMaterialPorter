@@ -167,6 +167,12 @@ def refresh(objects=()):
     redraw_all()
 
 
+def forget():
+    """The groups and the shown group's stores read again (another add-on rewrote a terrain's mesh or weights)."""
+    LAND.update(store=None, layers=None, biomes=None, store_key=None, groups=None, dirty=True)
+    redraw_all()
+
+
 def refresh_picture(box=None):
     """The picture image redrawn from the grid; `box` (grid cells r0, c0, r1, c1): only that part made again."""
     store, wm = LAND["store"], bpy.context.window_manager

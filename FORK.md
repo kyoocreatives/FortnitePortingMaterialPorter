@@ -83,6 +83,8 @@ with the check changed.
   `src/FortnitePorting/Views/MaterialPorter/`, `plugins/Blender/fortnite_porting/material_porter/` and
   `plugins/Blender/fortnite_porting/operator/fortnite_editor/`.
 - Plugin checks: `tests/plugin/`, each run headless with `-- <plugin parent>`.
+- Terrain provider API for add-ons that generate terrain: `material_porter/terrain_provider.py`, contract in
+  `docs/terrain_provider.md`.
 - Upstream classes are extended through partial class files named `<Class>.MaterialPorter.cs`
   next to the original.
 - Where an upstream file has to call into the fork, the call is one line marked `// MP` (C#),
