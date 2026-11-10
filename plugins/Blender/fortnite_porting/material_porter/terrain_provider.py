@@ -434,11 +434,21 @@ def on_resize(obj, old_n, new_n):
 
 # ------------------------------------------------------------------ registration
 
-def register():
+@bpy.app.handlers.persistent
+def _publish(*_):
+    # opening a file resets driver_namespace, so publish again after every load
     bpy.app.driver_namespace[NAME] = sys.modules[__name__]
 
 
+def register():
+    _publish()
+    if _publish not in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.append(_publish)
+
+
 def unregister():
+    if _publish in bpy.app.handlers.load_post:
+        bpy.app.handlers.load_post.remove(_publish)
     if bpy.app.timers.is_registered(_tick):
         bpy.app.timers.unregister(_tick)
     STATE["pending"].clear()
