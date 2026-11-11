@@ -44,11 +44,11 @@ class RendererMixin:
 
         def camera():
             n = self.node("ShaderNodeVectorTransform", "camera position", vector_type='POINT', convert_from='CAMERA', convert_to='WORLD')
-            n.inputs[0].default_value = (0.0, 0.0, 0.0)
+            n.inputs["Vector"].default_value = (0.0, 0.0, 0.0)
             return Val(n.outputs[0], 3)
         origin = self.shared("camera position", camera)
         turn = self.node("ShaderNodeVectorTransform", "view to world", vector_type='VECTOR', convert_from='CAMERA', convert_to='WORLD')
-        self.link(self.vmath('NORMALIZE', along, out_w=3), turn.inputs[0])     # (EEVEE's trace wants a unit direction)
+        self.link(self.vmath('NORMALIZE', along, out_w=3), turn.inputs["Vector"])     # (EEVEE's trace wants a unit direction)
         ray = self.node("ShaderNodeRaycast", "scene depth")
         self.link(origin, ray.inputs["Position"])
         self.link(Val(turn.outputs[0], 3), ray.inputs["Direction"])
@@ -58,7 +58,7 @@ class RendererMixin:
 
         def forward():
             n = self.node("ShaderNodeVectorTransform", "camera forward", vector_type='VECTOR', convert_from='CAMERA', convert_to='WORLD')
-            n.inputs[0].default_value = (0.0, 0.0, 1.0)
+            n.inputs["Vector"].default_value = (0.0, 0.0, 1.0)
             return Val(n.outputs[0], 3)
         ahead = self.vmath('DOT_PRODUCT', self.vmath('SUBTRACT', Val(ray.outputs["Hit Position"], 3), origin, out_w=3),
                            self.shared("camera forward", forward))

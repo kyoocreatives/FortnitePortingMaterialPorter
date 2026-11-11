@@ -20,7 +20,7 @@ class GeometryMixin:
     def blender_transform(self, v, src, dst, point):
         n = self.node("ShaderNodeVectorTransform", "%s to %s" % (src.lower(), dst.lower()),
                       vector_type='POINT' if point else 'VECTOR', convert_from=src, convert_to=dst)
-        self.link(v, n.inputs[0])
+        self.link(v, n.inputs["Vector"])     # (5.3 put a LightIndex input first)
         return Val(n.outputs[0], 3)
 
     def tangent_frame(self):

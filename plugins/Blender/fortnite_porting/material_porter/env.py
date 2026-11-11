@@ -181,7 +181,7 @@ class MaterialEnv:
         def make():
             cam = self.tr.node("ShaderNodeCameraData", "camera data")
             to_world = self.tr.node("ShaderNodeVectorTransform", "view to world", vector_type='VECTOR', convert_from='CAMERA', convert_to='WORLD')
-            self.tr.L.new(cam.outputs["View Vector"], to_world.inputs[0])
+            self.tr.L.new(cam.outputs["View Vector"], to_world.inputs["Vector"])
             away = self.tr.vmath('NORMALIZE', Val(to_world.outputs[0], 3), out_w=3)
             seen = self.tr.vmath('SCALE', away, self.tr.const(-1.0), out_w=3)
             # Cycles evaluates displacement once per mesh without a camera: use the camera direction
