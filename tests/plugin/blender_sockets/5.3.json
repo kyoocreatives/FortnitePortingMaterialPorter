@@ -1,0 +1,2800 @@
+{
+"blender": "5.3.0",
+"nodes": {
+"FunctionNodeAlignRotationToVector": {
+"in": [
+[
+"Rotation",
+"Rotation"
+],
+[
+"Factor",
+"Factor"
+],
+[
+"Vector",
+"Vector"
+]
+],
+"out": [
+[
+"Rotation",
+"Rotation"
+]
+]
+},
+"FunctionNodeAxesToRotation": {
+"in": [
+[
+"Primary Axis",
+"Primary Axis"
+],
+[
+"Secondary Axis",
+"Secondary Axis"
+]
+],
+"out": [
+[
+"Rotation",
+"Rotation"
+]
+]
+},
+"FunctionNodeAxisAngleToRotation": {
+"in": [
+[
+"Axis",
+"Axis"
+],
+[
+"Angle",
+"Angle"
+]
+],
+"out": [
+[
+"Rotation",
+"Rotation"
+]
+]
+},
+"FunctionNodeBooleanMath": {
+"in": [
+[
+"Boolean",
+"Boolean"
+],
+[
+"Boolean_001",
+"Boolean"
+]
+],
+"out": [
+[
+"Boolean",
+"Boolean"
+]
+]
+},
+"FunctionNodeCompare": {
+"in": [
+[
+"A",
+"A"
+],
+[
+"B",
+"B"
+]
+],
+"out": [
+[
+"Result",
+"Result"
+]
+]
+},
+"FunctionNodeEulerToRotation": {
+"in": [
+[
+"Euler",
+"Euler"
+]
+],
+"out": [
+[
+"Rotation",
+"Rotation"
+]
+]
+},
+"FunctionNodeFloatToInt": {
+"in": [
+[
+"Float",
+"Float"
+]
+],
+"out": [
+[
+"Integer",
+"Integer"
+]
+]
+},
+"FunctionNodeIntegerMath": {
+"in": [
+[
+"Value",
+"Value"
+],
+[
+"Value_001",
+"Value"
+],
+[
+"Value_002",
+"Value"
+]
+],
+"out": [
+[
+"Value",
+"Value"
+]
+]
+},
+"FunctionNodeInvertMatrix": {
+"in": [
+[
+"Matrix",
+"Matrix"
+]
+],
+"out": [
+[
+"Matrix",
+"Matrix"
+],
+[
+"Invertible",
+"Invertible"
+]
+]
+},
+"FunctionNodeRandomValue": {
+"in": [
+[
+"Min",
+"Min"
+],
+[
+"Max",
+"Max"
+],
+[
+"ID",
+"ID"
+],
+[
+"Seed",
+"Seed"
+]
+],
+"out": [
+[
+"Value",
+"Value"
+]
+]
+},
+"FunctionNodeRotateRotation": {
+"in": [
+[
+"Rotation",
+"Rotation"
+],
+[
+"Rotate By",
+"Rotate By"
+]
+],
+"out": [
+[
+"Rotation",
+"Rotation"
+]
+]
+},
+"FunctionNodeSeparateColor": {
+"in": [
+[
+"Color",
+"Color"
+]
+],
+"out": [
+[
+"Red",
+"Red"
+],
+[
+"Green",
+"Green"
+],
+[
+"Blue",
+"Blue"
+],
+[
+"Alpha",
+"Alpha"
+]
+]
+},
+"GeometryNodeBoundBox": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Use Radius",
+"Use Radius"
+]
+],
+"out": [
+[
+"Bounding Box",
+"Bounding Box"
+],
+[
+"Min",
+"Min"
+],
+[
+"Max",
+"Max"
+]
+]
+},
+"GeometryNodeCaptureAttribute": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"__extend__",
+""
+]
+],
+"out": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"__extend__",
+""
+]
+]
+},
+"GeometryNodeCornersOfFace": {
+"in": [
+[
+"Face Index",
+"Face Index"
+],
+[
+"Weights",
+"Weights"
+],
+[
+"Sort Index",
+"Sort Index"
+]
+],
+"out": [
+[
+"Corner Index",
+"Corner Index"
+],
+[
+"Total",
+"Total"
+]
+]
+},
+"GeometryNodeCurvePrimitiveCircle": {
+"in": [
+[
+"Resolution",
+"Resolution"
+],
+[
+"Point 1",
+"Point 1"
+],
+[
+"Point 2",
+"Point 2"
+],
+[
+"Point 3",
+"Point 3"
+],
+[
+"Radius",
+"Radius"
+]
+],
+"out": [
+[
+"Curve",
+"Curve"
+],
+[
+"Center",
+"Center"
+]
+]
+},
+"GeometryNodeCurvePrimitiveLine": {
+"in": [
+[
+"Start",
+"Start"
+],
+[
+"End",
+"End"
+],
+[
+"Direction",
+"Direction"
+],
+[
+"Length",
+"Length"
+]
+],
+"out": [
+[
+"Curve",
+"Curve"
+]
+]
+},
+"GeometryNodeCurveSplineType": {
+"in": [
+[
+"Curve",
+"Curve"
+],
+[
+"Selection",
+"Selection"
+]
+],
+"out": [
+[
+"Curve",
+"Curve"
+]
+]
+},
+"GeometryNodeCurveToMesh": {
+"in": [
+[
+"Curve",
+"Curve"
+],
+[
+"Profile Curve",
+"Profile Curve"
+],
+[
+"Scale",
+"Scale"
+],
+[
+"Fill Caps",
+"Fill Caps"
+],
+[
+"Miter Scale",
+"Miter Scale"
+],
+[
+"Miter Scale Limit",
+"Miter Scale Limit"
+]
+],
+"out": [
+[
+"Mesh",
+"Mesh"
+]
+]
+},
+"GeometryNodeDeleteGeometry": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Selection",
+"Selection"
+]
+],
+"out": [
+[
+"Geometry",
+"Geometry"
+]
+]
+},
+"GeometryNodeDistributePointsOnFaces": {
+"in": [
+[
+"Mesh",
+"Mesh"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Distance Min",
+"Distance Min"
+],
+[
+"Density Max",
+"Density Max"
+],
+[
+"Density",
+"Density"
+],
+[
+"Density Factor",
+"Density Factor"
+],
+[
+"Seed",
+"Seed"
+]
+],
+"out": [
+[
+"Points",
+"Points"
+],
+[
+"Normal",
+"Normal"
+],
+[
+"Rotation",
+"Rotation"
+]
+]
+},
+"GeometryNodeDuplicateElements": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Amount",
+"Amount"
+]
+],
+"out": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Duplicate Index",
+"Duplicate Index"
+]
+]
+},
+"GeometryNodeFieldOnDomain": {
+"in": [
+[
+"Value",
+"Value"
+]
+],
+"out": [
+[
+"Value",
+"Value"
+]
+]
+},
+"GeometryNodeGeometryToInstance": {
+"in": [
+[
+"Geometry",
+"Geometry"
+]
+],
+"out": [
+[
+"Instances",
+"Instances"
+]
+]
+},
+"GeometryNodeImageTexture": {
+"in": [
+[
+"Image",
+"Image"
+],
+[
+"Vector",
+"Vector"
+],
+[
+"Frame",
+"Frame"
+]
+],
+"out": [
+[
+"Color",
+"Color"
+],
+[
+"Alpha",
+"Alpha"
+]
+]
+},
+"GeometryNodeIndexSwitch": {
+"in": [
+[
+"Index",
+"Index"
+],
+[
+"Item_0",
+"0"
+],
+[
+"Item_1",
+"1"
+],
+[
+"__extend__",
+""
+]
+],
+"out": [
+[
+"Output",
+"Output"
+]
+]
+},
+"GeometryNodeInputActiveCamera": {
+"in": [],
+"out": [
+[
+"Active Camera",
+"Active Camera"
+]
+]
+},
+"GeometryNodeInputIndex": {
+"in": [],
+"out": [
+[
+"Index",
+"Index"
+]
+]
+},
+"GeometryNodeInputMeshEdgeVertices": {
+"in": [],
+"out": [
+[
+"Vertex Index 1",
+"Vertex Index 1"
+],
+[
+"Vertex Index 2",
+"Vertex Index 2"
+],
+[
+"Position 1",
+"Position 1"
+],
+[
+"Position 2",
+"Position 2"
+]
+]
+},
+"GeometryNodeInputNamedAttribute": {
+"in": [
+[
+"Name",
+"Name"
+]
+],
+"out": [
+[
+"Attribute",
+"Attribute"
+],
+[
+"Exists",
+"Exists"
+]
+]
+},
+"GeometryNodeInputNormal": {
+"in": [],
+"out": [
+[
+"Normal",
+"Normal"
+],
+[
+"True Normal",
+"True Normal"
+]
+]
+},
+"GeometryNodeInputPosition": {
+"in": [],
+"out": [
+[
+"Position",
+"Position"
+]
+]
+},
+"GeometryNodeInputSceneTime": {
+"in": [],
+"out": [
+[
+"Seconds",
+"Seconds"
+],
+[
+"Frame",
+"Frame"
+]
+]
+},
+"GeometryNodeInputTangent": {
+"in": [],
+"out": [
+[
+"Tangent",
+"Tangent"
+]
+]
+},
+"GeometryNodeInstanceOnPoints": {
+"in": [
+[
+"Points",
+"Points"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Instance",
+"Instance"
+],
+[
+"Pick Instance",
+"Pick Instance"
+],
+[
+"Instance Index",
+"Instance Index"
+],
+[
+"Rotation",
+"Rotation"
+],
+[
+"Scale",
+"Scale"
+]
+],
+"out": [
+[
+"Instances",
+"Instances"
+]
+]
+},
+"GeometryNodeIsViewport": {
+"in": [],
+"out": [
+[
+"Is Viewport",
+"Is Viewport"
+]
+]
+},
+"GeometryNodeJoinGeometry": {
+"in": [
+[
+"Geometry",
+"Geometry"
+]
+],
+"out": [
+[
+"Geometry",
+"Geometry"
+]
+]
+},
+"GeometryNodeMaterialSelection": {
+"in": [
+[
+"Material",
+"Material"
+]
+],
+"out": [
+[
+"Selection",
+"Selection"
+]
+]
+},
+"GeometryNodeMenuSwitch": {
+"in": [
+[
+"Menu",
+"Menu"
+],
+[
+"Item_0",
+"A"
+],
+[
+"Item_1",
+"B"
+],
+[
+"__extend__",
+""
+]
+],
+"out": [
+[
+"Output",
+"Output"
+],
+[
+"Item_0",
+"A"
+],
+[
+"Item_1",
+"B"
+]
+]
+},
+"GeometryNodeMeshToPoints": {
+"in": [
+[
+"Mesh",
+"Mesh"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Position",
+"Position"
+],
+[
+"Radius",
+"Radius"
+]
+],
+"out": [
+[
+"Points",
+"Points"
+]
+]
+},
+"GeometryNodeObjectInfo": {
+"in": [
+[
+"Object",
+"Object"
+],
+[
+"As Instance",
+"As Instance"
+]
+],
+"out": [
+[
+"Transform",
+"Transform"
+],
+[
+"Location",
+"Location"
+],
+[
+"Rotation",
+"Rotation"
+],
+[
+"Scale",
+"Scale"
+],
+[
+"Geometry",
+"Geometry"
+]
+]
+},
+"GeometryNodePoints": {
+"in": [
+[
+"Count",
+"Count"
+],
+[
+"Position",
+"Position"
+],
+[
+"Radius",
+"Radius"
+]
+],
+"out": [
+[
+"Geometry",
+"Points"
+]
+]
+},
+"GeometryNodePointsToCurves": {
+"in": [
+[
+"Points",
+"Points"
+],
+[
+"Curve Group ID",
+"Curve Group ID"
+],
+[
+"Weight",
+"Weight"
+]
+],
+"out": [
+[
+"Curves",
+"Curves"
+]
+]
+},
+"GeometryNodeRaycast": {
+"in": [
+[
+"Target Geometry",
+"Target Geometry"
+],
+[
+"Attribute",
+"Attribute"
+],
+[
+"Interpolation",
+"Interpolation"
+],
+[
+"Source Position",
+"Source Position"
+],
+[
+"Ray Direction",
+"Ray Direction"
+],
+[
+"Ray Length",
+"Ray Length"
+]
+],
+"out": [
+[
+"Is Hit",
+"Is Hit"
+],
+[
+"Hit Position",
+"Hit Position"
+],
+[
+"Hit Normal",
+"Hit Normal"
+],
+[
+"Hit Distance",
+"Hit Distance"
+],
+[
+"Attribute",
+"Attribute"
+]
+]
+},
+"GeometryNodeRealizeInstances": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Realize All",
+"Realize All"
+],
+[
+"Depth",
+"Depth"
+],
+[
+"Preserve Normals",
+"Preserve Normals"
+]
+],
+"out": [
+[
+"Geometry",
+"Geometry"
+]
+]
+},
+"GeometryNodeSampleIndex": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Value",
+"Value"
+],
+[
+"Index",
+"Index"
+]
+],
+"out": [
+[
+"Value",
+"Value"
+]
+]
+},
+"GeometryNodeScaleInstances": {
+"in": [
+[
+"Instances",
+"Instances"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Scale",
+"Scale"
+],
+[
+"Center",
+"Center"
+],
+[
+"Local Space",
+"Local Space"
+]
+],
+"out": [
+[
+"Instances",
+"Instances"
+]
+]
+},
+"GeometryNodeSelfObject": {
+"in": [],
+"out": [
+[
+"Self Object",
+"Self Object"
+]
+]
+},
+"GeometryNodeSeparateComponents": {
+"in": [
+[
+"Geometry",
+"Geometry"
+]
+],
+"out": [
+[
+"Mesh",
+"Mesh"
+],
+[
+"Curve",
+"Curve"
+],
+[
+"Grease Pencil",
+"Grease Pencil"
+],
+[
+"Point Cloud",
+"Point Cloud"
+],
+[
+"Volume",
+"Volume"
+],
+[
+"Instances",
+"Instances"
+]
+]
+},
+"GeometryNodeSeparateGeometry": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Selection",
+"Selection"
+]
+],
+"out": [
+[
+"Selection",
+"Selection"
+],
+[
+"Inverted",
+"Inverted"
+]
+]
+},
+"GeometryNodeSetCurveNormal": {
+"in": [
+[
+"Curve",
+"Curve"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Mode",
+"Mode"
+],
+[
+"Normal",
+"Normal"
+]
+],
+"out": [
+[
+"Curve",
+"Curve"
+]
+]
+},
+"GeometryNodeSetCurveRadius": {
+"in": [
+[
+"Curve",
+"Curve"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Radius",
+"Radius"
+]
+],
+"out": [
+[
+"Curve",
+"Curve"
+]
+]
+},
+"GeometryNodeSetMaterial": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Material",
+"Material"
+]
+],
+"out": [
+[
+"Geometry",
+"Geometry"
+]
+]
+},
+"GeometryNodeSetMeshNormal": {
+"in": [
+[
+"Mesh",
+"Mesh"
+],
+[
+"Remove Custom",
+"Remove Custom"
+],
+[
+"Edge Sharpness",
+"Edge Sharpness"
+],
+[
+"Face Sharpness",
+"Face Sharpness"
+]
+],
+"out": [
+[
+"Mesh",
+"Mesh"
+]
+]
+},
+"GeometryNodeSetPosition": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Position",
+"Position"
+],
+[
+"Offset",
+"Offset"
+]
+],
+"out": [
+[
+"Geometry",
+"Geometry"
+]
+]
+},
+"GeometryNodeSetSplineResolution": {
+"in": [
+[
+"Geometry",
+"Curve"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Resolution",
+"Resolution"
+]
+],
+"out": [
+[
+"Geometry",
+"Curve"
+]
+]
+},
+"GeometryNodeSplineParameter": {
+"in": [],
+"out": [
+[
+"Factor",
+"Factor"
+],
+[
+"Length",
+"Length"
+],
+[
+"Index",
+"Index"
+]
+]
+},
+"GeometryNodeStoreNamedAttribute": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Name",
+"Name"
+],
+[
+"Value",
+"Value"
+]
+],
+"out": [
+[
+"Geometry",
+"Geometry"
+]
+]
+},
+"GeometryNodeSwitch": {
+"in": [
+[
+"Switch",
+"Switch"
+],
+[
+"False",
+"False"
+],
+[
+"True",
+"True"
+]
+],
+"out": [
+[
+"Output",
+"Output"
+]
+]
+},
+"GeometryNodeTransform": {
+"in": [
+[
+"Geometry",
+"Geometry"
+],
+[
+"Mode",
+"Mode"
+],
+[
+"Translation",
+"Translation"
+],
+[
+"Rotation",
+"Rotation"
+],
+[
+"Scale",
+"Scale"
+],
+[
+"Transform",
+"Transform"
+]
+],
+"out": [
+[
+"Geometry",
+"Geometry"
+]
+]
+},
+"GeometryNodeTriangulate": {
+"in": [
+[
+"Mesh",
+"Mesh"
+],
+[
+"Selection",
+"Selection"
+],
+[
+"Quad Method",
+"Quad Method"
+],
+[
+"N-gon Method",
+"N-gon Method"
+]
+],
+"out": [
+[
+"Mesh",
+"Mesh"
+]
+]
+},
+"NodeClosureInput": {
+"in": [],
+"out": [
+[
+"__extend__",
+""
+]
+]
+},
+"NodeClosureOutput": {
+"in": [
+[
+"__extend__",
+""
+]
+],
+"out": [
+[
+"Closure",
+"Closure"
+]
+]
+},
+"NodeCombineBundle": {
+"in": [
+[
+"__extend__",
+""
+]
+],
+"out": [
+[
+"Bundle",
+"Bundle"
+]
+]
+},
+"NodeEvaluateClosure": {
+"in": [
+[
+"Closure",
+"Closure"
+],
+[
+"__extend__",
+""
+]
+],
+"out": [
+[
+"__extend__",
+""
+]
+]
+},
+"NodeFrame": {
+"in": [],
+"out": []
+},
+"NodeGroupInput": {
+"in": [],
+"out": [
+[
+"__extend__",
+""
+]
+]
+},
+"NodeGroupOutput": {
+"in": [
+[
+"__extend__",
+""
+]
+],
+"out": []
+},
+"NodeJoinBundle": {
+"in": [
+[
+"Bundle",
+"Bundle"
+]
+],
+"out": [
+[
+"Bundle",
+"Bundle"
+]
+]
+},
+"NodeReroute": {
+"in": [
+[
+"Input",
+"Input"
+]
+],
+"out": [
+[
+"Output",
+"Output"
+]
+]
+},
+"NodeSeparateBundle": {
+"in": [
+[
+"Bundle",
+"Bundle"
+]
+],
+"out": [
+[
+"__extend__",
+""
+]
+]
+},
+"ShaderNodeAddShader": {
+"in": [
+[
+"Shader",
+"Shader"
+],
+[
+"Shader_001",
+"Shader"
+]
+],
+"out": [
+[
+"Shader",
+"Shader"
+]
+]
+},
+"ShaderNodeAttribute": {
+"in": [
+[
+"LightIndex",
+"LightIndex"
+]
+],
+"out": [
+[
+"Color",
+"Color"
+],
+[
+"Vector",
+"Vector"
+],
+[
+"Fac",
+"Factor"
+],
+[
+"Alpha",
+"Alpha"
+]
+]
+},
+"ShaderNodeBackground": {
+"in": [
+[
+"Color",
+"Color"
+],
+[
+"Strength",
+"Strength"
+],
+[
+"Weight",
+"Weight"
+]
+],
+"out": [
+[
+"Background",
+"Background"
+]
+]
+},
+"ShaderNodeBlackbody": {
+"in": [
+[
+"Temperature",
+"Temperature"
+]
+],
+"out": [
+[
+"Color",
+"Color"
+]
+]
+},
+"ShaderNodeBsdfDiffuse": {
+"in": [
+[
+"Color",
+"Color"
+],
+[
+"Roughness",
+"Roughness"
+],
+[
+"Normal",
+"Normal"
+],
+[
+"Weight",
+"Weight"
+]
+],
+"out": [
+[
+"BSDF",
+"BSDF"
+]
+]
+},
+"ShaderNodeBsdfPrincipled": {
+"in": [
+[
+"Base Color",
+"Base Color"
+],
+[
+"Metallic",
+"Metallic"
+],
+[
+"Roughness",
+"Roughness"
+],
+[
+"IOR",
+"IOR"
+],
+[
+"Alpha",
+"Alpha"
+],
+[
+"Thin Wall",
+"Thin Wall"
+],
+[
+"Normal",
+"Normal"
+],
+[
+"Weight",
+"Weight"
+],
+[
+"Diffuse Roughness",
+"Diffuse Roughness"
+],
+[
+"Subsurface Weight",
+"Subsurface Weight"
+],
+[
+"Subsurface Radius",
+"Subsurface Radius"
+],
+[
+"Subsurface Scale",
+"Subsurface Scale"
+],
+[
+"Subsurface IOR",
+"Subsurface IOR"
+],
+[
+"Subsurface Anisotropy",
+"Subsurface Anisotropy"
+],
+[
+"Specular IOR Level",
+"Specular IOR Level"
+],
+[
+"Specular Tint",
+"Specular Tint"
+],
+[
+"Anisotropic",
+"Anisotropic"
+],
+[
+"Anisotropic Rotation",
+"Anisotropic Rotation"
+],
+[
+"Tangent",
+"Tangent"
+],
+[
+"Transmission Weight",
+"Transmission Weight"
+],
+[
+"Transmission Dispersion Scale",
+"Transmission Dispersion Scale"
+],
+[
+"Transmission Dispersion Abbe Number",
+"Transmission Dispersion Abbe Number"
+],
+[
+"Coat Weight",
+"Coat Weight"
+],
+[
+"Coat Roughness",
+"Coat Roughness"
+],
+[
+"Coat IOR",
+"Coat IOR"
+],
+[
+"Coat Tint",
+"Coat Tint"
+],
+[
+"Coat Normal",
+"Coat Normal"
+],
+[
+"Sheen Weight",
+"Sheen Weight"
+],
+[
+"Sheen Roughness",
+"Sheen Roughness"
+],
+[
+"Sheen Tint",
+"Sheen Tint"
+],
+[
+"Emission Color",
+"Emission Color"
+],
+[
+"Emission Strength",
+"Emission Strength"
+],
+[
+"Thin Film Thickness",
+"Thin Film Thickness"
+],
+[
+"Thin Film IOR",
+"Thin Film IOR"
+]
+],
+"out": [
+[
+"BSDF",
+"BSDF"
+]
+]
+},
+"ShaderNodeBsdfTransparent": {
+"in": [
+[
+"Color",
+"Color"
+],
+[
+"Weight",
+"Weight"
+]
+],
+"out": [
+[
+"BSDF",
+"BSDF"
+]
+]
+},
+"ShaderNodeCameraData": {
+"in": [],
+"out": [
+[
+"View Vector",
+"View Vector"
+],
+[
+"View Z Depth",
+"View Z Depth"
+],
+[
+"View Distance",
+"View Distance"
+]
+]
+},
+"ShaderNodeClamp": {
+"in": [
+[
+"Value",
+"Value"
+],
+[
+"Min",
+"Min"
+],
+[
+"Max",
+"Max"
+]
+],
+"out": [
+[
+"Result",
+"Result"
+]
+]
+},
+"ShaderNodeCombineColor": {
+"in": [
+[
+"Red",
+"Red"
+],
+[
+"Green",
+"Green"
+],
+[
+"Blue",
+"Blue"
+]
+],
+"out": [
+[
+"Color",
+"Color"
+]
+]
+},
+"ShaderNodeCombineXYZ": {
+"in": [
+[
+"X",
+"X"
+],
+[
+"Y",
+"Y"
+],
+[
+"Z",
+"Z"
+]
+],
+"out": [
+[
+"Vector",
+"Vector"
+]
+]
+},
+"ShaderNodeEmission": {
+"in": [
+[
+"Color",
+"Color"
+],
+[
+"Strength",
+"Strength"
+],
+[
+"Weight",
+"Weight"
+]
+],
+"out": [
+[
+"Emission",
+"Emission"
+]
+]
+},
+"ShaderNodeFloatCurve": {
+"in": [
+[
+"Factor",
+"Factor"
+],
+[
+"Value",
+"Value"
+]
+],
+"out": [
+[
+"Value",
+"Value"
+]
+]
+},
+"ShaderNodeFresnel": {
+"in": [
+[
+"IOR",
+"IOR"
+],
+[
+"Normal",
+"Normal"
+]
+],
+"out": [
+[
+"Fac",
+"Factor"
+]
+]
+},
+"ShaderNodeGamma": {
+"in": [
+[
+"Color",
+"Color"
+],
+[
+"Gamma",
+"Gamma"
+]
+],
+"out": [
+[
+"Color",
+"Color"
+]
+]
+},
+"ShaderNodeGroup": {
+"in": [],
+"out": []
+},
+"ShaderNodeHueSaturation": {
+"in": [
+[
+"Hue",
+"Hue"
+],
+[
+"Saturation",
+"Saturation"
+],
+[
+"Value",
+"Value"
+],
+[
+"Fac",
+"Factor"
+],
+[
+"Color",
+"Color"
+]
+],
+"out": [
+[
+"Color",
+"Color"
+]
+]
+},
+"ShaderNodeLightPath": {
+"in": [],
+"out": [
+[
+"Is Camera Ray",
+"Is Camera Ray"
+],
+[
+"Is Shadow Ray",
+"Is Shadow Ray"
+],
+[
+"Is Diffuse Ray",
+"Is Diffuse Ray"
+],
+[
+"Is Glossy Ray",
+"Is Glossy Ray"
+],
+[
+"Is Singular Ray",
+"Is Singular Ray"
+],
+[
+"Is Reflection Ray",
+"Is Reflection Ray"
+],
+[
+"Is Transmission Ray",
+"Is Transmission Ray"
+],
+[
+"Is Volume Scatter Ray",
+"Is Volume Scatter Ray"
+],
+[
+"Ray Length",
+"Ray Length"
+],
+[
+"Ray Depth",
+"Ray Depth"
+],
+[
+"Diffuse Depth",
+"Diffuse Depth"
+],
+[
+"Glossy Depth",
+"Glossy Depth"
+],
+[
+"Transparent Depth",
+"Transparent Depth"
+],
+[
+"Transmission Depth",
+"Transmission Depth"
+],
+[
+"Portal Depth",
+"Portal Depth"
+]
+]
+},
+"ShaderNodeMapRange": {
+"in": [
+[
+"Value",
+"Value"
+],
+[
+"From Min",
+"From Min"
+],
+[
+"From Max",
+"From Max"
+],
+[
+"To Min",
+"To Min"
+],
+[
+"To Max",
+"To Max"
+],
+[
+"Steps",
+"Steps"
+],
+[
+"Vector",
+"Vector"
+],
+[
+"From_Min_FLOAT3",
+"From Min"
+],
+[
+"From_Max_FLOAT3",
+"From Max"
+],
+[
+"To_Min_FLOAT3",
+"To Min"
+],
+[
+"To_Max_FLOAT3",
+"To Max"
+],
+[
+"Steps_FLOAT3",
+"Steps"
+]
+],
+"out": [
+[
+"Result",
+"Result"
+],
+[
+"Vector",
+"Vector"
+]
+]
+},
+"ShaderNodeMath": {
+"in": [
+[
+"Value",
+"Value"
+],
+[
+"Value_001",
+"Value"
+],
+[
+"Value_002",
+"Value"
+]
+],
+"out": [
+[
+"Value",
+"Value"
+]
+]
+},
+"ShaderNodeMix": {
+"in": [
+[
+"Factor_Float",
+"Factor"
+],
+[
+"Factor_Vector",
+"Factor"
+],
+[
+"A_Float",
+"A"
+],
+[
+"B_Float",
+"B"
+],
+[
+"A_Vector",
+"A"
+],
+[
+"B_Vector",
+"B"
+],
+[
+"A_Color",
+"A"
+],
+[
+"B_Color",
+"B"
+],
+[
+"A_Rotation",
+"A"
+],
+[
+"B_Rotation",
+"B"
+]
+],
+"out": [
+[
+"Result_Float",
+"Result"
+],
+[
+"Result_Vector",
+"Result"
+],
+[
+"Result_Color",
+"Result"
+],
+[
+"Result_Rotation",
+"Result"
+]
+]
+},
+"ShaderNodeMixRGB": {
+"in": [
+[
+"Fac",
+"Factor"
+],
+[
+"Color1",
+"Color1"
+],
+[
+"Color2",
+"Color2"
+]
+],
+"out": [
+[
+"Color",
+"Color"
+]
+]
+},
+"ShaderNodeMixShader": {
+"in": [
+[
+"Fac",
+"Factor"
+],
+[
+"Shader",
+"Shader"
+],
+[
+"Shader_001",
+"Shader"
+]
+],
+"out": [
+[
+"Shader",
+"Shader"
+]
+]
+},
+"ShaderNodeNewGeometry": {
+"in": [],
+"out": [
+[
+"Position",
+"Position"
+],
+[
+"Normal",
+"Normal"
+],
+[
+"Tangent",
+"Tangent"
+],
+[
+"True Normal",
+"True Normal"
+],
+[
+"Incoming",
+"Incoming"
+],
+[
+"Parametric",
+"Parametric"
+],
+[
+"Backfacing",
+"Backfacing"
+],
+[
+"Pointiness",
+"Pointiness"
+],
+[
+"Random Per Island",
+"Random Per Island"
+]
+]
+},
+"ShaderNodeNormalMap": {
+"in": [
+[
+"Strength",
+"Strength"
+],
+[
+"Color",
+"Color"
+]
+],
+"out": [
+[
+"Normal",
+"Normal"
+]
+]
+},
+"ShaderNodeObjectInfo": {
+"in": [],
+"out": [
+[
+"Location",
+"Location"
+],
+[
+"Color",
+"Color"
+],
+[
+"Alpha",
+"Alpha"
+],
+[
+"Object Index",
+"Object Index"
+],
+[
+"Material Index",
+"Material Index"
+],
+[
+"Random",
+"Random"
+]
+]
+},
+"ShaderNodeOutputAOV": {
+"in": [
+[
+"Color",
+"Color"
+],
+[
+"Value",
+"Value"
+]
+],
+"out": []
+},
+"ShaderNodeOutputLight": {
+"in": [
+[
+"Surface",
+"Surface"
+]
+],
+"out": []
+},
+"ShaderNodeOutputMaterial": {
+"in": [
+[
+"Surface",
+"Surface"
+],
+[
+"Volume",
+"Volume"
+],
+[
+"Displacement",
+"Displacement"
+],
+[
+"Thickness",
+"Thickness"
+]
+],
+"out": []
+},
+"ShaderNodeOutputWorld": {
+"in": [
+[
+"Surface",
+"Surface"
+],
+[
+"Volume",
+"Volume"
+]
+],
+"out": []
+},
+"ShaderNodeRGB": {
+"in": [],
+"out": [
+[
+"Color",
+"Color"
+]
+]
+},
+"ShaderNodeRGBToBW": {
+"in": [
+[
+"Color",
+"Color"
+]
+],
+"out": [
+[
+"Val",
+"Val"
+]
+]
+},
+"ShaderNodeRaycast": {
+"in": [
+[
+"Position",
+"Position"
+],
+[
+"Direction",
+"Direction"
+],
+[
+"Length",
+"Length"
+],
+[
+"__extend__",
+""
+]
+],
+"out": [
+[
+"Is Hit",
+"Is Hit"
+],
+[
+"Self Hit",
+"Self Hit"
+],
+[
+"Hit Distance",
+"Hit Distance"
+],
+[
+"Hit Position",
+"Hit Position"
+],
+[
+"Hit Normal",
+"Hit Normal"
+],
+[
+"__extend__",
+""
+]
+]
+},
+"ShaderNodeSeparateColor": {
+"in": [
+[
+"Color",
+"Color"
+]
+],
+"out": [
+[
+"Red",
+"Red"
+],
+[
+"Green",
+"Green"
+],
+[
+"Blue",
+"Blue"
+]
+]
+},
+"ShaderNodeSeparateXYZ": {
+"in": [
+[
+"Vector",
+"Vector"
+]
+],
+"out": [
+[
+"X",
+"X"
+],
+[
+"Y",
+"Y"
+],
+[
+"Z",
+"Z"
+]
+]
+},
+"ShaderNodeTangent": {
+"in": [],
+"out": [
+[
+"Tangent",
+"Tangent"
+]
+]
+},
+"ShaderNodeTexCoord": {
+"in": [],
+"out": [
+[
+"Generated",
+"Generated"
+],
+[
+"Normal",
+"Normal"
+],
+[
+"UV",
+"UV"
+],
+[
+"Object",
+"Object"
+],
+[
+"Camera",
+"Camera"
+],
+[
+"Window",
+"Window"
+],
+[
+"Reflection",
+"Reflection"
+]
+]
+},
+"ShaderNodeTexImage": {
+"in": [
+[
+"Vector",
+"Vector"
+]
+],
+"out": [
+[
+"Color",
+"Color"
+],
+[
+"Alpha",
+"Alpha"
+]
+]
+},
+"ShaderNodeTexNoise": {
+"in": [
+[
+"Vector",
+"Vector"
+],
+[
+"W",
+"W"
+],
+[
+"Scale",
+"Scale"
+],
+[
+"Detail",
+"Detail"
+],
+[
+"Roughness",
+"Roughness"
+],
+[
+"Lacunarity",
+"Lacunarity"
+],
+[
+"Offset",
+"Offset"
+],
+[
+"Gain",
+"Gain"
+],
+[
+"Distortion",
+"Distortion"
+]
+],
+"out": [
+[
+"Fac",
+"Factor"
+],
+[
+"Color",
+"Color"
+]
+]
+},
+"ShaderNodeTexVoronoi": {
+"in": [
+[
+"Vector",
+"Vector"
+],
+[
+"W",
+"W"
+],
+[
+"Scale",
+"Scale"
+],
+[
+"Detail",
+"Detail"
+],
+[
+"Roughness",
+"Roughness"
+],
+[
+"Lacunarity",
+"Lacunarity"
+],
+[
+"Smoothness",
+"Smoothness"
+],
+[
+"Exponent",
+"Exponent"
+],
+[
+"Randomness",
+"Randomness"
+]
+],
+"out": [
+[
+"Distance",
+"Distance"
+],
+[
+"Color",
+"Color"
+],
+[
+"Position",
+"Position"
+],
+[
+"W",
+"W"
+],
+[
+"Radius",
+"Radius"
+]
+]
+},
+"ShaderNodeTexWhiteNoise": {
+"in": [
+[
+"Vector",
+"Vector"
+],
+[
+"W",
+"W"
+]
+],
+"out": [
+[
+"Value",
+"Value"
+],
+[
+"Color",
+"Color"
+]
+]
+},
+"ShaderNodeUVMap": {
+"in": [],
+"out": [
+[
+"UV",
+"UV"
+]
+]
+},
+"ShaderNodeValue": {
+"in": [],
+"out": [
+[
+"Value",
+"Value"
+]
+]
+},
+"ShaderNodeVectorDisplacement": {
+"in": [
+[
+"Vector",
+"Vector"
+],
+[
+"Midlevel",
+"Midlevel"
+],
+[
+"Scale",
+"Scale"
+]
+],
+"out": [
+[
+"Displacement",
+"Displacement"
+]
+]
+},
+"ShaderNodeVectorMath": {
+"in": [
+[
+"Vector",
+"Vector"
+],
+[
+"Vector_001",
+"Vector"
+],
+[
+"Vector_002",
+"Vector"
+],
+[
+"Scale",
+"Scale"
+]
+],
+"out": [
+[
+"Vector",
+"Vector"
+],
+[
+"Value",
+"Value"
+]
+]
+},
+"ShaderNodeVectorRotate": {
+"in": [
+[
+"Vector",
+"Vector"
+],
+[
+"Center",
+"Center"
+],
+[
+"Axis",
+"Axis"
+],
+[
+"Angle",
+"Angle"
+],
+[
+"Rotation",
+"Rotation"
+]
+],
+"out": [
+[
+"Vector",
+"Vector"
+]
+]
+},
+"ShaderNodeVectorTransform": {
+"in": [
+[
+"LightIndex",
+"LightIndex"
+],
+[
+"Vector",
+"Vector"
+]
+],
+"out": [
+[
+"Vector",
+"Vector"
+]
+]
+},
+"ShaderNodeVertexColor": {
+"in": [],
+"out": [
+[
+"Color",
+"Color"
+],
+[
+"Alpha",
+"Alpha"
+]
+]
+}
+}
+}
