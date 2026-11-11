@@ -1,6 +1,7 @@
-"""The FP app as the editor's engine: found on its bridge, else launched hidden (--background --parent-pid), else the
-reason it can't be (no exe, too old, setup unfinished). Requests run on worker threads; pump() hands their answers
-and state changes to the caller's thread (the editor's timer), so drawing never waits."""
+"""The FP app as the editor's engine, only once the user presses Start: found on its bridge, else launched hidden
+(--background --parent-pid), else the reason it can't be (no exe, too old, setup unfinished); Stop asks it to quit.
+Requests run on worker threads; pump() hands their answers and state changes to the caller's thread (the editor's
+timer), so drawing never waits."""
 import json
 import os
 import queue
@@ -12,7 +13,7 @@ import urllib.parse
 import urllib.request
 
 MIN_ENGINE = "mpv-1.8.0"
-STATES = ("unknown", "starting", "loading", "ready", "error", "too_old", "no_exe", "setup")
+STATES = ("stopped", "unknown", "starting", "loading", "ready", "error", "too_old", "no_exe", "setup")
 
 
 def default_info_path():
@@ -44,9 +45,12 @@ class Engine:
         self.exe_hint = exe_hint
         self.info_path = info_path or default_info_path()
         self.launcher = launcher
-        self.state, self.status_text = "unknown", ""
-        self._launched = self._attached = self._wanted = self._checking = False
+        self.state, self.status_text = "stopped", ""
+        self.on = False     # Start pressed (and not Stop since): nothing finds, attaches or launches the app before
+        self._launched = self._attached = self._checking = False
         self._proc = None
+        self._gen = 0       # bumped by Start/Stop: a check begun before them reports nothing
+        self._lock = threading.Lock()       # a launch and Stop never interleave
         self.last_error = None      # the last answer callback that raised (shown by the editor)
         self._next_check = 0.0
         self._checks, self._jobs, self._done = queue.Queue(), queue.Queue(), queue.Queue()
@@ -56,11 +60,26 @@ class Engine:
 
     # ---------------------------------------------------------------- caller's thread
 
-    def ensure(self):
+    def start(self):
         """Find, attach or launch the engine (non-blocking); later checks follow from pump()."""
-        self._wanted = True
-        self._next_check = 0.0
-        self._schedule()
+        if not self.on:
+            self.on, self._gen = True, self._gen + 1
+            self.state, self.status_text = "unknown", ""
+        self.ensure()
+
+    def stop(self):
+        """Detach, and ask the app to quit (it stays when shown or another Blender uses it)."""
+        with self._lock:
+            self.on, self._gen = False, self._gen + 1
+            self.state, self.status_text = "stopped", ""
+            proc, self._launched, self._proc = (self._proc if self._launched else None), False, None
+        threading.Thread(target=self._quit, args=(self._gen, proc), daemon=True, name="FP engine stop").start()
+
+    def ensure(self):
+        """Check again now, once started."""
+        if self.on:
+            self._next_check = 0.0
+            self._schedule()
 
     def request(self, route, done, timeout=600, **query):
         self._jobs.put((route, query, done, timeout))
@@ -79,11 +98,17 @@ class Engine:
             kind, payload = self._done.get()
             if kind == "state":
                 self._checking = False
-                state, text = payload
+                gen, (state, text) = payload
+                if gen != self._gen:
+                    continue
                 if (state, text) != (self.state, self.status_text):
                     self.state, self.status_text = state, text
                     changed = True
                 self._next_check = time.time() + (5.0 if state == "ready" else 1.0)
+            elif kind == "stopped":     # what Stop's quit request heard
+                gen, text = payload
+                if gen == self._gen and text != self.status_text:
+                    self.status_text, changed = text, True
             else:
                 done, result = payload
                 try:
@@ -91,7 +116,7 @@ class Engine:
                 except Exception as e:      # one bad answer must not stop the editor's timer
                     self.last_error, quiet = "%s: %s" % (type(e).__name__, e), False
                 changed |= not quiet
-        if self._wanted and not self._checking and time.time() >= self._next_check:
+        if self.on and not self._checking and time.time() >= self._next_check:
             self._schedule()
         return changed
 
@@ -133,7 +158,7 @@ class Engine:
         except (urllib.error.URLError, OSError, ValueError):
             self._attached = False      # a restarted engine must hear from this Blender again
             return self._unreachable()
-        if not self._attached:
+        if not self._attached and self.on:     # not after Stop: the app would wait on this Blender again
             try:
                 self._get("engine-attach", 2, pid=os.getpid())
                 self._attached = True
@@ -161,21 +186,40 @@ class Engine:
         exe = self._exe()
         if not exe:
             return "no_exe", "FP isn't running and its exe is unknown: set it in the add-on preferences."
-        try:
-            self._proc = self.launcher([exe, "--background", "--parent-pid", str(os.getpid())], cwd=os.path.dirname(exe))
-        except OSError as e:
-            return "error", "Couldn't start FP: %s" % e
-        self._launched = True
+        with self._lock:
+            if not self.on:
+                return "stopped", ""
+            try:
+                self._proc = self.launcher([exe, "--background", "--parent-pid", str(os.getpid())], cwd=os.path.dirname(exe))
+            except OSError as e:
+                return "error", "Couldn't start FP: %s" % e
+            self._launched = True
         return "starting", "Starting FP..."
+
+    def _quit(self, gen, proc):
+        try:
+            answer = self._get("engine-stop", 2, pid=os.getpid())
+            text = "" if answer.get("quitting") else ("FP's window stays open" if answer.get("shown")
+                                                       else "FP stays running for another Blender")
+        except urllib.error.HTTPError:      # an app from before engine-stop
+            text = "This FP can't be stopped from here" if proc is None else ""
+        except (urllib.error.URLError, OSError, ValueError):        # still loading (no bridge yet), or gone
+            text = ""
+        else:
+            proc = None
+        if proc is not None and getattr(proc, "poll", lambda: 0)() is None:
+            proc.terminate()        # one we launched that can't hear engine-stop: before its bridge listens, or too old
+        self._done.put(("stopped", (gen, text)))
 
     def _check_loop(self):
         while True:
             self._checks.get()
+            gen = self._gen
             try:
                 result = self._check()
             except Exception as e:      # never leave the editor waiting on a dead check
                 result = ("error", str(e))
-            self._done.put(("state", result))
+            self._done.put(("state", (gen, result)))
 
     def _request_loop(self):
         while True:

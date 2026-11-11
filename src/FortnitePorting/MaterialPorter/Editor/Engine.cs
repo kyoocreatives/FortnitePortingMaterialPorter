@@ -98,6 +98,20 @@ public static partial class Engine
         }
     }
 
+    /// <summary>The editor's Stop: this Blender lets go; the app quits unless shown or another Blender uses it.</summary>
+    public static object Stop(int pid)
+    {
+        bool quit, others;
+        lock (Parents)
+        {
+            Parents.Remove(pid);
+            others = Parents.Any(Alive);
+            quit = Background && !Shown && !others;
+        }
+        if (quit) Dispatcher.UIThread.Post(() => AppServices.App.Lifetime.Shutdown());
+        return new { quitting = quit, shown = Shown || !Background, others };
+    }
+
     public static void Show() => Dispatcher.UIThread.Post(() =>
     {
         if (_window is null) return;

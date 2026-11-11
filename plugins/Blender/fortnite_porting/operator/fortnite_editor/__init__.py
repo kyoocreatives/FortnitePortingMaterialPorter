@@ -1,5 +1,5 @@
 """The Fortnite editor: FP's pages in a node editor of their own (host.py), with the app running as a
-hidden engine Blender starts itself.
+hidden engine Blender starts when the user presses Start (the status bar, or the setup card).
 
 Regions: the tab strip in the toolbar, the header (the tab's own tools, the engine's state), the tab's main view drawn
 in the main region (grid_draw / grid_ops for Cosmetics), its list and tools in the sidebar. A timer pumps the engine's answers and asks for
@@ -127,8 +127,30 @@ class FP_OT_engine_show(bpy.types.Operator):
         return {'FINISHED'}
 
 
+class FP_OT_engine_start(bpy.types.Operator):
+    """Start FP as the editor's engine (hidden), or connect to the one already running"""
+    bl_idname = "fp.engine_start"
+    bl_label = "Start FP"
+
+    def execute(self, context):
+        client().start()
+        tag_redraw()
+        return {'FINISHED'}
+
+
+class FP_OT_engine_stop(bpy.types.Operator):
+    """Stop FP: the editor lets go of it and it quits (unless its window is open or another Blender uses it)"""
+    bl_idname = "fp.engine_stop"
+    bl_label = "Stop FP"
+
+    def execute(self, context):
+        client().stop()
+        tag_redraw()
+        return {'FINISHED'}
+
+
 class FP_OT_engine_locate(bpy.types.Operator):
-    """Pick FortnitePortingMP.exe (the editor starts it hidden when it isn't running)"""
+    """Pick FortnitePortingMP.exe (Start runs it hidden when it isn't running)"""
     bl_idname = "fp.engine_locate"
     bl_label = "Locate FP"
     filepath: bpy.props.StringProperty(subtype='FILE_PATH')
@@ -140,8 +162,10 @@ class FP_OT_engine_locate(bpy.types.Operator):
 
     def execute(self, context):
         save_prefs(exe=self.filepath)
+        if STATE["engine"] is not None:
+            STATE["engine"].stop()
         reset_client()
-        client().ensure()
+        client().start()
         return {'FINISHED'}
 
 
@@ -160,7 +184,7 @@ class FP_OT_browse_refresh(bpy.types.Operator):
 
 # ------------------------------------------------------------------ regions
 
-STATE_ICONS = {"ready": 'CHECKMARK', "loading": 'SORTTIME', "starting": 'SORTTIME', "setup": 'ERROR',
+STATE_ICONS = {"stopped": 'PAUSE', "ready": 'CHECKMARK', "loading": 'SORTTIME', "starting": 'SORTTIME', "setup": 'ERROR',
                "no_exe": 'ERROR', "too_old": 'ERROR', "error": 'ERROR', "unknown": 'SORTTIME'}
 
 
@@ -250,8 +274,6 @@ _ACTIONS = {"tab": _tab_action, "settings": _settings, "drawer": _drawer}
 
 def _header(layout, context):
     e = client()
-    if e.state == "unknown":
-        e.ensure()      # the first draw of a Fortnite area starts or finds the engine
     layout.template_header()
     layout.operator("fp.popup_open", text="Fortnite", emboss=False).name = "fortnite"
     current = tabs.current(context.space_data)
@@ -259,7 +281,7 @@ def _header(layout, context):
         if current.header is not None:
             current.header(layout, context)
     layout.separator_spacer()       # what imports are doing: the status bar under the panel
-    if e.state != "ready":
+    if e.state not in ("ready", "stopped") or e.status_text:      # stopped: the status bar says so
         layout.label(text=e.status_text[:90] or "Connecting to FP...", icon=STATE_ICONS.get(e.state, 'INFO'))
     if e.state in ("no_exe", "error"):
         layout.operator(FP_OT_engine_locate.bl_idname, icon='FILEBROWSER')
@@ -269,7 +291,7 @@ def _header(layout, context):
     layout.operator(FP_OT_browse_refresh.bl_idname, text="", icon='FILE_REFRESH')
 
 
-classes = (FP_OT_browse_tab, FP_OT_engine_show, FP_OT_engine_locate, FP_OT_browse_refresh, FP_OT_editor_tab)
+classes = (FP_OT_browse_tab, FP_OT_engine_show, FP_OT_engine_start, FP_OT_engine_stop, FP_OT_engine_locate, FP_OT_browse_refresh, FP_OT_editor_tab)
 from . import quick_search  # noqa: E402  (Ctrl+Shift+F over any editor)
 modules = (grid_ops, browse_ops, asset_tab, files_tab, maps_tab, maps_ops, rig_tab, rig_ops, land_tab, land_ops, scatter_ops, mat_tab, anim_tab, anim_play, fx_tab, preview, settings_tab, tool_tabs, workspaces, quick_search)
 

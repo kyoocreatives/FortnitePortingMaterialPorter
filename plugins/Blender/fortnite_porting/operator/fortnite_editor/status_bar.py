@@ -5,7 +5,7 @@ import time
 import bpy
 
 from . import logbook
-from .state import STATE
+from .state import STATE, client
 from .ui import paint, shell
 from .ui.rect import Rect
 
@@ -39,6 +39,7 @@ def draw(ui, cols):
     ui.button("status:log", r.cut_right(44 * s), "Log", action=toggle, style="flat", selected=key in OPEN,
               tip="Every step of the imports (newest first)")
     r.cut_right(t.pad)
+    _engine(ui, r)
     if logbook.LOG["job"] is not None:
         elapsed = "%.1f s" % (time.time() - logbook.LOG["started"])
         paint.text_in(elapsed, r.cut_right(paint.measure(elapsed, t.caption) + t.pad), t.text3, t.caption, "right")
@@ -52,6 +53,40 @@ def draw(ui, cols):
         track = Rect(r.x, bar.y, r.w, 2 * s)
         paint.rect(track, t.text1[:3] + (0.08,), s)
         paint.rect(Rect(track.x, track.y, track.w * progress, track.h), t.accent, s)
+
+
+def engine_label(e):
+    """The engine's state in a word or two: the status bar's, and the tests'."""
+    if not e.on:
+        return "FP stopped"
+    if e.state == "ready":
+        return "FP running"
+    if e.state in ("unknown", "starting", "loading"):
+        return "FP starting"
+    return "FP needs setup" if e.state == "setup" else "FP not running"
+
+
+def _engine(ui, r):
+    """Start / Stop and the engine's state, cut from the bar's right."""
+    t, s = ui.t, ui.t.s
+    e = client()
+
+    def toggle(context):
+        if e.on:
+            bpy.ops.fp.engine_stop()
+        else:
+            bpy.ops.fp.engine_start()
+    ui.button("status:engine", r.cut_right(52 * s), "Stop" if e.on else "Start", action=toggle,
+              style="flat" if e.on else "accent",
+              tip="Stop FP (it quits unless its window is open)" if e.on else "Start FP as the editor's engine")
+    r.cut_right(t.gap)
+    text = engine_label(e)
+    cell = r.cut_right(paint.measure(text, t.caption) + 6 * s + t.pad)
+    color = t.ok if e.state == "ready" else t.accent if e.on and e.state in ("unknown", "starting", "loading") \
+        else t.error if e.on else t.text2
+    paint.rect(Rect(cell.x, cell.y + cell.h / 2 - 3 * s, 6 * s, 6 * s), color, 3 * s)
+    paint.text_in(text, Rect(cell.x + 6 * s + t.pad, cell.y, cell.w - 6 * s - t.pad, cell.h), t.text2, t.caption)
+    r.cut_right(t.big)
 
 
 def _drawer(ui, cols, key):

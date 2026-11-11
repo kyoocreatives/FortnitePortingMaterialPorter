@@ -89,7 +89,8 @@ def _not_ready(e):
         return "Starting FP..."
     if e.state == "ready":
         return None
-    return e.status_text or {"unknown": "Connecting to FP...", "starting": "Starting FP..."}.get(e.state, e.state)
+    return e.status_text or {"stopped": "FP is stopped: Start it in the Fortnite editor", "unknown": "Connecting to FP...",
+                             "starting": "Starting FP..."}.get(e.state, e.state)
 
 
 def search_items():
@@ -290,7 +291,7 @@ class FP_OT_quick_import(bpy.types.Operator):
 
     def invoke(self, context, event):
         e = client()
-        e.ensure()      # found, attached or launched as the editor does it
+        e.ensure()      # checked again if started; never started from here
         start_loading()
         if e.state == "unknown" and not self.waited:
             _open_when_known(context)       # the first check takes a tick: not "Connecting..." for nothing

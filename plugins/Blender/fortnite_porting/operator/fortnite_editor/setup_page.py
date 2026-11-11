@@ -13,7 +13,10 @@ LINES = 4       # the body's most lines
 # state -> (title, body, the step it's on, its main action, its other action); actions: (label, icon, name)
 OPEN, LOCATE, RETRY = ("Open FP", "mdi_Eye", "show"), ("Locate FP…", "mdi_FolderOpen", "locate"), \
     ("Retry", "mdi_Refresh", "retry")
+START = ("Start FP", None, "start")
 GUIDE = {
+    "stopped": ("FP is stopped", "The editor runs the FP app hidden in the background as its engine. It starts only "
+                "when you press Start; Stop in the status bar ends it.", 0, START, None),
     "unknown": ("Connecting to FP", "The editor runs the FP app hidden in the background as its engine. Looking for "
                 "it…", 0, None, None),
     "starting": ("Starting FP", "FP starts hidden in the background. The first start takes a moment.", 1, None, OPEN),
@@ -46,7 +49,9 @@ def needed(tab):
 
 def _run(name):
     def run(context):
-        if name == "show":
+        if name == "start":
+            bpy.ops.fp.engine_start()
+        elif name == "show":
             bpy.ops.fp.engine_show()
         elif name == "locate":
             bpy.ops.fp.engine_locate('INVOKE_DEFAULT')

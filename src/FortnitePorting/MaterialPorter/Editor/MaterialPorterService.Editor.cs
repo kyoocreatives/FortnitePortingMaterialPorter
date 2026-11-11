@@ -50,12 +50,13 @@ public partial class MaterialPorterService
         return null;
     }
 
-    // engine-status | engine-show | engine-attach?pid=N (Engine: the app as the editor's background engine)
+    // engine-status | engine-show | engine-attach?pid=N | engine-stop?pid=N (Engine: the app as the editor's background engine)
     private static object? EngineRoute(string route, NameValueCollection query) => route switch
     {
         "engine-status" => Engine.Status(),
         "engine-show" => Show(),
         "engine-attach" => Engine.Attach(int.Parse(query["pid"] ?? throw new ArgumentException("pid missing"))),
+        "engine-stop" => Engine.Stop(int.Parse(query["pid"] ?? throw new ArgumentException("pid missing"))),
         _ => null,
     };
 
