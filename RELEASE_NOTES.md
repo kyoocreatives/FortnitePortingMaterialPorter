@@ -5,12 +5,13 @@ An unofficial fork of [FortnitePorting](https://github.com/h4lfheart/FortnitePor
 **Version numbers:** versions now read like `fpv-4.3.5/mpv-1.13.0`: the FortnitePorting version this fork is merged with, then the fork's own version. They replace `4.0.0-mp.N`.
 
 **This release**
-Faster imports and fixes:
-- Maps and characters import much faster: material builds reuse what earlier materials built, landscape layers settle in a few builds, and effects replay faster.
-- Face poses bake to shape keys in a fraction of a second instead of many seconds.
-- Map exports no longer save their textures again every time.
-- Material copies (same material, other values) are reused again instead of rebuilt.
-- Tasty rig: fixed a crash on import.
+Blender 5.3 and Fortnite 43.00 fixes:
+- Blender 5.3: exact materials (cel-shaded skins included) build again instead of falling back to FortnitePorting's shaders.
+- Fortnite 43.00: Mutable characters and cars read again.
+- Delilah map: grass masks and biome maps work on custom landscapes.
+- UEFN project meshes: normal maps no longer come out flat.
+- Blender editor: FP starts only when you press Start, and a Stop button shuts it down.
+- Terrain API for add-ons that generate terrain.
 
 **What it adds**
 - Exact materials, rebuilt from each material's Unreal graph. *Settings > Blender > Prefer FP Shaders for Characters* keeps FortnitePorting's shaders for character materials it has one for.
