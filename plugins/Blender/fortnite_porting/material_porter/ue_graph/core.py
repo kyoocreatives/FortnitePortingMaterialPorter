@@ -489,11 +489,12 @@ def handled_types():
 
 class TexRef:
     """A texture as a value: what TextureObject(Parameter) hands a sample."""
-    __slots__ = ("name", "volume")
+    __slots__ = ("name", "volume", "sampler")
 
-    def __init__(self, name, volume=False):
-        # name: the env's key for it (an object path with env.asset_paths)
-        self.name, self.volume = name, volume
+    def __init__(self, name, volume=False, sampler=""):
+        # name: the env's key for it (an object path with env.asset_paths); sampler: the object's
+        # SamplerType, which UE uses for a sample reading it (the sample's own is ignored)
+        self.name, self.volume, self.sampler = name, volume, sampler
 
 
 class Val:

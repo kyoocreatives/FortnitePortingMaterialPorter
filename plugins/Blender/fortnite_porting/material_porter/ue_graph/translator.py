@@ -752,7 +752,8 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
         if t in ("TextureObject", "TextureObjectParameter"):
             tex = str((p.get("Texture") or {}).get("ObjectName", "")) if isinstance(p.get("Texture"), dict) \
                 else str(p.get("Texture", ""))
-            return Val(TexRef(self.tex_param(p, self.tex_key(p.get("Texture"))), "Volume" in tex), 0)
+            return Val(TexRef(self.tex_param(p, self.tex_key(p.get("Texture"))), "Volume" in tex,
+                              str(p.get("SamplerType", ""))), 0)
         if t == "TextureCoordinate":
             uv = env.uv(int(p.get("CoordinateIndex", 0)))
             ut, vt = float(p.get("UTiling", 1.0)), float(p.get("VTiling", 1.0))
@@ -836,6 +837,9 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             volume = "VolumeTexture" in tex
             if ref is not None and isinstance(ref.s, TexRef):
                 tname, volume = ref.s.name, ref.s.volume or volume
+                # UE samples a texture object with the object's sampler type (GetTextureForExpression):
+                # a Color-typed sample of a Normal object still unpacks the normal
+                p = dict(p, SamplerType=ref.s.sampler)
             if volume:
                 return self.sample_volume(tname, coords, out)
             if "TextureCube" in tex:
