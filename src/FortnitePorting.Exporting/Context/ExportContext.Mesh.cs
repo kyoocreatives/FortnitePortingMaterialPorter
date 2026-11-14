@@ -50,7 +50,7 @@ public partial class ExportContext
             if (FileExportOptions.ExportMorphTargets)
                 mesh.PopulateMorphTargetVerticesData();
 
-            using var convertedMesh = new SkeletalMeshDto(mesh, FileExportOptions);
+            using var convertedMesh = SkeletalDto(mesh);     // MP
             if (convertedMesh.LODs.Count <= 0) return null;
 
             var files = CreateMeshFormat().BuildSkeletalMesh(mesh.Name, mesh.GetPathName(), FileExportOptions, convertedMesh);
