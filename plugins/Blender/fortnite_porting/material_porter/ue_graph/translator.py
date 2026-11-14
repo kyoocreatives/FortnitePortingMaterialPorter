@@ -753,7 +753,7 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             tex = str((p.get("Texture") or {}).get("ObjectName", "")) if isinstance(p.get("Texture"), dict) \
                 else str(p.get("Texture", ""))
             return Val(TexRef(self.tex_param(p, self.tex_key(p.get("Texture"))), "Volume" in tex,
-                              str(p.get("SamplerType", ""))), 0)
+                              str(p.get("SamplerType", "")), "Texture2DArray" in tex), 0)
         if t == "TextureCoordinate":
             uv = env.uv(int(p.get("CoordinateIndex", 0)))
             ut, vt = float(p.get("UTiling", 1.0)), float(p.get("VTiling", 1.0))
@@ -834,9 +834,9 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
             tname = self.tex_param(p, self.tex_key(p.get("Texture")))
             coords = self.input(g, p.get("Coordinates"), scope, None)
             ref = self.input(g, p.get("TextureObject"), scope, None)
-            volume = "VolumeTexture" in tex
+            volume, array = "VolumeTexture" in tex, "Texture2DArray" in tex
             if ref is not None and isinstance(ref.s, TexRef):
-                tname, volume = ref.s.name, ref.s.volume or volume
+                tname, volume, array = ref.s.name, ref.s.volume or volume, ref.s.array or array
                 # UE samples a texture object with the object's sampler type (GetTextureForExpression):
                 # a Color-typed sample of a Normal object still unpacks the normal
                 p = dict(p, SamplerType=ref.s.sampler)
@@ -868,6 +868,10 @@ class Translator(StaticsMixin, AttributesMixin, MathsMixin, GeometryMixin, Rende
                 if found is not None:
                     maptex.record(env, param, tname, found, g)
                     return maptex.instanced(self, param, found, self._plain_sample(p, tname, coords, out), out)
+            if array:
+                # map-wide arrays above read their first slice, as painted maps are
+                v = self.sample_array(tname, coords, p.get("SamplerType", ""))
+                return self.rgba_out(Val(v.s, 3), v.a, out)
             return self._plain_sample(p, tname, coords, out)
         if t == "FunctionInput" and scope.get("_fn") is not None:
             return scope["_fn"].ue_input(x)

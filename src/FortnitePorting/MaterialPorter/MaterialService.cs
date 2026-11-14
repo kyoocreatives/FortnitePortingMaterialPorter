@@ -598,7 +598,10 @@ public sealed class MaterialService
                 var rec = JsonConvert.DeserializeObject<CachedTexture>(await File.ReadAllTextAsync(meta));
                 // a non-BC5 normal map once copied raw lacks X in alpha: made again
                 var unpacked = tex.IsNormalMap && rec?.Texture?.File?.EndsWith(".dds") == true && rec.Texture.Format != "PF_BC5";
-                if (rec?.Version == TextureCacheVersion && rec.Texture != null && File.Exists(rec.Texture.File) && rec.Texture.Width >= full && !unpacked)
+                // an array once cached as its first slice only (a tall slice counted as several): made again
+                var sliced = tex is UTexture2DArray && rec?.Texture is { } t && tex.PlatformData?.Mips?.FirstOrDefault() is { SizeZ: > 0 } m
+                             && (t.Depth != m.SizeZ || (long) t.Height * m.SizeX != (long) t.Width * m.SizeY * t.Depth);
+                if (rec?.Version == TextureCacheVersion && rec.Texture != null && File.Exists(rec.Texture.File) && rec.Texture.Width >= full && !unpacked && !sliced)
                 {
                     Timing.Log($"texture {Bridge.ShortName(path)} (cached)", sw);
                     return Sampling(rec.Texture, tex);
@@ -645,7 +648,9 @@ public sealed class MaterialService
         try
         {
             var tLoad = sw.Elapsed.TotalMilliseconds;
-            var ct = (cap > 0 ? TextureDecoder.Decode(tex, cap, SharedExportOptions.Default) : tex.Decode(SharedExportOptions.Default))
+            var slices = 1;
+            var ct = (tex is UTexture2DArray array ? StackSlices(array, cap, out slices)
+                         : cap > 0 ? TextureDecoder.Decode(tex, cap, SharedExportOptions.Default) : tex.Decode(SharedExportOptions.Default))
                      ?? throw new InvalidDataException("Could not decode " + path);
             var tDecode = sw.Elapsed.TotalMilliseconds;
             if (raw && tex.IsNormalMap) NormalPacking.RedToAlpha(ct);     // Blender reads every normal map's X from alpha
@@ -660,7 +665,7 @@ public sealed class MaterialService
                 UTexture2DArray => "array",
                 _ => "2d",
             };
-            var depth = kind is "volume" or "array" && ct.Width > 0 ? Math.Max(1, ct.Height / ct.Width) : 1;
+            var depth = kind == "array" ? slices : kind == "volume" && ct.Width > 0 ? Math.Max(1, ct.Height / ct.Width) : 1;
             var result = Sampling(new TextureFile
             {
                 File = file, Srgb = tex.SRGB, Width = ct.Width, Height = ct.Height, Kind = kind, Depth = depth,
@@ -671,6 +676,16 @@ public sealed class MaterialService
             return result;
         }
         finally { encoders.Release(); }
+    }
+
+    // CUE4Parse's plain Decode keeps an array's first slice only; the plugin reads all of them as one vertical stack,
+    // slice 0 on top (LEGO faces keep their lashes in slice 2 of the eye atlas)
+    static CTexture? StackSlices(UTexture2DArray tex, int cap, out int count)
+    {
+        var slices = tex.DecodeTextureArray(cap > 0 ? tex.GetMipIndexByMaxSize(cap) : tex.GetFirstMipIndex(), SharedExportOptions.Default);
+        count = slices?.Length ?? 0;
+        if (slices is not { Length: > 0 } || slices.Any(s => s == null)) return null;
+        return new CTexture(slices[0].Width, slices[0].Height * slices.Length, slices[0].PixelFormat, slices.SelectMany(s => s.Data).ToArray());
     }
 
     // A record's sampler state, read from the texture each time (cached records predate some of it).

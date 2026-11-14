@@ -1010,6 +1010,9 @@ class MaterialEnv:
         normal = "Normal" in str(sampler)
         if normal:
             self.tex_normal.add(key)
+        slices = self._slices(key)
+        if slices:
+            return slices[0]
         return self._image(key, self._record(key), "normal" if normal else None)
 
     # a skinned mesh's importer turns on Object.add_rest_position_attribute: the "rest_position" attribute holds
@@ -1063,25 +1066,39 @@ class MaterialEnv:
         return img, int(rec.get("Width", 1)), int(rec.get("Depth", 1))
 
     def texture_slices(self, key, sampler):
-        """A texture array: the app exports a stack of slices (slice 0 on top); each becomes its own image."""
-        self.reusable = False
+        slices = self._slices(key)
+        if slices:
+            self.reusable = False       # every slice is baked in; build_like swaps one image per node
+        return slices
+
+    def _slices(self, key):
+        """A texture array: the app exports a stack of slices (slice 0 on top); each becomes its own image. Slice 0
+        takes the texture's name: sampled as a plain texture (and found by name, as biome maps do) an array is it."""
         rec = self._record(key)
         if rec is None or rec.get("Kind") != "array" or int(rec.get("Depth", 1)) < 2:
             return None
+        if ("slices", key) in self._images:
+            return self._images[("slices", key)]
+        short = key.split("/")[-1].split(".")[0]
         stack = self._image(key, rec)
+        stack.name = short + " (stack)"
         w, h = stack.size
         depth = int(rec["Depth"])
         sh = h // depth
         px = list(stack.pixels[:])
         out = []
         for i in range(depth):
-            name = "%s [%d]" % (key.split("/")[-1].split(".")[0], i)
-            img = bpy.data.images.get(name) or bpy.data.images.new(name, w, sh, alpha=True, float_buffer=stack.is_float)
+            name = short if i == 0 else "%s [%d]" % (short, i)
+            img = bpy.data.images.get(name)
+            if img is None or tuple(img.size) != (w, sh):
+                img = bpy.data.images.new(name, w, sh, alpha=True, float_buffer=stack.is_float)
             img.alpha_mode = 'CHANNEL_PACKED'     # alpha is data, as in UE (see _image)
+            # before the pixels: a colour space change regenerates a generated image's buffer (blank)
+            img.colorspace_settings.name = stack.colorspace_settings.name
             # Blender's pixel rows run bottom up, so slice 0 (the top) is the last rows
             top = h - (i + 1) * sh
             img.pixels[:] = px[top * w * 4:(top + sh) * w * 4]
-            img.colorspace_settings.name = stack.colorspace_settings.name
             img.pack()
             out.append(img)
+        self._images[("slices", key)] = out
         return out
