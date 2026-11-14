@@ -5,13 +5,11 @@ An unofficial fork of [FortnitePorting](https://github.com/h4lfheart/FortnitePor
 **Version numbers:** versions now read like `fpv-4.3.5/mpv-1.13.0`: the FortnitePorting version this fork is merged with, then the fork's own version. They replace `4.0.0-mp.N`.
 
 **This release**
-Blender 5.3 and Fortnite 43.00 fixes:
-- Blender 5.3: exact materials (cel-shaded skins included) build again instead of falling back to FortnitePorting's shaders.
-- Fortnite 43.00: Mutable characters and cars read again.
-- Delilah map: grass masks and biome maps work on custom landscapes.
-- UEFN project meshes: normal maps no longer come out flat.
-- Blender editor: FP starts only when you press Start, and a Stop button shuts it down.
-- Terrain API for add-ons that generate terrain.
+Rig and LEGO face fixes:
+- Tasty Rig works again (it fell back to the default rig).
+- LEGO figures no longer show their eyes twice; lashes and eye styles come out right.
+- New *Face Board* setting (Armature, also in the Blender editor's import options): off leaves regular characters' face bones bare, to pose them directly. LEGO figures and creatures keep their boards.
+- Materials that sample a texture object read it with the right sampler type.
 
 **What it adds**
 - Exact materials, rebuilt from each material's Unreal graph. *Settings > Blender > Prefer FP Shaders for Characters* keeps FortnitePorting's shaders for character materials it has one for.
