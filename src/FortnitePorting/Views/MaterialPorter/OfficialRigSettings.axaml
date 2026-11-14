@@ -3,8 +3,9 @@
              xmlns:settings="clr-namespace:FortnitePorting.ViewModels.Settings"
              xmlns:controls="clr-namespace:FortnitePorting.Controls.Settings"
              x:Class="FortnitePorting.Views.MaterialPorter.OfficialRigSettings"
+             xmlns:ext="clr-namespace:FortnitePorting.Extensions;assembly=FortnitePorting"
              x:DataType="settings:BlenderSettingsViewModel">
-    <StackPanel>
+    <StackPanel Spacing="{ext:Space 0, 0, 0, 1}">
         <controls:SettingsItem Title="Extra Hand Controls" IsVisible="{Binding IsOfficialRig}"
                                Description="Adds hand controls on top of Epic's finger controls: curl and spread every finger, cup the palm, curl one finger. Not part of Epic's rig.">
             <controls:SettingsItem.Footer>
