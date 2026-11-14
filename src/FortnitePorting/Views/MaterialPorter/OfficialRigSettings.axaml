@@ -3,12 +3,19 @@
              xmlns:settings="clr-namespace:FortnitePorting.ViewModels.Settings"
              xmlns:controls="clr-namespace:FortnitePorting.Controls.Settings"
              x:Class="FortnitePorting.Views.MaterialPorter.OfficialRigSettings"
-             x:DataType="settings:BlenderSettingsViewModel"
-             IsVisible="{Binding IsOfficialRig}">
-    <controls:SettingsItem Title="Extra Hand Controls"
-                           Description="Adds hand controls on top of Epic's finger controls: curl and spread every finger, cup the palm, curl one finger. Not part of Epic's rig.">
-        <controls:SettingsItem.Footer>
-            <ToggleSwitch IsChecked="{Binding OfficialRigHandControls}"/>
-        </controls:SettingsItem.Footer>
-    </controls:SettingsItem>
+             x:DataType="settings:BlenderSettingsViewModel">
+    <StackPanel>
+        <controls:SettingsItem Title="Extra Hand Controls" IsVisible="{Binding IsOfficialRig}"
+                               Description="Adds hand controls on top of Epic's finger controls: curl and spread every finger, cup the palm, curl one finger. Not part of Epic's rig.">
+            <controls:SettingsItem.Footer>
+                <ToggleSwitch IsChecked="{Binding OfficialRigHandControls}"/>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+        <controls:SettingsItem Title="Face Board"
+                               Description="Puts a face board (MetaHuman controls) on regular characters. Off keeps their face bones as they are, to pose them directly. LEGO figures and creatures keep theirs.">
+            <controls:SettingsItem.Footer>
+                <ToggleSwitch IsChecked="{Binding FaceBoard}"/>
+            </controls:SettingsItem.Footer>
+        </controls:SettingsItem>
+    </StackPanel>
 </UserControl>

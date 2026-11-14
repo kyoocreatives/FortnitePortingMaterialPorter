@@ -30,6 +30,7 @@ public static class BlenderSettingsManifest
         new("Armature", "ImportVirtualBones", "Import Virtual Bones", "Whether or not to import virtual bones."),
         new("Armature", "BoneLength", "Bone Length", "The length of all imported bones.", 1, 5),
         new("Armature", "OfficialRigHandControls", "Extra Hand Controls", "Adds hand controls on top of Epic's finger controls: curl and spread every finger, cup the palm, curl one finger. Not part of Epic's rig. (Official rig)"),
+        new("Armature", "FaceBoard", "Face Board", "Puts a face board (MetaHuman controls) on regular characters. Off keeps their face bones as they are. LEGO figures and creatures keep theirs."),
         new("Mesh", "TargetLOD", "Level of Detail", "Level of Detail that should be imported for each mesh. The highest quality starts at zero and reduces as the LOD increases.", 0, 7),
         new("Mesh", "ExportNanite", "Export Nanite", "Determines whether nanite meshes should be exported if available."),
         new("Mesh", "PolygonType", "Polygon Type", "The type of polygon that imported meshes should use."),

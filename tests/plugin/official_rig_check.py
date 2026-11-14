@@ -183,7 +183,7 @@ def quadruped_bones(name):
 
 
 quad = quadruped_bones("quad_official")
-ctx = SimpleNamespace(imported_meshes=[{"Skeleton": quad, "Mesh": None}], type=EExportType.WILDLIFE, mp_deferred_effects=None)
+ctx = SimpleNamespace(imported_meshes=[{"Skeleton": quad, "Mesh": None}], type=EExportType.WILDLIFE, mp_deferred_effects=None, options={})
 mesh_hooks.after_parts(ctx, ERigType.OFFICIAL, ERigType.TASTY)
 check("Official still rigs a creature (Review Focus 5)", bool(quad.data.get("is_creature_rig")), True)
 check("Official doesn't put the body rig on a creature", bool(quad.data.get("fpmp_official_rig")), False)

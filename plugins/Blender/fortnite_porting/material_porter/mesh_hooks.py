@@ -126,7 +126,7 @@ def _official(ctx):
                 t0 = time.perf_counter()
                 progress.item("%d hand controls" % official_hands.build(skeleton), t0)
             t0 = time.perf_counter()
-            if face_board.add(skeleton, head="head"):
+            if ctx.options.get("FaceBoard", True) and face_board.add(skeleton, head="head"):
                 progress.item("face board", t0)
         except Exception as e:
             Log.error("%s: official rig (%s: %s)" % (skeleton.name, type(e).__name__, e))
@@ -159,7 +159,8 @@ def apply_rig(ctx, data):
         Log.info(official_rig.create(skeleton))
         if ctx.options.get("OfficialRigHandControls"):
             Log.info("%s: %d hand controls" % (skeleton.name, official_hands.build(skeleton)))
-        face_board.add(skeleton, head="head")
+        if ctx.options.get("FaceBoard", True):
+            face_board.add(skeleton, head="head")
     return True
 
 
@@ -330,7 +331,8 @@ def after_parts(ctx, rig_type, tasty):
 
     if rig_type == ERigType.OFFICIAL and ctx.type not in RIGGED_APART:
         _official(ctx)
-    _metahuman(ctx)
+    if ctx.options.get("FaceBoard", True):     # off: the face bones stay bare, to pose directly
+        _metahuman(ctx)
 
     # a creature, sidekick, sprite, vehicle or LEGO figure armature gets its own rig
     if rig_type not in (tasty, ERigType.OFFICIAL) or ctx.type not in RIGGED_APART:

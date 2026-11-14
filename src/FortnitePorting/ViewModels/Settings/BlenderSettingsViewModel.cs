@@ -25,7 +25,8 @@ public partial class BlenderSettingsViewModel : BaseExportSettings
     [ObservableProperty] private float _boneLength = 4.0f;
     // MP: the official rig's extra hand controls (curl, spread, palm cup), not part of Epic's rig
     [ObservableProperty] private bool _officialRigHandControls = false;
-    
+    [ObservableProperty] private bool _faceBoard = true;     // MP: off keeps a regular character's face bones bare
+
     // Mesh
     [ObservableProperty] private int _targetLOD = 0;
     [ObservableProperty] private EPolygonType _polygonType;
